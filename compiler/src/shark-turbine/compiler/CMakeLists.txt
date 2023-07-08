@@ -4,6 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+add_subdirectory(InputConversion/Torch)
+
 iree_cc_library(
   NAME
     registration
