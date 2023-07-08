@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/compiler/PluginAPI/Client.h"
+#include "torch-mlir-dialects/Dialect/TMTensor/IR/TMTensorDialect.h"
 #include "torch-mlir/Conversion/Passes.h"
 #include "torch-mlir/Dialect/Torch/IR/TorchDialect.h"
 #include "torch-mlir/Dialect/TorchConversion/IR/TorchConversionDialect.h"
@@ -32,9 +33,7 @@ struct SharkTurbineSession
   void onRegisterDialects(DialectRegistry &registry) override {
     registry.insert<torch::Torch::TorchDialect>();
     registry.insert<torch::TorchConversion::TorchConversionDialect>();
-    // TODO: Add the upstream tm_tensor dialect once it is made optional
-    // in the IREE tree.
-    // registry.insert<mlir::torch::TMTensor::TMTensorDialect>();
+    registry.insert<mlir::torch::TMTensor::TMTensorDialect>();
   }
 };
 
