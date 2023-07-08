@@ -194,3 +194,30 @@ iree_tablegen_library(
     -gen-pass-capi-header Conversion/Passes.capi.h.inc
     -gen-pass-capi-impl Conversion/Passes.capi.cpp.inc
 )
+
+###############################################################################
+# CAPI
+###############################################################################
+
+file(GLOB _CAPI_SRCS
+  "${TORCH_MLIR_ROOT_DIR}/lib/CAPI/*.cpp"
+)
+# TODO: The way that torch-mlir is doing registration is overly broad.
+# It may not be necessary: IREE's registration is already accounting for
+# plugins, which includes torch-mlir.
+list(FILTER _CAPI_SRCS EXCLUDE REGEX Registration.cpp)
+iree_cc_library(
+  NAME
+    CAPI
+  SRCS
+    ${_CAPI_SRCS}
+  DEPS
+    ::defs
+    ::ConversionPasses
+    ::TorchConversionDialectIR
+    ::TorchDialectIR
+    ::TorchDialectPasses
+    MLIRCAPIIR
+    MLIRIR
+    MLIRSupport
+)

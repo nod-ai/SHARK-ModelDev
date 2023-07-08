@@ -38,6 +38,9 @@ list(APPEND IREE_COMPILER_BUILTIN_PLUGIN_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/comp
 # Set up IREE toolchain with OpenXLA Nvgpu modules.
 #-------------------------------------------------------------------------------
 
+# Export additional CAPI from libIREECompiler.so.
+# See compiler/src/torch-mlir/CMakeLists.txt
+set(IREE_COMPILER_API_ADDL_EXPORT_OBJECTS "torch-mlir_CAPI.objects")
 add_subdirectory("${IREE_ROOT_DIR}" "iree")
 
 # Handle various global definitions that need to be set at the global
