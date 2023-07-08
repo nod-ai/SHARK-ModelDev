@@ -15,6 +15,7 @@ iree_cc_library(
     MLIRIR
     MLIRPass
     iree::compiler::PluginAPI
+    shark-turbine::compiler::InputConversion::Torch
     torch-mlir::TorchConversionDialectIR
     torch-mlir::TorchDialectIR
     torch-mlir::TorchDialectPasses

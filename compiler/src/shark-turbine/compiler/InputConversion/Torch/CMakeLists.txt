@@ -25,7 +25,7 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
-    TMTensor
+    Torch
   HDRS
     "Passes.h"
   SRCS

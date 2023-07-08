@@ -10,7 +10,7 @@
 include "mlir/Pass/PassBase.td"
 
 def ConvertTMTensorToLinalgExt :
-    Pass<"iree-tm-tensor-to-linalg-ext", "func::FuncOp"> {
+    Pass<"shark-turbine-tm-tensor-to-linalg-ext", "func::FuncOp"> {
   let summary = "Convert from TMTensor ops to LinalgExt ops on tensors";
   let constructor = "mlir::iree_compiler::TorchInput::createConvertTMTensorToLinalgExtPass()";
 }

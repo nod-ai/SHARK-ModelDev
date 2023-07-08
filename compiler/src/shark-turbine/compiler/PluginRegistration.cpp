@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/compiler/PluginAPI/Client.h"
+#include "shark-turbine/compiler/InputConversion/Torch/Passes.h"
 #include "torch-mlir-dialects/Dialect/TMTensor/IR/TMTensorDialect.h"
 #include "torch-mlir/Conversion/Passes.h"
 #include "torch-mlir/Dialect/Torch/IR/TorchDialect.h"
@@ -28,6 +29,7 @@ struct SharkTurbineSession
     mlir::torch::registerTorchPasses();
     mlir::torch::registerTorchConversionPasses();
     mlir::torch::registerConversionPasses();
+    TorchInput::registerTMTensorConversionPasses();
   }
 
   void onRegisterDialects(DialectRegistry &registry) override {
