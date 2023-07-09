@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/compiler/PluginAPI/Client.h"
+#include "mlir/Pass/PassManager.h"
 #include "shark-turbine/compiler/InputConversion/Torch/Passes.h"
 #include "torch-mlir-dialects/Dialect/TMTensor/IR/TMTensorDialect.h"
 #include "torch-mlir/Conversion/Passes.h"
@@ -36,6 +37,20 @@ struct SharkTurbineSession
     registry.insert<torch::Torch::TorchDialect>();
     registry.insert<torch::TorchConversion::TorchConversionDialect>();
     registry.insert<mlir::torch::TMTensor::TMTensorDialect>();
+  }
+
+  bool extendCustomInputConversionPassPipeline(
+      OpPassManager &passManager, std::string_view typeMnemonic) override {
+    if (typeMnemonic == "tm_tensor") {
+      passManager.addNestedPass<func::FuncOp>(
+          TorchInput::createConvertTMTensorToLinalgExtPass());
+      return true;
+    }
+    return false;
+  }
+
+  void populateCustomInputConversionTypes(StringSet<> &typeMnemonics) override {
+    typeMnemonics.insert("tm_tensor");
   }
 };
 
