@@ -171,9 +171,9 @@ function run_in_docker() {
   export CMAKE_TOOLCHAIN_FILE="$this_dir/linux_packages_toolchain.cmake"
   export CC=clang
   export CXX=clang++
-  export CFLAGS="-Wl,-fuse-ld=lld"
-  export CXXFLAGS="-Wl,-fuse-ld=lld"
-  export LDFLAGS="-Wl,--gdb-index"
+  export CFLAGS=""
+  export CXXFLAGS=""
+  export LDFLAGS="-Wl,-fuse-ld=ld.lld -Wl,--gdb-index"
 
   # Configure package names.
   export IREE_COMPILER_CUSTOM_PACKAGE_PREFIX="shark-turbine-"
