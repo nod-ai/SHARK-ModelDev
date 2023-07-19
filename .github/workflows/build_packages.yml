@@ -43,5 +43,17 @@ jobs:
             shark-linux-packaging-
       - name: Build packages
         run: |
-          cache_dir="${{ github.workspace }}/shark-container-cache" \
-            bash build_tools/python_deploy/build_linux_packages.sh
+          export cache_dir="${{ github.workspace }}/shark-container-cache"
+          export output_dir="${{ github.workspace }}/wheelhouse"
+          bash build_tools/python_deploy/build_linux_packages.sh
+          # Some things put stuff in cache with weird, root read-only
+          # permissions. Take them back.
+          sudo chown -R "$(whoami)" "${cache_dir}"
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-wheels
+          path: |
+            ${{ github.workspace }}/wheelhouse/shark*.whl
+            ${{ github.workspace }}/wheelhouse/iree*.whl
+          if-no-files-found: error
