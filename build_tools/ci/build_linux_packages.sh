@@ -173,7 +173,7 @@ function run_in_docker() {
   export CXX=clang++
   export CFLAGS=""
   export CXXFLAGS=""
-  export LDFLAGS="-Wl,-fuse-ld=ld.lld -Wl,--gdb-index"
+  export LDFLAGS="-Wl,-fuse-ld=ld.lld"
 
   # Configure package names.
   export IREE_COMPILER_CUSTOM_PACKAGE_PREFIX="shark-turbine-"
