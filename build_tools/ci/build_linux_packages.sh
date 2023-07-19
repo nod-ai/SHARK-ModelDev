@@ -173,7 +173,7 @@ function run_in_docker() {
   export CXX=clang++
   export CFLAGS=""
   export CXXFLAGS=""
-  export LDFLAGS="-Wl,-fuse-ld=ld.lld"
+  export LDFLAGS=""
 
   # Configure package names.
   export IREE_COMPILER_CUSTOM_PACKAGE_PREFIX="shark-turbine-"
@@ -261,8 +261,8 @@ function build_iree_runtime() {
   #   readelf --debug-dump=decodedline
   #   readelf -t (will print "ZLIB" on debug sections)
   export IREE_CMAKE_BUILD_TYPE="RelWithDebInfo"
-  export CFLAGS="$CFLAGS -g1"
-  export CXXFLAGS="$CXXFLAGS -g1"
+  export CFLAGS="$CFLAGS -g1 -gz"
+  export CXXFLAGS="$CXXFLAGS -g1 -gz"
 
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   build_wheel runtime/
