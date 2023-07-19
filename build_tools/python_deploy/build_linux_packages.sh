@@ -137,7 +137,6 @@ function run_on_host() {
     -v "${output_dir}:${output_dir}" \
     -v "${cache_dir}:${cache_dir}" \
     -v "${cache_dir}/yum:/var/cache/yum" \
-    -v "${cache_dir}/pip:/root/.cache/pip" \
     -e __MANYLINUX_BUILD_WHEELS_IN_DOCKER=1 \
     -e "override_python_versions=${python_versions}" \
     -e "packages=${packages}" \
@@ -169,6 +168,12 @@ function run_in_docker() {
   # Configure yum to keep its cache.
   echo "keepcache = 1" >> /etc/yum.conf
   echo 'cachedir=/var/cache/yum/$basearch/$releasever' >> /etc/yum.conf
+
+  # Configure pip cache dir.
+  # We make it two levels down from within the container because pip likes
+  # to know that it is owned by the current user.
+  export PIP_CACHE_DIR="${cache_dir}/pip/in/container"
+  mkdir -p "${PIP_CACHE_DIR}"
 
   # Build phase.
   set -o xtrace
