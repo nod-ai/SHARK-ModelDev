@@ -171,7 +171,9 @@ function run_in_docker() {
   export CMAKE_TOOLCHAIN_FILE="$this_dir/linux_packages_toolchain.cmake"
   export CC=clang
   export CXX=clang++
-  export LDFLAGS="-Wl,-fuse-ld=lld -Wl,--gdb-index"
+  export CFLAGS="-Wl,-fuse-ld=lld"
+  export CXXFLAGS="-Wl,-fuse-ld=lld"
+  export LDFLAGS="-Wl,--gdb-index"
 
   # Configure package names.
   export IREE_COMPILER_CUSTOM_PACKAGE_PREFIX="shark-turbine-"
@@ -259,8 +261,8 @@ function build_iree_runtime() {
   #   readelf --debug-dump=decodedline
   #   readelf -t (will print "ZLIB" on debug sections)
   export IREE_CMAKE_BUILD_TYPE="RelWithDebInfo"
-  export CFLAGS="-g1 -gz"
-  export CXXFLAGS="-g1 -gz"
+  export CFLAGS="$CFLAGS -g1 -gz"
+  export CXXFLAGS="$CXXFLAGS -g1 -gz"
 
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   build_wheel runtime/
@@ -274,8 +276,8 @@ function build_iree_runtime_instrumented() {
   #   readelf --debug-dump=decodedline
   #   readelf -t (will print "ZLIB" on debug sections)
   export IREE_CMAKE_BUILD_TYPE="RelWithDebInfo"
-  export CFLAGS="-g1 -gz"
-  export CXXFLAGS="-g1 -gz"
+  export CFLAGS="$CFLAGS -g1 -gz"
+  export CXXFLAGS="$CXXFLAGS -g1 -gz"
 
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   IREE_BUILD_TRACY=ON IREE_ENABLE_RUNTIME_TRACING=ON \
