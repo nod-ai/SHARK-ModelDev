@@ -15,9 +15,8 @@
 build/
 build-*/
 
-# Temporarily ignoring vendor directory.
-vendor/
-
 # Python
 __pycache__
+_python_build/
 *.egg-info
+*.whl
