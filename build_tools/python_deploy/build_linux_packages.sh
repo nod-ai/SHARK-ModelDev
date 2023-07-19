@@ -174,6 +174,7 @@ function run_in_docker() {
   # to know that it is owned by the current user.
   export PIP_CACHE_DIR="${cache_dir}/pip/in/container"
   mkdir -p "${PIP_CACHE_DIR}"
+  chown -R "$(whoami)" "${cache_dir}/pip" 
 
   # Build phase.
   set -o xtrace
