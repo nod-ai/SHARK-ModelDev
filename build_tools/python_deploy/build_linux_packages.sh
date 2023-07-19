@@ -82,7 +82,7 @@ packages="${packages:-shark-turbine iree-runtime}"
 package_suffix="${package_suffix:-}"
 
 function run_on_host() {
-  local cmd="$1"
+  local cmd="${1:-}"
   if [[ "${cmd}" == "pull_docker_image" ]]; then
     echo "Pulling docker image ${manylinux_docker_image}"
     docker image pull "${manylinux_docker_image}"
