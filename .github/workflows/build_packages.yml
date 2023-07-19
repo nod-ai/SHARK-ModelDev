@@ -50,7 +50,7 @@ jobs:
           # permissions. Take them back.
           sudo chown -R "$(whoami)" "${cache_dir}"
       - name: Upload wheel artifacts
-       uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3
         with:
           name: linux-wheels
           path: |
