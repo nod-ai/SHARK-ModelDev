@@ -16,8 +16,8 @@ concurrency:
 
 jobs:
   build_linux_packages:
-    #runs-on: icelake
-    runs-on: ubuntu-22.04
+    runs-on: icelake
+    #runs-on: ubuntu-22.04
     strategy:
       fail-fast: false      
     steps:
@@ -39,9 +39,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ github.workspace }}/shark-container-cache
-          key: shark-linux-packaging-v1-${{ github.sha }}
+          key: shark-linux-packaging-v2-${{ github.sha }}
           restore-keys: |
-            shark-linux-packaging-v1-
+            shark-linux-packaging-v2-
       - name: Build packages
         run: |
           export cache_dir="${{ github.workspace }}/shark-container-cache"
