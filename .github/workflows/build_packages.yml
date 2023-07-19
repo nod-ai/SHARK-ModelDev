@@ -1,0 +1,47 @@
+name: build_packages
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  # A PR number if a pull request and otherwise the commit hash. This cancels
+  # queued and in-progress runs for the same PR (presubmit) or commit
+  # (postsubmit).
+  group: ${{ github.event.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build_linux_packages:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false      
+    steps:
+      - name: "Checking out repository"
+        uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+      - name: "Setting up Python"
+        uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
+        with:
+          python-version: "3.10"
+      - name: Sync source deps
+        run: |
+          # Kick off a docker image fetch concurrently with the dependency checkout.
+          # It is fine of the docker pull fails: it will fail for real later.
+          bash build_tools/python_deploy/build_linux_packages.sh pull_docker_image &
+          python ./sync_deps.py --depth 1 --submodules-depth 1
+          echo "Waiting for docker pull and deps checkout"
+          wait
+      - name: Enable cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/shark-container-cache
+          key: shark-linux-packaging-${{ github.sha }}
+          restore-keys: |
+            shark-linux-packaging-
+      - name: Build packages
+        run: |
+          cache_dir="${{ github.workspace }}/shark-container-cache" \
+            bash build_tools/python_deploy/build_linux_packages.sh
