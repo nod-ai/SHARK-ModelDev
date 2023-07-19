@@ -18,5 +18,6 @@ build-*/
 # Python
 __pycache__
 _python_build/
+wheelhouse
 *.egg-info
 *.whl
