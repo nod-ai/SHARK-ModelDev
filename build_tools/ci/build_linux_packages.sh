@@ -78,7 +78,7 @@ manylinux_docker_image="${manylinux_docker_image:-${default_docker_image}}"
 python_versions="${override_python_versions:-}"
 output_dir="${output_dir:-${this_dir}/wheelhouse}"
 cache_dir="${cache_dir:-}"
-packages="${packages:-iree-compiler shark-turbine iree-runtime}"
+packages="${packages:-shark-turbine iree-runtime iree-compiler}"
 package_suffix="${package_suffix:-}"
 
 function run_on_host() {
@@ -261,8 +261,8 @@ function build_iree_runtime() {
   #   readelf --debug-dump=decodedline
   #   readelf -t (will print "ZLIB" on debug sections)
   export IREE_CMAKE_BUILD_TYPE="RelWithDebInfo"
-  export CFLAGS="$CFLAGS -g1 -gz"
-  export CXXFLAGS="$CXXFLAGS -g1 -gz"
+  export CFLAGS="$CFLAGS -g1"
+  export CXXFLAGS="$CXXFLAGS -g1"
 
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   build_wheel runtime/
