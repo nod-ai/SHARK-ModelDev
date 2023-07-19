@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   build_linux_packages:
-    runs-on: icelake
+    #runs-on: icelake
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false      
     steps:
