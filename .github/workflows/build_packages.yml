@@ -38,9 +38,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ github.workspace }}/shark-container-cache
-          key: shark-linux-packaging-${{ github.sha }}
+          key: shark-linux-packaging-v1-${{ github.sha }}
           restore-keys: |
-            shark-linux-packaging-
+            shark-linux-packaging-v1-
       - name: Build packages
         run: |
           export cache_dir="${{ github.workspace }}/shark-container-cache"

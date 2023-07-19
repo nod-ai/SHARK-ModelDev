@@ -161,7 +161,7 @@ function run_in_docker() {
 
   # Configure native builds to use ccache.
   export CCACHE_DIR="${cache_dir}/ccache"
-  export CCACHE_MAXSIZE="2G"
+  export CCACHE_MAXSIZE="640M"
   export CMAKE_C_COMPILER_LAUNCHER=ccache
   export CMAKE_CXX_COMPILER_LAUNCHER=ccache
 
@@ -169,7 +169,9 @@ function run_in_docker() {
   # This both sets toolchain defaults and disables features
   # that we don't want.
   export CMAKE_TOOLCHAIN_FILE="$this_dir/linux_packages_toolchain.cmake"
-  export LDFLAGS="-Wl,-fuse-ld=gold -Wl,--gdb-index"
+  export CC=clang
+  export CXX=clang++
+  export LDFLAGS="-Wl,-fuse-ld=lld -Wl,--gdb-index"
 
   # Configure package names.
   export IREE_COMPILER_CUSTOM_PACKAGE_PREFIX="shark-turbine-"
@@ -318,7 +320,7 @@ function install_native_build_deps() {
   # Check if the output is aarch64
   if [[ "$uname_m" == "aarch64" ]] || [[ "$uname_m" == "x86_64" ]]; then
     echo "The architecture is aarch64 and we use manylinux 2_28 so install deps"
-    needed_packages="ccache capstone-devel tbb-devel libzstd-devel"
+    needed_packages="ccache clang lld capstone-devel tbb-devel libzstd-devel"
     if ! (yum --config /etc/yum.conf install -C -y epel-release $needed_packages); then
       echo "Could not install from yum cache... doing it the slow way."
       yum --config /etc/yum.conf install -y epel-release
