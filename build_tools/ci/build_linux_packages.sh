@@ -346,5 +346,6 @@ function install_native_build_deps() {
 if [ -z "${__MANYLINUX_BUILD_WHEELS_IN_DOCKER-}" ]; then
   run_on_host "$@"
 else
+  ls -lRfh /_work
   run_in_docker "$@"
 fi
