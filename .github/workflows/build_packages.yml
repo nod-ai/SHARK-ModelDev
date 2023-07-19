@@ -43,5 +43,8 @@ jobs:
             shark-linux-packaging-
       - name: Build packages
         run: |
-          cache_dir="${{ github.workspace }}/shark-container-cache" \
-            bash build_tools/python_deploy/build_linux_packages.sh
+          export cache_dir="${{ github.workspace }}/shark-container-cache"
+          bash build_tools/python_deploy/build_linux_packages.sh
+          # Some things put stuff in cache with weird, root read-only
+          # permissions. Take them back.
+          sudo chown -R "$(whoami)" "${cache_dir}"
