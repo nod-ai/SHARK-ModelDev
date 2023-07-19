@@ -162,6 +162,7 @@ function run_in_docker() {
 
   # Configure native builds to use ccache.
   export CCACHE_DIR="${cache_dir}/ccache"
+  export CCACHE_MAXSIZE="2G"
   export CMAKE_C_COMPILER_LAUNCHER=ccache
   export CMAKE_CXX_COMPILER_LAUNCHER=ccache
 
