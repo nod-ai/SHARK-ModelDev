@@ -344,9 +344,7 @@ function install_native_build_deps() {
 
 # Trampoline to the docker container if running on the host.
 if [ -z "${__MANYLINUX_BUILD_WHEELS_IN_DOCKER-}" ]; then
-  ls -lRfh /_work
   run_on_host "$@"
 else
-  ls -lRfh /_work
   run_in_docker "$@"
 fi
