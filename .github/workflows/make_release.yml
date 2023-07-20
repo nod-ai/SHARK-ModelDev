@@ -1,0 +1,72 @@
+name: Make Release
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+
+  workflow_dispatch:
+
+jobs:
+  create_release:
+    name: "Create release"
+    runs-on: ubuntu-22.04
+    outputs:
+      package_version: ${{ steps.compute_version.outputs.package_version }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Checking out repository
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+        with:
+          token: ${{ secrets.WRITE_ACCESS_TOKEN }}
+          fetch-depth: 0
+
+      - name: Compute version
+        id: compute_version
+        run: |
+          package_version="$(printf '%(%Y%m%d)T.${{ github.run_number }}')"
+          tag_name="release-${package_version}"
+          echo "package_version=${package_version}" >> "${GITHUB_OUTPUT}"
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Updating candidate tag
+        run: |
+          git tag "${tag_name}"
+
+      - name: Pushing changes
+        run: git push origin "${tag_name}"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+        with:
+          tag_name: ${{ steps.compute_version.outputs.tag_name }}
+          release_name: iree candidate ${{ steps.compute_version.outputs.tag_name }}
+          body: |
+            Automatic release of SHARK-Turbine.
+          draft: true
+          prerelease: true
+
+    build_packages:
+      uses: ./.github/workflows/build_packages.yml
+      needs: create_release
+      with:
+        package_version: ${{ jobs.create_release.outputs.package_version }}
+        release_id: ${{ jobs.create_release.outputs.release_id }}
+      secrets:
+        WRITE_ACCESS_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+
+    # TODO: Run test suite, etc.
+
+    publish_release:
+      needs: [create_release, build_packages]
+      runs-on: ubuntu-22.04
+      steps:
+        - name: Publish Release
+          id: publish_release
+          uses: eregon/publish-release@46913fa2b3f7edc7345ae3c17f6d1b093a54916d # v1.0.5
+          env:
+            GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+          with:
+            release_id: ${{ jobs.create_release.outputs.release_id }}

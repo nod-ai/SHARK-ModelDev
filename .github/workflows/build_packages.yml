@@ -1,7 +1,17 @@
 name: build_packages
 
 on:
-  workflow_dispatch:
+  workflow_call:
+      package_version:
+        description: "Version of the package"
+        required: true
+        default: "0.1a1"
+      release_id:
+        description: "Release id to upload artifacts to"
+        default: ""
+      secrets:
+        WRITE_ACCESS_TOKEN:
+          required: false
   pull_request:
   push:
     branches:
@@ -23,11 +33,13 @@ jobs:
       fail-fast: false      
     steps:
       - name: "Checking out repository"
-        uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
       - name: "Setting up Python"
         uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
         with:
           python-version: "3.11"
+
       - name: Sync source deps
         run: |
           # Kick off a docker image fetch concurrently with the dependency checkout.
@@ -36,6 +48,26 @@ jobs:
           python ./sync_deps.py --depth 1 --submodules-depth 1
           echo "Waiting for docker pull and deps checkout"
           wait
+
+      ##########################################################################
+      # Write version_info.json
+      # Various tools will read this in order to embed release information.
+      ##########################################################################
+      - name: Write version info (release)
+        shell: bash
+        run: |
+          cat << EOF > version_info.json
+          {
+            "package-suffix": "${{ github.event.inputs.package_suffix }}",
+            "package-version": "${{ github.event.inputs.package_version }}",
+            "iree-revision": "$(cd ../iree && git rev-parse HEAD)",
+            "torch-mlir-revision": "$(cd ../torch-mlir && git rev-parse HEAD)",
+            "turbine-revision": "$(git rev-parse HEAD)"
+          }
+          EOF
+          realpath version_info.json
+          cat version_info.json
+
       - name: Enable cache
         uses: actions/cache@v3
         with:
@@ -43,6 +75,7 @@ jobs:
           key: shark-linux-packaging-v2-${{ github.sha }}
           restore-keys: |
             shark-linux-packaging-v2-
+
       - name: Build packages
         run: |
           export cache_dir="${{ github.workspace }}/shark-container-cache"
@@ -51,6 +84,7 @@ jobs:
           # Some things put stuff in cache with weird, root read-only
           # permissions. Take them back.
           sudo chown -R "$(whoami)" "${cache_dir}"
+
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v3
         with:
