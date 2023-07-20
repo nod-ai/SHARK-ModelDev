@@ -7,8 +7,8 @@ on:
         type: string
         required: true
 
-  # DO NOT SUBMIT: RE-ENABLE
-  #pull_request:
+  pull_request:
+
   push:
     branches:
       - main
@@ -77,8 +77,8 @@ jobs:
         run: |
           export cache_dir="${{ github.workspace }}/shark-container-cache"
           export output_dir="${{ github.workspace }}/wheelhouse"
-          # DO NOT SUBMIT NEXT LINE:
-          export packages="shark-turbine"
+          # If just iterating locally, uncomment this to build a cheap wheel.
+          # export packages="shark-turbine"
           bash build_tools/ci/build_linux_packages.sh
           # Some things put stuff in cache with weird, root read-only
           # permissions. Take them back.
