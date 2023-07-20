@@ -52,14 +52,15 @@ jobs:
     uses: ./.github/workflows/build_packages.yml
     needs: create_release
     with:
-      package_version: ${{ jobs.create_release.outputs.package_version }}
-      release_id: ${{ jobs.create_release.outputs.release_id }}
+      package_version: ${{ needs.create_release.outputs.package_version }}
+      release_id: ${{ needs.create_release.outputs.release_id }}
     secrets:
       WRITE_ACCESS_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
 
   # TODO: Run test suite, etc.
 
   publish_release:
+    name: Publish Release
     needs: [create_release, build_packages]
     runs-on: ubuntu-22.04
     steps:
@@ -69,4 +70,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
         with:
-          release_id: ${{ jobs.create_release.outputs.release_id }}
+          release_id: ${{ needs.create_release.outputs.release_id }}
