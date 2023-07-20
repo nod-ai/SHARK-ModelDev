@@ -2,6 +2,7 @@ name: build_packages
 
 on:
   workflow_call:
+    inputs:
       package_version:
         description: "Version of the package"
         required: true
@@ -9,9 +10,9 @@ on:
       release_id:
         description: "Release id to upload artifacts to"
         default: ""
-      secrets:
-        WRITE_ACCESS_TOKEN:
-          required: false
+    secrets:
+      WRITE_ACCESS_TOKEN:
+        required: false
   pull_request:
   push:
     branches:
