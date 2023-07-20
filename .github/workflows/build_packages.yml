@@ -53,8 +53,8 @@ jobs:
         run: |
           cat << EOF > version_info.json
           {
-            "package-suffix": "${{ github.event.inputs.package_suffix }}",
-            "package-version": "${{ github.event.inputs.package_version }}",
+            "package-suffix": "",
+            "package-version": "${{ inputs.package_version }}",
             "iree-revision": "$(cd ../iree && git rev-parse HEAD)",
             "torch-mlir-revision": "$(cd ../torch-mlir && git rev-parse HEAD)",
             "turbine-revision": "$(git rev-parse HEAD)"

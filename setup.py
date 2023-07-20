@@ -29,7 +29,7 @@ except FileNotFoundError:
 
 PACKAGE_VERSION = version_info.get("package-version")
 if not PACKAGE_VERSION:
-    PACKAGE_VERSION = f"0.dev0.1"
+    PACKAGE_VERSION = f"0.dev0"
 
 
 packages = find_namespace_packages(
