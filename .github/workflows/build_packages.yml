@@ -4,13 +4,13 @@ on:
   workflow_call:
     inputs:
       package_version:
+        type: string
         required: true
-        type: string
       release_id:
-        required: false
         type: string
+        required: false
         default: ""
-        
+
     secrets:
       WRITE_ACCESS_TOKEN:
         required: false
