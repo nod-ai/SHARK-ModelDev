@@ -1,4 +1,4 @@
-name: build_packages
+name: Build Packages
 
 on:
   workflow_call:
@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   build_linux_packages:
+    name: Linux Packages
     runs-on: private-ubuntu-builder
     strategy:
       fail-fast: false      
@@ -62,6 +63,8 @@ jobs:
           realpath version_info.json
           cat version_info.json
 
+          # IREE like to see one in its tree too.
+          cp version_info.json ../iree
       - name: Enable cache
         uses: actions/cache@v3
         with:

@@ -8,7 +8,29 @@ import argparse
 import json
 import os
 import distutils.command.build
+import sys
+
 from setuptools import find_namespace_packages, setup
+
+THIS_DIR = os.path.realpath(os.path.dirname(__file__))
+VERSION_INFO_FILE = os.path.join(THIS_DIR, "version_info.json")
+
+
+def load_version_info():
+    with open(VERSION_INFO_FILE, "rt") as f:
+        return json.load(f)
+
+
+try:
+    version_info = load_version_info()
+except FileNotFoundError:
+    print("version_info.json not found. Using defaults", file=sys.stderr)
+    version_info = {}
+
+PACKAGE_VERSION = version_info.get("package-version")
+if not PACKAGE_VERSION:
+    PACKAGE_VERSION = f"0.dev0.1"
+
 
 packages = find_namespace_packages(
     include=[
@@ -33,15 +55,15 @@ class BuildCommand(distutils.command.build.build):
 
 setup(
     name=f"shark-turbine",
-    version=f"0.1",
+    version=f"{PACKAGE_VERSION}",
     package_dir={
         "": "python",
     },
     packages=packages,
     install_requires=[
         "numpy",
-        # "iree-compiler",
-        # "iree-runtime",
+        f"shark-turbine-iree-compiler=={PACKAGE_VERSION}",
+        f"shark-turbine-iree-runtime=={PACKAGE_VERSION}",
     ],
     entry_points={
         "torch_dynamo_backends": [
