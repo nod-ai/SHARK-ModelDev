@@ -53,9 +53,6 @@ jobs:
     needs: create_release
     with:
       package_version: ${{ needs.create_release.outputs.package_version }}
-      release_id: ${{ needs.create_release.outputs.release_id }}
-    secrets:
-      WRITE_ACCESS_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
 
   # TODO: Run test suite, etc.
 
