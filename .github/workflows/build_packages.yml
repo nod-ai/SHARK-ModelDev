@@ -4,16 +4,17 @@ on:
   workflow_call:
     inputs:
       package_version:
-        description: "Version of the package"
         required: true
-        default: "0.1a1"
+        type: string
       release_id:
-        description: "Release id to upload artifacts to"
+        required: false
+        type: string
         default: ""
+        
     secrets:
       WRITE_ACCESS_TOKEN:
         required: false
-  pull_request:
+  #pull_request:
   push:
     branches:
       - main
