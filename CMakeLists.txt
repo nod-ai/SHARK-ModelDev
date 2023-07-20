@@ -52,5 +52,5 @@ iree_setup_toolchain()
 # Copy the IREE .env file to this project to help IDEs.
 #-------------------------------------------------------------------------------
 
-file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env ${CMAKE_CURRENT_SOURCE_DIR})
-file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
+file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
