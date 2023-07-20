@@ -30,10 +30,10 @@ jobs:
 
       - name: Updating candidate tag
         run: |
-          git tag "${tag_name}"
+          git tag "${{ steps.compute_version.outputs.tag_name }}"
 
       - name: Pushing changes
-        run: git push origin "${tag_name}"
+        run: git push origin "${{ steps.compute_version.outputs.tag_name }}"
 
       - name: Create Release
         id: create_release
