@@ -47,3 +47,10 @@ add_subdirectory("${IREE_ROOT_DIR}" "iree")
 # Handle various global definitions that need to be set at the global
 # toolchain level.
 iree_setup_toolchain()
+
+#-------------------------------------------------------------------------------
+# Copy the IREE .env file to this project to help IDEs.
+#-------------------------------------------------------------------------------
+
+file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env ${CMAKE_CURRENT_SOURCE_DIR})
+file(COPY ${CMAKE_CURRENT_BINARY_DIR}/iree/.env ${CMAKE_CURRENT_BINARY_DIR})
