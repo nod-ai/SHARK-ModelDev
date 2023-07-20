@@ -264,8 +264,12 @@ function build_iree_runtime() {
   export CFLAGS="-g1 -gz"
   export CXXFLAGS="-g1 -gz"
 
+  ccache -z
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   build_wheel runtime/
+
+  echo "*** Runtime ccache Stats ***"
+  ccache -s
 }
 
 function build_iree_runtime_instrumented() {
@@ -279,10 +283,14 @@ function build_iree_runtime_instrumented() {
   export CFLAGS="-g1 -gz"
   export CXXFLAGS="-g1 -gz"
 
+  ccache -z
   IREE_HAL_DRIVER_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   IREE_BUILD_TRACY=ON IREE_ENABLE_RUNTIME_TRACING=ON \
   IREE_RUNTIME_CUSTOM_PACKAGE_SUFFIX="-instrumented" \
   build_wheel runtime/
+
+  echo "*** Runtime Instrumented ccache Stats ***"
+  ccache -s
 }
 
 function build_iree_compiler() {
@@ -291,6 +299,9 @@ function build_iree_compiler() {
   export CXXFLAGS=""
   IREE_TARGET_BACKEND_CUDA=$(uname -m | awk '{print ($1 == "x86_64") ? "ON" : "OFF"}') \
   build_wheel compiler/
+
+  echo "*** Compiler Instrumented ccache Stats ***"
+  ccache -s
 }
 
 function run_audit_wheel() {
