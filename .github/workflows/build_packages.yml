@@ -1,18 +1,14 @@
-name: build_packages
+name: Build Packages
 
 on:
   workflow_call:
+    inputs:
       package_version:
-        description: "Version of the package"
+        type: string
         required: true
-        default: "0.1a1"
-      release_id:
-        description: "Release id to upload artifacts to"
-        default: ""
-      secrets:
-        WRITE_ACCESS_TOKEN:
-          required: false
+
   pull_request:
+
   push:
     branches:
       - main
@@ -26,9 +22,8 @@ concurrency:
 
 jobs:
   build_linux_packages:
+    name: Linux Packages
     runs-on: private-ubuntu-builder
-    #runs-on: icelake
-    #runs-on: ubuntu-22.04
     strategy:
       fail-fast: false      
     steps:
@@ -58,8 +53,8 @@ jobs:
         run: |
           cat << EOF > version_info.json
           {
-            "package-suffix": "${{ github.event.inputs.package_suffix }}",
-            "package-version": "${{ github.event.inputs.package_version }}",
+            "package-suffix": "",
+            "package-version": "${{ inputs.package_version }}",
             "iree-revision": "$(cd ../iree && git rev-parse HEAD)",
             "torch-mlir-revision": "$(cd ../torch-mlir && git rev-parse HEAD)",
             "turbine-revision": "$(git rev-parse HEAD)"
@@ -68,6 +63,8 @@ jobs:
           realpath version_info.json
           cat version_info.json
 
+          # IREE like to see one in its tree too.
+          cp version_info.json ../iree
       - name: Enable cache
         uses: actions/cache@v3
         with:
@@ -80,6 +77,8 @@ jobs:
         run: |
           export cache_dir="${{ github.workspace }}/shark-container-cache"
           export output_dir="${{ github.workspace }}/wheelhouse"
+          # If just iterating locally, uncomment this to build a cheap wheel.
+          # export packages="shark-turbine"
           bash build_tools/ci/build_linux_packages.sh
           # Some things put stuff in cache with weird, root read-only
           # permissions. Take them back.

@@ -30,10 +30,10 @@ jobs:
 
       - name: Updating candidate tag
         run: |
-          git tag "${tag_name}"
+          git tag "${{ steps.compute_version.outputs.tag_name }}"
 
       - name: Pushing changes
-        run: git push origin "${tag_name}"
+        run: git push origin "${{ steps.compute_version.outputs.tag_name }}"
 
       - name: Create Release
         id: create_release
@@ -42,31 +42,48 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
         with:
           tag_name: ${{ steps.compute_version.outputs.tag_name }}
-          release_name: iree candidate ${{ steps.compute_version.outputs.tag_name }}
+          release_name: SHARK-Turbine release ${{ steps.compute_version.outputs.tag_name }}
           body: |
             Automatic release of SHARK-Turbine.
           draft: true
           prerelease: true
 
-    build_packages:
-      uses: ./.github/workflows/build_packages.yml
-      needs: create_release
-      with:
-        package_version: ${{ jobs.create_release.outputs.package_version }}
-        release_id: ${{ jobs.create_release.outputs.release_id }}
-      secrets:
-        WRITE_ACCESS_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+  build_packages:
+    uses: ./.github/workflows/build_packages.yml
+    needs: create_release
+    with:
+      package_version: ${{ needs.create_release.outputs.package_version }}
 
-    # TODO: Run test suite, etc.
+  # TODO: Run test suite, etc.
 
-    publish_release:
-      needs: [create_release, build_packages]
-      runs-on: ubuntu-22.04
-      steps:
-        - name: Publish Release
-          id: publish_release
-          uses: eregon/publish-release@46913fa2b3f7edc7345ae3c17f6d1b093a54916d # v1.0.5
-          env:
-            GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
-          with:
-            release_id: ${{ jobs.create_release.outputs.release_id }}
+  publish_release:
+    name: Publish Release
+    needs: [create_release, build_packages]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download Linux Wheels
+        uses: actions/download-artifact@v3
+        with:
+          name: linux-wheels
+          path: wheelhouse
+
+      - name: List Artifacts
+        run: |
+          ls -lR wheelhouse
+
+      - name: Upload Release Assets
+        id: upload-release-assets
+        uses: dwenegar/upload-release-assets@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+        with:
+          release_id: ${{ needs.create_release.outputs.release_id }}
+          assets_path: wheelhouse/*.whl
+
+      - name: Publish Release
+        id: publish_release
+        uses: eregon/publish-release@46913fa2b3f7edc7345ae3c17f6d1b093a54916d # v1.0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.WRITE_ACCESS_TOKEN }}
+        with:
+          release_id: ${{ needs.create_release.outputs.release_id }}
