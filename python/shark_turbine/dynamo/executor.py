@@ -25,25 +25,12 @@ from torch import (
     from_numpy as torch_from_numpy,
 )
 
+from .device import DeviceState
+
 
 @functools.lru_cache(maxsize=None)
 def get_vm_instance() -> VmInstance:
     return VmInstance()
-
-
-class DeviceState:
-    __slots__ = [
-        "device",
-        "driver",
-        "instance",
-    ]
-
-    def __init__(
-        self, *, driver: Union[str, HalDriver], device: Optional[HalDevice] = None
-    ):
-        self.instance = get_vm_instance()
-        self.driver = driver if isinstance(driver, HalDriver) else get_driver(driver)
-        self.device = device if device else self.driver.create_default_device()
 
 
 class SpecializedExecutable:

@@ -7,8 +7,11 @@
 import functools
 import sys
 
-from ..executor import (
+from ..device import (
     DeviceState,
+)
+
+from ..executor import (
     SpecializedExecutable,
 )
 
