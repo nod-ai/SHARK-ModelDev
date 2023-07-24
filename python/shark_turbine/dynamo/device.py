@@ -135,6 +135,10 @@ class Device:
         # ordinary scheduling.
         self._fence_capacity = 2
 
+    @property
+    def hal_device(self) -> HalDevice:
+        return self._s.device
+
     def current() -> "Device":
         try:
             return _CURRENT_THREAD.stack[-1]

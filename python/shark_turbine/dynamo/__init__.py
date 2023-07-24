@@ -9,5 +9,5 @@ from .device import Device
 from .tensor import (
     enable,
     TurbineMode,
-    TurbineTensor,
+    DeviceTensor,
 )
