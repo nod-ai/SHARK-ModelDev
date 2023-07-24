@@ -23,7 +23,7 @@ concurrency:
 jobs:
   build_linux_packages:
     name: Linux Packages
-    runs-on: private-ubuntu-builder
+    runs-on: nodai-ubuntu-builder-large
     strategy:
       fail-fast: false
     env:
