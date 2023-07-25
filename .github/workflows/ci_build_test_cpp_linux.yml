@@ -39,7 +39,9 @@ jobs:
 
       - name: Install deps
         run: |
+          # TODO: Build these into the docker image.
           pip install -r vendor/iree/runtime/bindings/python/iree/runtime/build_requirements.txt
+          sudo apt install ccache cland lld cmake ninja-build
 
       - name: Enable cache
         uses: actions/cache@v3
