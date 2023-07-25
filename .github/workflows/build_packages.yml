@@ -7,8 +7,7 @@ on:
         type: string
         required: true
 
-  # DO NOT SUBMIT
-  #pull_request:
+  pull_request:
 
   push:
     branches:

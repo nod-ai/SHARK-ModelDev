@@ -48,5 +48,7 @@ echo "Building test deps"
 echo "------------------"
 cmake --build "$build_dir" --target iree-test-deps -- -k 0
 
+# TODO: Figure out ctest incantation and run tests.
+
 # Show ccache stats.
 ccache --show-stats
