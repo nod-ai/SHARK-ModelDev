@@ -75,7 +75,7 @@ jobs:
           restore-keys: |
             shark-linux-packaging-v2-
 
-      - name: Build packages
+      - name: Build and Test
         run: |
           export cache_dir="${{ env.CACHE_DIR }}"
           export output_dir="${{ github.workspace }}/wheelhouse"
