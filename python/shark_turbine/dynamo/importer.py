@@ -335,7 +335,7 @@ class GraphNodeImporter:
                 elif op == "output":
                     # args[0] is a singleton tuple that we flatten into multiple
                     # results.
-                    operands = [self._import_argument(arg) for arg in node.args[0]]
+                    operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
@@ -379,10 +379,10 @@ class GraphNodeImporter:
         for i, parameter in enumerate(schema.arguments):
             if parameter.kwarg_only and parameter.name in node.kwargs:
                 # TODO: Nice error if KeyError.
-                operands.append(self._import_argument(node.kwargs[parameter.name]))
+                operands.append(self._import_argument(loc, node.kwargs[parameter.name]))
             elif i < len(node.args):
                 arg = node.args[i]
-                operands.append(self._import_argument(node.args[i]))
+                operands.append(self._import_argument(loc, node.args[i]))
             else:
                 operands.append(
                     self._import_default_value(
@@ -401,7 +401,7 @@ class GraphNodeImporter:
         for i, value in enumerate(operation.results):
             self._v[(node, i)] = value
 
-    def _import_argument(self, arg: NodeArgument) -> Value:
+    def _import_argument(self, loc: Location, arg: NodeArgument) -> Value:
         """Import an FX `Argument`, which must result to an MLIR `Value`."""
         if isinstance(arg, torch_fx.Node):
             # If implementing boxed support for multi-result nodes, then
@@ -409,6 +409,29 @@ class GraphNodeImporter:
             if arg in self._multi_result_nodes:
                 raise RuntimeError(f"Attempt to de-reference a multi-result node")
             return self._v[(arg, 0)]
+        elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
+            # create list operands
+            list_operands = []
+            for operand in arg:
+                if not isinstance(operand, type(arg[0])):
+                    raise TypeError(f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}")
+
+                val = self._import_default_value(loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)])
+                list_operands.append(val)
+
+            # construct list op
+            result_type = MlirType.parse(SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c)
+            operation = Operation.create(
+                "torch.prim.ListConstruct",
+                results=[result_type],
+                operands=list_operands,
+                loc=loc,
+            )
+            return operation.result
+        elif type(arg) in LITERAL_CONVERTER_MAP._cache:
+            with loc:
+                arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
+            return arg_value
         else:
             raise NotImplementedError(f"FIXME: Unsupported Node Argument: {arg}")
 
@@ -503,3 +526,15 @@ LITERAL_CONVERTER_MAP.map(
         "torch.constant.str", StringAttr.get(arg), cc.torch_str_type
     ).result,
 )
+
+SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
+    int: "!torch.list<int>",
+    float: "!torch.list<float>",
+    str: "!torch.list<str>",
+}
+
+SCALAR_TYPE_TO_TORCH_TYPE = {
+    int: "!torch.int",
+    float: "!torch.float",
+    str: "!torch.str"
+}
