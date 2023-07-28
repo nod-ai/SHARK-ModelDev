@@ -40,24 +40,6 @@ from iree.runtime import (
 # Factories and device enablement
 ###############################################################################
 
-def get_itemsize(dtype: torch.dtype):
-    """
-    returns the torch datatype element size in bytes
-    """
-    if dtype in (torch.quint4x2, torch.uint8, torch.int8, torch.quint8, torch.qint8):
-        return 1
-    elif dtype in (torch.int16, torch.float16, torch.bfloat16):
-        return 2
-    elif dtype in (torch.int32, torch.qint32, torch.float32, torch.complex32):
-        return 4
-    elif dtype in (torch.int64, torch.float64, torch.complex64):
-        return 8
-    elif dtype == torch.complex128:
-        return 16
-
-    raise TypeError(f"Unknown torch datatype, {dtype}")
-
-
 class TurbineMode(TorchFunctionMode):
     """Enables PyTorch tensor device= support for Tensor factory functions.
 
@@ -297,7 +279,7 @@ def _normalize_size(size_or_nested) -> Sequence[int]:
 
 def _calculate_c_contig_size(size: Sequence[int], dtype: torch.dtype) -> int:
     """Calculates a C-contiguous buffer size in bytes for torch size and dtype."""
-    accum = get_itemsize(dtype)
+    accum = _DTYPE_TO_ELEMENT_SIZE[dtype]
     for s in size:
         accum *= s
     return accum
@@ -482,4 +464,25 @@ _simple_pattern_ctors = {
     torch.bool: lambda x: np.bool_(bool(x)),
     torch.complex64: lambda x: np.complex64(complex(x)),
     torch.complex128: lambda x: np.complex128(complex(x)),
+}
+
+
+# returns the torch datatype element size in bytes
+_DTYPE_TO_ELEMENT_SIZE = {
+    torch.quint4x2: 1,
+    torch.uint8: 1,
+    torch.int8: 1,
+    torch.quint8: 1,
+    torch.qint8: 1,
+    torch.int16: 2,
+    torch.float16: 2,
+    torch.bfloat16: 2,
+    torch.int32: 4,
+    torch.qint32: 4,
+    torch.float32: 4,
+    torch.complex32: 4,
+    torch.int64: 8,
+    torch.float64: 8,
+    torch.complex64: 8,
+    torch.complex128: 16,
 }
