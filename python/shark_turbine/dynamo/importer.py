@@ -335,7 +335,7 @@ class GraphNodeImporter:
                 elif op == "output":
                     # args[0] is a singleton tuple that we flatten into multiple
                     # results.
-                    operands = [self._import_argument(arg) for arg in node.args[0]]
+                    operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
@@ -379,10 +379,10 @@ class GraphNodeImporter:
         for i, parameter in enumerate(schema.arguments):
             if parameter.kwarg_only and parameter.name in node.kwargs:
                 # TODO: Nice error if KeyError.
-                operands.append(self._import_argument(node.kwargs[parameter.name], loc))
+                operands.append(self._import_argument(loc, node.kwargs[parameter.name]))
             elif i < len(node.args):
                 arg = node.args[i]
-                operands.append(self._import_argument(node.args[i], loc))
+                operands.append(self._import_argument(loc, node.args[i]))
             else:
                 operands.append(
                     self._import_default_value(
@@ -401,7 +401,7 @@ class GraphNodeImporter:
         for i, value in enumerate(operation.results):
             self._v[(node, i)] = value
 
-    def _import_argument(self, arg: NodeArgument, loc: Location = None) -> Value:
+    def _import_argument(self, loc: Location, arg: NodeArgument) -> Value:
         """Import an FX `Argument`, which must result to an MLIR `Value`."""
         if isinstance(arg, torch_fx.Node):
             # If implementing boxed support for multi-result nodes, then
