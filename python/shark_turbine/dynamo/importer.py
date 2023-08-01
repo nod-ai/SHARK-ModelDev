@@ -117,10 +117,10 @@ class FxImporter:
     ]
 
     def __init__(
-        self,
-        module: Optional[Module] = None,
-        context: Optional[Context] = None,
-        config_check: bool = True,
+            self,
+            module: Optional[Module] = None,
+            context: Optional[Context] = None,
+            config_check: bool = True,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -373,6 +373,13 @@ class GraphNodeImporter:
         if schema.overload_name != "":
             mlir_op_name += f".{schema.overload_name}"
 
+        if mlir_op_name in ["torch.aten.mul.Tensor", "torch.aten.div.Tensor", "torch.aten.add.Tensor",
+                            "torch.aten.sub.Tensor",
+                            "torch.aten.floor_divide.Tensor"]:
+
+            if isinstance(node.args[1], float) or isinstance(node.args[1], int):
+                mlir_op_name = mlir_op_name[:mlir_op_name.find(".Tensor")] + ".Scalar"
+
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
             raise NotImplementedError(
@@ -393,8 +400,13 @@ class GraphNodeImporter:
             # short-circuit above. Note that if we ever choose to also fully reify Python
             # level result tuples, we will need to create a tuple-boxed version of this and
             # redirect to it for generic object access.
+
+            result_types = []
+            for v in node.meta["val"]:
+                result_types.append(self._cc.tensor_metadata_to_type(v))
+            result_types = tuple(result_types)
+
             self._multi_result_nodes.add(node)
-            raise NotImplementedError("FIXME: Multiple ATen results")
 
         # Unroll operands from formal parameters, args and kwargs.
         operands = []
@@ -436,7 +448,8 @@ class GraphNodeImporter:
             list_operands = []
             for operand in arg:
                 if not isinstance(operand, type(arg[0])):
-                    raise TypeError(f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}")
+                    raise TypeError(
+                        f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}")
 
                 val = self._import_default_value(loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)])
                 list_operands.append(val)
@@ -517,7 +530,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
