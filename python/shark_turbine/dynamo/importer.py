@@ -85,6 +85,26 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex128: "complex<f64>",
 }
 
+# https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L189
+TORCH_DTYPE_TO_INT = {
+    torch.uint8: 0,
+    torch.int8: 1,
+    torch.int16: 2,
+    torch.int32: 3,
+    torch.int64: 4,
+    torch.float16: 5,
+    torch.float32: 6,
+    torch.float64: 7,
+    # torch.complex_half 8
+    torch.complex32: 9,
+    torch.complex64: 10,
+    torch.bool: 11,
+    # torch.qint8: 12, # quantized dtypes are not supported in all backends, currently we do not support them
+    # torch.quint8: 13,
+    # torch.qint32 14
+    torch.bfloat16: 15,
+}
+
 
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
@@ -428,6 +448,15 @@ class GraphNodeImporter:
                 loc=loc,
             )
             return operation.result
+        elif isinstance(arg, torch.dtype):
+            try:
+                int_repr = TORCH_DTYPE_TO_INT[arg]
+            except KeyError:
+                raise TypeError(f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}")
+
+            with loc:
+                arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
+            return arg_value
         elif type(arg) in LITERAL_CONVERTER_MAP._cache:
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
