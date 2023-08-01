@@ -207,6 +207,7 @@ class ContextCache:
         "torch_int_type",
         "torch_none_type",
         "torch_str_type",
+        "torch_device_type",
     ]
 
     def __init__(self, context: Context):
@@ -221,6 +222,7 @@ class ContextCache:
             self.torch_int_type = MlirType.parse("!torch.int")
             self.torch_none_type = MlirType.parse("!torch.none")
             self.torch_str_type = MlirType.parse("!torch.str")
+            self.torch_device_type = MlirType.parse("!torch.Device")
 
     def integer_attr(self, value: int, bits: int) -> MlirAttribute:
         c = self._c
@@ -553,6 +555,12 @@ LITERAL_CONVERTER_MAP.map(
     str,
     lambda arg, gni, cc: _make_constant_op(
         "torch.constant.str", StringAttr.get(arg), cc.torch_str_type
+    ).result,
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.device,
+    lambda arg, gni, cc: _make_constant_op(
+        "torch.constant.device", StringAttr.get(str(arg)), cc.torch_device_type
     ).result,
 )
 
