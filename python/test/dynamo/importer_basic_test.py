@@ -17,11 +17,7 @@ from torch.fx import (
 
 
 class ImportTests(unittest.TestCase):
-    def testInitialize(self):
-        imp = FxImporter()
-        print(imp.module)
-
-    def testImportStateless(self):
+    def create_backend(self):
         imp = FxImporter()
 
         def import_compiler(gm: GraphModule, example_inputs):
@@ -35,8 +31,11 @@ class ImportTests(unittest.TestCase):
 
         backend = import_compiler
         backend = aot_autograd(fw_compiler=backend)
+        return backend
 
+    def testImportStateless(self):
         a = torch.randn(3, 4)
+        backend = self.create_backend()
 
         @dynamo.optimize(backend)
         def basic(x):
@@ -45,20 +44,6 @@ class ImportTests(unittest.TestCase):
         basic(torch.randn(3, 4))
 
     def testImportDtype(self):
-        imp = FxImporter()
-
-        def import_compiler(gm: GraphModule, example_inputs):
-            gm.print_readable()
-            try:
-                imp.import_graph_module(gm)
-            finally:
-                print(imp.module)
-            imp.module.operation.verify()
-            return gm
-
-        backend = import_compiler
-        backend = aot_autograd(fw_compiler=backend)
-
         def foo(x):
             o = x.to(torch.complex32)
             o = o.to(torch.float32)
@@ -76,6 +61,7 @@ class ImportTests(unittest.TestCase):
             o = o.to(torch.bfloat16)
             return o
 
+        backend = self.create_backend()
         opt_foo = torch.compile(foo, backend=backend)
         opt_foo(torch.ones(10))
 
@@ -101,19 +87,6 @@ class ImportTests(unittest.TestCase):
         opt_foo(10)
 
     def testImportVisionModule(self):
-        imp = FxImporter()
-
-        def import_compiler(gm: GraphModule, example_inputs):
-            gm.print_readable()
-            try:
-                imp.import_graph_module(gm)
-            finally:
-                print(imp.module)
-            imp.module.operation.verify()
-            return gm
-
-        backend = import_compiler
-        backend = aot_autograd(fw_compiler=backend)
 
         from torch import nn
         import torch.nn.functional as F
@@ -123,7 +96,11 @@ class ImportTests(unittest.TestCase):
                 self.stride = stride
                 self.channel_pad = out_channels - in_channels
                 padding = (kernel_size - 1) // 2
-                self.convs = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=True), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=True))
+                self.convs = nn.Sequential(
+                    nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride,
+                              padding=padding, groups=in_channels, bias=True),
+                    nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0,
+                              bias=True))
                 self.act = nn.ReLU(inplace=True)
 
             def forward(self, x):
@@ -132,9 +109,11 @@ class ImportTests(unittest.TestCase):
                     x = F.pad(x, (0, 0, 0, 0, 0, self.channel_pad), 'constant', 0)
                 return self.act(self.convs(h) + x)
 
-        mod = ConvBlock(3,5)
+        mod = ConvBlock(3, 5)
+        backend = self.create_backend()
         opt_mod = torch.compile(mod, backend=backend)
-        opt_mod(torch.randn(1,3,256,256))
+        opt_mod(torch.randn(1, 3, 256, 256))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
