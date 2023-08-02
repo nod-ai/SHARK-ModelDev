@@ -61,8 +61,7 @@ class ImportTests(unittest.TestCase):
             o = o.to(torch.bfloat16)
             return o
 
-        backend = self.create_backend()
-        opt_foo = torch.compile(foo, backend=backend)
+        opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.ones(10))
 
     def testImportDevice(self):
@@ -110,8 +109,7 @@ class ImportTests(unittest.TestCase):
                 return self.act(self.convs(h) + x)
 
         mod = ConvBlock(3, 5)
-        backend = self.create_backend()
-        opt_mod = torch.compile(mod, backend=backend)
+        opt_mod = torch.compile(mod, backend=self.create_backend())
         opt_mod(torch.randn(1, 3, 256, 256))
 
 
