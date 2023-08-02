@@ -79,6 +79,27 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=backend)
         opt_foo(torch.ones(10))
 
+    def testImportDevice(self):
+        imp = FxImporter()
+
+        def import_compiler(gm: GraphModule, example_inputs):
+            gm.print_readable()
+            try:
+                imp.import_graph_module(gm)
+            finally:
+                print(imp.module)
+            imp.module.operation.verify()
+            return gm
+
+        backend = import_compiler
+        backend = aot_autograd(fw_compiler=backend)
+
+        def foo(x):
+            return torch.arange(x, device='cpu')
+
+        opt_foo = torch.compile(foo, backend=backend)
+        opt_foo(10)
+
     def testImportVisionModule(self):
         imp = FxImporter()
 
