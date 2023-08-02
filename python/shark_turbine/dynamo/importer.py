@@ -361,7 +361,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -373,12 +373,17 @@ class GraphNodeImporter:
         if schema.overload_name != "":
             mlir_op_name += f".{schema.overload_name}"
 
+        # Aot_autograd is not returning scalar versions of the below ops, when the second argument is scalar.
+        # Thus, intervening to select the right ops.
         if mlir_op_name in ["torch.aten.mul.Tensor", "torch.aten.div.Tensor", "torch.aten.add.Tensor",
                             "torch.aten.sub.Tensor",
-                            "torch.aten.floor_divide.Tensor"]:
-
+                            "torch.aten.floor_divide"]:
             if isinstance(node.args[1], float) or isinstance(node.args[1], int):
-                mlir_op_name = mlir_op_name[:mlir_op_name.find(".Tensor")] + ".Scalar"
+                if mlir_op_name == "torch.aten.floor_divide":
+                    mlir_op_name += ".Scalar"
+
+                else:
+                    mlir_op_name = mlir_op_name[:mlir_op_name.find(".Tensor")] + ".Scalar"
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
