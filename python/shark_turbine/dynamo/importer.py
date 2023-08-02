@@ -105,6 +105,14 @@ TORCH_DTYPE_TO_INT = {
     torch.bfloat16: 15,
 }
 
+# https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L223
+TORCH_MEMORY_FORMAT_TO_INT = {
+    torch.contiguous_format: 0,
+    torch.preserve_format: 1,
+    torch.channels_last: 2,
+    torch.channels_last_3d: 3,
+}
+
 # https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L235
 TORCH_LAYOUT_TO_INT = {
     # https://github.com/pytorch/pytorch/blob/master/torch/csrc/utils/tensor_layouts.cpp
@@ -492,7 +500,16 @@ class GraphNodeImporter:
             try:
                 int_repr = TORCH_LAYOUT_TO_INT[arg]
             except KeyError:
-                raise TypeError(f"Unsupported torch datatype expected one of {tuple(TORCH_LAYOUT_TO_INT.keys())}, but got {arg}")
+                raise TypeError(f"Unsupported torch layout expected one of {tuple(TORCH_LAYOUT_TO_INT.keys())}, but got {arg}")
+
+            with loc:
+                arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
+            return arg_value
+        elif isinstance(arg, torch.memory_format):
+            try:
+                int_repr = TORCH_MEMORY_FORMAT_TO_INT[arg]
+            except KeyError:
+                raise TypeError(f"Unsupported torch memory format expected one of {tuple(TORCH_MEMORY_FORMAT_TO_INT.keys())}, but got {arg}")
 
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)

@@ -106,6 +106,30 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=backend)
         opt_foo(torch.randn(10))
 
+    def testImportMemoryFormat(self):
+        imp = FxImporter()
+        def import_compiler(gm: GraphModule, example_inputs):
+            gm.print_readable()
+            try:
+                imp.import_graph_module(gm)
+            finally:
+                print(imp.module)
+            imp.module.operation.verify()
+            return gm
+
+        backend = import_compiler
+        backend = aot_autograd(fw_compiler=backend)
+
+        def foo():
+            x = torch.ones_like(torch.randn(10), memory_format=torch.contiguous_format)
+            x = torch.ones_like(torch.randn(10), memory_format=torch.preserve_format)
+            x = torch.ones_like(torch.randn(1,1,1,1), memory_format=torch.channels_last)
+            x = torch.ones_like(torch.randn(1,1,1,1,1), memory_format=torch.channels_last_3d)
+
+        opt_foo = torch.compile(foo, backend=backend)
+        opt_foo()
+
+
     def testImportVisionModule(self):
         from torch import nn
         import torch.nn.functional as F
