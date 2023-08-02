@@ -44,6 +44,41 @@ class ImportTests(unittest.TestCase):
 
         basic(torch.randn(3, 4))
 
+    def testImportDtype(self):
+        imp = FxImporter()
+
+        def import_compiler(gm: GraphModule, example_inputs):
+            gm.print_readable()
+            try:
+                imp.import_graph_module(gm)
+            finally:
+                print(imp.module)
+            imp.module.operation.verify()
+            return gm
+
+        backend = import_compiler
+        backend = aot_autograd(fw_compiler=backend)
+
+        def foo(x):
+            o = x.to(torch.complex32)
+            o = o.to(torch.float32)
+            o = o.to(torch.float64)
+            o = o.to(torch.float16)
+            o = o.to(torch.int64)
+            o = o.to(torch.int32)
+            o = o.to(torch.int16)
+            o = o.to(torch.int8)
+            o = o.to(torch.uint8)
+            o = o.to(torch.complex64)
+            o = o.to(torch.bool)
+            # o = o.to(torch.qint8) # we do not currently support quantized dtypes
+            # o = o.to(torch.quint8)
+            o = o.to(torch.bfloat16)
+            return o
+
+        opt_foo = torch.compile(foo, backend=backend)
+        opt_foo(torch.ones(10))
+
     def testImportVisionModule(self):
         imp = FxImporter()
 
