@@ -105,6 +105,17 @@ TORCH_DTYPE_TO_INT = {
     torch.bfloat16: 15,
 }
 
+# https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L235
+TORCH_LAYOUT_TO_INT = {
+    # https://github.com/pytorch/pytorch/blob/master/torch/csrc/utils/tensor_layouts.cpp
+    torch.strided: 0,
+    torch.sparse_coo: 1,
+    torch.sparse_csr: 2,
+    torch.sparse_csc: 3,
+    torch.sparse_bsr: 4,
+    torch.sparse_bsc: 5,
+}
+
 
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
@@ -473,6 +484,15 @@ class GraphNodeImporter:
                 raise TypeError(
                     f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}"
                 )
+
+            with loc:
+                arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
+            return arg_value
+        elif isinstance(arg, torch.layout):
+            try:
+                int_repr = TORCH_LAYOUT_TO_INT[arg]
+            except KeyError:
+                raise TypeError(f"Unsupported torch datatype expected one of {tuple(TORCH_LAYOUT_TO_INT.keys())}, but got {arg}")
 
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
