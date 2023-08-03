@@ -105,6 +105,24 @@ TORCH_DTYPE_TO_INT = {
     torch.bfloat16: 15,
 }
 
+# https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L223
+TORCH_MEMORY_FORMAT_TO_INT = {
+    torch.contiguous_format: 0,
+    torch.preserve_format: 1,
+    torch.channels_last: 2,
+    torch.channels_last_3d: 3,
+}
+
+# https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L235
+TORCH_LAYOUT_TO_INT = {
+    torch.strided: 0,
+    torch.sparse_coo: 1,
+    torch.sparse_csr: 2,
+    torch.sparse_csc: 3,
+    torch.sparse_bsr: 4,
+    torch.sparse_bsc: 5,
+}
+
 
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
@@ -117,10 +135,10 @@ class FxImporter:
     ]
 
     def __init__(
-            self,
-            module: Optional[Module] = None,
-            context: Optional[Context] = None,
-            config_check: bool = True,
+        self,
+        module: Optional[Module] = None,
+        context: Optional[Context] = None,
+        config_check: bool = True,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -361,7 +379,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -375,7 +393,8 @@ class GraphNodeImporter:
 
         # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
         if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
-                isinstance(node.args[1], float) or isinstance(node.args[1], int)):
+            isinstance(node.args[1], float) or isinstance(node.args[1], int)
+        ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
         if not self._c.is_registered_operation(mlir_op_name):
@@ -466,17 +485,6 @@ class GraphNodeImporter:
                 loc=loc,
             )
             return operation.result
-        elif isinstance(arg, torch.dtype):
-            try:
-                int_repr = TORCH_DTYPE_TO_INT[arg]
-            except KeyError:
-                raise TypeError(
-                    f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}"
-                )
-
-            with loc:
-                arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
-            return arg_value
         elif type(arg) in LITERAL_CONVERTER_MAP._cache:
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
@@ -535,7 +543,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
@@ -580,6 +588,24 @@ LITERAL_CONVERTER_MAP.map(
     lambda arg, gni, cc: _make_constant_op(
         "torch.constant.device", StringAttr.get(str(arg)), cc.torch_device_type
     ).result,
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.dtype,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_DTYPE_TO_INT[arg], gni, cc
+    ),
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.layout,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_LAYOUT_TO_INT[arg], gni, cc
+    ),
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.memory_format,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_MEMORY_FORMAT_TO_INT[arg], gni, cc
+    ),
 )
 
 SCALAR_TYPE_TO_TORCH_LIST_TYPE = {

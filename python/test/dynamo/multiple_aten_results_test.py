@@ -9,6 +9,7 @@ from torch.fx import (
     GraphModule,
 )
 
+
 class RandomTests(unittest.TestCase):
     def testInitialize(self):
         imp = FxImporter()
@@ -29,12 +30,11 @@ class RandomTests(unittest.TestCase):
         backend = import_compiler
         backend = aot_autograd(fw_compiler=backend)
 
-
         import torch.nn as nn
         import torch.nn.functional as F
 
         class Scaled_Dot_Product_Attention(nn.Module):
-            """Scaled Dot-Product Attention """
+            """Scaled Dot-Product Attention"""
 
             def __init__(self):
                 super(Scaled_Dot_Product_Attention, self).__init__()
@@ -56,9 +56,7 @@ class RandomTests(unittest.TestCase):
                 context = torch.matmul(attention, V)
                 return context
 
-
         class Multi_Head_Attention(nn.Module):
-
             def __init__(self, dim_model, num_head, dropout=0.0):
                 super(Multi_Head_Attention, self).__init__()
                 self.num_head = num_head
