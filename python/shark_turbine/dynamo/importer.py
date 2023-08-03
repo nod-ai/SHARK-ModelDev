@@ -115,7 +115,6 @@ TORCH_MEMORY_FORMAT_TO_INT = {
 
 # https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L235
 TORCH_LAYOUT_TO_INT = {
-    # https://github.com/pytorch/pytorch/blob/master/torch/csrc/utils/tensor_layouts.cpp
     torch.strided: 0,
     torch.sparse_coo: 1,
     torch.sparse_csr: 2,
@@ -138,10 +137,10 @@ class FxImporter:
     ]
 
     def __init__(
-            self,
-            module: Optional[Module] = None,
-            context: Optional[Context] = None,
-            config_check: bool = True,
+        self,
+        module: Optional[Module] = None,
+        context: Optional[Context] = None,
+        config_check: bool = True,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -382,7 +381,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -396,7 +395,8 @@ class GraphNodeImporter:
 
         # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
         if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
-                isinstance(node.args[1], float) or isinstance(node.args[1], int)):
+            isinstance(node.args[1], float) or isinstance(node.args[1], int)
+        ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
         if not self._c.is_registered_operation(mlir_op_name):
@@ -511,7 +511,9 @@ class GraphNodeImporter:
 
     def _import_enum_value(self, loc: Location, arg):
         """Import the correct integer representation of torch enum values"""
-        assert type(arg) in TORCH_ENUM_TYPES, f"Expected enum type to be one of {TORCH_ENUM_TYPES}, got {type(arg)}"
+        assert (
+            type(arg) in TORCH_ENUM_TYPES
+        ), f"Expected enum type to be one of {TORCH_ENUM_TYPES}, got {type(arg)}"
         mapping = None
         enum_cls = None
 
@@ -528,14 +530,13 @@ class GraphNodeImporter:
         try:
             int_repr = mapping[arg]
         except KeyError:
-            raise TypeError(f"Unsupported torch {enum_cls.__name__} expected one of {tuple(mapping.keys())}, but got {arg}")
+            raise TypeError(
+                f"Unsupported torch {enum_cls.__name__} expected one of {tuple(mapping.keys())}, but got {arg}"
+            )
 
         with loc:
             arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
         return arg_value
-
-
-
 
 
 class TypeSubclassMap:
@@ -575,7 +576,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,

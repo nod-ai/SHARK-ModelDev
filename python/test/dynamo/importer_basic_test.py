@@ -83,12 +83,15 @@ class ImportTests(unittest.TestCase):
         def foo():
             x = torch.ones_like(torch.randn(10), memory_format=torch.contiguous_format)
             x = torch.ones_like(torch.randn(10), memory_format=torch.preserve_format)
-            x = torch.ones_like(torch.randn(1,1,1,1), memory_format=torch.channels_last)
-            x = torch.ones_like(torch.randn(1,1,1,1,1), memory_format=torch.channels_last_3d)
+            x = torch.ones_like(
+                torch.randn(1, 1, 1, 1), memory_format=torch.channels_last
+            )
+            x = torch.ones_like(
+                torch.randn(1, 1, 1, 1, 1), memory_format=torch.channels_last_3d
+            )
 
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo()
-
 
     def testImportVisionModule(self):
         from torch import nn

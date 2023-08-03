@@ -79,6 +79,7 @@ class TensorTest(unittest.TestCase):
         t1 = torch.rand(4, device="turbine", dtype=torch.float32)
         print(t1.cpu())
 
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
