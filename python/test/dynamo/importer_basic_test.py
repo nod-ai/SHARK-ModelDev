@@ -80,15 +80,15 @@ class ImportTests(unittest.TestCase):
         backend = aot_autograd(fw_compiler=backend)
 
         def foo(x):
-            return torch.arange(x, device='cpu')
+            return torch.arange(x, device="cpu")
 
         opt_foo = torch.compile(foo, backend=backend)
         opt_foo(10)
 
     def testImportVisionModule(self):
-
         from torch import nn
         import torch.nn.functional as F
+
         class ConvBlock(nn.Module):
             def __init__(self, in_channels, out_channels, kernel_size=3, stride=1):
                 super(ConvBlock, self).__init__()
@@ -96,16 +96,30 @@ class ImportTests(unittest.TestCase):
                 self.channel_pad = out_channels - in_channels
                 padding = (kernel_size - 1) // 2
                 self.convs = nn.Sequential(
-                    nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride,
-                              padding=padding, groups=in_channels, bias=True),
-                    nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0,
-                              bias=True))
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=in_channels,
+                        kernel_size=kernel_size,
+                        stride=stride,
+                        padding=padding,
+                        groups=in_channels,
+                        bias=True,
+                    ),
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        stride=1,
+                        padding=0,
+                        bias=True,
+                    ),
+                )
                 self.act = nn.ReLU(inplace=True)
 
             def forward(self, x):
                 h = x
                 if self.channel_pad > 0:
-                    x = F.pad(x, (0, 0, 0, 0, 0, self.channel_pad), 'constant', 0)
+                    x = F.pad(x, (0, 0, 0, 0, 0, self.channel_pad), "constant", 0)
                 return self.act(self.convs(h) + x)
 
         mod = ConvBlock(3, 5)

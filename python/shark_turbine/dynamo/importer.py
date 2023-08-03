@@ -373,17 +373,12 @@ class GraphNodeImporter:
         if schema.overload_name != "":
             mlir_op_name += f".{schema.overload_name}"
 
-        # Aot_autograd is not returning scalar versions of the below ops, when the second argument is scalar.
-        # Thus, intervening to select the right ops.
-        if mlir_op_name in ["torch.aten.mul.Tensor", "torch.aten.div.Tensor", "torch.aten.add.Tensor",
-                            "torch.aten.sub.Tensor",
-                            "torch.aten.floor_divide"]:
+        # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
+        if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER:
             if isinstance(node.args[1], float) or isinstance(node.args[1], int):
-                if mlir_op_name == "torch.aten.floor_divide":
-                    mlir_op_name += ".Scalar"
-
-                else:
-                    mlir_op_name = mlir_op_name[:mlir_op_name.find(".Tensor")] + ".Scalar"
+                mlir_op_name = TENSOR_SCALAR_OP_CONVERTER.get(
+                    mlir_op_name, mlir_op_name
+                )
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
@@ -454,13 +449,18 @@ class GraphNodeImporter:
             for operand in arg:
                 if not isinstance(operand, type(arg[0])):
                     raise TypeError(
-                        f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}")
+                        f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}"
+                    )
 
-                val = self._import_default_value(loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)])
+                val = self._import_default_value(
+                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                )
                 list_operands.append(val)
 
             # construct list op
-            result_type = MlirType.parse(SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c)
+            result_type = MlirType.parse(
+                SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
+            )
             operation = Operation.create(
                 "torch.prim.ListConstruct",
                 results=[result_type],
@@ -472,7 +472,9 @@ class GraphNodeImporter:
             try:
                 int_repr = TORCH_DTYPE_TO_INT[arg]
             except KeyError:
-                raise TypeError(f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}")
+                raise TypeError(
+                    f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}"
+                )
 
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
@@ -591,5 +593,13 @@ SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
 SCALAR_TYPE_TO_TORCH_TYPE = {
     int: "!torch.int",
     float: "!torch.float",
-    str: "!torch.str"
+    str: "!torch.str",
+}
+
+TENSOR_SCALAR_OP_CONVERTER = {
+    "torch.aten.mul.Tensor": "torch.aten.mul.Scalar",
+    "torch.aten.div.Tensor": "torch.aten.div.Scalar",
+    "torch.aten.add.Tensor": "torch.aten.add.Scalar",
+    "torch.aten.sub.Tensor": "torch.aten.sub.Scalar",
+    "torch.aten.floor_divide": "torch.aten.floor_divide.Scalar",
 }

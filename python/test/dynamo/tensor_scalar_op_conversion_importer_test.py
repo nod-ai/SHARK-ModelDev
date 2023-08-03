@@ -52,25 +52,33 @@ class TensorScalarOpConversionImportModule(unittest.TestCase):
         return backend
 
     def test_add(self):
-        opt_torch_scalar_convert = torch.compile(self.add, backend=self.create_backend())
+        opt_torch_scalar_convert = torch.compile(
+            self.add, backend=self.create_backend()
+        )
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.add(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def test_sub(self):
-        opt_torch_scalar_convert = torch.compile(self.sub, backend=self.create_backend())
+        opt_torch_scalar_convert = torch.compile(
+            self.sub, backend=self.create_backend()
+        )
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.sub(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def test_mul(self):
-        opt_torch_scalar_convert = torch.compile(self.mul, backend=self.create_backend())
+        opt_torch_scalar_convert = torch.compile(
+            self.mul, backend=self.create_backend()
+        )
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.mul(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def test_div(self):
-        opt_torch_scalar_convert = torch.compile(self.div, backend=self.create_backend())
+        opt_torch_scalar_convert = torch.compile(
+            self.div, backend=self.create_backend()
+        )
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.div(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
@@ -80,7 +88,9 @@ class TensorScalarOpConversionImportModule(unittest.TestCase):
         This op isn't successfully created by IREE due to partial implementation of floor_div op in torch-mlir
         However, the importer works successfully.
         """
-        opt_torch_scalar_convert = torch.compile(self.floor_div, backend=self.create_backend())
+        opt_torch_scalar_convert = torch.compile(
+            self.floor_div, backend=self.create_backend()
+        )
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.floor_div(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
