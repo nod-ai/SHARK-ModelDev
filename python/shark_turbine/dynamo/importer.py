@@ -117,10 +117,10 @@ class FxImporter:
     ]
 
     def __init__(
-        self,
-        module: Optional[Module] = None,
-        context: Optional[Context] = None,
-        config_check: bool = True,
+            self,
+            module: Optional[Module] = None,
+            context: Optional[Context] = None,
+            config_check: bool = True,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -361,7 +361,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -372,6 +372,11 @@ class GraphNodeImporter:
         mlir_op_name = f"torch.{namespace}.{unqualified_name}"
         if schema.overload_name != "":
             mlir_op_name += f".{schema.overload_name}"
+
+        # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
+        if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
+                isinstance(node.args[1], float) or isinstance(node.args[1], int)):
+            mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
@@ -393,8 +398,13 @@ class GraphNodeImporter:
             # short-circuit above. Note that if we ever choose to also fully reify Python
             # level result tuples, we will need to create a tuple-boxed version of this and
             # redirect to it for generic object access.
+
+            result_types = []
+            for v in node.meta["val"]:
+                result_types.append(self._cc.tensor_metadata_to_type(v))
+            result_types = tuple(result_types)
+
             self._multi_result_nodes.add(node)
-            raise NotImplementedError("FIXME: Multiple ATen results")
 
         # Unroll operands from formal parameters, args and kwargs.
         operands = []
@@ -436,13 +446,19 @@ class GraphNodeImporter:
             list_operands = []
             for operand in arg:
                 if not isinstance(operand, type(arg[0])):
-                    raise TypeError(f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}")
+                    raise TypeError(
+                        f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}"
+                    )
 
-                val = self._import_default_value(loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)])
+                val = self._import_default_value(
+                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                )
                 list_operands.append(val)
 
             # construct list op
-            result_type = MlirType.parse(SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c)
+            result_type = MlirType.parse(
+                SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
+            )
             operation = Operation.create(
                 "torch.prim.ListConstruct",
                 results=[result_type],
@@ -454,7 +470,9 @@ class GraphNodeImporter:
             try:
                 int_repr = TORCH_DTYPE_TO_INT[arg]
             except KeyError:
-                raise TypeError(f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}")
+                raise TypeError(
+                    f"Unsupported torch datatype expected one of {tuple(TORCH_DTYPE_TO_INT.keys())}, but got {arg}"
+                )
 
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
@@ -517,7 +535,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
@@ -573,5 +591,15 @@ SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
 SCALAR_TYPE_TO_TORCH_TYPE = {
     int: "!torch.int",
     float: "!torch.float",
-    str: "!torch.str"
+    str: "!torch.str",
+}
+
+# AOT-autograd sometimes falsely emit tensor version op with scalar arguments.
+# We may remove this dictionary, if we fix such behavior in the backend.
+TENSOR_SCALAR_OP_CONVERTER = {
+    "torch.aten.mul.Tensor": "torch.aten.mul.Scalar",
+    "torch.aten.div.Tensor": "torch.aten.div.Scalar",
+    "torch.aten.add.Tensor": "torch.aten.add.Scalar",
+    "torch.aten.sub.Tensor": "torch.aten.sub.Scalar",
+    "torch.aten.floor_divide": "torch.aten.floor_divide.Scalar",
 }
