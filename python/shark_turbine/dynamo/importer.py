@@ -123,8 +123,6 @@ TORCH_LAYOUT_TO_INT = {
     torch.sparse_bsc: 5,
 }
 
-TORCH_ENUM_TYPES = {torch.dtype, torch.layout, torch.memory_format}
-
 
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
@@ -487,8 +485,6 @@ class GraphNodeImporter:
                 loc=loc,
             )
             return operation.result
-        elif type(arg) in TORCH_ENUM_TYPES:
-            return self._import_enum_value(loc, arg)
         elif type(arg) in LITERAL_CONVERTER_MAP._cache:
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
@@ -508,35 +504,6 @@ class GraphNodeImporter:
         # These all require an expected_jit_type to convert.
         # torch.dtype, torch.device, torch.memory_format, torch.layout
         # list
-
-    def _import_enum_value(self, loc: Location, arg):
-        """Import the correct integer representation of torch enum values"""
-        assert (
-            type(arg) in TORCH_ENUM_TYPES
-        ), f"Expected enum type to be one of {TORCH_ENUM_TYPES}, got {type(arg)}"
-        mapping = None
-        enum_cls = None
-
-        if isinstance(arg, torch.dtype):
-            mapping = TORCH_DTYPE_TO_INT
-            enum_cls = torch.dtype
-        elif isinstance(arg, torch.layout):
-            mapping = TORCH_LAYOUT_TO_INT
-            enum_cls = torch.layout
-        else:
-            mapping = TORCH_MEMORY_FORMAT_TO_INT
-            enum_cls = torch.layout
-
-        try:
-            int_repr = mapping[arg]
-        except KeyError:
-            raise TypeError(
-                f"Unsupported torch {enum_cls.__name__} expected one of {tuple(mapping.keys())}, but got {arg}"
-            )
-
-        with loc:
-            arg_value = LITERAL_CONVERTER_MAP.lookup(int)(int_repr, self, self._cc)
-        return arg_value
 
 
 class TypeSubclassMap:
@@ -621,6 +588,24 @@ LITERAL_CONVERTER_MAP.map(
     lambda arg, gni, cc: _make_constant_op(
         "torch.constant.device", StringAttr.get(str(arg)), cc.torch_device_type
     ).result,
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.dtype,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_DTYPE_TO_INT[arg], gni, cc
+    ),
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.layout,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_LAYOUT_TO_INT[arg], gni, cc
+    ),
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.memory_format,
+    lambda arg, gni, cc: LITERAL_CONVERTER_MAP.lookup(int)(
+        TORCH_MEMORY_FORMAT_TO_INT[arg], gni, cc
+    ),
 )
 
 SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
