@@ -374,11 +374,9 @@ class GraphNodeImporter:
             mlir_op_name += f".{schema.overload_name}"
 
         # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
-        if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER:
-            if isinstance(node.args[1], float) or isinstance(node.args[1], int):
-                mlir_op_name = TENSOR_SCALAR_OP_CONVERTER.get(
-                    mlir_op_name, mlir_op_name
-                )
+        if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
+                isinstance(node.args[1], float) or isinstance(node.args[1], int)):
+            mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
@@ -596,6 +594,8 @@ SCALAR_TYPE_TO_TORCH_TYPE = {
     str: "!torch.str",
 }
 
+# AOT-autograd sometimes falsely emit tensor version op with scalar arguments.
+# We may remove this dictionary, if we fix such behavior in the backend.
 TENSOR_SCALAR_OP_CONVERTER = {
     "torch.aten.mul.Tensor": "torch.aten.mul.Scalar",
     "torch.aten.div.Tensor": "torch.aten.div.Scalar",
