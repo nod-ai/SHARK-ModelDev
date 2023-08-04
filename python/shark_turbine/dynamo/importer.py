@@ -461,44 +461,7 @@ class GraphNodeImporter:
                 raise RuntimeError(f"Attempt to de-reference a multi-result node")
             return self._v[(arg, 0)]
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
-            # create list operands
-            list_operands = []
-            result_type = MlirType.parse(
-                SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
-            ) if type(arg[0]) in SCALAR_TYPE_TO_TORCH_LIST_TYPE else None
-
-            for operand in arg:
-                if not isinstance(operand, type(arg[0])):
-                    raise TypeError(
-                        f"Lists with multiple types are not supported, got: {type(arg[0])}, {type(operand)}"
-                    )
-
-                if isinstance(operand, torch.fx.Node):
-                    if operand in self._multi_result_nodes:
-                        raise RuntimeError(f"Attempt to de-reference a multi-result node")
-                    val = self._v[(operand,0)]
-                    if result_type is None:
-                        list_type: str = str(val.type)
-                        begin_index = 7 if list_type.startswith("!torch.") else None
-                        end_index = list_type.find("<")
-                        end_index = end_index if end_index != -1 else None
-                        list_type = list_type[begin_index:end_index]
-                        result_type = MlirType.parse(f"!torch.list<{list_type}>")
-                else:
-                    val = self._import_default_value(
-                        loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
-                    )
-
-                list_operands.append(val)
-
-            # construct list op
-            operation = Operation.create(
-                "torch.prim.ListConstruct",
-                results=[result_type],
-                operands=list_operands,
-                loc=loc,
-            )
-            return operation.result
+            return self._import_list_argument(loc, arg)
         elif type(arg) in LITERAL_CONVERTER_MAP._cache:
             with loc:
                 arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
@@ -506,8 +469,51 @@ class GraphNodeImporter:
         else:
             raise NotImplementedError(f"FIXME: Unsupported Node Argument: {arg}")
 
+    def _import_list_argument(self, loc: Location, arg):
+        # create list operands
+        list_operands = []
+        result_type = MlirType.parse(
+            SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
+        ) if type(arg[0]) in SCALAR_TYPE_TO_TORCH_LIST_TYPE else None
+
+        for operand in arg:
+            if not isinstance(operand, type(arg[0])):
+                raise TypeError(
+                    f"Lists with multiple types are not supported, got: {type(arg[0])}, {type(operand)}"
+                )
+
+            if isinstance(operand, torch.fx.Node):
+                if operand in self._multi_result_nodes:
+                    raise RuntimeError(f"Attempt to de-reference a multi-result node")
+                val = self._v[(operand,0)]
+                if result_type is None:
+                    list_type: str = str(val.type)
+                    begin_index = 7 if list_type.startswith("!torch.") else None
+                    end_index = list_type.find("<")
+                    end_index = end_index if end_index != -1 else None
+                    list_type = list_type[begin_index:end_index]
+                    result_type = MlirType.parse(f"!torch.list<{list_type}>")
+            else:
+                val = self._import_default_value(
+                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                )
+
+            list_operands.append(val)
+
+        # construct list op
+        operation = Operation.create(
+            "torch.prim.ListConstruct",
+            results=[result_type],
+            operands=list_operands,
+            loc=loc,
+        )
+        return operation.result
+
     def _import_default_value(self, loc: Location, arg, expected_jit_type) -> Value:
         """Imports a defaulted value for a known function schema."""
+        if isinstance(arg, list):
+            return self._import_list_argument(loc, arg)
+
         cvt = LITERAL_CONVERTER_MAP.lookup(type(arg))
         if cvt is None:
             raise RuntimeError(f"Unhandled default value ({arg.__class__}): {arg})")
