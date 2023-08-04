@@ -93,6 +93,20 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo()
 
+    def testImportListArgs(self):
+        def foo():
+            return torch.randn((4,5,6))
+
+        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo()
+
+    def testImportListNodeArgs(self):
+        def foo(x,y):
+            return torch.cat((x,y), 0)
+
+        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo(torch.randn(10), torch.randn(10))
+
     def testImportVisionModule(self):
         from torch import nn
         import torch.nn.functional as F

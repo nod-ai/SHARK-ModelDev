@@ -463,21 +463,35 @@ class GraphNodeImporter:
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
             # create list operands
             list_operands = []
+            result_type = MlirType.parse(
+                SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
+            ) if type(arg[0]) in SCALAR_TYPE_TO_TORCH_LIST_TYPE else None
+
             for operand in arg:
                 if not isinstance(operand, type(arg[0])):
                     raise TypeError(
-                        f"Lists with multiple types are not supported, got: {type(input[0])}, {type(operand)}"
+                        f"Lists with multiple types are not supported, got: {type(arg[0])}, {type(operand)}"
                     )
 
-                val = self._import_default_value(
-                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
-                )
+                if isinstance(operand, torch.fx.Node):
+                    if operand in self._multi_result_nodes:
+                        raise RuntimeError(f"Attempt to de-reference a multi-result node")
+                    val = self._v[(operand,0)]
+                    if result_type is None:
+                        list_type: str = str(val.type)
+                        begin_index = 7 if list_type.startswith("!torch.") else None
+                        end_index = list_type.find("<")
+                        end_index = end_index if end_index != -1 else None
+                        list_type = list_type[begin_index:end_index]
+                        result_type = MlirType.parse(f"!torch.list<{list_type}>")
+                else:
+                    val = self._import_default_value(
+                        loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                    )
+
                 list_operands.append(val)
 
             # construct list op
-            result_type = MlirType.parse(
-                SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
-            )
             operation = Operation.create(
                 "torch.prim.ListConstruct",
                 results=[result_type],
