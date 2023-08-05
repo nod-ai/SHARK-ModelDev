@@ -472,14 +472,19 @@ class GraphNodeImporter:
     def _import_list_argument(self, loc: Location, arg):
         # create list operands
         list_operands = []
-        result_type = MlirType.parse(
-            SCALAR_TYPE_TO_TORCH_LIST_TYPE[type(arg[0])], context=self._c
-        ) if type(arg[0]) in SCALAR_TYPE_TO_TORCH_LIST_TYPE else None
+        arg_type = type(arg[0])
+        result_type = SCALAR_TYPE_TO_TORCH_LIST_TYPE.get(arg_type, None)
+
+        if result_type is not None:
+            result_type = MlirType.parse(
+                result_type, context=self._c
+            )
 
         for operand in arg:
-            if not isinstance(operand, type(arg[0])):
+            operand_type = type(operand)
+            if not isinstance(operand, arg_type):
                 raise TypeError(
-                    f"Lists with multiple types are not supported, got: {type(arg[0])}, {type(operand)}"
+                    f"Lists with multiple types are not supported, got: {arg_type}, {operand_type}"
                 )
 
             if isinstance(operand, torch.fx.Node):
@@ -495,7 +500,7 @@ class GraphNodeImporter:
                     result_type = MlirType.parse(f"!torch.list<{list_type}>")
             else:
                 val = self._import_default_value(
-                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                    loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[operand_type]
                 )
 
             list_operands.append(val)
