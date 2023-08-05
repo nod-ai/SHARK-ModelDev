@@ -408,7 +408,8 @@ class GraphNodeImporter:
         return_count = len(schema.returns)
         if return_count == 1:
             # Unary return directly maps a single meta["val"] and cannot be subscripted.
-            result_types = [self._cc.tensor_metadata_to_type(node.meta["tensor_meta"])]
+            # if "tensor_meta" is None, this will throw unsupported placeholder node error
+            result_types = [self._cc.node_val_to_type(node)]
         elif return_count == 0:
             # TODO: Implement.
             raise NotImplementedError("FIXME: Zero ATen results")
@@ -424,7 +425,6 @@ class GraphNodeImporter:
             result_types = tuple(result_types)
 
             self._multi_result_nodes.add(node)
-
         # Unroll operands from formal parameters, args and kwargs.
         operands = []
         for i, parameter in enumerate(schema.arguments):
@@ -440,7 +440,7 @@ class GraphNodeImporter:
                         loc, parameter.default_value, parameter.type
                     )
                 )
-
+        print("result types: ", result_types)
         operation = Operation.create(
             mlir_op_name,
             results=result_types,

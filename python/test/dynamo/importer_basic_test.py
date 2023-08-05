@@ -107,6 +107,27 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
+    @unittest.expectedFailure
+    def testImportListOfTensor(self):
+        def foo():
+            z = (torch.randn([1, 2]), torch.randn([3, 4]))
+            return list(z)
+
+        opt = torch.compile(foo, backend=self.create_backend())
+        opt()
+        print(foo())
+
+    @unittest.expectedFailure
+    def testImportChunk(self):
+        def foo(x):
+            return torch.chunk(x, 2, dim=-1)
+
+        opt = torch.compile(foo, backend=self.create_backend())
+        opt(torch.randn([4, 4, 4, 4]))
+        print(foo(torch.randn([4, 4, 4, 4])))
+
+
+
     def testImportVisionModule(self):
         from torch import nn
         import torch.nn.functional as F
