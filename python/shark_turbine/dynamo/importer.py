@@ -492,11 +492,12 @@ class GraphNodeImporter:
                     raise RuntimeError(f"Attempt to de-reference a multi-result node")
                 val = self._v[(operand,0)]
                 if result_type is None:
-                    list_type: str = str(val.type)
-                    begin_index = 7 if list_type.startswith("!torch.") else None
-                    end_index = list_type.find("<")
-                    end_index = end_index if end_index != -1 else None
-                    list_type = list_type[begin_index:end_index]
+                    # parse torch list type from MlirType string representation
+                    pattern = r"^!torch\.(.*?)(?:<.*>)?$"
+                    val_type = str(val.type)
+                    match = re.match(pattern, val_type)
+                    assert match is not None, f"Unexpected MlirType in list: \'{val_type}\'"
+                    list_type = match.group(1)
                     result_type = MlirType.parse(f"!torch.list<{list_type}>")
             else:
                 val = self._import_default_value(
