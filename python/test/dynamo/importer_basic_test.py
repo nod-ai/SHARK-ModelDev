@@ -111,7 +111,7 @@ class ImportTests(unittest.TestCase):
     def testImportChunk(self):
         """
         Annotated to be an expected failure due to Unsupported placeholder node, where FX graph
-        does not return meta_data["tensor_meta"] to create Ops. Also, same problem with split.Tensor and unbind.int.
+        does not return meta_data["tensor_meta"] to create Ops. Same problem occurs with split.Tensor and unbind.int.
         Needs to identify the root cause.
         """
 
