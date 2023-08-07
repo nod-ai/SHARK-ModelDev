@@ -135,10 +135,10 @@ class FxImporter:
     ]
 
     def __init__(
-        self,
-        module: Optional[Module] = None,
-        context: Optional[Context] = None,
-        config_check: bool = True,
+            self,
+            module: Optional[Module] = None,
+            context: Optional[Context] = None,
+            config_check: bool = True,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -379,7 +379,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -393,7 +393,7 @@ class GraphNodeImporter:
 
         # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
         if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
-            isinstance(node.args[1], float) or isinstance(node.args[1], int)
+                isinstance(node.args[1], float) or isinstance(node.args[1], int)
         ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
@@ -440,7 +440,7 @@ class GraphNodeImporter:
                         loc, parameter.default_value, parameter.type
                     )
                 )
-        print("result types: ", result_types)
+
         operation = Operation.create(
             mlir_op_name,
             results=result_types,
@@ -487,6 +487,21 @@ class GraphNodeImporter:
                     f"Lists with multiple types are not supported, got: {arg_type}, {operand_type}"
                 )
 
+                if isinstance(operand, torch.fx.Node):
+                    if operand in self._multi_result_nodes:
+                        raise RuntimeError(f"Attempt to de-reference a multi-result node")
+                    val = self._v[(operand, 0)]
+                    if result_type is None:
+                        list_type: str = str(val.type)
+                        begin_index = 7 if list_type.startswith("!torch.") else None
+                        end_index = list_type.find("<")
+                        end_index = end_index if end_index != -1 else None
+                        list_type = list_type[begin_index:end_index]
+                        result_type = MlirType.parse(f"!torch.list<{list_type}>")
+                else:
+                    val = self._import_default_value(
+                        loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[type(operand)]
+                    )
             if isinstance(operand, torch.fx.Node):
                 if operand in self._multi_result_nodes:
                     raise RuntimeError(f"Attempt to de-reference a multi-result node")
@@ -569,7 +584,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,

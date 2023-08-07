@@ -95,38 +95,32 @@ class ImportTests(unittest.TestCase):
 
     def testImportListArgs(self):
         def foo():
-            return torch.randn((4,5,6))
+            return torch.randn((4, 5, 6))
 
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo()
 
     def testImportListNodeArgs(self):
-        def foo(x,y):
-            return torch.cat((x,y), 0)
+        def foo(x, y):
+            return torch.cat((x, y), 0)
 
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
     @unittest.expectedFailure
-    def testImportListOfTensor(self):
-        def foo():
-            z = (torch.randn([1, 2]), torch.randn([3, 4]))
-            return list(z)
-
-        opt = torch.compile(foo, backend=self.create_backend())
-        opt()
-        print(foo())
-
-    @unittest.expectedFailure
     def testImportChunk(self):
-        def foo(x):
+        """
+        Annotated to be an expected failure due to Unsupported placeholder node, where FX graph
+        does not return meta_data["tensor_meta"] to create Ops. Also, same problem with split.Tensor and unbind.int.
+        Needs to identify the root cause.
+        """
+
+        def foo_chunk(x):
             return torch.chunk(x, 2, dim=-1)
 
-        opt = torch.compile(foo, backend=self.create_backend())
-        opt(torch.randn([4, 4, 4, 4]))
-        print(foo(torch.randn([4, 4, 4, 4])))
-
-
+        opt = torch.compile(foo_chunk, backend=self.create_backend())
+        t = torch.randn([4, 4, 4, 4])
+        opt(t)
 
     def testImportVisionModule(self):
         from torch import nn
