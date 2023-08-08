@@ -95,17 +95,63 @@ class ImportTests(unittest.TestCase):
 
     def testImportListArgs(self):
         def foo():
-            return torch.randn((4,5,6))
+            return torch.randn((4, 5, 6))
 
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo()
 
     def testImportListNodeArgs(self):
-        def foo(x,y):
-            return torch.cat((x,y), 0)
+        def foo(x, y):
+            return torch.cat((x, y), 0)
 
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
+
+    @unittest.expectedFailure
+    def testImportChunk(self):
+        """
+        Marked as XFail due to Unsupported placeholder node, where FX graph does not return meta_data["tensor_meta"]
+        to create Ops. Same problem occurs with split.Tensor and unbind.int. Needs to identify the root cause.
+        """
+
+        def foo_chunk(x):
+            return torch.chunk(x, 2, dim=-1)
+
+        opt = torch.compile(foo_chunk, backend=self.create_backend())
+        t = torch.randn([4, 4, 4, 4])
+        opt(t)
+
+    @unittest.expectedFailure
+    def testImportToList(self):
+        """
+        Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
+        that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
+        """
+
+        def foo():
+            tensor_data = torch.tensor([[1, 2, 3], [4, 5, 6]])
+            list_data = tensor_data.tolist()
+            return list_data
+
+        opt_foo = torch.compile(foo, backend=self.create_backend())
+        result = opt_foo()
+        expected_result = foo()
+        self.assertEqual(result, expected_result, "broken")
+
+    @unittest.expectedFailure
+    def testImportStandardList(self):
+        """
+        Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
+        that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
+        """
+
+        def foo():
+            tensor_data = torch.tensor([[1, 2, 3], [4, 5, 6]])
+            list_data = list(tensor_data)
+            return list_data
+
+        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo()
 
     def testImportVisionModule(self):
         from torch import nn
