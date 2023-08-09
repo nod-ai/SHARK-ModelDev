@@ -45,6 +45,10 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.randn(10), torch.randn(10, requires_grad=True))
 
+    # TODO: using func.grad for backward test
+
+    # TODO: MNIST Classifier using LeNet for backward test
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
