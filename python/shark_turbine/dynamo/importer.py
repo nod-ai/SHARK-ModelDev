@@ -351,8 +351,6 @@ class GraphNodeImporter:
                     self._v[(node, 0)] = self._b.arguments[num_placeholders]
                     num_placeholders += 1
                 elif op == "call_function":
-                    # print("NODE", node
-                    # print("NODEMETA", node.meta)
 
                     target = node.target
                     if target == operator.getitem:
