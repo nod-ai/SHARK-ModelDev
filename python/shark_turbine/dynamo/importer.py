@@ -132,6 +132,7 @@ class FxImporter:
         "_cc",
         "_m",
         "_m_ip",
+        "used_function_names",
     ]
 
     def __init__(
@@ -152,6 +153,7 @@ class FxImporter:
             self._config_check()
         self._cc = ContextCache(self._c)
         self._m_ip = InsertionPoint(self._m.body)
+        self.used_function_names: Set[str] = set()
 
     def _config_check(self):
         for dname in REQUIRED_DIALCTS:
@@ -171,6 +173,12 @@ class FxImporter:
         self.import_stateless_graph(gm.graph)
 
     def import_stateless_graph(self, g: Graph, func_name: str = "main"):
+        # TODO(Stella): Switch this to SymbolTable insertion/dedup
+        if func_name in self.used_function_names:
+            new_name = f"{func_name}_{len(self.used_function_names)}"
+            func_name = new_name
+        self.used_function_names.add(func_name)
+
         ftype, loc = self._graph_to_function_meta(g)
         # TODO: The FuncOp constructor requires a context-manager context.
         # Fix upstream and then unnest.
@@ -205,7 +213,10 @@ class FxImporter:
                 # An output node's args[0] is the return value. This seems to
                 # always be "boxed" as a tuple, which we emit as multi-results.
                 for result_node in node.args[0]:
-                    result_types.append(self._cc.node_val_to_type(result_node))
+                    if result_node is None:
+                        result_types.append(MlirType.parse("!torch.none", context=self._c))
+                    else:
+                        result_types.append(self._cc.node_val_to_type(result_node))
         return (
             FunctionType.get(input_types, result_types, context=self._c),
             loc if loc else Location.unknown(self._c),
@@ -505,7 +516,7 @@ class GraphNodeImporter:
             if isinstance(operand, torch.fx.Node):
                 if operand in self._multi_result_nodes:
                     raise RuntimeError(f"Attempt to de-reference a multi-result node")
-                val = self._v[(operand,0)]
+                val = self._v[(operand, 0)]
                 if result_type is None:
                     # parse torch list type from MlirType string representation
                     pattern = r"^!torch\.(.*?)(?:<.*>)?$"
@@ -653,12 +664,14 @@ SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
     int: "!torch.list<int>",
     float: "!torch.list<float>",
     str: "!torch.list<str>",
+    bool: "!torch.list<bool>"
 }
 
 SCALAR_TYPE_TO_TORCH_TYPE = {
     int: "!torch.int",
     float: "!torch.float",
     str: "!torch.str",
+    bool: "!torch.bool"
 }
 
 # AOT-autograd sometimes falsely emit tensor version op with scalar arguments.
