@@ -153,7 +153,7 @@ class FxImporter:
             self._config_check()
         self._cc = ContextCache(self._c)
         self._m_ip = InsertionPoint(self._m.body)
-        self.used_function_names = set()
+        self.used_function_names: Set[str] = set()
 
     def _config_check(self):
         for dname in REQUIRED_DIALCTS:
@@ -173,6 +173,7 @@ class FxImporter:
         self.import_stateless_graph(gm.graph)
 
     def import_stateless_graph(self, g: Graph, func_name: str = "main"):
+        # TODO(Stella): Switch this to SymbolTable insertion/dedup
         if func_name in self.used_function_names:
             new_name = f"{func_name}_{len(self.used_function_names)}"
             func_name = new_name
@@ -351,7 +352,6 @@ class GraphNodeImporter:
                     self._v[(node, 0)] = self._b.arguments[num_placeholders]
                     num_placeholders += 1
                 elif op == "call_function":
-
                     target = node.target
                     if target == operator.getitem:
                         # Special case handling of getitem for when it is resolving
