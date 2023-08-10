@@ -28,6 +28,7 @@ class Stats(Counter):
 
         return str([(k, self[k]) for k in stats_keys if k in self])
 
+
 class ErrorAggregatorDict(object):
     """
     Collect and group error messages for a debug report at the end
@@ -81,6 +82,13 @@ class ErrorAggregatorDict(object):
                 extra = ", ..."
                 test_names = test_names[:15]
 
-            print("\033[1;36m" + str(n_tests) + ": " + ", ".join(test_names) + extra + "\033[0;0m")
+            print(
+                "\033[1;36m"
+                + str(n_tests)
+                + ": "
+                + ", ".join(test_names)
+                + extra
+                + "\033[0;0m"
+            )
             print("\033[1;31m" + error.strip() + "\033[0;0m" + "\n")
-            print("-"*20)
+            print("-" * 20)

@@ -34,7 +34,6 @@ class RandomTests(unittest.TestCase):
         import torch.nn.functional as F
 
         class Scaled_Dot_Product_Attention(nn.Module):
-
             def __init__(self):
                 super(Scaled_Dot_Product_Attention, self).__init__()
 

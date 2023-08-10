@@ -37,6 +37,7 @@ from ..importer import FxImporter
 
 import torch
 from torch._dynamo.backends.common import aot_autograd
+from ..passes import turbine_cpu_pass_pipeline
 
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
@@ -64,6 +65,9 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     # TODO: Should capture diagnostics.
     inv.enable_console_diagnostics()
     inv.import_module(module.operation)
+
+    # Apply decompositions.
+    gm = turbine_cpu_pass_pipeline(gm, example_inputs)
 
     # Import phase.
     importer.import_graph_module(gm)

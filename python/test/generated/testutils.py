@@ -23,7 +23,9 @@ def call_with_timeout(fn, args, kwargs=None, timeout=10):
     kwargs = kwargs or {}
     parent_conn, child_conn = multiprocessing.Pipe()
     start = time.time()
-    proc = multiprocessing.Process(target=call_with_timeout_subproc, args=(fn, args, kwargs, child_conn))
+    proc = multiprocessing.Process(
+        target=call_with_timeout_subproc, args=(fn, args, kwargs, child_conn)
+    )
     proc.start()
     while proc.is_alive():
         if parent_conn.poll(1):
@@ -31,7 +33,9 @@ def call_with_timeout(fn, args, kwargs=None, timeout=10):
             proc.join()
             return result
         if time.time() - start > timeout:
-            os.kill(proc.pid, signal.SIGINT)  # maybe generate a stack trace for debugging
+            os.kill(
+                proc.pid, signal.SIGINT
+            )  # maybe generate a stack trace for debugging
             time.sleep(1)
             proc.terminate()
             proc.join(10)
@@ -60,6 +64,7 @@ def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
         log.exception("Error from subprocess")
         sys.exit(1)
 
+
 def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
     """
     A wrapper around call_with_timeout() adding a temp dir and error handling.
@@ -69,22 +74,21 @@ def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
     :param timeout: seconds to wait
     :return: errors, stats
     """
-    file = os.path.basename(path).split('/')[-1]
-    test_identifier = re.sub(r'\.py$', '', file)
+    file = os.path.basename(path).split("/")[-1]
+    test_identifier = re.sub(r"\.py$", "", file)
 
     log.info(f"Running {path}")
     try:
         return call_with_timeout(fn, [path], {}, timeout=timeout)
     except TimeoutError as e:
-        return ErrorAggregatorDict.single(
-            str(e),
-            test_identifier
-        ), Stats({"TIMEOUT": 1})
+        return ErrorAggregatorDict.single(str(e), test_identifier), Stats(
+            {"TIMEOUT": 1}
+        )
     except OSError as e:
-        return ErrorAggregatorDict.single(
-            str(e),
-            test_identifier
-        ), Stats({"CRASHED": 1})
+        return ErrorAggregatorDict.single(str(e), test_identifier), Stats(
+            {"CRASHED": 1}
+        )
+
 
 def import_file(path):
     """
@@ -93,8 +97,11 @@ def import_file(path):
     """
     module = types.ModuleType(re.findall(r"test_[^.]+", path)[0])
     sys.modules[module.__name__] = module
-    exec(compile(open(path).read(), filename=path, mode='exec'),
-         module.__dict__, module.__dict__)
+    exec(
+        compile(open(path).read(), filename=path, mode="exec"),
+        module.__dict__,
+        module.__dict__,
+    )
     if not hasattr(module, "TESTCASES"):
         module.TESTCASES = []
 
@@ -138,10 +145,7 @@ def evaluate_pyfile_subproc(path: str, args, eval_fn=evaluate_importer):
 
         repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
         test_identifier = f"{module.__name__}__{index:03d}"
-        eval_args = [nn_cls,
-                get_init_args,
-                get_forward_args,
-                test_identifier]
+        eval_args = [nn_cls, get_init_args, get_forward_args, test_identifier]
 
         try:
             err_dict = eval_fn(*eval_args)
@@ -159,8 +163,9 @@ def evaluate_pyfile_subproc(path: str, args, eval_fn=evaluate_importer):
     return errors, stats
 
 
-def evaluate_all(args, tests_dir: str = './generated', offset: int = 0, limit: int = None,
-                 jobs=4):
+def evaluate_all(
+    args, tests_dir: str = "./generated", offset: int = 0, limit: int = None, jobs=4
+):
     """
     Generate a paritybench score, main entrypoint for this module.
 
@@ -174,13 +179,15 @@ def evaluate_all(args, tests_dir: str = './generated', offset: int = 0, limit: i
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()
-    testfiles = [os.path.join(tests_dir, f)
-                 for f in os.listdir(tests_dir)
-                 if re.search(r"test_.*[.]py$", f)]
+    testfiles = [
+        os.path.join(tests_dir, f)
+        for f in os.listdir(tests_dir)
+        if re.search(r"test_.*[.]py$", f)
+    ]
     testfiles.sort()
 
     if limit:
-        testfiles = testfiles[offset: offset+limit]
+        testfiles = testfiles[offset : offset + limit]
 
     with tqdm(total=len(testfiles)) as pbar:
         pool = ThreadPool(jobs)
