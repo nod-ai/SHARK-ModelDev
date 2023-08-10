@@ -121,7 +121,15 @@ class ImportTests(unittest.TestCase):
         def foo_chunk(x):
             return torch.chunk(x, 2, dim=-1)
 
-        opt = torch.compile(foo_chunk, backend=self.create_backend(decompose_ops=[torch.ops.aten.split.Tensor, torch.ops.aten.split_with_sizes,]))
+        opt = torch.compile(
+            foo_chunk,
+            backend=self.create_backend(
+                decompose_ops=[
+                    torch.ops.aten.split.Tensor,
+                    torch.ops.aten.split_with_sizes,
+                ]
+            ),
+        )
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 
@@ -129,7 +137,15 @@ class ImportTests(unittest.TestCase):
         def foo_chunk(x):
             return torch.nn.BatchNorm2d(4)(x)
 
-        opt = torch.compile(foo_chunk, backend=self.create_backend(decompose_ops=[torch.ops.aten._native_batch_norm_legit_functional, torch.ops.aten.squeeze.dims,]))
+        opt = torch.compile(
+            foo_chunk,
+            backend=self.create_backend(
+                decompose_ops=[
+                    torch.ops.aten._native_batch_norm_legit_functional,
+                    torch.ops.aten.squeeze.dims,
+                ]
+            ),
+        )
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 

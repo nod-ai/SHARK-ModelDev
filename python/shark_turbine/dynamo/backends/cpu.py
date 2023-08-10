@@ -46,6 +46,7 @@ DEFAULT_COMPILER_FLAGS = (
     "--iree-input-type=tm_tensor",
 )
 
+
 def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     # Set up the session, context and invocation.
     # Note that we do this on one in-memory module in a few phases:

@@ -14,6 +14,7 @@ from torch._decomp import get_decompositions
 from torch.func import functionalize
 from typing import List
 
+
 def default_decompositions():
     return get_decompositions(
         [

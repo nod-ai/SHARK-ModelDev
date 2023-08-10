@@ -6,18 +6,18 @@ from typing import List
 
 # default decompositions pulled from SHARK
 DEFAULT_DECOMPOSITIONS = [
-            torch.ops.aten.embedding_dense_backward,
-            torch.ops.aten.native_layer_norm_backward,
-            torch.ops.aten.slice_backward,
-            torch.ops.aten.select_backward,
-            torch.ops.aten.norm.ScalarOpt_dim,
-            torch.ops.aten.native_group_norm,
-            torch.ops.aten.upsample_bilinear2d.vec,
-            torch.ops.aten.split.Tensor,
-            torch.ops.aten.split_with_sizes,
-            torch.ops.aten.native_layer_norm,
-            torch.ops.aten.masked_fill.Tensor,
-            torch.ops.aten.masked_fill.Scalar,
+    torch.ops.aten.embedding_dense_backward,
+    torch.ops.aten.native_layer_norm_backward,
+    torch.ops.aten.slice_backward,
+    torch.ops.aten.select_backward,
+    torch.ops.aten.norm.ScalarOpt_dim,
+    torch.ops.aten.native_group_norm,
+    torch.ops.aten.upsample_bilinear2d.vec,
+    torch.ops.aten.split.Tensor,
+    torch.ops.aten.split_with_sizes,
+    torch.ops.aten.native_layer_norm,
+    torch.ops.aten.masked_fill.Tensor,
+    torch.ops.aten.masked_fill.Scalar,
 ]
 
 # decompositions that aid us in handling nn.BatchNorm2d
@@ -27,7 +27,11 @@ BATCHNORM_DECOMPOSITIONS = [
 ]
 
 
-def apply_decompositions(gm: torch.fx.GraphModule, example_inputs, decompose_ops: List[torch._ops.OpOverload] = None):
+def apply_decompositions(
+    gm: torch.fx.GraphModule,
+    example_inputs,
+    decompose_ops: List[torch._ops.OpOverload] = None,
+):
     if decompose_ops is None:
         return gm
 
