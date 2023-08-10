@@ -63,6 +63,8 @@ def default_decompositions():
             torch.ops.aten.native_layer_norm,
             torch.ops.aten.masked_fill.Tensor,
             torch.ops.aten.masked_fill.Scalar,
+            torch.ops.aten._native_batch_norm_legit_functional,
+            torch.ops.aten.squeeze.dims,
         ]
     )
 

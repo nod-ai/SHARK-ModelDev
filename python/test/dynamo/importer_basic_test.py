@@ -125,6 +125,14 @@ class ImportTests(unittest.TestCase):
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 
+    def testImportDecomposeBatchNorm2D(self):
+        def foo_chunk(x):
+            return torch.nn.BatchNorm2d(4)(x)
+
+        opt = torch.compile(foo_chunk, backend=self.create_backend(decompose_ops=[torch.ops.aten._native_batch_norm_legit_functional, torch.ops.aten.squeeze.dims,]))
+        t = torch.randn([4, 4, 4, 4])
+        opt(t)
+
     @unittest.expectedFailure
     def testImportToList(self):
         """

@@ -29,6 +29,8 @@ def default_decompositions():
             torch.ops.aten.native_layer_norm,
             torch.ops.aten.masked_fill.Tensor,
             torch.ops.aten.masked_fill.Scalar,
+            torch.ops.aten._native_batch_norm_legit_functional,
+            torch.ops.aten.squeeze.dims,
         ]
     )
 
@@ -42,11 +44,10 @@ def create_backend():
             decomposition_table=default_decompositions(),
         )(*example_inputs)
 
-        gm.print_readable()
         try:
             imp.import_graph_module(gm)
         finally:
-            print(imp.module)
+            pass
         imp.module.operation.verify()
         return gm
 
