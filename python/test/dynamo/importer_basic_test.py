@@ -6,21 +6,31 @@
 
 import logging
 import unittest
+from typing import List
 
 from shark_turbine.dynamo.importer import FxImporter
 import torch
 import torch._dynamo as dynamo
 from torch._dynamo.backends.common import aot_autograd
+from torch.fx.experimental.proxy_tensor import make_fx
+from torch._decomp import get_decompositions
+from torch.func import functionalize
 from torch.fx import (
     GraphModule,
 )
 
 
 class ImportTests(unittest.TestCase):
-    def create_backend(self):
+    def create_backend(self, decompose_ops: List[torch._ops.OpOverloadPacket] = None):
         imp = FxImporter()
 
         def import_compiler(gm: GraphModule, example_inputs):
+            if decompose_ops is not None:
+                gm = make_fx(
+                    functionalize(gm),
+                    decomposition_table=get_decompositions(decompose_ops),
+                )(*example_inputs)
+
             gm.print_readable()
             try:
                 imp.import_graph_module(gm)
@@ -107,17 +117,11 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=self.create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
-    @unittest.expectedFailure
-    def testImportChunk(self):
-        """
-        Marked as XFail due to Unsupported placeholder node, where FX graph does not return meta_data["tensor_meta"]
-        to create Ops. Same problem occurs with split.Tensor and unbind.int. Needs to identify the root cause.
-        """
-
+    def testImportDecomposeChunk(self):
         def foo_chunk(x):
             return torch.chunk(x, 2, dim=-1)
 
-        opt = torch.compile(foo_chunk, backend=self.create_backend())
+        opt = torch.compile(foo_chunk, backend=self.create_backend(decompose_ops=[torch.ops.aten.split.Tensor, torch.ops.aten.split_with_sizes,]))
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 

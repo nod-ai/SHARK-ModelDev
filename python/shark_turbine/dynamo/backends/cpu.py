@@ -37,6 +37,9 @@ from ..importer import FxImporter
 
 import torch
 from torch._dynamo.backends.common import aot_autograd
+from torch.fx.experimental.proxy_tensor import make_fx
+from torch._decomp import get_decompositions
+from torch.func import functionalize
 
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
@@ -45,6 +48,23 @@ DEFAULT_COMPILER_FLAGS = (
     "--iree-input-type=tm_tensor",
 )
 
+def default_decompositions():
+    return get_decompositions(
+        [
+            torch.ops.aten.embedding_dense_backward,
+            torch.ops.aten.native_layer_norm_backward,
+            torch.ops.aten.slice_backward,
+            torch.ops.aten.select_backward,
+            torch.ops.aten.norm.ScalarOpt_dim,
+            torch.ops.aten.native_group_norm,
+            torch.ops.aten.upsample_bilinear2d.vec,
+            torch.ops.aten.split.Tensor,
+            torch.ops.aten.split_with_sizes,
+            torch.ops.aten.native_layer_norm,
+            torch.ops.aten.masked_fill.Tensor,
+            torch.ops.aten.masked_fill.Scalar,
+        ]
+    )
 
 def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     # Set up the session, context and invocation.
@@ -64,6 +84,12 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     # TODO: Should capture diagnostics.
     inv.enable_console_diagnostics()
     inv.import_module(module.operation)
+
+    # Apply decompositions.
+    gm = make_fx(
+        functionalize(gm),
+        decomposition_table=default_decompositions(),
+    )(*example_inputs)
 
     # Import phase.
     importer.import_graph_module(gm)
