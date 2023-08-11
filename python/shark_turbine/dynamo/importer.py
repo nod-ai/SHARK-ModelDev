@@ -3,7 +3,7 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-
+import builtins
 import logging
 import operator
 import re
@@ -27,7 +27,7 @@ from iree.compiler.ir import (
 )
 
 import iree.compiler.dialects.func as func_dialect
-
+from iree.compiler.ir import SymbolTable
 # import iree.compiler.dialects.torch as torch_dialect
 
 
@@ -132,7 +132,7 @@ class FxImporter:
         "_cc",
         "_m",
         "_m_ip",
-        "used_function_names",
+        "symbol_table",
     ]
 
     def __init__(
@@ -153,7 +153,7 @@ class FxImporter:
             self._config_check()
         self._cc = ContextCache(self._c)
         self._m_ip = InsertionPoint(self._m.body)
-        self.used_function_names: Set[str] = set()
+        self.symbol_table = SymbolTable(self._m.operation)
 
     def _config_check(self):
         for dname in REQUIRED_DIALCTS:
@@ -173,12 +173,6 @@ class FxImporter:
         self.import_stateless_graph(gm.graph)
 
     def import_stateless_graph(self, g: Graph, func_name: str = "main"):
-        # TODO(Stella): Switch this to SymbolTable insertion/dedup
-        if func_name in self.used_function_names:
-            new_name = f"{func_name}_{len(self.used_function_names)}"
-            func_name = new_name
-        self.used_function_names.add(func_name)
-
         ftype, loc = self._graph_to_function_meta(g)
         # TODO: The FuncOp constructor requires a context-manager context.
         # Fix upstream and then unnest.
@@ -191,6 +185,7 @@ class FxImporter:
             entry_block = Block.create_at_start(func.body, ftype.inputs)
         node_importer = GraphNodeImporter(self._c, self._cc, entry_block)
         node_importer.import_nodes(g.nodes)
+        self.symbol_table.insert(func)
 
     def _graph_to_function_meta(self, g: Graph) -> Tuple[FunctionType, Location]:
         """Extracts function metadata from the Graph.
@@ -392,7 +387,7 @@ class GraphNodeImporter:
                     func_dialect.ReturnOp(operands, loc=loc)
 
     def _import_torch_op_overload(
-        self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
+            self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -406,7 +401,7 @@ class GraphNodeImporter:
 
         # Intervening to use Scalar ops due to incorrect ops from AOT-autograd with scalar arguments.
         if mlir_op_name in TENSOR_SCALAR_OP_CONVERTER and (
-            isinstance(node.args[1], float) or isinstance(node.args[1], int)
+                isinstance(node.args[1], float) or isinstance(node.args[1], int)
         ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
 
@@ -508,7 +503,7 @@ class GraphNodeImporter:
                     val_type = str(val.type)
                     match = re.match(pattern, val_type)
                     assert (
-                        match is not None
+                            match is not None
                     ), f"Unexpected MlirType in list: '{val_type}'"
                     list_type = match.group(1)
                     result_type = MlirType.parse(f"!torch.list<{list_type}>")
@@ -582,7 +577,7 @@ class TypeSubclassMap:
 
 
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+        op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
