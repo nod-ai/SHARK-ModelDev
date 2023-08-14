@@ -53,3 +53,10 @@ This error arises due to an odd case in the Fx Graph generation where the
 graph module for our code generates a node `_tensor_constant0 = self._tensor_constant0` with no traceable origin within 
 the graph. This means that our lookup for the appropriate MlirValue in the importer's `_v` table fails. This consistently 
 occurs when the graph generates an intermediate `aten.lift_fresh_copy` as in the boolean indexing example above.
+
+There is a known issue in PyTorch https://github.com/pytorch/pytorch/issues/105327.
+```
+BackendCompilerFailed: backend='aot_eager' raised:
+RuntimeError: !at::functionalization::impl::isFunctionalTensor(self) INTERNAL ASSERT FAILED at "/raid/rzou/pt/debug-cpu3/aten/src/ATen/FunctionalizeFallbackKe
+rnel.cpp":191, please report a bug to PyTorch.
+```
