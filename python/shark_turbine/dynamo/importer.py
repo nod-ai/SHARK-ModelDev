@@ -496,7 +496,7 @@ class GraphNodeImporter:
             operand_type = type(operand)
             if not isinstance(operand, arg_type):
                 raise TypeError(
-                    f"Lists with multiple types are not supported, got: {arg_type}, {operand_type}"
+                    f"Heterogeneous lists are not supported: expected {arg_type}, got {operand_type}"
                 )
 
             if isinstance(operand, torch.fx.Node):

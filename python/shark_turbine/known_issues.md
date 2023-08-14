@@ -3,15 +3,16 @@
 ## Handling lists of optional types
 ```py
 from torch import nn
-class foodmod(nn.Module):
+class foomod(nn.Module):
     def __init__(self):
+        super().__init__()
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
     def forward(self, x):
         return self.up(x)
 ```
 ```
 # occuring in importer -> import_list_arguments
-compiler_fn raised TypeError: Lists with multiple types are not supported, got: <class 'NoneType'>, <class 'torch.fx.node.Node'>
+compiler_fn raised TypeError: Heterogeneous lists are not supported: expected <class 'NoneType'>, got <class 'torch.fx.node.Node'>
 ```
 An example is attempting to import `nn.Upsample`. This module internally makes a call to `F.interpolate` which eventually 
 calls `aten.index.Tensor` whose [second argument](https://github.com/llvm/torch-mlir/blob/50f5b658b6dc50f664d78c89c403149b064fb59b/include/torch-mlir/Dialect/Torch/IR/GeneratedTorchOps.td#L7389C46-L7389C46) is an
