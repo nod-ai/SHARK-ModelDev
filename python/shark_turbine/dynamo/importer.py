@@ -7,6 +7,7 @@ import builtins
 import logging
 import operator
 import re
+from types import NoneType
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from iree.compiler.ir import (
@@ -490,7 +491,7 @@ class GraphNodeImporter:
             operand_type = type(operand)
             if not isinstance(operand, arg_type):
                 raise TypeError(
-                    f"Lists with multiple types are not supported, got: {arg_type}, {operand_type}"
+                    f"Heterogeneous lists are not supported: expected {arg_type}, got {operand_type}"
                 )
 
             if isinstance(operand, torch.fx.Node):
@@ -588,7 +589,7 @@ def _make_constant_op(
 
 LITERAL_CONVERTER_MAP = TypeSubclassMap()
 LITERAL_CONVERTER_MAP.map(
-    type(None),
+    NoneType,
     lambda arg, gni, cc: Operation.create(
         "torch.constant.none", results=[cc.torch_none_type]
     ).result,
@@ -654,6 +655,7 @@ SCALAR_TYPE_TO_TORCH_TYPE = {
     float: "!torch.float",
     str: "!torch.str",
     bool: "!torch.bool",
+    NoneType: "!torch.none",
 }
 
 # AOT-autograd sometimes falsely emit tensor version op with scalar arguments.
