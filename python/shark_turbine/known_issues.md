@@ -53,50 +53,7 @@ This error arises due to an odd case in the Fx Graph generation where the
 graph module for our code generates a node `_tensor_constant0 = self._tensor_constant0` with no traceable origin within
 the graph. This means that our lookup for the appropriate MlirValue in the importer's `_v` table fails. This consistently
 occurs when the graph generates an intermediate `aten.lift_fresh_copy` as in the boolean indexing example above.
-Same error occurs in the expectedFailure test cases of `list(tensor_data)` and `tensor_data.tolist()`.
+The same error occurs in the expectedFailure test cases of `list(tensor_data)` and `tensor_data.tolist()`.
 
-Currently, there is a known issue in PyTorch https://github.com/pytorch/pytorch/issues/105327,
-throwing out failure in functionalization.
-```
-BackendCompilerFailed: backend='aot_eager' raised:
-RuntimeError: !at::functionalization::impl::isFunctionalTensor(self) INTERNAL ASSERT FAILED at "/raid/rzou/pt/debug-cpu3/aten/src/ATen/FunctionalizeFallbackKe
-rnel.cpp":191, please report a bug to PyTorch.
-```
-
-Calling `lift()` also results in failure of functionalization.
-```python
-def foo(x):
-    return torch.ops.aten.lift(x)
-```
-```
-  File "/home/brucekimrok/miniconda3/envs/turbine/lib/python3.10/site-packages/torch/_ops.py", line 502, in __call__
-    return self._op(*args, **kwargs or {})
-RuntimeError: !at::functionalization::impl::isFunctionalTensor(self) INTERNAL ASSERT FAILED at "../aten/src/ATen/FunctionalizeFallbackKernel.cpp":167, please report a bug to PyTorch. 
-```
-
-Directly calling `lift_fresh_copy.default` arises `RecursionError: maximum recursion depth exceeded while calling a Python object`.
-```python
-def foo(x):
-
-    _tensor_constant0 = torch.tensor([1])
-    lift_fresh_copy = torch.ops.aten.lift_fresh_copy.default(_tensor_constant0)
-
-    return lift_fresh_copy
-```
-```
-[2023-08-14 18:15:44,390] torch._dynamo.symbolic_convert: [DEBUG] TRACE CALL_FUNCTION 1 [TorchVariable(aten.lift_fresh_copy.default), TensorVariable()]
-DEBUG:torch._subclasses.fake_tensor:FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-DEBUG:torch._subclasses.fake_tensor: FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-DEBUG:torch._subclasses.fake_tensor:  FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-DEBUG:torch._subclasses.fake_tensor:   FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-DEBUG:torch._subclasses.fake_tensor:    FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-DEBUG:torch._subclasses.fake_tensor:     FakeTensorMode.__torch_dispatch__: aten.lift_fresh_copy.default
-...
-```
-This might be related with in PyTorch dispatch, which suppresses returning `FakeTensorMode()` for `aten.lift_fresh.default` in this link:
-https://github.com/pytorch/pytorch/blob/ddf36c82b83b2db3be7ce7a85d4aea3507c9d7ef/torch/_dispatch/python.py#L108
-and may result in failure in functionalization.
-
-FunctionalizeFallbackKernel link:
-https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/FunctionalizeFallbackKernel.cpp
-https://github.com/pytorch/pytorch/blob/main/torch/csrc/lazy/ts_backend/ts_native_functions.cpp#L297
+There is an existing issue in PyTorch that is tracking this problem in the `aot-eager` backend: https://github.com/pytorch/pytorch/issues/105327.
+This issue arises because this particular op is not handled in the PyTorch dispatch logic, and is instead suppresed [here](https://github.com/pytorch/pytorch/blob/ddf36c82b83b2db3be7ce7a85d4aea3507c9d7ef/torch/_dispatch/python.py#L108)
