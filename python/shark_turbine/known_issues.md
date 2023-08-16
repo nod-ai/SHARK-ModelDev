@@ -1,6 +1,5 @@
 # Known Issues in SHARK-Turbine
 
-
 ## Dealing with functional variants of Torch Ops
 
 ```py

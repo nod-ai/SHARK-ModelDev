@@ -82,6 +82,18 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
+    def testImportOptionalListArgs(self):
+        """
+        Upsample triggers aten.index.Tensor with an 'indices' argument of the form List[Optional[Tensor]], this case tests
+        whether we handle these cases properly in _import_list_argument
+        """
+        def foo(x):
+            up = torch.nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            return up(x)
+
+        opt_foo = torch.compile(foo, backend=create_backend())
+        opt_foo(torch.randn(4,4,4,4))
+
     def testImportDecomposeChunk(self):
         def foo_chunk(x):
             return torch.chunk(x, 2, dim=-1)
@@ -99,11 +111,11 @@ class ImportTests(unittest.TestCase):
         opt(t)
 
     def testImportDecomposeBatchNorm2D(self):
-        def foo(x):
+        def foo_bn(x):
             return torch.nn.BatchNorm2d(4)(x)
 
         opt = torch.compile(
-            foo,
+            foo_bn,
             backend=create_backend(
                 decompose_ops=[
                     torch.ops.aten._native_batch_norm_legit_functional,
