@@ -392,7 +392,12 @@ class GraphNodeImporter:
     ):
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
-
+        print("NODE", node)
+        print(dir(schema.arguments[0]))
+        print([a.name for a in schema.arguments])
+        print([a.type for a in schema.arguments])
+        print([type(a.type) for a in schema.arguments])
+        print([f"{a.type.getElementType()} | {type(a.type.getElementType())}" for a in schema.arguments if isinstance(a.type,torch.ListType)])
         # Map to a `torch` dialect name.
         namespace, sep, unqualified_name = schema.name.partition("::")
         assert sep, f"Malformed Torch op name {schema.name}"
@@ -479,36 +484,40 @@ class GraphNodeImporter:
             raise NotImplementedError(f"FIXME: Unsupported Node Argument: {arg}")
 
     def _import_list_argument(self, loc: Location, arg):
+        def get_mlir_type(val_type: str) -> str:
+            pattern = r"^!torch\.(.*?)(?:<.*>)?$"
+            match = re.match(pattern, val_type)
+            assert (
+                    match is not None
+            ), f"Unexpected MlirType: '{val_type}'"
+            return match.group(1)
+
         # create list operands
         list_operands = []
-        arg_type = type(arg[0])
-        result_type = SCALAR_TYPE_TO_TORCH_LIST_TYPE.get(arg_type, None)
-
-        if result_type is not None:
-            result_type = MlirType.parse(result_type, context=self._c)
+        is_optional_type = False
+        inner_type = None
 
         for operand in arg:
             operand_type = type(operand)
-            if not isinstance(operand, arg_type):
-                raise TypeError(
-                    f"Heterogeneous lists are not supported: expected {arg_type}, got {operand_type}"
-                )
-
             if isinstance(operand, torch.fx.Node):
                 if operand in self._multi_result_nodes:
                     raise RuntimeError(f"Attempt to de-reference a multi-result node")
                 val = self._v[(operand, 0)]
-                if result_type is None:
+                val_type = str(val.type)
+                if inner_type is None:
                     # parse torch list type from MlirType string representation
-                    pattern = r"^!torch\.(.*?)(?:<.*>)?$"
-                    val_type = str(val.type)
-                    match = re.match(pattern, val_type)
-                    assert (
-                            match is not None
-                    ), f"Unexpected MlirType in list: '{val_type}'"
-                    list_type = match.group(1)
-                    result_type = MlirType.parse(f"!torch.list<{list_type}>")
+                    inner_type = get_mlir_type(val_type)
+                else:
+                    print("TYPES",inner_type, val_type)
+                    assert isinstance(inner_type, str) and inner_type in val_type, f"Heterogeneous lists are not supported: expected {inner_type}, got {val_type}"
             else:
+                if operand is None:
+                    is_optional_type = True
+                elif inner_type is None:
+                    inner_type = operand_type
+                else:
+                    assert inner_type == operand_type, f"Heterogeneous lists are not supported: expected {inner_type}, got {operand_type}"
+
                 val = self._import_default_value(
                     loc, operand, SCALAR_TYPE_TO_TORCH_TYPE[operand_type]
                 )
@@ -516,12 +525,21 @@ class GraphNodeImporter:
             list_operands.append(val)
 
         # construct list op
+        if is_optional_type:
+            list_type = PY_TYPE_TO_TORCH_OPTIONAL_LIST_TYPE[inner_type]
+        else:
+            list_type = PY_TYPE_TO_TORCH_LIST_TYPE[inner_type]
+
+        result_type = MlirType.parse(list_type, context=self._c)
         operation = Operation.create(
             "torch.prim.ListConstruct",
             results=[result_type],
             operands=list_operands,
             loc=loc,
         )
+
+        print("CREATED LIST:", result_type, list_operands, loc, "\n\n")
+
         return operation.result
 
     def _import_default_value(self, loc: Location, arg, expected_jit_type) -> Value:
@@ -643,11 +661,22 @@ LITERAL_CONVERTER_MAP.map(
     ),
 )
 
-SCALAR_TYPE_TO_TORCH_LIST_TYPE = {
+PY_TYPE_TO_TORCH_LIST_TYPE = {
     int: "!torch.list<int>",
     float: "!torch.list<float>",
     str: "!torch.list<str>",
     bool: "!torch.list<bool>",
+    "tensor": "!torch.list<tensor>",
+    "vtensor": "!torch.list<vtensor>",
+}
+
+PY_TYPE_TO_TORCH_OPTIONAL_LIST_TYPE = {
+    int: "!torch.list<optional<int>>",
+    float: "!torch.list<optional<float>>",
+    str: "!torch.list<optional<str>>",
+    bool: "!torch.list<optional<bool>>",
+    "tensor": "!torch.list<optional<tensor>>",
+    "vtensor": "!torch.list<optional<vtensor>>",
 }
 
 SCALAR_TYPE_TO_TORCH_TYPE = {
