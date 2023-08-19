@@ -58,9 +58,9 @@ nop_decomposition() decomposes `aten.detach`, `aten.lift`, `aten.lift_fresh` int
 
 This is because `aten.lift_fresh` and `aten.lift_fresh_copy` are functionalized here.
 There's no decomposition of functionalized `aten.lift_fresh` and `aten.lift_fresh_copy` currently.
-Which is why I think inductor is lowering it down to IR. (need to test)
+When using `inductor`, these ops are transformed to `aten.clone` and lowered down to IR.
 
-
+TODO: Figure out how `aten.lift_fresh` and `aten.lift_fresh_copy` works in `eager` mode.
 
 ```python
 def basic_3(x):
@@ -78,6 +78,4 @@ but throws an assertion ero saying that fake inputs should have constants.
 ```
 AssertionError: f{func} should not have fake inputs without constants
 ```
-
-[//]: # (Due to these reasons, `lift_fresh.default` must have been suppressed for now in [here]&#40;https://github.com/pytorch/pytorch/blob/ddf36c82b83b2db3be7ce7a85d4aea3507c9d7ef/torch/_dispatch/python.py#L108&#41;)
 
