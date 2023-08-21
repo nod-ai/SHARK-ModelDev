@@ -4,48 +4,13 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import logging
-import unittest
-from typing import List
-
-from shark_turbine.dynamo.importer import FxImporter
-import torch
-import torch._dynamo as dynamo
-from torch._dynamo.backends.common import aot_autograd
-from torch.fx.experimental.proxy_tensor import make_fx
-from torch._decomp import get_decompositions
-from torch.func import functionalize
-from torch.fx import (
-    GraphModule,
-)
+from testutils import *
 
 
 class ImportTests(unittest.TestCase):
-    def create_backend(self, decompose_ops: List[torch._ops.OpOverloadPacket] = None):
-        imp = FxImporter()
-
-        def import_compiler(gm: GraphModule, example_inputs):
-            if decompose_ops is not None:
-                gm = make_fx(
-                    functionalize(gm),
-                    decomposition_table=get_decompositions(decompose_ops),
-                )(*example_inputs)
-
-            gm.print_readable()
-            try:
-                imp.import_graph_module(gm)
-            finally:
-                print(imp.module)
-            imp.module.operation.verify()
-            return gm
-
-        backend = import_compiler
-        backend = aot_autograd(fw_compiler=backend)
-        return backend
-
     def testImportStateless(self):
         a = torch.randn(3, 4)
-        backend = self.create_backend()
+        backend = create_backend()
 
         @dynamo.optimize(backend)
         def basic(x):
@@ -71,14 +36,14 @@ class ImportTests(unittest.TestCase):
             o = o.to(torch.bfloat16)
             return o
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.ones(10))
 
     def testImportDevice(self):
         def foo(x):
             return torch.arange(x, device="cpu")
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(10)
 
     def testImportLayout(self):
@@ -86,7 +51,7 @@ class ImportTests(unittest.TestCase):
             # sparse layouts are not currently supported as they can not be created on the 'meta' device
             return torch.ones_like(x, layout=torch.strided)
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.randn(10))
 
     def testImportMemoryFormat(self):
@@ -100,21 +65,21 @@ class ImportTests(unittest.TestCase):
                 torch.randn(1, 1, 1, 1, 1), memory_format=torch.channels_last_3d
             )
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     def testImportListArgs(self):
         def foo():
             return torch.randn((4, 5, 6))
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     def testImportListNodeArgs(self):
         def foo(x, y):
             return torch.cat((x, y), 0)
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
     def testImportDecomposeChunk(self):
@@ -123,7 +88,7 @@ class ImportTests(unittest.TestCase):
 
         opt = torch.compile(
             foo_chunk,
-            backend=self.create_backend(
+            backend=create_backend(
                 decompose_ops=[
                     torch.ops.aten.split.Tensor,
                     torch.ops.aten.split_with_sizes,
@@ -134,12 +99,12 @@ class ImportTests(unittest.TestCase):
         opt(t)
 
     def testImportDecomposeBatchNorm2D(self):
-        def foo_chunk(x):
+        def foo(x):
             return torch.nn.BatchNorm2d(4)(x)
 
         opt = torch.compile(
-            foo_chunk,
-            backend=self.create_backend(
+            foo,
+            backend=create_backend(
                 decompose_ops=[
                     torch.ops.aten._native_batch_norm_legit_functional,
                     torch.ops.aten.squeeze.dims,
@@ -154,6 +119,7 @@ class ImportTests(unittest.TestCase):
         """
         Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
         that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
+        This is due to PyTorch suppressing functionalization of this particular op
         """
 
         def foo():
@@ -161,7 +127,7 @@ class ImportTests(unittest.TestCase):
             list_data = tensor_data.tolist()
             return list_data
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         result = opt_foo()
         expected_result = foo()
         self.assertEqual(result, expected_result, "broken")
@@ -171,6 +137,7 @@ class ImportTests(unittest.TestCase):
         """
         Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
         that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
+        This is due to PyTorch suppressing functionalization of this particular op
         """
 
         def foo():
@@ -178,7 +145,7 @@ class ImportTests(unittest.TestCase):
             list_data = list(tensor_data)
             return list_data
 
-        opt_foo = torch.compile(foo, backend=self.create_backend())
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     def testImportVisionModule(self):
@@ -219,8 +186,59 @@ class ImportTests(unittest.TestCase):
                 return self.act(self.convs(h) + x)
 
         mod = ConvBlock(3, 5)
-        opt_mod = torch.compile(mod, backend=self.create_backend())
+        opt_mod = torch.compile(mod, backend=create_backend())
         opt_mod(torch.randn(1, 3, 256, 256))
+
+    def testMultiHeadAttentionModule(self):
+        import torch.nn as nn
+        import torch.nn.functional as F
+
+        class ScaledDotProductAttention(nn.Module):
+            def __init__(self):
+                super(ScaledDotProductAttention, self).__init__()
+
+            def forward(self, Q, K, V, scale=None):
+                attention = torch.matmul(Q, K.permute(0, 2, 1))
+                if scale:
+                    attention = attention * scale
+                attention = F.softmax(attention, dim=-1)
+                context = torch.matmul(attention, V)
+                return context
+
+        class MultiHeadAttention(nn.Module):
+            def __init__(self, dim_model, num_head, dropout=0.0):
+                super(MultiHeadAttention, self).__init__()
+                self.num_head = num_head
+                assert dim_model % num_head == 0
+                self.dim_head = dim_model // self.num_head
+                self.fc_Q = nn.Linear(dim_model, num_head * self.dim_head)
+                self.fc_K = nn.Linear(dim_model, num_head * self.dim_head)
+                self.fc_V = nn.Linear(dim_model, num_head * self.dim_head)
+                self.attention = ScaledDotProductAttention()
+                self.fc = nn.Linear(num_head * self.dim_head, dim_model)
+                self.dropout = nn.Dropout(dropout)
+                self.layer_norm = nn.LayerNorm(dim_model)
+
+            def forward(self, x):
+                batch_size = x.size(0)
+                Q = self.fc_Q(x)
+                K = self.fc_K(x)
+                V = self.fc_V(x)
+                Q = Q.view(batch_size * self.num_head, -1, self.dim_head)
+                K = K.view(batch_size * self.num_head, -1, self.dim_head)
+                V = V.view(batch_size * self.num_head, -1, self.dim_head)
+                scale = K.size(-1) ** -0.5
+                context = self.attention(Q, K, V, scale)
+                context = context.view(batch_size, -1, self.dim_head * self.num_head)
+                out = self.fc(context)
+                out = self.dropout(out)
+                out = out + x
+                out = self.layer_norm(out)
+                return out
+
+        mod = MultiHeadAttention(256, 4)
+        opt = torch.compile(mod, backend=create_backend())
+        opt(torch.randn(1, 1, 256, 256))
 
 
 if __name__ == "__main__":
