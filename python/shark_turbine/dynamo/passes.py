@@ -20,10 +20,25 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.masked_fill.Scalar,
 ]
 
-# decompositions that aid us in handling nn.BatchNorm2d
-BATCHNORM_DECOMPOSITIONS = [
+
+CPU_DECOMPOSITIONS = [
+    # decompositions that aid us in handling nn.BatchNorm2d
     torch.ops.aten._native_batch_norm_legit_functional,
+    torch.ops.aten._native_batch_norm_legit.no_stats,
     torch.ops.aten.squeeze.dims,
+    # decompositions for miscellaneous ops that are not handled in torch-mlir but have available decompositions
+    torch.ops.aten.soft_margin_loss,
+    torch.ops.aten.im2col,
+    torch.ops.aten._euclidean_dist,
+    torch.ops.aten.index_copy,
+    torch.ops.aten.index_copy_,
+    torch.ops.aten.grid_sampler_2d,
+    torch.ops.aten.log_sigmoid_forward,
+    torch.ops.aten.unsafe_split.Tensor,
+    torch.ops.aten.binary_cross_entropy,
+    torch.ops.aten.dot,
+    torch.ops.aten._adaptive_avg_pool2d,
+    torch.ops.aten._prelu_kernel,
 ]
 
 
@@ -45,5 +60,5 @@ def apply_decompositions(
 
 
 def turbine_cpu_pass_pipeline(gm: torch.fx.GraphModule, example_inputs):
-    decompose_ops = DEFAULT_DECOMPOSITIONS + BATCHNORM_DECOMPOSITIONS
+    decompose_ops = DEFAULT_DECOMPOSITIONS + CPU_DECOMPOSITIONS
     return apply_decompositions(gm, example_inputs, decompose_ops)
