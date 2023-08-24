@@ -3,6 +3,7 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+import torch
 
 from testutils import *
 
@@ -126,36 +127,23 @@ class ImportTests(unittest.TestCase):
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 
-    @unittest.expectedFailure
-    def testImportToList(self):
-        """
-        Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
-        that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
-        This is due to PyTorch suppressing functionalization of this particular op
-        """
-
+    def testLiftFreshCopy(self):
         def foo():
-            tensor_data = torch.tensor([[1, 2, 3], [4, 5, 6]])
-            list_data = tensor_data.tolist()
-            return list_data
+            w = torch.tensor([[1,2], [3,4]], dtype=torch.uint8)
+            x = torch.tensor([[1,2], [3,4]], dtype=torch.int32)
+            y = torch.tensor([[1,2], [3,4]], dtype=torch.float32)
+            z = torch.tensor([[1,2], [3,4]], dtype=torch.float64)
+            return w, x, y, z
 
         opt_foo = torch.compile(foo, backend=create_backend())
-        result = opt_foo()
-        expected_result = foo()
-        self.assertEqual(result, expected_result, "broken")
+        opt_foo()
 
     @unittest.expectedFailure
-    def testImportStandardList(self):
-        """
-        Marked as XFail due to No stacktrace found for _tensor_constant0 = self._tensor_constant0
-        that leads to copy of None in aten.lift_fresh_copy op and fails to get operands
-        This is due to PyTorch suppressing functionalization of this particular op
-        """
-
+    def testLiftFreshCopyComplex(self):
         def foo():
-            tensor_data = torch.tensor([[1, 2, 3], [4, 5, 6]])
-            list_data = list(tensor_data)
-            return list_data
+            x = torch.tensor([[1,2], [3,4]], dtype=torch.complex64)
+            y = torch.tensor([[1,2], [3,4]], dtype=torch.complex128)
+            return x, y
 
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
