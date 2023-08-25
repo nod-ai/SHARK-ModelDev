@@ -39,3 +39,19 @@ occurs when the graph generates an intermediate `aten.lift_fresh_copy` as in the
 We now have a fix for this by directly instantiating the object using a reference to the top level graph module in the 
 importer, but this method does not support all torch datatypes - in particular it fails to support `bfloat16` and 
 complex datatypes.
+
+
+## Assertion failure in `aten.lift` in the aot_eager, inductor, and turbine backend.
+```python
+import torch
+def forward(self, x):
+    return torch.ops.aten.lift(x)
+```
+```
+RuntimeError: !at::functionalization::impl::isFunctionalTensor(self) 
+INTERNAL ASSERT FAILED at "../aten/src/ATen/FunctionalizeFallbackKernel.cpp":167, please report a bug to PyTorch. 
+```
+[`aten.lift`](https://github.com/pytorch/pytorch/blob/3a3cf0e09d475df9237c95ebd14debf650e0c038/aten/src/ATen/native/native_functions.yaml#L7583) seems to fail the [functionalization stage](https://github.com/pytorch/pytorch/blob/3a3cf0e09d475df9237c95ebd14debf650e0c038/aten/src/ATen/FunctionalizeFallbackKernel.cpp#L176), 
+in particular it seems that the input tensor fails an [assertion](https://github.com/pytorch/pytorch/blob/3a3cf0e09d475df9237c95ebd14debf650e0c038/aten/src/ATen/FunctionalTensorWrapper.cpp#L575) that it is of functional form.
+
+[PyTorch Issue](https://github.com/pytorch/pytorch/issues/107961)
