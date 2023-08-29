@@ -9,6 +9,7 @@ import operator
 import re
 from types import NoneType
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+import numpy as np
 
 from iree.compiler.ir import (
     Attribute as MlirAttribute,
@@ -25,6 +26,7 @@ from iree.compiler.ir import (
     StringAttr,
     Type as MlirType,
     Value,
+    DenseElementsAttr,
 )
 
 import iree.compiler.dialects.func as func_dialect
@@ -85,6 +87,24 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex32: "complex<f16>",
     torch.complex64: "complex<f32>",
     torch.complex128: "complex<f64>",
+}
+
+TORCH_DTYPE_TO_NPY_TYPE = {
+    # torch.qint8: None, # no equivalent np datatype
+    # torch.quint8: None,
+    torch.uint8: np.uint8,
+    torch.int8: np.int8,
+    torch.int16: np.int16,
+    torch.int32: np.int32,
+    torch.int64: np.int64,
+    # torch.bf16: None, there's no equivalent np datatype so this isn't supported right now
+    torch.float16: np.float16,
+    torch.float32: np.float32,
+    torch.float64: np.float64,
+    torch.bool: np.bool_,
+    # torch.complex32: None, # no equivalent precision for numpy
+    # torch.complex64: np.complex64, # complex dtypes can't be parsed by DenseElementsAttr in the numpy buffer format
+    # torch.complex128: np.complex128,
 }
 
 # https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L189
@@ -476,6 +496,16 @@ class GraphNodeImporter:
             # this will need to do something more intelligent.
             if arg in self._multi_result_nodes:
                 raise RuntimeError(f"Attempt to de-reference a multi-result node")
+
+            # catch references to dynamically created constant attributes and make sure they have an origin in our module
+            if arg.op == 'get_attr' and (arg.target, 0) not in self._v:
+                gm = arg.graph.owning_module
+                assert hasattr(gm, arg.target), f"Attempting to retrieve attribute '{arg.target}' from module, but no such attribute exists"
+                obj = getattr(gm, arg.target)
+                with loc:
+                    value = LITERAL_CONVERTER_MAP.lookup(type(obj))(obj, self, self._cc)
+                self._v[(arg,0)] = value
+
             return self._v[(arg, 0)]
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
             return self._import_list_argument(loc, arg, expected_jit_type)
@@ -617,6 +647,26 @@ def _make_constant_op(
         attributes={"value": value_attr},
     )
 
+def _make_vtensor_literal_op(tensor: torch.Tensor, mlir_type: MlirType) -> Operation:
+    npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
+    assert npy_dtype is not None, f"Can not create literal tensor for unsupported datatype: {tensor.dtype}"
+    # We need a raw buffer of data in order to create an ElementsAttr for the invocation of torch.vtensor.literal,
+    # but torch.Tensor does not fulfill the python buffer/array interface hence we must convert to a numpy array to get
+    # a raw buffer of our data. We can't call torch.Tensor.numpy() directly because this internally forces a call to
+    # detach() which throws an error as we are operating in a FakeTensorMode, hence the simplest way to get this raw
+    # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
+    # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
+    np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
+    bytes = memoryview(np_tensor)
+
+    mlir_asm_type = str(mlir_type)
+    tensor_type = MlirType.parse(f"!torch.vtensor<{list(tensor.size())},{mlir_asm_type}>")
+    elements_attr = DenseElementsAttr.get(bytes, signless=False)
+    return Operation.create(
+        name="torch.vtensor.literal",
+        results=[tensor_type],
+        attributes={'value': elements_attr}
+    )
 
 LITERAL_CONVERTER_MAP = TypeSubclassMap()
 LITERAL_CONVERTER_MAP.map(
@@ -647,6 +697,12 @@ LITERAL_CONVERTER_MAP.map(
     str,
     lambda arg, gni, cc: _make_constant_op(
         "torch.constant.str", StringAttr.get(arg), cc.torch_str_type
+    ).result,
+)
+LITERAL_CONVERTER_MAP.map(
+    torch.Tensor,
+    lambda arg, gni, cc: _make_vtensor_literal_op(
+        arg, cc.dtype_to_type(arg.dtype)
     ).result,
 )
 LITERAL_CONVERTER_MAP.map(
