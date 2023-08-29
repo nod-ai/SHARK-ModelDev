@@ -88,12 +88,13 @@ class ImportTests(unittest.TestCase):
         Upsample triggers aten.index.Tensor with an 'indices' argument of the form List[Optional[Tensor]], this case tests
         whether we handle these cases properly in _import_list_argument
         """
+
         def foo(x):
-            up = torch.nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            up = torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
             return up(x)
 
         opt_foo = torch.compile(foo, backend=create_backend())
-        opt_foo(torch.randn(4,4,4,4))
+        opt_foo(torch.randn(4, 4, 4, 4))
 
     def testImportDecomposeChunk(self):
         def foo_chunk(x):
@@ -129,10 +130,10 @@ class ImportTests(unittest.TestCase):
 
     def testLiftFreshCopy(self):
         def foo():
-            w = torch.tensor([[1,2], [3,4]], dtype=torch.uint8)
-            x = torch.tensor([[1,2], [3,4]], dtype=torch.int32)
-            y = torch.tensor([[1,2], [3,4]], dtype=torch.float32)
-            z = torch.tensor([[1,2], [3,4]], dtype=torch.float64)
+            w = torch.tensor([[1, 2], [3, 4]], dtype=torch.uint8)
+            x = torch.tensor([[1, 2], [3, 4]], dtype=torch.int32)
+            y = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+            z = torch.tensor([[1, 2], [3, 4]], dtype=torch.float64)
             return w, x, y, z
 
         opt_foo = torch.compile(foo, backend=create_backend())
@@ -141,8 +142,8 @@ class ImportTests(unittest.TestCase):
     @unittest.expectedFailure
     def testLiftFreshCopyComplex(self):
         def foo():
-            x = torch.tensor([[1,2], [3,4]], dtype=torch.complex64)
-            y = torch.tensor([[1,2], [3,4]], dtype=torch.complex128)
+            x = torch.tensor([[1, 2], [3, 4]], dtype=torch.complex64)
+            y = torch.tensor([[1, 2], [3, 4]], dtype=torch.complex128)
             return x, y
 
         opt_foo = torch.compile(foo, backend=create_backend())

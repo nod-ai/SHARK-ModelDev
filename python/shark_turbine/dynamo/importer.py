@@ -498,13 +498,15 @@ class GraphNodeImporter:
                 raise RuntimeError(f"Attempt to de-reference a multi-result node")
 
             # catch references to dynamically created constant attributes and make sure they have an origin in our module
-            if arg.op == 'get_attr' and (arg.target, 0) not in self._v:
+            if arg.op == "get_attr" and (arg.target, 0) not in self._v:
                 gm = arg.graph.owning_module
-                assert hasattr(gm, arg.target), f"Attempting to retrieve attribute '{arg.target}' from module, but no such attribute exists"
+                assert hasattr(
+                    gm, arg.target
+                ), f"Attempting to retrieve attribute '{arg.target}' from module, but no such attribute exists"
                 obj = getattr(gm, arg.target)
                 with loc:
                     value = LITERAL_CONVERTER_MAP.lookup(type(obj))(obj, self, self._cc)
-                self._v[(arg,0)] = value
+                self._v[(arg, 0)] = value
 
             return self._v[(arg, 0)]
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
@@ -562,10 +564,10 @@ class GraphNodeImporter:
                     element_type == operand_type
                 ), f"Heterogeneous lists are not supported: expected {element_type}, got {operand_type}"
 
-                operand_jit_type = torch.NoneType if operand_type is NoneType else element_jit_type
-                val = self._import_default_value(
-                    loc, operand, operand_jit_type
+                operand_jit_type = (
+                    torch.NoneType if operand_type is NoneType else element_jit_type
                 )
+                val = self._import_default_value(loc, operand, operand_jit_type)
 
             list_operands.append(val)
 
@@ -647,9 +649,12 @@ def _make_constant_op(
         attributes={"value": value_attr},
     )
 
+
 def _make_vtensor_literal_op(tensor: torch.Tensor, mlir_type: MlirType) -> Operation:
     npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
-    assert npy_dtype is not None, f"Can not create literal tensor for unsupported datatype: {tensor.dtype}"
+    assert (
+        npy_dtype is not None
+    ), f"Can not create literal tensor for unsupported datatype: {tensor.dtype}"
     # We need a raw buffer of data in order to create an ElementsAttr for the invocation of torch.vtensor.literal,
     # but torch.Tensor does not fulfill the python buffer/array interface hence we must convert to a numpy array to get
     # a raw buffer of our data. We can't call torch.Tensor.numpy() directly because this internally forces a call to
@@ -660,13 +665,16 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, mlir_type: MlirType) -> Opera
     bytes = memoryview(np_tensor)
 
     mlir_asm_type = str(mlir_type)
-    tensor_type = MlirType.parse(f"!torch.vtensor<{list(tensor.size())},{mlir_asm_type}>")
+    tensor_type = MlirType.parse(
+        f"!torch.vtensor<{list(tensor.size())},{mlir_asm_type}>"
+    )
     elements_attr = DenseElementsAttr.get(bytes, signless=False)
     return Operation.create(
         name="torch.vtensor.literal",
         results=[tensor_type],
-        attributes={'value': elements_attr}
+        attributes={"value": elements_attr},
     )
+
 
 LITERAL_CONVERTER_MAP = TypeSubclassMap()
 LITERAL_CONVERTER_MAP.map(

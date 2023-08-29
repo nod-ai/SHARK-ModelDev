@@ -27,33 +27,25 @@ class TensorScalarOpConversionImportModule(unittest.TestCase):
         return x // 4.2
 
     def testAdd(self):
-        opt_torch_scalar_convert = torch.compile(
-            self.add, backend=create_backend()
-        )
+        opt_torch_scalar_convert = torch.compile(self.add, backend=create_backend())
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.add(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def testSub(self):
-        opt_torch_scalar_convert = torch.compile(
-            self.sub, backend=create_backend()
-        )
+        opt_torch_scalar_convert = torch.compile(self.sub, backend=create_backend())
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.sub(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def testMul(self):
-        opt_torch_scalar_convert = torch.compile(
-            self.mul, backend=create_backend()
-        )
+        opt_torch_scalar_convert = torch.compile(self.mul, backend=create_backend())
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.mul(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")
 
     def testDiv(self):
-        opt_torch_scalar_convert = torch.compile(
-            self.div, backend=create_backend()
-        )
+        opt_torch_scalar_convert = torch.compile(self.div, backend=create_backend())
         result = opt_torch_scalar_convert(self.t)
         expected_result = self.div(self.t)
         self.assertTrue(torch.allclose(result, expected_result), "broken")

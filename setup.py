@@ -60,16 +60,19 @@ setup(
         "": "python",
     },
     packages=packages,
-    install_requires=[
-        "numpy",
-        f"shark-turbine-iree-compiler=={PACKAGE_VERSION}",
-        f"shark-turbine-iree-runtime=={PACKAGE_VERSION}",
-    ],
     entry_points={
         "torch_dynamo_backends": [
             "turbine_cpu = shark_turbine.dynamo.backends.cpu:backend",
         ],
     },
-    extras_require={},
+    install_requires=[
+        "numpy",
+    ],
+    extras_require={
+        "IREE" : [
+            f"shark-turbine-iree-compiler=={PACKAGE_VERSION}",
+            f"shark-turbine-iree-runtime=={PACKAGE_VERSION}",
+        ],
+    },
     cmdclass={"build": BuildCommand},
 )

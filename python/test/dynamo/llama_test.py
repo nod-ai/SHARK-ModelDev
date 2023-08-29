@@ -19,6 +19,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -33,6 +34,7 @@ class ModelArgs:
     max_batch_size: int = 32
     max_seq_len: int = 2048
 
+
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -46,12 +48,14 @@ class RMSNorm(torch.nn.Module):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
+
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
     t = torch.arange(end, device=freqs.device)  # type: ignore
     freqs = torch.outer(t, freqs).float()  # type: ignore
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
     return freqs_cis
+
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     ndim = x.ndim
@@ -60,10 +64,11 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(*shape)
 
+
 def apply_rotary_emb(
-        xq: torch.Tensor,
-        xk: torch.Tensor,
-        freqs_cis: torch.Tensor,
+    xq: torch.Tensor,
+    xk: torch.Tensor,
+    freqs_cis: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
@@ -71,6 +76,7 @@ def apply_rotary_emb(
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
     return xq_out.type_as(xq), xk_out.type_as(xk)
+
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     """torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
@@ -82,6 +88,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
         .expand(bs, slen, n_kv_heads, n_rep, head_dim)
         .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
     )
+
 
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
@@ -99,22 +106,22 @@ class Attention(nn.Module):
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
-            )
+        )
         self.wk = nn.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
-            )
+        )
         self.wv = nn.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
-            )
+        )
         self.wo = nn.Linear(
             args.n_heads * self.head_dim,
             args.dim,
             bias=False,
-            )
+        )
 
         self.cache_k = torch.zeros(
             (
@@ -134,11 +141,11 @@ class Attention(nn.Module):
         )
 
     def forward(
-            self,
-            x: torch.Tensor,
-            start_pos: int,
-            freqs_cis: torch.Tensor,
-            mask: Optional[torch.Tensor],
+        self,
+        x: torch.Tensor,
+        start_pos: int,
+        freqs_cis: torch.Tensor,
+        mask: Optional[torch.Tensor],
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -152,8 +159,8 @@ class Attention(nn.Module):
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
 
-        self.cache_k[:bsz, start_pos: start_pos + seqlen] = xk
-        self.cache_v[:bsz, start_pos: start_pos + seqlen] = xv
+        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
+        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
 
         keys = self.cache_k[:bsz, : start_pos + seqlen]
         values = self.cache_v[:bsz, : start_pos + seqlen]
@@ -173,13 +180,14 @@ class Attention(nn.Module):
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         return self.wo(output)
 
+
 class FeedForward(nn.Module):
     def __init__(
-            self,
-            dim: int,
-            hidden_dim: int,
-            multiple_of: int,
-            ffn_dim_multiplier: Optional[float],
+        self,
+        dim: int,
+        hidden_dim: int,
+        multiple_of: int,
+        ffn_dim_multiplier: Optional[float],
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -189,17 +197,24 @@ class FeedForward(nn.Module):
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
         self.w1 = nn.Linear(
-            dim, hidden_dim, bias=False,
+            dim,
+            hidden_dim,
+            bias=False,
         )
         self.w2 = nn.Linear(
-            hidden_dim, dim, bias=False,
+            hidden_dim,
+            dim,
+            bias=False,
         )
         self.w3 = nn.Linear(
-            dim, hidden_dim, bias=False,
+            dim,
+            hidden_dim,
+            bias=False,
         )
 
     def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs):
@@ -219,17 +234,18 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(
-            self,
-            x: torch.Tensor,
-            start_pos: int,
-            freqs_cis: torch.Tensor,
-            mask: Optional[torch.Tensor],
+        self,
+        x: torch.Tensor,
+        start_pos: int,
+        freqs_cis: torch.Tensor,
+        mask: Optional[torch.Tensor],
     ):
         h = x + self.attention.forward(
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
+
 
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):
@@ -239,7 +255,8 @@ class Transformer(nn.Module):
         self.n_layers = params.n_layers
 
         self.tok_embeddings = nn.Embedding(
-            params.vocab_size, params.dim,
+            params.vocab_size,
+            params.dim,
         )
 
         self.layers = torch.nn.ModuleList()
@@ -248,7 +265,9 @@ class Transformer(nn.Module):
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
-            params.dim, params.vocab_size, bias=False,
+            params.dim,
+            params.vocab_size,
+            bias=False,
         )
 
         self.freqs_cis = precompute_freqs_cis(
@@ -260,7 +279,7 @@ class Transformer(nn.Module):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
-        freqs_cis = self.freqs_cis[start_pos: start_pos + seqlen]
+        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
         if seqlen > 1:
@@ -274,6 +293,7 @@ class Transformer(nn.Module):
         h = self.norm(h)
         output = self.output(h).float()
         return output
+
 
 def main():
     # Example input values

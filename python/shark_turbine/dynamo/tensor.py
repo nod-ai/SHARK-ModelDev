@@ -264,7 +264,7 @@ class DeviceTensor(torch.Tensor):
         storage = self._storage
         hal_device = storage.device.hal_device
         staging_buffer = hal_device.allocator.allocate_host_staging_buffer_copy(
-            host_data
+            hal_device, host_data
         )
         cb = HalCommandBuffer(hal_device)
         cb.copy(staging_buffer, storage.buffer, end=True)
