@@ -10,7 +10,6 @@ import torch._inductor.config
 import logging
 
 log = logging.getLogger("turbine-test")
-logging.basicConfig(level=logging.INFO)
 
 ENV_FILE = "JITPARITYBENCH_PATH.txt"
 
@@ -41,6 +40,11 @@ def get_args(raw_args=None):
         help="jit-paritybench location (i.e. /path/to/pytorch-jit-paritybench)",
     )
     # parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu") # excluded for now as we only have turbine-cpu, can use this later
+    parser.add_argument(
+        "--no-log",
+        action='store_true',
+        help="disable logging during execution",
+    )
 
     args = parser.parse_args(raw_args)
     return args
@@ -59,6 +63,11 @@ def read_path() -> str:
 
 if __name__ == "__main__":
     args = get_args()
+
+    if args.no_log:
+        logging.basicConfig(level=logging.ERROR)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     if args.tests_dir is not None:
         pb = args.tests_dir
