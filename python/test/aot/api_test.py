@@ -57,7 +57,7 @@ class ApiTest(unittest.TestCase):
     def testExportedNoArgJit(self):
         class ExportedProcModule(CompiledModule):
             def foobar(self):
-                return self.compute()
+                return self.compute(), self.compute()
 
             @CompiledModule.jittable
             def compute():
@@ -68,6 +68,12 @@ class ApiTest(unittest.TestCase):
         inst = ExportedProcModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
+        # Assert that the compute function was imported twice and called.
+        # TODO: Implement jit function caching to avoid doing this on
+        # equivalent signatures.
+        self.assertIn("%0 = call @compute()", module_str)
+        self.assertIn("%1 = call @compute$1()", module_str)
+        self.assertIn("return %0, %1 : tensor<2x2xf32>, tensor<2x2xf32>", module_str)
 
 
 if __name__ == "__main__":

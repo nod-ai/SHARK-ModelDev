@@ -15,6 +15,7 @@ from iree.compiler.ir import (
     Location,
     Operation,
     SymbolTable,
+    Type as IrType,
     TypeAttr,
     Value,
 )
@@ -40,6 +41,8 @@ _thread_state = threading.local()
 class Intrinsic:
     """Objects which interact natively with the tracing system implement this."""
 
+    __slots__ = []
+
     def resolve_ir_values(self, proc_trace: "ProcedureTrace") -> Sequence[Value]:
         raise NotImplementedError(
             f"Cannot use {self} as an expression in a procedural function"
@@ -58,12 +61,16 @@ class CallableIntrinsic(Intrinsic):
     calls) for intrinsics that are not callable.
     """
 
+    __slots__ = []
+
     def __call__(self, *args, **kwargs):
         return current_ir_trace().handle_call(self, args, kwargs)
 
 
 class IrTrace:
     """Gets callbacks for tracing events."""
+
+    __slots__ = []
 
     def finalize(self):
         """Called when the trace is finished (popped off the stack)."""
@@ -74,6 +81,7 @@ class IrTrace:
 
 
 class ImmediateIrTrace(IrTrace):
+    __slots__ = []
     ...
 
 
@@ -102,6 +110,15 @@ def current_ir_trace() -> IrTrace:
 
 class ProcedureTrace(IrTrace):
     """Captures execution of a Python func into IR."""
+
+    __slots__ = [
+        "module_builder",
+        "func_op",
+        "context",
+        "ip",
+        "return_types",
+        "loc",
+    ]
 
     def __init__(self, *, module_builder: ModuleBuilder, func_op: func_d.FuncOp):
         self.module_builder = module_builder
@@ -137,9 +154,11 @@ class ProcedureTrace(IrTrace):
             if return_py_value is None:
                 self.emit_return()
             else:
-                # TODO: Materialize python values as IR.
-                return_ir_values = []
-                self.emit_return(*return_ir_values)
+                flat_return_py_values, _ = tree_flatten(return_py_value)
+                flat_return_ir_values = []
+                for py_value in flat_return_py_values:
+                    flat_return_ir_values.extend(convert_py_value_to_ir(self, py_value))
+                self.emit_return(*flat_return_ir_values)
 
     def emit_return(self, *ir_values: Sequence[Value]):
         with self.loc, self.ip:
@@ -163,3 +182,52 @@ class ProcedureTrace(IrTrace):
         """Implements calls to jittable functions."""
         with self.loc, self.ip:
             return target.resolve_call(self, *args, **kwargs)
+
+
+def convert_py_value_to_ir(
+    proc_trace: ProcedureTrace, py_value: Any
+) -> Sequence[Value]:
+    """Given procedurally traced python values, type check and conver to IR."""
+    if isinstance(py_value, Intrinsic):
+        return py_value.resolve_ir_values(proc_trace)
+
+    raise TypeError(
+        f"Illegal type passed in procedural trace: {py_value.__class__} ({py_value})"
+    )
+
+
+class IrTensorBase(Intrinsic):
+    """Base class for 'tensors' that resolve to some IR value.
+
+    These are not real tensors (i.e. no operations can be performed on them),
+    but they stand in as reasonable proxies during procedural tracing.
+    """
+
+    __slots__ = [
+        "ir_type",
+    ]
+
+    def __init__(self, ir_type: IrType):
+        self.ir_type = ir_type
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        return NotImplemented
+
+
+class IrValueTensor(IrTensorBase):
+    """Represents a Value in the IR under construction during procedural tracing."""
+
+    __slots__ = [
+        "ir_value",
+    ]
+
+    def __init__(self, ir_value: Value):
+        super().__init__(ir_value.type)
+        self.ir_value = ir_value
+
+    def __repr__(self):
+        return f"IrValueTensor(@{self.ir_value})"
+
+    def resolve_ir_values(self, proc_trace: ProcedureTrace) -> Sequence[Value]:
+        return (self.ir_value,)
