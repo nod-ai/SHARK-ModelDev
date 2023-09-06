@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import distutils.command.build
+from pathlib import Path
 import sys
 
 from setuptools import find_namespace_packages, setup
@@ -42,6 +43,27 @@ packages = find_namespace_packages(
 
 print("Found packages:", packages)
 
+# Lookup version pins from requirements files.
+requirement_pins = {}
+
+
+def load_requirement_pins(requirements_file: str):
+    with open(Path(THIS_DIR) / requirements_file, "rt") as f:
+        lines = f.readlines()
+    pin_pairs = [line.strip().split("==") for line in lines if "==" in line]
+    requirement_pins.update(dict(pin_pairs))
+
+
+load_requirement_pins("requirements.txt")
+load_requirement_pins("pytorch-cpu-requirements.txt")
+
+
+def get_version_spec(dep: str):
+    if dep in requirement_pins:
+        return f">={requirement_pins[dep]}"
+    else:
+        return ""
+
 
 # Override build command so that we can build into _python_build
 # instead of the default "build". This avoids collisions with
@@ -67,11 +89,14 @@ setup(
     },
     install_requires=[
         "numpy",
+        f"iree-compiler{get_version_spec('iree-compiler')}",
+        f"iree-runtime{get_version_spec('iree-runtime')}",
     ],
     extras_require={
-        "IREE" : [
-            f"shark-turbine-iree-compiler=={PACKAGE_VERSION}",
-            f"shark-turbine-iree-runtime=={PACKAGE_VERSION}",
+        "torch": [f"torch{get_version_spec('torch')}"],
+        "testing": [
+            "pytest",
+            "pytest-xdist",
         ],
     },
     cmdclass={"build": BuildCommand},
