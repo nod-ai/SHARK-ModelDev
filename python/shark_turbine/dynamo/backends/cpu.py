@@ -88,11 +88,18 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
 
     # Set up for runtime.
     device_state = _get_device_state()
-    vmfb_module = VmModule.wrap_buffer(
+    # TODO: Switch to wrap_buffer once https://github.com/openxla/iree/issues/14926
+    # is fixed.
+    # vmfb_module = VmModule.wrap_buffer(
+    #     device_state.instance,
+    #     output.map_memory(),
+    #     destroy_callback=output.close,
+    # )
+    vmfb_module = VmModule.copy_buffer(
         device_state.instance,
         output.map_memory(),
-        destroy_callback=output.close,
     )
+    output.close()
 
     return SpecializedExecutable(vmfb_module, device_state)
 

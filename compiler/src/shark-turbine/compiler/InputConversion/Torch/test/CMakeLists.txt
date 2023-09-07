@@ -1,9 +1,0 @@
-iree_lit_test_suite(
-  NAME
-    lit
-  SRCS
-    "convert_tm_tensor_to_linalg_ext.mlir"
-  TOOLS
-    FileCheck
-    iree-opt
-)
