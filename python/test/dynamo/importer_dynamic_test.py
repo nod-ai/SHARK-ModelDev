@@ -49,6 +49,12 @@ class DynamicBMM(torch.nn.Module):
         biased = mm + bias
         return {"result": biased}
 
+class DynamicBuiltinOps(torch.nn.Module):
+    def forward(self, inp):
+        x = inp.size()[1] - inp.size()[2]
+        x = x * inp.size()[1] - 34.2
+        g = x / 32
+        return {"result": g}
 
 class ProgramTests(unittest.TestCase):
     def testStaticExport(self):
@@ -78,6 +84,19 @@ class ProgramTests(unittest.TestCase):
         )
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
+
+    def testStaticExportBuiltinOps(self):
+        model = DynamicBuiltinOps()
+        inp_example = torch.rand(1, 2, 12)
+        f = dynamo.export(
+            model.forward,
+            aten_graph=True,
+            same_signature=True,
+            assume_static_by_default=True,
+            constraints=[dynamic_dim(inp_example, 1) >= 2,],
+        )
+        g, guards = f(inp=inp_example)
+        g = import_compiler(g, [inp_example])
 
 
 

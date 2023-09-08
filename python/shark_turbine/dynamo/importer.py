@@ -7,8 +7,8 @@ import builtins
 import logging
 import operator
 import re
-from types import NoneType
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from types import NoneType, BuiltinMethodType, BuiltinFunctionType
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
 
 from iree.compiler.ir import (
@@ -146,6 +146,13 @@ TORCH_LAYOUT_TO_INT = {
 }
 
 
+"""Check whether an object in our graph is symbolic"""
+def is_symbolic(obj: Any) -> bool:
+    return isinstance(obj, (torch.SymInt, torch.SymFloat, torch.SymBool))
+
+def is_builtin_function_or_method(obj: Any) -> bool:
+    return isinstance(obj, (BuiltinMethodType, BuiltinFunctionType))
+
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
 
@@ -276,13 +283,9 @@ class ContextCache:
         c = self._c
         return IntegerAttr.get(IntegerType.get_signless(bits, c), value)
 
-    """Check whether an object in our graph is symbolic"""
-    def is_symbolic(self, obj) -> bool:
-        return isinstance(obj, (torch.SymInt, torch.SymFloat, torch.SymBool))
-
     """Strips symbolic elements from a torch.Size object and returns shape asm"""
     def parse_shape(self, shape: torch.Size) -> str:
-        return ",".join('?' if self.is_symbolic(d) else str(d) for d in list(shape))
+        return ",".join('?' if is_symbolic(d) else str(d) for d in list(shape))
 
     """Return MlirType for !torch.vtensor with the given shape and dtype"""
     def get_vtensor_type(self, shape: torch.Size, dtype: torch.dtype):
@@ -322,7 +325,7 @@ class ContextCache:
             )
 
     def tensor_metadata_to_type(self, tm: TensorMetadata) -> MlirType:
-        tm_shape = tuple(item.node if self.is_symbolic(item) else item for item in list(tm.shape))
+        tm_shape = tuple(item.node if is_symbolic(item) else item for item in list(tm.shape))
 
         key = (tm_shape, tm.dtype)
         t = self._tensor_metadata_cache.get(key)
@@ -422,7 +425,7 @@ class GraphNodeImporter:
                     elif isinstance(target, TorchOpOverload):
                         # Dispatch to an ATen op.
                         self._import_torch_op_overload(loc, node, target)
-                    elif target in (torch.ops.aten.sym_size, torch.ops.aten.sym_stride, torch.ops.aten.sym_numel):
+                    elif target in (torch.ops.aten.sym_size, torch.ops.aten.sym_stride, torch.ops.aten.sym_numel) or (is_symbolic(node.meta.get('val')) and is_builtin_function_or_method(target)):
                         self._import_symbolic_torch_op(loc, node, target)
                     else:
                         raise NotImplementedError(
@@ -434,26 +437,89 @@ class GraphNodeImporter:
                     operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
 
-    def _import_symbolic_torch_op(self, loc: Location, node: torch_fx.Node, target: torch._ops.OpOverloadPacket):
+    def _promote_scalar_int_float(self, loc, graph, param):
+        temp_target = torch.ops.aten.Float.Scalar
+        temp_node = torch.fx.Node(graph=graph, name=f"{str(param)}_as_float", op='call_function', target=temp_target, args=(param,), kwargs={}, return_type=float)
+        temp_node.meta['val'] = torch.sym_float(param.meta['val'])
+        self._import_torch_op_overload(loc, temp_node, temp_target)
+        return temp_node
+
+    def _import_symbolic_torch_op(self, loc: Location, node: torch_fx.Node, target: Union[torch._ops.OpOverloadPacket, BuiltinMethodType, BuiltinFunctionType]):
         concrete_target = None
-        if target == torch.ops.aten.sym_size:
-            assert 0 < len(node.args) <= 2
-            if len(node.args) == 2:
-                concrete_target = torch.ops.aten.size.int
-            else:
-                concrete_target = torch.ops.aten.size.default
-        elif target == torch.ops.aten.sym_stride:
-            assert 0 < len(node.args) <= 2
-            if len(node.args) == 1:
-                concrete_target = torch.ops.aten.stride.default
-            else:
-                if isinstance(node.args[1], int):
-                    concrete_target = torch.ops.aten.stride.int
+        # parse builtin operations like add, sub, mul, etc. because dynamo captures these
+        # operations on symbolic arguments as regular python expressions rather than as torch ops
+        if is_builtin_function_or_method(target):
+            arg_types = [arg.meta['val'].node.pytype if isinstance(arg, torch.fx.Node) else type(arg) for arg in node.args]
+            is_int = [item == int for item in arg_types]
+
+            if all(is_int):
+                op_overload = 'int'
+            elif any(is_int):
+                if target.__name__ in ('add', 'lt', 'ge', 'ne', 'gt'):
+                    op_overload = 'float_int'
+                    # put float arg first, as expected in signature
+                    if arg_types[1] == float:
+                        node.args = (node.args[1], node.args[0])
                 else:
-                    concrete_target = torch.ops.aten.stride.Dimname
-        elif target == torch.ops.aten.sym_numel:
-            assert len(node.args) == 1
-            concrete_target = torch.ops.aten.numel.default
+                    # promote int argument to float
+                    arg0, arg1 = node.args
+                    if is_int[0]:
+                       if isinstance(arg0, torch.fx.Node):
+                           prom_arg = self._promote_scalar_int_float(loc, node.graph, arg0)
+                           new_args = (prom_arg, arg1)
+                       else:
+                           arg0 = float(arg0)
+                           new_args = (arg0, arg1)
+                    else:
+                        if isinstance(arg1, torch.fx.Node):
+                            prom_arg = self._promote_scalar_int_float(loc, node.graph, arg1)
+                            new_args = (arg0, prom_arg)
+                        else:
+                            arg1 = float(arg1)
+                            new_args = (arg0, arg1)
+
+                    node.args = new_args
+                    op_overload = 'float'
+            else:
+                op_overload = 'float'
+
+            # TODO(AK): impl comparison operators
+            torch_op = None
+            # TODO(AK): make this a dict
+            match target.__name__:
+                case 'truediv':
+                    torch_op = torch.ops.aten.div
+                case 'mul':
+                    torch_op = torch.ops.aten.mul
+                case 'add':
+                    # TODO(AK): Support add.float_int
+                    torch_op = torch.ops.aten.add
+                case 'sub':
+                    torch_op = torch.ops.aten.sub
+
+            assert torch_op is not None, f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
+            concrete_target = getattr(torch_op, op_overload)
+        else:
+            # TODO(AK): make this a dict
+            match target:
+                case torch.ops.aten.sym_size:
+                    assert 0 < len(node.args) <= 2
+                    if len(node.args) == 2:
+                        concrete_target = torch.ops.aten.size.int
+                    else:
+                        concrete_target = torch.ops.aten.size.default
+                case torch.ops.aten.sym_stride:
+                    assert 0 < len(node.args) <= 2
+                    if len(node.args) == 1:
+                        concrete_target = torch.ops.aten.stride.default
+                    else:
+                        if isinstance(node.args[1], int):
+                            concrete_target = torch.ops.aten.stride.int
+                        else:
+                            concrete_target = torch.ops.aten.stride.Dimname
+                case torch.ops.aten.sym_numel:
+                    assert len(node.args) == 1
+                    concrete_target = torch.ops.aten.numel.default
 
         assert concrete_target is not None, f"Unable to parse symbolic operation: {target} with args {node.args}"
         self._import_torch_op_overload(loc, node, concrete_target)
