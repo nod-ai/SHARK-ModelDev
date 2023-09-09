@@ -7,11 +7,21 @@
 
 """Tracing builtins."""
 
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import sys
 
 import torch._dynamo as dynamo
+
+from torch.fx import (
+    Graph,
+)
+from torch.fx.passes.shape_prop import TensorMetadata
+
+from torch.utils._pytree import (
+    tree_flatten,
+    tree_unflatten,
+)
 
 from ..builder import ModuleBuilder
 
@@ -22,9 +32,6 @@ from ..procedural import (
 )
 
 from ...dynamo.importer import FxImporter
-from ...dynamo.passes import (
-    turbine_cpu_pass_pipeline,
-)
 
 from iree.compiler.ir import (
     FlatSymbolRefAttr,
@@ -33,6 +40,7 @@ from iree.compiler.ir import (
     StringAttr,
     SymbolTable,
     TypeAttr,
+    Value,
 )
 from iree.compiler.dialects import (
     func as func_d,
@@ -79,15 +87,31 @@ class jittable(CallableIntrinsic):
     def __repr__(self):
         return f"<Jittable PyTorch func: {self.exported_f}>"
 
-    def resolve_call(self, proc_trace: ProcedureTrace, *args):
-        # TODO: What to do with kwargs?
+    def resolve_call(self, proc_trace: ProcedureTrace, *py_args, **py_kwargs):
+        flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
+
+        # Convert procedural trace values to things that Dynamo can handle.
+        flat_pytorch_args = []
+        flat_ir_args = []
+        for py_arg in flat_py_args:
+            ir_arg, pytorch_arg = self._split_py_arg(py_arg)
+            flat_ir_args.append(ir_arg)
+            flat_pytorch_args.append(pytorch_arg)
+
         # Ask dynamo to give us an aten graph.
-        gm, guards = self.exported_f(*args)
+        pytorch_args, pytorch_kwargs = tree_unflatten(flat_pytorch_args, args_tree)
+        gm, guards = self.exported_f(*pytorch_args, **pytorch_kwargs)
+        # We capture metadata about the results from the raw graph so that we can
+        # pass it along in the trace (since the IREE type system is a partial erasure
+        # of the PyTorch type system and we need the fidelity).
+        # This could be done by the importer but the API gets twisty so just
+        # doing it here since it isn't clear anyone else would ever want this.
+        pytorch_meta_results = _extract_graph_output_metadata(gm.graph)
 
         # Import the FX graph to MLIR in a new module.
-        fx_importer = FxImporter(context=proc_trace.context)
+        fx_importer = FxImporter(context=proc_trace.context, config_check=False)
         fx_importer.import_stateless_graph(gm.graph, func_name=self.function_name)
-        print(fx_importer.module, file=sys.stderr)
+        # print(fx_importer.module, file=sys.stderr)
 
         # Within the isolated module, convert to MLIR.
         with proc_trace.context:
@@ -95,7 +119,7 @@ class jittable(CallableIntrinsic):
                 "builtin.module(torch-backend-to-linalg-on-tensors-backend-pipeline,symbol-dce)"
             )
             pm.run(fx_importer.module.operation)
-        print(fx_importer.module.operation, file=sys.stderr)
+        # print(fx_importer.module.operation, file=sys.stderr)
 
         # Splice the converted module into the main module by taking advantage
         # of what we know about the conversion module:
@@ -125,8 +149,6 @@ class jittable(CallableIntrinsic):
             StringAttr(target_op.attributes["sym_name"]).value
         )
 
-        # TODO: Populate arguments.
-        flat_ir_args = []
         assert len(flat_ir_args) == len(target_ftype.inputs), (
             f"Mismatched number of IR call args vs function decl: "
             f"{len(flat_ir_args)} vs {len(target_ftype.inputs)}\n"
@@ -138,13 +160,28 @@ class jittable(CallableIntrinsic):
                 target_ftype.results, target_symbol_ref, flat_ir_args
             ).results
 
+        flat_py_results = []
+        for ir_result, pytorch_meta in zip(flat_ir_results, pytorch_meta_results):
+            if isinstance(pytorch_meta, TensorMetadata):
+                flat_py_results.append(IrValueTensor(ir_result, pytorch_meta.dtype))
+            else:
+                raise TypeError(
+                    f"Unknown PyTorch->IREE value mapping for jittable result: {pytorch_meta}->{ir_result}"
+                )
+
         # TODO: Unflatten the right way with the PyTorch captured schema.
-        if len(flat_ir_results) == 0:
+        if len(flat_py_results) == 0:
             return None
-        elif len(flat_ir_results) == 1:
-            return IrValueTensor(flat_ir_results[0])
+        elif len(flat_py_results) == 1:
+            return flat_py_results[0]
         else:
-            return list(map(lambda ir_value: IrValueTensor(ir_value), flat_ir_results))
+            return flat_py_results
+
+    def _split_py_arg(self, arg) -> Tuple[Value, Any]:
+        if isinstance(arg, IrValueTensor):
+            return arg.ir_value, arg._to_meta_tensor()
+
+        raise TypeError(f"Unsupported argument to jittable: {arg}")
 
 
 class _Merger:
@@ -254,3 +291,21 @@ def _uniqueify_name(local_name: str, st: SymbolTable) -> str:
             full_name += f"${index}"
         if full_name not in st:
             return full_name
+
+
+def _extract_graph_output_metadata(g: Graph) -> List[Union[None, TensorMetadata]]:
+    output_metadata = []
+    for node in g.nodes:
+        if node.op == "output":
+            # An output node's args[0] is the return value. This seems to
+            # always be "boxed" as a tuple, which we emit as multi-results.
+            for result_node in node.args[0]:
+                if result_node is None:
+                    output_metadata.append(None)
+                else:
+                    tensor_meta = result_node.meta.get("tensor_meta")
+                    assert tensor_meta is None or isinstance(
+                        tensor_meta, TensorMetadata
+                    )
+                    output_metadata.append(tensor_meta)
+    return output_metadata

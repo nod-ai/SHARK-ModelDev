@@ -114,7 +114,11 @@ class CompiledModuleClassInfo:
         )
 
     def def_attribute(self, key, value):
-        # Detect known decorators.
+        # Convert decorators to descriptors.
+        if isinstance(value, builtins.jittable):
+            value = PyOnlyDef(value)
+
+        # Detect our own descriptors.
         if isinstance(value, ExportProcDef):
             value = value.copy()
             if value.export_name is None:
@@ -167,18 +171,13 @@ class CompiledModuleClassInfo:
                 raise TypeError(
                     f"exported functions only support positional parameters"
                 )
-            param_desc = None
-            if param.default and not param.empty:
-                param_desc = param.default
-
-            if param_desc is None:
+            param_desc = param.default
+            if param_desc is inspect.Parameter.empty:
                 # TODO: Merge from a decorator?
                 raise TypeError(
                     f"export function {name} missing required default value annotation "
                     f"for '{param.name}'"
                 )
-
-            # TODO: Convert to meta tensor or something.
             input_sig.append(param_desc)
 
         info = ExportProcDef(name, f, signature=input_sig, file_line_loc=file_line_loc)
@@ -324,16 +323,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
     def get_mlir_module(inst: "CompiledModule") -> Operation:
         return CompiledModule.get_module_builder(inst).module_op
 
-    @staticmethod
-    def jittable(wrapped_f, *, decomposition_table=None, constraints=None):
-        """Decorator which exports a PyTorch function into the module."""
-        return PyOnlyDef(
-            builtins.jittable(
-                wrapped_f,
-                decomposition_table=decomposition_table,
-                constraints=constraints,
-            )
-        )
+    jittable = staticmethod(builtins.jittable)
 
     def __getattr__(self, name):
         info = CompiledModule.get_info(self)
@@ -402,7 +392,8 @@ class CompiledModule(metaclass=CompiledModuleMeta):
                 trace = ProcedureTrace.define_func(
                     module_builder,
                     symbol_name=proc_def.export_name,
-                    arguments=proc_def.signature,
+                    posargs=proc_def.signature,
+                    kwargs={},  # TODO: kwargs
                     loc=loc,
                 )
                 trace.trace_py_func(invoke_with_self)

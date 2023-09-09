@@ -24,11 +24,24 @@ from iree.compiler.dialects import (
     func as func_d,
 )
 
+from ..dynamo.importer import (
+    ContextCache,
+)
+
 logger = logging.getLogger("shark_turbine.aot")
 
 
 class ModuleBuilder:
     """Wrapper around module and IR accounting for a module being built."""
+
+    __slots__ = [
+        "body",
+        "context",
+        "module_op",
+        "symbol_table",
+        "ip",
+        "cache",
+    ]
 
     def __init__(self, module_op: Operation):
         self.module_op = module_op
@@ -36,6 +49,7 @@ class ModuleBuilder:
         self.body = module_op.regions[0].blocks[0]
         self.symbol_table = SymbolTable(module_op)
         self.ip = InsertionPoint(self.body)
+        self.cache = ContextCache(self.context)
 
     def finalize_construct(self):
         self.module_op.verify()

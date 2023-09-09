@@ -11,13 +11,20 @@ from iree.compiler.ir import (
     Context,
 )
 
-from shark_turbine.aot import CompiledModule
-from shark_turbine.aot import builtins
+from shark_turbine.aot import *
 
 import torch
 
 
-class ApiTest(unittest.TestCase):
+class GeneralAPI(unittest.TestCase):
+    def testTypedefs(self):
+        self.assertEqual(
+            "AbstractTensor(3, 2, dtype=torch.float16)",
+            repr(AbstractTensor(3, 2, dtype=torch.float16)),
+        )
+
+
+class CompiledModuleAPI(unittest.TestCase):
     def testBasic(self):
         class BasicModule(CompiledModule):
             ...
@@ -39,6 +46,15 @@ class ApiTest(unittest.TestCase):
     def testJittableFunc(self):
         class BasicModule(CompiledModule):
             @CompiledModule.jittable
+            def mul(x, y):
+                return x * y
+
+        inst = BasicModule(context=Context())
+        self.assertIsInstance(inst.mul, builtins.jittable)
+
+    def testBareJittableFunc(self):
+        class BasicModule(CompiledModule):
+            @jittable
             def mul(x, y):
                 return x * y
 

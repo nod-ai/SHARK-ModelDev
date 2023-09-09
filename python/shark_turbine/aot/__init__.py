@@ -5,3 +5,5 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from .compiled_module import CompiledModule
+
+from .builtins import *

@@ -6,15 +6,17 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from contextlib import contextmanager
+import re
 import threading
 from typing import Any, Callable, List, Sequence
+
+import torch
 
 from iree.compiler.ir import (
     FunctionType,
     InsertionPoint,
     Location,
-    Operation,
-    SymbolTable,
+    RankedTensorType,
     Type as IrType,
     TypeAttr,
     Value,
@@ -34,6 +36,10 @@ from numpy import number
 from collections.abc import Mapping
 
 from .builder import ModuleBuilder
+from ..dynamo.importer import TORCH_DTYPE_TO_MLIR_TYPE_ASM
+
+# We need the inverse of the TORCH_DTYPE_TO_MLIR_TYPE_ASM table.
+MLIR_TYPE_ASM_TO_TORCH_DTYPE = {v: k for k, v in TORCH_DTYPE_TO_MLIR_TYPE_ASM.items()}
 
 _thread_state = threading.local()
 
@@ -65,6 +71,20 @@ class CallableIntrinsic(Intrinsic):
 
     def __call__(self, *args, **kwargs):
         return current_ir_trace().handle_call(self, args, kwargs)
+
+
+class AbstractIntrinsic:
+    """Base class for descriptor types that can be converted to Python proxies."""
+
+    __slots__ = []
+
+    def create_intrinsic(self, value: Value) -> Intrinsic:
+        """Creates a proxy object that can flow through a procedural trace."""
+        raise NotImplementedError
+
+    def get_ir_type(self, builder: ModuleBuilder) -> IrType:
+        """Gets the corresponding IR type."""
+        raise NotImplementedError
 
 
 class IrTrace:
@@ -118,39 +138,70 @@ class ProcedureTrace(IrTrace):
         "ip",
         "return_types",
         "loc",
+        "proxy_posargs",
+        "proxy_kwargs",
     ]
 
-    def __init__(self, *, module_builder: ModuleBuilder, func_op: func_d.FuncOp):
+    def __init__(
+        self,
+        *,
+        module_builder: ModuleBuilder,
+        func_op: func_d.FuncOp,
+        proxy_posargs,
+        proxy_kwargs,
+    ):
         self.module_builder = module_builder
         self.func_op = func_op
         self.context = func_op.context
         self.ip = InsertionPoint(self.func_op.entry_block)
         self.return_types = None
         self.loc = self.func_op.location
+        self.proxy_posargs = proxy_posargs
+        self.proxy_kwargs = proxy_kwargs
 
     @staticmethod
     def define_func(
         module_builder: ModuleBuilder,
         *,
         symbol_name: str,
-        arguments: Sequence,
+        posargs: Sequence,
+        kwargs: dict,
         loc: Location,
     ) -> "ProcedureTrace":
         # Unpack arguments.
-        arguments_flat, arguments_tree_def = tree_flatten(arguments)
+        arguments_flat, arguments_tree_def = tree_flatten((posargs, kwargs))
         argument_ir_types = []
-        # TODO: Transform to meta types and populate argument_ir_types.
+        for arg in arguments_flat:
+            if not isinstance(arg, AbstractIntrinsic):
+                raise ProcedureTraceError(f"Expected a AbstractIntrinsic but got {arg}")
+            argument_ir_types.append(arg.get_ir_type(module_builder))
 
-        # TODO: Make public when has def.
         with loc:
             _, func_op = module_builder.create_func_op(symbol_name, argument_ir_types)
-        return ProcedureTrace(module_builder=module_builder, func_op=func_op)
+
+        # Bind proxy arguments to an IR value.
+        ir_proxy_arguments_flat = []
+        for ir_value, arg_proxy_type in zip(
+            func_op.body.blocks[0].arguments, arguments_flat
+        ):
+            ir_proxy_arguments_flat.append(arg_proxy_type.create_intrinsic(ir_value))
+
+        # Unflatten.
+        proxy_posargs, proxy_kwargs = tree_unflatten(
+            ir_proxy_arguments_flat, arguments_tree_def
+        )
+
+        return ProcedureTrace(
+            module_builder=module_builder,
+            func_op=func_op,
+            proxy_posargs=proxy_posargs,
+            proxy_kwargs=proxy_kwargs,
+        )
 
     def trace_py_func(self, py_f: Callable):
         with new_ir_trace_scope(self) as t:
             # TODO: Create IR proxies for python arguments.
-            argument_py_values = []
-            return_py_value = py_f(*argument_py_values)
+            return_py_value = py_f(*self.proxy_posargs, **self.proxy_kwargs)
             if return_py_value is None:
                 self.emit_return()
             else:
@@ -184,10 +235,15 @@ class ProcedureTrace(IrTrace):
             return target.resolve_call(self, *args, **kwargs)
 
 
+class ProcedureTraceError(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 def convert_py_value_to_ir(
     proc_trace: ProcedureTrace, py_value: Any
 ) -> Sequence[Value]:
-    """Given procedurally traced python values, type check and conver to IR."""
+    """Given procedurally traced python values, type check and convert to IR."""
     if isinstance(py_value, Intrinsic):
         return py_value.resolve_ir_values(proc_trace)
 
@@ -205,14 +261,28 @@ class IrTensorBase(Intrinsic):
 
     __slots__ = [
         "ir_type",
+        "dtype",
     ]
 
-    def __init__(self, ir_type: IrType):
+    def __init__(self, ir_type: IrType, dtype: torch.dtype):
         self.ir_type = ir_type
+        self.dtype = dtype
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         return NotImplemented
+
+    def _to_meta_tensor(self) -> torch.Tensor:
+        """Converts to a fake Tensor that dynamo can handle."""
+        ir_tensor_type = RankedTensorType(self.ir_type)
+        shape = ir_tensor_type.shape
+        # TODO: Remove this assert. We need to extend this method to also be
+        # able to contribute dynamic_dim constraints and then return a minimum
+        # quantity (2) for any dynamic dim.
+        assert not any(
+            d < 0 for d in shape
+        ), "Dynamic dims to jittable not yet implemented"
+        return torch.empty(shape, dtype=self.dtype, device="meta")
 
 
 class IrValueTensor(IrTensorBase):
@@ -222,8 +292,8 @@ class IrValueTensor(IrTensorBase):
         "ir_value",
     ]
 
-    def __init__(self, ir_value: Value):
-        super().__init__(ir_value.type)
+    def __init__(self, ir_value: Value, dtype: torch.dtype):
+        super().__init__(ir_value.type, dtype)
         self.ir_value = ir_value
 
     def __repr__(self):

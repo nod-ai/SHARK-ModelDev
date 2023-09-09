@@ -5,7 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from .jittable import jittable
+from .typedef import *
 
 __all__ = [
     "jittable",
+    "AbstractTensor",
 ]
