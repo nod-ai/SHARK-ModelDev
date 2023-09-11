@@ -241,6 +241,14 @@ class ImportTests(unittest.TestCase):
         opt = torch.compile(mod, backend=create_backend())
         opt(torch.randn(1, 1, 256, 256))
 
+    @unittest.expectedFailure
+    def testImportAtenFull(self):
+        """Expected to fail until torch-mlir op: torch.aten.empty_strided is implemented """
+        def foo(x):
+            return torch.full(x.size(), fill_value=float('-inf'))
+
+        opt_foo = torch.compile(foo, backend='turbine_cpu')
+        opt_foo(torch.randn(2, 3))
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
