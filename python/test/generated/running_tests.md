@@ -19,6 +19,13 @@ Once everything is set up in your conda environment we can run the test suite us
 
 To speed up iteration on tests it's recommended to make use of the `offset`, `limit`, and `filter` arguments as running the full test suite can take some time.
 
+## Unimplemented Torch Ops
+Many of the errors in our test suite will arise due to unimplemented ops in torch-mlir, we can use the `extract_unimpl_ops.sh` script to extract a list of these ops:
+```bash
+python main.py --limit 500 -j 8 | grep "NotImplementedError: Unimplemented torch op in the IREE compiler" | grep -o "'[^']*'" | sed "s/'//g" > unimplemented_torch_ops.txt
+```
+
+
 ## Help
 ```
 usage: main.py [-h] [--jobs JOBS] [--offset OFFSET] [--limit LIMIT] [--filter FILTER] [--skips SKIPS] [--tests-dir TESTS_DIR]
