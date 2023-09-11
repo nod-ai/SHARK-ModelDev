@@ -145,6 +145,34 @@ TORCH_LAYOUT_TO_INT = {
     torch.sparse_bsc: 5,
 }
 
+PY_BUILTIN_TO_TORCH_OP = {
+    'truediv': torch.ops.aten.div,
+    'mul': torch.ops.aten.mul,
+    'add': torch.ops.aten.add,
+    'sub': torch.ops.aten.sub,
+    'lt': torch.ops.aten.lt,
+    'le': torch.ops.aten.le,
+    'ge': torch.ops.aten.ge,
+    'ne': torch.ops.aten.ne,
+    'gt': torch.ops.aten.gt,
+}
+
+SYMBOLIC_TORCH_OPS = {
+    torch.ops.aten.sym_size,
+    torch.ops.aten.sym_stride,
+    torch.ops.aten.sym_numel,
+}
+
+SYMBOLIC_OP_TO_TORCH_OP = {
+    (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
+    (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
+
+    (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
+    (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
+
+    (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
+}
+
 
 """Check whether an object in our graph is symbolic"""
 def is_symbolic(obj: Any) -> bool:
@@ -425,7 +453,7 @@ class GraphNodeImporter:
                     elif isinstance(target, TorchOpOverload):
                         # Dispatch to an ATen op.
                         self._import_torch_op_overload(loc, node, target)
-                    elif target in (torch.ops.aten.sym_size, torch.ops.aten.sym_stride, torch.ops.aten.sym_numel) or (is_symbolic(node.meta.get('val')) and is_builtin_function_or_method(target)):
+                    elif target in SYMBOLIC_TORCH_OPS or (is_symbolic(node.meta.get('val')) and is_builtin_function_or_method(target)):
                         self._import_symbolic_torch_op(loc, node, target)
                     else:
                         raise NotImplementedError(
@@ -437,7 +465,7 @@ class GraphNodeImporter:
                     operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
 
-    def _promote_scalar_int_float(self, loc, graph, param):
+    def _promote_symbolic_scalar_int_float(self, loc, graph, param):
         temp_target = torch.ops.aten.Float.Scalar
         temp_node = torch.fx.Node(graph=graph, name=f"{str(param)}_as_float", op='call_function', target=temp_target, args=(param,), kwargs={}, return_type=float)
         temp_node.meta['val'] = torch.sym_float(param.meta['val'])
@@ -451,7 +479,7 @@ class GraphNodeImporter:
         if is_builtin_function_or_method(target):
             arg_types = [arg.meta['val'].node.pytype if isinstance(arg, torch.fx.Node) else type(arg) for arg in node.args]
             is_int = [item == int for item in arg_types]
-
+            # TODO(AK) promote to tensor for appropriate target
             if all(is_int):
                 op_overload = 'int'
             elif any(is_int):
@@ -465,14 +493,14 @@ class GraphNodeImporter:
                     arg0, arg1 = node.args
                     if is_int[0]:
                        if isinstance(arg0, torch.fx.Node):
-                           prom_arg = self._promote_scalar_int_float(loc, node.graph, arg0)
+                           prom_arg = self._promote_symbolic_scalar_int_float(loc, node.graph, arg0)
                            new_args = (prom_arg, arg1)
                        else:
                            arg0 = float(arg0)
                            new_args = (arg0, arg1)
                     else:
                         if isinstance(arg1, torch.fx.Node):
-                            prom_arg = self._promote_scalar_int_float(loc, node.graph, arg1)
+                            prom_arg = self._promote_symbolic_scalar_int_float(loc, node.graph, arg1)
                             new_args = (arg0, prom_arg)
                         else:
                             arg1 = float(arg1)
@@ -483,43 +511,12 @@ class GraphNodeImporter:
             else:
                 op_overload = 'float'
 
-            # TODO(AK): impl comparison operators
-            torch_op = None
-            # TODO(AK): make this a dict
-            match target.__name__:
-                case 'truediv':
-                    torch_op = torch.ops.aten.div
-                case 'mul':
-                    torch_op = torch.ops.aten.mul
-                case 'add':
-                    # TODO(AK): Support add.float_int
-                    torch_op = torch.ops.aten.add
-                case 'sub':
-                    torch_op = torch.ops.aten.sub
+            torch_op = PY_BUILTIN_TO_TORCH_OP.get(target.__name__)
 
             assert torch_op is not None, f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
             concrete_target = getattr(torch_op, op_overload)
         else:
-            # TODO(AK): make this a dict
-            match target:
-                case torch.ops.aten.sym_size:
-                    assert 0 < len(node.args) <= 2
-                    if len(node.args) == 2:
-                        concrete_target = torch.ops.aten.size.int
-                    else:
-                        concrete_target = torch.ops.aten.size.default
-                case torch.ops.aten.sym_stride:
-                    assert 0 < len(node.args) <= 2
-                    if len(node.args) == 1:
-                        concrete_target = torch.ops.aten.stride.default
-                    else:
-                        if isinstance(node.args[1], int):
-                            concrete_target = torch.ops.aten.stride.int
-                        else:
-                            concrete_target = torch.ops.aten.stride.Dimname
-                case torch.ops.aten.sym_numel:
-                    assert len(node.args) == 1
-                    concrete_target = torch.ops.aten.numel.default
+            concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get((target, len(node.args)))
 
         assert concrete_target is not None, f"Unable to parse symbolic operation: {target} with args {node.args}"
         self._import_torch_op_overload(loc, node, concrete_target)

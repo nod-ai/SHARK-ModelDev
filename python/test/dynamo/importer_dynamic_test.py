@@ -99,9 +99,6 @@ class ProgramTests(unittest.TestCase):
         g = import_compiler(g, [inp_example])
 
 
-
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
