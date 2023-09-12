@@ -10,6 +10,7 @@ import unittest
 import torch
 import torch._dynamo as dynamo
 from torch._export import dynamic_dim
+
 # from torch._export.constraints import constrain_as_size, constrain_as_value
 from shark_turbine.dynamo.importer import FxImporter
 from shark_turbine.dynamo.passes import turbine_cpu_pass_pipeline
@@ -22,6 +23,7 @@ from torch.func import functionalize
 from torch.fx import (
     GraphModule,
 )
+
 
 def import_compiler(gm: GraphModule, example_inputs, decompose_ops=None):
     imp = FxImporter()
@@ -39,6 +41,7 @@ def import_compiler(gm: GraphModule, example_inputs, decompose_ops=None):
     imp.module.operation.verify()
     return gm
 
+
 class DynamicBMM(torch.nn.Module):
     def __init__(self, n, k):
         super().__init__()
@@ -49,6 +52,7 @@ class DynamicBMM(torch.nn.Module):
         biased = mm + bias
         return {"result": biased}
 
+
 class DynamicBuiltinOps(torch.nn.Module):
     def forward(self, inp):
         x = inp.size()[1] - inp.size()[2]
@@ -56,7 +60,8 @@ class DynamicBuiltinOps(torch.nn.Module):
         g = x / 32
         return {"result": g}
 
-class ProgramTests(unittest.TestCase):
+
+class ImportSmokeTests(unittest.TestCase):
     def testStaticExport(self):
         model = DynamicBMM(12, 19)
         inp_example = torch.rand(1, 2, 12)
@@ -66,7 +71,9 @@ class ProgramTests(unittest.TestCase):
             aten_graph=True,
             same_signature=False,
             assume_static_by_default=True,
-            constraints=[dynamic_dim(inp_example, 1) >= 2,],
+            constraints=[
+                dynamic_dim(inp_example, 1) >= 2,
+            ],
         )
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
@@ -80,7 +87,9 @@ class ProgramTests(unittest.TestCase):
             aten_graph=True,
             same_signature=True,
             assume_static_by_default=True,
-            constraints=[dynamic_dim(inp_example, 1) >= 2,],
+            constraints=[
+                dynamic_dim(inp_example, 1) >= 2,
+            ],
         )
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
@@ -93,7 +102,9 @@ class ProgramTests(unittest.TestCase):
             aten_graph=True,
             same_signature=True,
             assume_static_by_default=True,
-            constraints=[dynamic_dim(inp_example, 1) >= 2,],
+            constraints=[
+                dynamic_dim(inp_example, 1) >= 2,
+            ],
         )
         g, guards = f(inp=inp_example)
         g = import_compiler(g, [inp_example])
