@@ -166,10 +166,8 @@ SYMBOLIC_TORCH_OPS = {
 SYMBOLIC_OP_TO_TORCH_OP = {
     (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
     (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
-
     (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
     (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
-
     (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
 }
 
@@ -473,13 +471,11 @@ class GraphNodeImporter:
         return temp_node
 
     def _import_symbolic_torch_op(self, loc: Location, node: torch_fx.Node, target: Union[torch._ops.OpOverloadPacket, BuiltinMethodType, BuiltinFunctionType]):
-        concrete_target = None
         # parse builtin operations like add, sub, mul, etc. because dynamo captures these
         # operations on symbolic arguments as regular python expressions rather than as torch ops
         if is_builtin_function_or_method(target):
             arg_types = [arg.meta['val'].node.pytype if isinstance(arg, torch.fx.Node) else type(arg) for arg in node.args]
             is_int = [item == int for item in arg_types]
-            # TODO(AK) promote to tensor for appropriate target
             if all(is_int):
                 op_overload = 'int'
             elif any(is_int):
@@ -489,7 +485,7 @@ class GraphNodeImporter:
                     if arg_types[1] == float:
                         node.args = (node.args[1], node.args[0])
                 else:
-                    # promote int argument to float
+                    # promote int argument to float - following torch-mlir convention
                     arg0, arg1 = node.args
                     if is_int[0]:
                        if isinstance(arg0, torch.fx.Node):
@@ -512,7 +508,6 @@ class GraphNodeImporter:
                 op_overload = 'float'
 
             torch_op = PY_BUILTIN_TO_TORCH_OP.get(target.__name__)
-
             assert torch_op is not None, f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
             concrete_target = getattr(torch_op, op_overload)
         else:
