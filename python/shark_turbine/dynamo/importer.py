@@ -7,8 +7,8 @@ import builtins
 import logging
 import operator
 import re
-from types import NoneType
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from types import NoneType, BuiltinMethodType, BuiltinFunctionType
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
 
 from iree.compiler.ir import (
@@ -145,6 +145,43 @@ TORCH_LAYOUT_TO_INT = {
     torch.sparse_bsc: 5,
 }
 
+PY_BUILTIN_TO_TORCH_OP = {
+    "truediv": torch.ops.aten.div,
+    "mul": torch.ops.aten.mul,
+    "add": torch.ops.aten.add,
+    "sub": torch.ops.aten.sub,
+    "lt": torch.ops.aten.lt,
+    "le": torch.ops.aten.le,
+    "ge": torch.ops.aten.ge,
+    "ne": torch.ops.aten.ne,
+    "gt": torch.ops.aten.gt,
+}
+
+SYMBOLIC_TORCH_OPS = {
+    torch.ops.aten.sym_size,
+    torch.ops.aten.sym_stride,
+    torch.ops.aten.sym_numel,
+}
+
+SYMBOLIC_OP_TO_TORCH_OP = {
+    (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
+    (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
+    (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
+    (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
+    (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
+}
+
+
+"""Check whether an object in our graph is symbolic"""
+
+
+def is_symbolic(obj: Any) -> bool:
+    return isinstance(obj, (torch.SymInt, torch.SymFloat, torch.SymBool))
+
+
+def is_builtin_function_or_method(obj: Any) -> bool:
+    return isinstance(obj, (BuiltinMethodType, BuiltinFunctionType))
+
 
 class FxImporter:
     """Main entry-point for importing an fx.GraphModule."""
@@ -276,34 +313,58 @@ class ContextCache:
         c = self._c
         return IntegerAttr.get(IntegerType.get_signless(bits, c), value)
 
+    """Strips symbolic elements from a torch.Size object and returns shape asm"""
+
+    def format_asm_shape(self, shape: torch.Size) -> str:
+        return ",".join("?" if is_symbolic(d) else str(d) for d in list(shape))
+
+    """Return MlirType for !torch.vtensor with the given shape and dtype"""
+
+    def get_vtensor_type(self, shape: torch.Size, dtype: torch.dtype):
+        shape_asm = self.format_asm_shape(shape)
+        mlir_dtype = str(self.dtype_to_type(dtype))
+        return MlirType.parse(
+            f"!torch.vtensor<[{shape_asm}],{str(mlir_dtype)}>", context=self._c
+        )
+
     def node_val_to_type(self, node: torch_fx.Node) -> MlirType:
         try:
             tensor_meta = node.meta.get("tensor_meta")
+            val = node.meta.get("val")
             if tensor_meta is not None:
                 assert isinstance(tensor_meta, TensorMetadata)
                 # TODO: We should probably only be doing this if "vanilla".
                 # Specifically, there are strides/qparams/etc on there that
                 # should be annotated somewhere.
                 return self.tensor_metadata_to_type(tensor_meta)
-            else:
-                raise NotImplementedError(
-                    f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
-                    f"fx preprocessing pass was not run): {node.meta}"
-                )
+            elif val is not None:
+                # some nodes with symbolic inputs pass a 'val' attribute rather than
+                # tensor_meta
+                if isinstance(val, TorchFakeTensor):
+                    return self.get_vtensor_type(val.size(), val.dtype)
+
+                t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(val))
+                if t is not None:
+                    return MlirType.parse(t, self._c)
+
+            raise NotImplementedError(
+                f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
+                f"fx preprocessing pass was not run): {node.meta}"
+            )
         except KeyError as e:
             raise RuntimeError(
                 f"FIXME: Illegal access to torch.fx.Node.meta: {e} ({node.meta.keys()} : {node.meta})"
             )
 
     def tensor_metadata_to_type(self, tm: TensorMetadata) -> MlirType:
-        key = (tm.shape, tm.dtype)
+        tm_shape = tuple(
+            item.node if is_symbolic(item) else item for item in list(tm.shape)
+        )
+
+        key = (tm_shape, tm.dtype)
         t = self._tensor_metadata_cache.get(key)
         if t is None:
-            shape_asm = ",".join(str(d) for d in tm.shape)
-            mlir_type = self.dtype_to_type(tm.dtype)
-            t = MlirType.parse(
-                f"!torch.vtensor<[{shape_asm}],{str(mlir_type)}>", context=self._c
-            )
+            t = self.get_vtensor_type(tm.shape, tm.dtype)
             self._tensor_metadata_cache[key] = t
         return t
 
@@ -398,6 +459,11 @@ class GraphNodeImporter:
                     elif isinstance(target, TorchOpOverload):
                         # Dispatch to an ATen op.
                         self._import_torch_op_overload(loc, node, target)
+                    elif target in SYMBOLIC_TORCH_OPS or (
+                        is_symbolic(node.meta.get("val"))
+                        and is_builtin_function_or_method(target)
+                    ):
+                        self._import_symbolic_torch_op(loc, node, target)
                     else:
                         raise NotImplementedError(
                             f"FIX ME: Unimplemented call_function: target={node.target}, {node.meta}"
@@ -407,6 +473,87 @@ class GraphNodeImporter:
                     # results.
                     operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
+
+    def _promote_symbolic_scalar_int_float(self, loc, graph, param):
+        temp_target = torch.ops.aten.Float.Scalar
+        temp_node = torch.fx.Node(
+            graph=graph,
+            name=f"{str(param)}_as_float",
+            op="call_function",
+            target=temp_target,
+            args=(param,),
+            kwargs={},
+            return_type=float,
+        )
+        temp_node.meta["val"] = torch.sym_float(param.meta["val"])
+        self._import_torch_op_overload(loc, temp_node, temp_target)
+        return temp_node
+
+    def _import_symbolic_torch_op(
+        self,
+        loc: Location,
+        node: torch_fx.Node,
+        target: Union[
+            torch._ops.OpOverloadPacket, BuiltinMethodType, BuiltinFunctionType
+        ],
+    ):
+        # parse builtin operations like add, sub, mul, etc. because dynamo captures these
+        # operations on symbolic arguments as regular python expressions rather than as torch ops
+        if is_builtin_function_or_method(target):
+            arg_types = [
+                arg.meta["val"].node.pytype
+                if isinstance(arg, torch.fx.Node)
+                else type(arg)
+                for arg in node.args
+            ]
+            is_int = [item == int for item in arg_types]
+            if all(is_int):
+                op_overload = "int"
+            elif any(is_int):
+                if target.__name__ in ("add", "lt", "ge", "ne", "gt"):
+                    op_overload = "float_int"
+                    # put float arg first, as expected in signature
+                    if arg_types[1] == float:
+                        node.args = (node.args[1], node.args[0])
+                else:
+                    # promote int argument to float - following torch-mlir convention
+                    arg0, arg1 = node.args
+                    if is_int[0]:
+                        if isinstance(arg0, torch.fx.Node):
+                            prom_arg = self._promote_symbolic_scalar_int_float(
+                                loc, node.graph, arg0
+                            )
+                            new_args = (prom_arg, arg1)
+                        else:
+                            arg0 = float(arg0)
+                            new_args = (arg0, arg1)
+                    else:
+                        if isinstance(arg1, torch.fx.Node):
+                            prom_arg = self._promote_symbolic_scalar_int_float(
+                                loc, node.graph, arg1
+                            )
+                            new_args = (arg0, prom_arg)
+                        else:
+                            arg1 = float(arg1)
+                            new_args = (arg0, arg1)
+
+                    node.args = new_args
+                    op_overload = "float"
+            else:
+                op_overload = "float"
+
+            torch_op = PY_BUILTIN_TO_TORCH_OP.get(target.__name__)
+            assert (
+                torch_op is not None
+            ), f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
+            concrete_target = getattr(torch_op, op_overload)
+        else:
+            concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get((target, len(node.args)))
+
+        assert (
+            concrete_target is not None
+        ), f"Unable to parse symbolic operation: {target} with args {node.args}"
+        self._import_torch_op_overload(loc, node, concrete_target)
 
     def _import_torch_op_overload(
         self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
@@ -566,7 +713,9 @@ class GraphNodeImporter:
                 val_type = str(val.type)
                 assert (
                     isinstance(element_type, str) and element_type in val_type
-                ), f"Heterogeneous lists are not supported: expected {element_type}, got {val_type}"
+                ) or SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(
+                    element_type
+                ) == val_type, f"Heterogeneous lists are not supported: expected {element_type}, got {val_type}"
             else:
                 assert (is_optional_type and operand_type is NoneType) or (
                     element_type == operand_type
@@ -772,13 +921,17 @@ PY_TYPE_TO_TORCH_OPTIONAL_LIST_TYPE = {
     "vtensor": "!torch.list<optional<vtensor>>",
 }
 
-SCALAR_TYPE_TO_TORCH_TYPE = {
+SCALAR_TYPE_TO_TORCH_MLIR_TYPE = {
+    torch.SymInt: "!torch.int",
+    torch.SymFloat: "!torch.float",
+    torch.SymBool: "!torch.bool",
     int: "!torch.int",
     float: "!torch.float",
     str: "!torch.str",
     bool: "!torch.bool",
     NoneType: "!torch.none",
 }
+
 
 # AOT-autograd sometimes falsely emit tensor version op with scalar arguments.
 # We may remove this dictionary, if we fix such behavior in the backend.
