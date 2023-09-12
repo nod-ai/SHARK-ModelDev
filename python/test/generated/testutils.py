@@ -190,12 +190,19 @@ def evaluate_all(
         testfiles = testfiles[offset : offset + limit]
 
     with tqdm(total=len(testfiles)) as pbar:
-        pool = ThreadPool(jobs)
-        for errors_part, stats_part in pool.imap_unordered(fn, testfiles):
-            errors.update(errors_part)
-            stats.update(stats_part)
-            pbar.update()
-        pool.close()
+        if args.sequential:
+            for file in testfiles:
+                errors_part, stats_part = fn(path=file)
+                errors.update(errors_part)
+                stats.update(stats_part)
+                pbar.update()
+        else:
+            pool = ThreadPool(jobs)
+            for errors_part, stats_part in pool.imap_unordered(fn, testfiles):
+                errors.update(errors_part)
+                stats.update(stats_part)
+                pbar.update()
+            pool.close()
 
     errors.print_report()
     log.info(f"Total time: {time.time() - start:02f} s")

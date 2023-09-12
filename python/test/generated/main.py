@@ -22,7 +22,7 @@ def get_args(raw_args=None):
         "-j",
         type=int,
         default=4,
-        help="Number of threads in our threadpool, jobs=1 is essentially sequential execution",
+        help="Number of threads in our threadpool, ignored if --sequential is set",
     )
     parser.add_argument(
         "--offset",
@@ -39,6 +39,11 @@ def get_args(raw_args=None):
         "--tests-dir",
         default=None,
         help="jit-paritybench location (i.e. /path/to/pytorch-jit-paritybench)",
+    )
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="Set to run tests sequentially without threading, this can help resolve hanging or long runtimes due to low memory",
     )
     # parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu") # excluded for now as we only have turbine-cpu, can use this later
 
