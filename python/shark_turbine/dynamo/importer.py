@@ -411,6 +411,14 @@ class GraphNodeImporter:
     def _import_torch_op_overload(
         self, loc: Location, node: torch_fx.Node, target: TorchOpOverload
     ):
+        # replace lift_fresh_copy with clone op
+        if target == torch.ops.aten.lift_fresh_copy.default:
+            node.target = target = torch.ops.aten.clone.default
+            node.args = (node.args[0], None)
+        elif target == torch.ops.aten.lift_fresh_copy.out:
+            node.target = target = torch.ops.aten.clone.out
+            node.args = (node.args[0], None, node.args[1])
+
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
 
