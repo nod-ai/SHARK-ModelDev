@@ -581,6 +581,12 @@ class GraphNodeImporter:
             isinstance(node.args[1], float) or isinstance(node.args[1], int)
         ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
+            # replace schema to retrieve the right function signature
+            op_attrs = mlir_op_name.split(".")
+            op_overload = getattr(torch, "ops")
+            for i in range(1, len(op_attrs)):
+                op_overload = getattr(op_overload, op_attrs[i])
+            schema = op_overload._schema
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
@@ -667,11 +673,30 @@ class GraphNodeImporter:
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
             return self._import_list_argument(loc, arg, expected_jit_type)
         elif type(arg) in LITERAL_CONVERTER_MAP._cache:
-            with loc:
-                arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
+            # promote scalars to tensor types as appropriate
+            if isinstance(expected_jit_type, torch.TensorType):
+                arg_value = self._import_scalar_as_tensor(loc, arg)
+            else:
+                with loc:
+                    arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(
+                        arg, self, self._cc
+                    )
             return arg_value
         else:
             raise NotImplementedError(f"FIXME: Unsupported Node Argument: {arg}")
+
+    def _import_scalar_as_tensor(self, loc: Location, arg: NodeArgument) -> Value:
+        tensor_arg = torch.tensor(arg)
+        result_type = self._cc.get_vtensor_type(tensor_arg.size(), tensor_arg.dtype)
+        with loc:
+            constant_arg = LITERAL_CONVERTER_MAP.lookup(type(arg))(arg, self, self._cc)
+
+        return Operation.create(
+            name="torch.prim.NumToTensor.Scalar",
+            results=[result_type],
+            operands=[constant_arg],
+            loc=loc,
+        ).result
 
     def _import_list_argument(
         self, loc: Location, arg: NodeArgument, expected_jit_type

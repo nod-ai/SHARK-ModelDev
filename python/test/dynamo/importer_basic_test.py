@@ -96,6 +96,17 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.randn(4, 4, 4, 4))
 
+    def testPromoteScalarTensor(self):
+        """
+        Test whether scalar arguments are properly promoted to 0-rank Tensors for torch ops with no Scalar equivalent
+        """
+
+        def foo(x):
+            return torch.ops.aten.div.Tensor_mode(x, 14, rounding_mode="floor")
+
+        opt_foo = torch.compile(foo, backend=create_backend())
+        opt_foo(torch.randn(4, 4, 4, 4))
+
     def testImportDecomposeChunk(self):
         def foo_chunk(x):
             return torch.chunk(x, 2, dim=-1)
@@ -243,12 +254,14 @@ class ImportTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def testImportAtenFull(self):
-        """Expected to fail until torch-mlir op: torch.aten.empty_strided is implemented """
-        def foo(x):
-            return torch.full(x.size(), fill_value=float('-inf'))
+        """Expected to fail until torch-mlir op: torch.aten.empty_strided is implemented"""
 
-        opt_foo = torch.compile(foo, backend='turbine_cpu')
+        def foo(x):
+            return torch.full(x.size(), fill_value=float("-inf"))
+
+        opt_foo = torch.compile(foo, backend="turbine_cpu")
         opt_foo(torch.randn(2, 3))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
