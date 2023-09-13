@@ -581,7 +581,12 @@ class GraphNodeImporter:
             isinstance(node.args[1], float) or isinstance(node.args[1], int)
         ):
             mlir_op_name = TENSOR_SCALAR_OP_CONVERTER[mlir_op_name]
-            # replace schema to retrieve the right function signature
+            # we are dynamically changing which op is emitted here due to an issue in
+            # torch dynamo where it emits the Tensor variant of ops even when processing
+            # scalar arguments, therefore we retrieve the schema as well so that we
+            # consume the correct typing information when subsequently importing the
+            # function arguments and result types
+            # i.e. the code below is basically doing `schema = torch.ops.aten.my_op.Scalar._schema`
             op_attrs = mlir_op_name.split(".")
             op_overload = getattr(torch, "ops")
             for i in range(1, len(op_attrs)):
