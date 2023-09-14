@@ -17,7 +17,10 @@ from iree.compiler.ir import (
     Value,
 )
 
-from ..builder import ModuleBuilder
+from ..builder import (
+    ModuleBuilder,
+)
+
 from ..procedural import (
     AbstractIntrinsic,
     Intrinsic,
@@ -64,12 +67,8 @@ class AbstractTensor(AbstractIntrinsic):
         return IrValueTensor(ir_value, self.dtype)
 
     def get_ir_type(self, builder: ModuleBuilder) -> IrType:
-        try:
-            dtype_asm = TORCH_DTYPE_TO_IREE_TYPE_ASM[self.dtype]
-        except KeyError:
-            raise KeyError(f"Could not map Torch dtype {self.dtype} to an IREE type")
+        element_type = builder.torch_dtype_to_iree_type(self.dtype)
         with Location.unknown(builder.context):
-            element_type = IrType.parse(dtype_asm)
             tensor_type = RankedTensorType.get(
                 [s if s is not None else -1 for s in self.size], element_type
             )

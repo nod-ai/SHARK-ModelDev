@@ -282,7 +282,14 @@ class IrTensorBase(Intrinsic):
         assert not any(
             d < 0 for d in shape
         ), "Dynamic dims to jittable not yet implemented"
-        return torch.empty(shape, dtype=self.dtype, device="meta")
+
+        # TODO: We shouldn't need to create a real tensor here, as Dynamo will
+        # immediately convert it to fake. However, it will also set up the shape
+        # environment and asserts that any fake tensor inputs are from its
+        # internal FakeMode. There should be a way but needs more investigation.
+        # TODO: This tensor needs a device that matches the model being exported.
+        # We just create these on the CPU because that is common.
+        return torch.empty(shape, dtype=self.dtype)
 
 
 class IrValueTensor(IrTensorBase):

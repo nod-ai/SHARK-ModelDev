@@ -8,7 +8,7 @@ import logging
 import operator
 import re
 from types import NoneType, BuiltinMethodType, BuiltinFunctionType
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
 
 from iree.compiler.ir import (
@@ -64,6 +64,11 @@ from torch.fx.node import (
 __all__ = [
     "FxImporter",
 ]
+
+# An external callback that, given a Python value and a GraphNodeImporter, may choose
+# to materialize IR to load the value as a vtensor. If it returns None, then default
+# literal resolution proceeds.
+LiteralResolverCallback = Callable[[Any, "GraphNodeImporter"], Optional[Value]]
 
 REQUIRED_DIALCTS = [
     "builtin",
@@ -189,6 +194,7 @@ class FxImporter:
     __slots__ = [
         "_c",
         "_cc",
+        "_literal_resolver_callback",
         "_m",
         "_m_ip",
         "symbol_table",
@@ -196,9 +202,11 @@ class FxImporter:
 
     def __init__(
         self,
+        *,
         module: Optional[Module] = None,
         context: Optional[Context] = None,
         config_check: bool = True,
+        literal_resolver_callback: Optional[LiteralResolverCallback] = None,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -212,6 +220,7 @@ class FxImporter:
             self._config_check()
         self._cc = ContextCache(self._c)
         self._m_ip = InsertionPoint(self._m.body)
+        self._literal_resolver_callback = literal_resolver_callback
         self.symbol_table = SymbolTable(self._m.operation)
 
     def _config_check(self):
@@ -228,6 +237,10 @@ class FxImporter:
     def module(self) -> Module:
         return self._m
 
+    @property
+    def module_op(self) -> Operation:
+        return self._m.operation
+
     def import_graph_module(self, gm: GraphModule):
         self.import_stateless_graph(gm.graph)
 
@@ -242,7 +255,13 @@ class FxImporter:
                 ip=self._m_ip,
             )
             entry_block = Block.create_at_start(func.body, ftype.inputs)
-        node_importer = GraphNodeImporter(self._c, self._cc, entry_block)
+        node_importer = GraphNodeImporter(
+            self,
+            self._c,
+            self._cc,
+            entry_block,
+            literal_resolver_callback=self._literal_resolver_callback,
+        )
         node_importer.import_nodes(g.nodes)
         self.symbol_table.insert(func)
 
@@ -379,6 +398,10 @@ class ContextCache:
             self._dtype_to_type[dtype] = t
         return t
 
+    def tensor_to_vtensor_type(self, tensor: torch.Tensor) -> MlirType:
+        dtype_asm = str(self.dtype_to_type(tensor.dtype))
+        return MlirType.parse(f"!torch.vtensor<{list(tensor.size())},{dtype_asm}>")
+
     def get_node_location(self, node: torch_fx.Node) -> Optional[Location]:
         stack_trace = node.meta.get("stack_trace")
         if stack_trace is None:
@@ -401,11 +424,22 @@ class GraphNodeImporter:
         "_b",
         "_c",
         "_cc",
+        "_literal_resolver_callback",
         "_v",
         "_multi_result_nodes",
+        "fx_importer",
     ]
 
-    def __init__(self, context: Context, context_cache: ContextCache, block: Block):
+    def __init__(
+        self,
+        fx_importer: FxImporter,
+        context: Context,
+        context_cache: ContextCache,
+        block: Block,
+        *,
+        literal_resolver_callback: Optional[LiteralResolverCallback] = None,
+    ):
+        self.fx_importer = fx_importer
         self._c = context
         self._cc = context_cache
         self._b = block
@@ -414,6 +448,7 @@ class GraphNodeImporter:
         # Statically multi-result nodes which we have de-tupled are noted here.
         # They will have their getitem calls short-circuited.
         self._multi_result_nodes: Set[torch_fx.Node] = set()
+        self._literal_resolver_callback = literal_resolver_callback
 
     def import_nodes(self, nodes: Sequence[torch_fx.Node]):
         with InsertionPoint(self._b):
@@ -671,24 +706,34 @@ class GraphNodeImporter:
                 ), f"Attempting to retrieve attribute '{arg.target}' from module, but no such attribute exists"
                 obj = getattr(gm, arg.target)
                 with loc:
-                    value = LITERAL_CONVERTER_MAP.lookup(type(obj))(obj, self, self._cc)
-                self._v[(arg, 0)] = value
+                    self._v[(arg, 0)] = self._import_literal(obj)
 
             return self._v[(arg, 0)]
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
             return self._import_list_argument(loc, arg, expected_jit_type)
-        elif type(arg) in LITERAL_CONVERTER_MAP._cache:
+        elif isinstance(expected_jit_type, torch.TensorType) and not isinstance(arg, torch.Tensor):
             # promote scalars to tensor types as appropriate
-            if isinstance(expected_jit_type, torch.TensorType):
-                arg_value = self._import_scalar_as_tensor(loc, arg)
-            else:
-                with loc:
-                    arg_value = LITERAL_CONVERTER_MAP.lookup(type(arg))(
-                        arg, self, self._cc
-                    )
-            return arg_value
+            return self._import_scalar_as_tensor(loc, arg)
         else:
-            raise NotImplementedError(f"FIXME: Unsupported Node Argument: {arg}")
+            with loc:
+                return self._import_literal(arg)
+
+    def _import_literal(self, py_value: Any) -> Value:
+        # Apply the conversion callback.
+        user_callback = self._literal_resolver_callback
+        if user_callback:
+            user_value = user_callback(py_value, self)
+            if user_value is not None:
+                assert isinstance(user_value, Value)
+                return user_value
+
+        # Default conversion path.
+        converter = LITERAL_CONVERTER_MAP.lookup(type(py_value))
+        if converter is None:
+            raise TypeError(
+                f"Unsupported argument -> literal conversion for {py_value.__class__}"
+            )
+        return converter(py_value, self, self._cc)
 
     def _import_scalar_as_tensor(self, loc: Location, arg: NodeArgument) -> Value:
         tensor_arg = torch.tensor(arg)
@@ -837,7 +882,7 @@ def _make_constant_op(
     )
 
 
-def _make_vtensor_literal_op(tensor: torch.Tensor, mlir_type: MlirType) -> Operation:
+def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Operation:
     npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
     assert (
         npy_dtype is not None
@@ -850,15 +895,10 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, mlir_type: MlirType) -> Opera
     # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
     np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
     bytes = memoryview(np_tensor)
-
-    mlir_asm_type = str(mlir_type)
-    tensor_type = MlirType.parse(
-        f"!torch.vtensor<{list(tensor.size())},{mlir_asm_type}>"
-    )
     elements_attr = DenseElementsAttr.get(bytes, signless=False)
     return Operation.create(
         name="torch.vtensor.literal",
-        results=[tensor_type],
+        results=[vtensor_type],
         attributes={"value": elements_attr},
     )
 
@@ -897,7 +937,7 @@ LITERAL_CONVERTER_MAP.map(
 LITERAL_CONVERTER_MAP.map(
     torch.Tensor,
     lambda arg, gni, cc: _make_vtensor_literal_op(
-        arg, cc.dtype_to_type(arg.dtype)
+        arg, cc.tensor_to_vtensor_type(arg)
     ).result,
 )
 LITERAL_CONVERTER_MAP.map(
