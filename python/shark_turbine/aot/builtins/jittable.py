@@ -189,12 +189,14 @@ class jittable(CallableIntrinsic):
             literal_resolver_callback=_make_literal_resolver(proc_trace.module_builder),
         )
         fx_importer.import_stateless_graph(gm.graph, func_name=self.function_name)
+
+        # TODO: Real debugging options
         # print(fx_importer.module, file=sys.stderr)
 
         # Within the isolated module, convert to MLIR.
         with proc_trace.context as context:
             try:
-                pm = PassManager.parse("builtin.module(torch-to-iree-pipeline)")
+                pm = PassManager.parse("builtin.module(torch-to-iree)")
                 # Uncomment these two lines to debug.
                 # TODO: Real debug options.
                 # context.enable_multithreading(False)
