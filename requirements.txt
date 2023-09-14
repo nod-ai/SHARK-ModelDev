@@ -6,5 +6,5 @@
 
 -r pytorch-cpu-requirements.txt
 
-iree-compiler==20230906.637
-iree-runtime==20230906.637
+iree-compiler==20230914.645
+iree-runtime==20230914.645
