@@ -2,7 +2,7 @@ import torch
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch._decomp import get_decompositions
 from torch.func import functionalize
-from typing import List
+from typing import Dict, List
 
 # default decompositions pulled from SHARK
 DEFAULT_DECOMPOSITIONS = [
@@ -18,6 +18,8 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.native_layer_norm,
     torch.ops.aten.masked_fill.Tensor,
     torch.ops.aten.masked_fill.Scalar,
+    torch.ops.aten.t,
+    torch.ops.aten.addmm,
 ]
 
 

@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Callable, Dict, Generator, Optional, Tuple, Union
+from typing import Callable, Dict, Generator, List, Optional, Tuple, Union
 
 import inspect
 import logging
@@ -21,7 +21,7 @@ from iree.compiler.ir import (
 )
 
 from . import builtins
-from .builder import ModuleBuilder
+from .builder import GlobalsDef, ModuleBuilder
 from .procedural import ProcedureTrace
 
 logger = logging.getLogger("shark_turbine.aot")
@@ -81,7 +81,7 @@ class ExportProcDef:
         return f"<def {self.export_name}({self.signature})>"
 
 
-Exportable = Union[ExportProcDef, PyOnlyDef]
+Exportable = Union[ExportProcDef, PyOnlyDef, GlobalsDef]
 
 
 class CompiledModuleClassInfo:
@@ -113,12 +113,24 @@ class CompiledModuleClassInfo:
             self.all_exports.items(),
         )
 
+    @property
+    def globals_defs(self) -> Generator[Tuple[str, GlobalsDef], None, None]:
+        return filter(
+            lambda kv_tuple: isinstance(kv_tuple[1], GlobalsDef),
+            self.all_exports.items(),
+        )
+
     def def_attribute(self, key, value):
-        # Convert decorators to descriptors.
+        # Some decorators, the only thing we do is convert them to PyOnlyDef.
+        # Do that first so the generic descriptor code below handles them.
         if isinstance(value, builtins.jittable):
             value = PyOnlyDef(value)
 
         # Detect our own descriptors.
+        if isinstance(value, GlobalsDef):
+            logging.debug("DEFINE GLOBALS: %s = %r", key, value)
+            self.add_export(key, value)
+            return value
         if isinstance(value, ExportProcDef):
             value = value.copy()
             if value.export_name is None:
@@ -364,7 +376,9 @@ class CompiledModule(metaclass=CompiledModuleMeta):
         info = CompiledModuleInstanceInfo(class_info, module_builder=module_builder)
         _all_compiled_module_instance_infos[self] = info
 
-        # TODO: Instantiate globals
+        # Instantiate globals
+        for key, globals_def in info.class_info.globals_defs:
+            module_builder.track_globals(key, globals_def)
 
         # Make PyOnly defs visible.
         for key, py_def in info.class_info.py_only_defs:

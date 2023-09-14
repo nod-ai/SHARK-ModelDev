@@ -7,12 +7,14 @@
 
 """Tracing builtins."""
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+import logging
 import sys
 
+import torch
+from torch._decomp import get_decompositions
 import torch._dynamo as dynamo
-
 from torch.fx import (
     Graph,
 )
@@ -23,7 +25,10 @@ from torch.utils._pytree import (
     tree_unflatten,
 )
 
-from ..builder import ModuleBuilder
+from ..builder import (
+    MaterializedGlobal,
+    ModuleBuilder,
+)
 
 from ..procedural import (
     IrValueTensor,
@@ -31,11 +36,19 @@ from ..procedural import (
     ProcedureTrace,
 )
 
-from ...dynamo.importer import FxImporter
+from ...dynamo.importer import (
+    GraphNodeImporter,
+    FxImporter,
+)
+from ...dynamo.passes import (
+    DEFAULT_DECOMPOSITIONS,
+    CPU_DECOMPOSITIONS,
+)
 
 from iree.compiler.ir import (
     FlatSymbolRefAttr,
     FunctionType,
+    MLIRError,
     Operation,
     StringAttr,
     SymbolTable,
@@ -44,12 +57,62 @@ from iree.compiler.ir import (
 )
 from iree.compiler.dialects import (
     func as func_d,
+    util as util_d,
 )
 from iree.compiler.passmanager import (
     PassManager,
 )
 
+logger = logging.getLogger("shark_turbine.aot")
+
 StringAttrOrStr = Union[StringAttr, str]
+
+
+def _make_literal_resolver(module_builder: ModuleBuilder):
+    # When we first encounter a global during import, we have to pull it
+    # into the local module being populated by the GraphNodeImporter. This
+    # will exactly match the global in the target module we are merging into
+    # and exists so that the IR is valid during Fx import. We keep the set of
+    # symbols we have done this to here.
+    cloned_global_symbols: Set[str] = set()
+
+    def resolver(py_value: Any, gni: GraphNodeImporter) -> Optional[Value]:
+        # We support resolution of tracked reference types. Currently this
+        # only includes Tensors. All others we let the importer do what it
+        # is going to do.
+        if not isinstance(py_value, torch.Tensor):
+            return None
+
+        # See if we know about it.
+        mapping = module_builder.global_ref_tracker.track(py_value)
+        if mapping.is_empty:
+            # If it is unknown, just let the default importer take it on.
+            return None
+
+        # Already materialized.
+        logger.debug("Resolved defined global for literal %r", mapping)
+        materialized_global: MaterializedGlobal = mapping.value
+
+        # Clone the global into the import module (so that our symbol refs are
+        # legal). Note that the merger will ignore these since they already
+        # exist in the target module.
+        if materialized_global.symbol_name not in cloned_global_symbols:
+            materialized_global.global_op.operation.clone(ip=gni.fx_importer._m_ip)
+            cloned_global_symbols.add(materialized_global.symbol_name)
+
+        # Emit a global load and conversion.
+        vtensor_type = gni._cc.tensor_to_vtensor_type(py_value)
+        loaded_value = util_d.GlobalLoadOp(
+            materialized_global.global_type, materialized_global.symbol_name
+        ).result
+        converted_value = Operation.create(
+            "torch_c.from_builtin_tensor",
+            results=[vtensor_type],
+            operands=[loaded_value],
+        ).result
+        return converted_value
+
+    return resolver
 
 
 class jittable(CallableIntrinsic):
@@ -68,10 +131,21 @@ class jittable(CallableIntrinsic):
         self,
         wrapped_f,
         *,
-        decomposition_table=None,
+        decompose_ops: Optional[List[torch._ops.OpOverload]] = None,
+        decomposition_table: Optional[
+            Dict[torch._ops.OpOverload, Callable[..., Any]]
+        ] = None,
         constraints=None,
         function_name: Optional[str] = None,
     ):
+        if decomposition_table is None:
+            decomposition_table = {}
+        if decompose_ops is None:
+            decompose_ops = DEFAULT_DECOMPOSITIONS + CPU_DECOMPOSITIONS
+
+        if decompose_ops:
+            decomposition_table.update(get_decompositions(decompose_ops))
+
         self.wrapped_f = wrapped_f
         self.exported_f = dynamo.export(
             wrapped_f,
@@ -109,16 +183,31 @@ class jittable(CallableIntrinsic):
         pytorch_meta_results = _extract_graph_output_metadata(gm.graph)
 
         # Import the FX graph to MLIR in a new module.
-        fx_importer = FxImporter(context=proc_trace.context, config_check=False)
+        fx_importer = FxImporter(
+            context=proc_trace.context,
+            config_check=False,
+            literal_resolver_callback=_make_literal_resolver(proc_trace.module_builder),
+        )
         fx_importer.import_stateless_graph(gm.graph, func_name=self.function_name)
         # print(fx_importer.module, file=sys.stderr)
 
         # Within the isolated module, convert to MLIR.
-        with proc_trace.context:
-            pm = PassManager.parse(
-                "builtin.module(torch-backend-to-linalg-on-tensors-backend-pipeline,symbol-dce)"
-            )
-            pm.run(fx_importer.module.operation)
+        with proc_trace.context as context:
+            try:
+                pm = PassManager.parse("builtin.module(torch-to-iree-pipeline)")
+                # Uncomment these two lines to debug.
+                # TODO: Real debug options.
+                # context.enable_multithreading(False)
+                # pm.enable_ir_printing()
+                # Run.
+                pm.run(fx_importer.module.operation)
+            except MLIRError:
+                # TODO: Better error handling.
+                print(fx_importer.module.operation, file=sys.stderr)
+                raise
+
+        # Uncomment to print the final module.
+        # TODO: Real debugging options.
         # print(fx_importer.module.operation, file=sys.stderr)
 
         # Splice the converted module into the main module by taking advantage
