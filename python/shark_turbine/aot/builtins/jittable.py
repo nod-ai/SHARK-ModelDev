@@ -25,15 +25,12 @@ from torch.utils._pytree import (
     tree_unflatten,
 )
 
-from ..builder import (
+from ..support import (
+    CallableIntrinsic,
+    IrTrace,
+    IrValueTensor,
     MaterializedGlobal,
     ModuleBuilder,
-)
-
-from ..procedural import (
-    IrValueTensor,
-    CallableIntrinsic,
-    ProcedureTrace,
 )
 
 from ...dynamo.importer import (
@@ -161,7 +158,7 @@ class jittable(CallableIntrinsic):
     def __repr__(self):
         return f"<Jittable PyTorch func: {self.exported_f}>"
 
-    def resolve_call(self, proc_trace: ProcedureTrace, *py_args, **py_kwargs):
+    def resolve_call(self, proc_trace: IrTrace, *py_args, **py_kwargs):
         flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
 
         # Convert procedural trace values to things that Dynamo can handle.

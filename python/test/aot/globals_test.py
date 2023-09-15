@@ -43,6 +43,79 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("util.global private @_params.classifier.weight", module_str)
         self.assertIn("util.global private @_params.classifier.bias", module_str)
 
+    def testGlobalLoadFromPyTree(self):
+        m = SimpleParams()
+
+        class GlobalModule(CompiledModule):
+            params = export_parameters(m)
+
+            def read_params(self):
+                return self.params
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "%_params.classifier.weight = util.global.load @_params.classifier.weight",
+            module_str,
+        )
+        self.assertIn(
+            "%_params.classifier.bias = util.global.load @_params.classifier.bias",
+            module_str,
+        )
+        self.assertIn(
+            "return %_params.classifier.weight, %_params.classifier.bias", module_str
+        )
+
+    def testGlobalLoadFromPyLeaf(self):
+        m = SimpleParams()
+
+        class GlobalModule(CompiledModule):
+            params = export_parameters(m)
+
+            def read_weight(self):
+                return self.params["classifier.weight"]
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "%_params.classifier.weight = util.global.load @_params.classifier.weight",
+            module_str,
+        )
+        self.assertIn("return %_params.classifier.weight", module_str)
+
+    def testGlobalStoreFromPyTree(self):
+        m = SimpleParams()
+
+        class GlobalModule(CompiledModule):
+            params = export_parameters(m, initialize=False, mutable=True)
+
+            def update_params(me, updates=abstractify(params)):
+                self.assertIn("classifier.weight", updates)
+                self.assertIn("classifier.bias", updates)
+                me.params = updates
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global.store %arg0, @_params.classifier.weight", module_str)
+        self.assertIn("util.global.store %arg1, @_params.classifier.bias", module_str)
+
+    def testGlobalStoreFromLeaf(self):
+        m = SimpleParams()
+
+        class GlobalModule(CompiledModule):
+            params = export_parameters(m, initialize=False, mutable=True)
+
+            def update_bias(self, new_bias=abstractify(params["classifier.bias"])):
+                self.params["classifier.bias"] = new_bias
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global.store %arg0, @_params.classifier.bias", module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
