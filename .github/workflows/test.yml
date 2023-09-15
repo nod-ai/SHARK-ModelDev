@@ -10,9 +10,6 @@ on:
 jobs:
   ubuntu:
     runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-      fail-fast: false
     steps:
       - name: "Setting up Python"
         uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
