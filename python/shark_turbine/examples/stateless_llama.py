@@ -15,7 +15,6 @@ from torch.fx import (
 )
 import collections
 from torch._export.constraints import constrain_as_size, constrain_as_value
-import unittest
 
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
@@ -93,7 +92,7 @@ class InferenceModel(torch.nn.Module):
         state0 = pytree.tree_unflatten(state0_flat, self.state_schema)
         result = self.base_model.forward(token0, past_key_values=state0)
         state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-        state1_flat = [x[:, :, -2:-1, :] for x in state1_flat]
+        state1_flat = [x[:, :, -1:, :] for x in state1_flat]
         token1 = torch.argmax(result.logits[:, -1, :], dim=1)
         return token1, *state1_flat
 
@@ -134,61 +133,52 @@ class InferenceModel(torch.nn.Module):
         g_forward = import_compiler(g_forward, [example_token, *example_state])
 
 
-class StatelessLlamaTest(unittest.TestCase):
+def test_against_golden():
+    def unpack_tensor(pkv, seq_step):
+        return [pkv[i,:,:,:seq_step+1,:] for i in range(64)]
+    model = InferenceModel()
+    def get_token_from_logits(logits):
+        return torch.argmax(logits[:,-1,:], dim=1)
+    input_ids = model.get_sample_input()
+    example_token0, *state1_flat = model.initialize(input_ids)
+    seq_step = state1_flat[0].shape[2]
+    shape_default = list(state1_flat[0].shape)
+    shape_default[2] = MAX_STEP_SEQ
+    shape_default = tuple([64]+shape_default)
+    session_state = torch.zeros(shape_default, dtype=state1_flat[0].dtype)
+    for i in range(64):
+        session_state[i,:,:,:seq_step,:] = state1_flat[i]
+    #get base model results
+    base_model_results = model.base_model.forward(input_ids)
+    base_model_token = get_token_from_logits(base_model_results.logits) 
+    assert(example_token0 == base_model_token)
+    base_model_pkv = base_model_results.past_key_values
+    token = example_token0
+    for i in range(15):
+        next_input_token = torch.reshape(token, [1,1])
+        print(f"next_input_token {next_input_token}")
+        base_results = model.base_model.forward(next_input_token, past_key_values=base_model_pkv) 
+        base_token = get_token_from_logits(base_results.logits)
+        base_model_pkv = base_results.past_key_values
 
-    def test_stateless_vs_golden(self):
-        def unpack_tensor(pkv, seq_step):
-            return [pkv[i,:,:,:seq_step+1,:] for i in range(64)]
-        model = InferenceModel()
-        def get_token_from_logits(logits):
-            return torch.argmax(logits[:,-1,:], dim=1)
-        input_ids = model.get_sample_input()
-        example_token0, *state1_flat = model.initialize(input_ids)
-        seq_step = state1_flat[0].shape[2]
-        shape_default = list(state1_flat[0].shape)
-        shape_default[2] = MAX_STEP_SEQ
-        shape_default = tuple([64]+shape_default)
-        session_state = torch.zeros(shape_default, dtype=state1_flat[0].dtype)
+        state_as_list = unpack_tensor(session_state, seq_step)
+        token, *state1_flat_update = model.forward(next_input_token, *unpack_tensor(session_state, seq_step)) 
         for i in range(64):
-            session_state[i,:,:,:seq_step,:] = state1_flat[i]
-        #get base model results
-        base_model_results = model.base_model.forward(input_ids)
-        base_model_token = get_token_from_logits(base_model_results.logits) 
-        assert(example_token0 == base_model_token)
-        base_model_pkv = base_model_results.past_key_values
-        token = example_token0
-        for i in range(15):
-            next_input_token = torch.reshape(token, [1,1])
-            print(f"next_input_token {next_input_token}")
-            base_results = model.base_model.forward(next_input_token, past_key_values=base_model_pkv) 
-            base_token = get_token_from_logits(base_results.logits)
-            base_model_pkv = base_results.past_key_values
+            session_state[i,:,:,seq_step:seq_step+1,:] = state1_flat_update[i] 
+        seq_step+=1
 
-            state_as_list = unpack_tensor(session_state, seq_step)
-            bmpkv_flat, _ = pytree.tree_flatten(base_model_pkv)
-    #        for i in range(64):
-    #            assert(torch.allclose(state_as_list[i],bmpkv_flat[i]))
-            token, *state1_flat_update = model.forward(next_input_token, *unpack_tensor(session_state, seq_step)) 
-            for i in range(64):
-                session_state[i,:,:,seq_step:seq_step+1,:] = state1_flat_update[i] 
-            seq_step+=1
+        print(f"stateless_token {model.tokenizer.decode(token)}")
+        print(f"base_token {model.tokenizer.decode(base_token)}")
+        print()
+        assert(token==base_token)
 
-            print(f"stateless_token {model.tokenizer.decode(token)}")
-            print(f"base_token {model.tokenizer.decode(base_token)}")
-            print()
-
-    def test_compile_fx(self):
-        model = InferenceModel()
-        input_ids = model.get_sample_input()
-        model.compile(input_ids)
-
-    def test_compile_dynamo(self):
-        model = InferenceModel()
-        input_ids = model.get_sample_input()
-        g_initialize, guards_initialize, g_forward, guards_forward = model.compile(input_ids, True)
-         
-
+def test_compile():
+    model = InferenceModel()
+    input_ids = model.get_sample_input()
+    g_initialize, guards_initialize, g_forward, guards_forward = model.compile(input_ids, True)
 
 
 if __name__ == "__main__":
-    unittest.main()
+    test_compile()
+
+    test_golden()
