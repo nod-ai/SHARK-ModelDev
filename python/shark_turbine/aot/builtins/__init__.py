@@ -12,6 +12,7 @@ __all__ = [
     "AbstractTensor",
     "abstractify",
     "export_global",
+    "export_global_tree",
     "export_parameters",
     "jittable",
 ]

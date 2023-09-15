@@ -116,6 +116,82 @@ class ArgsTest(unittest.TestCase):
         print(module_str)
         self.assertIn("util.global.store %arg0, @_params.classifier.bias", module_str)
 
+    def testExportSingleGlobalTensor(self):
+        state_example = torch.randn(3, 11)
+
+        class SingleState(CompiledModule):
+            state0 = export_global(state_example, name="global")
+
+            def read_state(self):
+                return self.state0
+
+        inst = SingleState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global private @_state0.global", module_str)
+        self.assertIn("%_state0.global = util.global.load @_state0.global", module_str)
+        self.assertIn("return %_state0.global", module_str)
+
+    def testExportTreeGlobalTensors(self):
+        state_example = {
+            "data": torch.randn(3, 11),
+            "seq": [
+                torch.randn(1),
+                torch.randn(2),
+                torch.randn(3),
+            ],
+        }
+
+        class SingleState(CompiledModule):
+            state0 = export_global_tree(state_example)
+
+            def read_state(self):
+                return self.state0
+
+        inst = SingleState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global private @_state0.seq.0", module_str)
+        self.assertIn("util.global private @_state0.seq.1", module_str)
+        self.assertIn("util.global private @_state0.seq.2", module_str)
+        self.assertIn("util.global private @_state0.data", module_str)
+        self.assertIn("%_state0.data = util.global.load @_state0.data", module_str)
+        self.assertIn("%_state0.seq.0 = util.global.load @_state0.seq.0", module_str)
+        self.assertIn("%_state0.seq.1 = util.global.load @_state0.seq.1", module_str)
+        self.assertIn("%_state0.seq.2 = util.global.load @_state0.seq.2", module_str)
+        self.assertIn(
+            "return %_state0.data, %_state0.seq.0, %_state0.seq.1, %_state0.seq.2",
+            module_str,
+        )
+
+    def testUpdateGlobalStateTree(self):
+        state_example = {
+            "data": torch.randn(3, 11),
+            "seq": [
+                torch.randn(1),
+                torch.randn(2),
+                torch.randn(3),
+            ],
+        }
+
+        class SingleState(CompiledModule):
+            state0 = export_global_tree(state_example, mutable=True, initialize=False)
+
+            def read_state(self, updates=abstractify(state_example)):
+                self.state0 = updates
+
+        inst = SingleState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global private mutable @_state0.seq.0", module_str)
+        self.assertIn("util.global private mutable @_state0.seq.1", module_str)
+        self.assertIn("util.global private mutable @_state0.seq.2", module_str)
+        self.assertIn("util.global private mutable @_state0.data", module_str)
+        self.assertIn("util.global.store %arg0, @_state0.data", module_str)
+        self.assertIn("util.global.store %arg1, @_state0.seq.0", module_str)
+        self.assertIn("util.global.store %arg2, @_state0.seq.1", module_str)
+        self.assertIn("util.global.store %arg3, @_state0.seq.2", module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
