@@ -6,10 +6,11 @@
 
 from .globals import *
 from .jittable import jittable
-from .typedef import *
+from ..support import AbstractTensor, abstractify
 
 __all__ = [
     "AbstractTensor",
+    "abstractify",
     "export_global",
     "export_parameters",
     "jittable",

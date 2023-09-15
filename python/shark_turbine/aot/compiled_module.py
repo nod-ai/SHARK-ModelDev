@@ -21,8 +21,8 @@ from iree.compiler.ir import (
 )
 
 from . import builtins
-from .builder import GlobalsDef, ModuleBuilder
 from .procedural import ProcedureTrace
+from .support import GlobalsDef, ModuleBuilder, current_ir_trace
 
 logger = logging.getLogger("shark_turbine.aot")
 
@@ -346,9 +346,11 @@ class CompiledModule(metaclass=CompiledModuleMeta):
 
     def __setattr__(self, name, value):
         info = CompiledModule.get_info(self)
-
-        # TODO: Store globals.
-        raise AttributeError(f"Setting attributes on a CompiledModule not supported")
+        try:
+            descriptor = info.shadow_dict[name]
+        except KeyError:
+            raise AttributeError(f"Attribute {name} cannot be set")
+        current_ir_trace().handle_assignment(self, descriptor, value)
 
     def __new__(
         cls, *, context: Optional[Context] = None, module_op: Optional[Operation] = None
@@ -378,7 +380,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
 
         # Instantiate globals
         for key, globals_def in info.class_info.globals_defs:
-            module_builder.track_globals(key, globals_def)
+            info.shadow_dict[key] = globals_def.track(module_builder, key)
 
         # Make PyOnly defs visible.
         for key, py_def in info.class_info.py_only_defs:
