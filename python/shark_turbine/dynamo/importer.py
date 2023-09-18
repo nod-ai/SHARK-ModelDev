@@ -711,7 +711,9 @@ class GraphNodeImporter:
             return self._v[(arg, 0)]
         elif isinstance(arg, torch_fx.immutable_collections.immutable_list):
             return self._import_list_argument(loc, arg, expected_jit_type)
-        elif isinstance(expected_jit_type, torch.TensorType) and not isinstance(arg, torch.Tensor):
+        elif isinstance(expected_jit_type, torch.TensorType) and not isinstance(
+            arg, torch.Tensor
+        ):
             # promote scalars to tensor types as appropriate
             return self._import_scalar_as_tensor(loc, arg)
         else:

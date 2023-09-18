@@ -265,6 +265,7 @@ class ImportTests(unittest.TestCase):
 
     def _create_model(self, bias):
         import torch.nn as nn
+
         class SimpleModel(nn.Module):
             def __init__(self, input_size, output_size, bias=False):
                 super().__init__()
@@ -280,7 +281,7 @@ class ImportTests(unittest.TestCase):
         output_no_bias = model_no_bias(torch.randn(128, 20))
         print("\nOutput without bias:")
         print(output_no_bias)
-        opt_foo = torch.compile(model_no_bias, backend='turbine_cpu')
+        opt_foo = torch.compile(model_no_bias, backend="turbine_cpu")
         opt_foo(torch.randn(128, 20))
 
     def test_model_with_bias(self):
@@ -288,7 +289,7 @@ class ImportTests(unittest.TestCase):
         output_with_bias = model_with_bias(torch.randn(128, 20))
         print("\nOutput with bias:")
         print(output_with_bias)
-        opt_foo = torch.compile(model_with_bias, backend='turbine_cpu')
+        opt_foo = torch.compile(model_with_bias, backend="turbine_cpu")
         opt_foo(torch.randn(128, 20))
 
 
