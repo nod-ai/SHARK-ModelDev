@@ -12,7 +12,15 @@ import logging
 import re
 import weakref
 
-from iree.compiler.ir import (
+from . import builtins
+
+from .support.procedural import (
+    GlobalsDef,
+    ProcedureTrace,
+    current_ir_trace,
+)
+
+from .support.ir_imports import (
     Context,
     Location,
     Module,
@@ -20,11 +28,13 @@ from iree.compiler.ir import (
     StringAttr,
 )
 
-from . import builtins
-from .procedural import ProcedureTrace
-from .support import GlobalsDef, ModuleBuilder, current_ir_trace
+from .support.ir_utils import (
+    ModuleBuilder,
+)
 
-logger = logging.getLogger("shark_turbine.aot")
+from .support.utils import (
+    logger,
+)
 
 __all__ = [
     "CompiledModule",

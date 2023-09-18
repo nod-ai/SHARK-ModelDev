@@ -7,21 +7,20 @@
 
 from typing import Any
 
-from torch.utils._pytree import (
-    TreeSpec,
-    tree_flatten,
-    tree_map,
-    tree_unflatten,
-)
-
 import torch.nn as nn
 
-from ..support import (
+from ..support.procedural import (
     AbstractTypedef,
     Abstractifiable,
     GlobalsDef,
     TreeAbstractifiable,
     abstractify_single_value,
+)
+
+from ..support.utils import (
+    TreeSpec,
+    tree_flatten,
+    tree_map,
 )
 
 

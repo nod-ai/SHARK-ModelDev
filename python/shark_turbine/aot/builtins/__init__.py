@@ -6,7 +6,7 @@
 
 from .globals import *
 from .jittable import jittable
-from ..support import AbstractTensor, abstractify
+from ..support.procedural import AbstractTensor, abstractify
 
 __all__ = [
     "AbstractTensor",

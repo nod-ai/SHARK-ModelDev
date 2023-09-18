@@ -9,7 +9,6 @@
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-import logging
 import sys
 
 import torch
@@ -20,47 +19,46 @@ from torch.fx import (
 )
 from torch.fx.passes.shape_prop import TensorMetadata
 
-from torch.utils._pytree import (
-    tree_flatten,
-    tree_unflatten,
-)
-
-from ..support import (
-    CallableIntrinsic,
-    IrTrace,
-    IrValueTensor,
-    MaterializedGlobal,
-    ModuleBuilder,
-)
-
 from ...dynamo.importer import (
     GraphNodeImporter,
     FxImporter,
 )
+
 from ...dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
     CPU_DECOMPOSITIONS,
 )
 
-from iree.compiler.ir import (
+from ..support.utils import (
+    logger,
+    tree_flatten,
+    tree_unflatten,
+)
+
+from ..support.ir_utils import (
+    ModuleBuilder,
+)
+
+from ..support.procedural import (
+    CallableIntrinsic,
+    IrTrace,
+    IrValueTensor,
+    MaterializedGlobal,
+)
+
+from ..support.ir_imports import (
     FlatSymbolRefAttr,
     FunctionType,
     MLIRError,
     Operation,
+    PassManager,
     StringAttr,
     SymbolTable,
     TypeAttr,
     Value,
+    func_d,
+    util_d,
 )
-from iree.compiler.dialects import (
-    func as func_d,
-    util as util_d,
-)
-from iree.compiler.passmanager import (
-    PassManager,
-)
-
-logger = logging.getLogger("shark_turbine.aot")
 
 StringAttrOrStr = Union[StringAttr, str]
 
