@@ -132,6 +132,7 @@ class InferenceModel(torch.nn.Module):
         g_initialize = import_compiler(g_initialize, [example_input_id])
         g_forward = import_compiler(g_forward, [example_token, *example_state])
 
+        return g_initialize, guards_initialize, g_forward, guards_forward
 
 def test_against_golden():
     def unpack_tensor(pkv, seq_step):
@@ -181,4 +182,4 @@ def test_compile():
 if __name__ == "__main__":
     test_compile()
 
-    test_golden()
+    test_against_golden()
