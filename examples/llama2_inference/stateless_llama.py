@@ -15,7 +15,8 @@ from torch.fx import (
 )
 import collections
 from torch._export.constraints import constrain_as_size, constrain_as_value
-
+from shark_turbine.aot import *
+from iree.compiler.ir import Context
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
 
@@ -134,6 +135,115 @@ class InferenceModel(torch.nn.Module):
 
         return g_initialize, guards_initialize, g_forward, guards_forward
 
+
+def stateless_loop():
+    def unpack_tensor(pkv, seq_step):
+        return [pkv[i,:,:,:seq_step+1,:] for i in range(64)]
+    # example of loop using stateless. Roughly what we need to model with the iree emission
+    model = InferenceModel()
+    input_ids = model.get_sample_input()
+
+    example_token0, *state1_flat = model.initialize(input_ids)
+    seq_step = state1_flat[0].shape[2]
+    shape_default = list(state1_flat[0].shape)
+    shape_default[2] = MAX_STEP_SEQ
+    shape_default = tuple([64]+shape_default)
+    print(shape_default)
+    session_state = torch.zeros(shape_default, dtype=state1_flat[0].dtype)
+    for i in range(64):
+        session_state[i,:,:,:seq_step,:] = state1_flat[i]
+
+    token = example_token0
+    for i in range(15):
+        next_input_token = torch.reshape(token, [1,1])
+        token, *state1_flat_update = model.forward(next_input_token, *unpack_tensor(session_state, seq_step)) 
+        
+        for i in range(64):
+            session_state[i,:,:,seq_step:seq_step+1,:] = state1_flat_update[i] 
+        seq_step+=1
+
+def slice_up_to_step(global_pkv=AbstractTensor(), seq_step=AbstractIndex):
+    #again maybe we can do a loop inside torch and just pass the entire kv_count tensor from here?
+    all_pkv_tensors = []
+    for i in range(self.kv_count):
+        all_pkv_tensors.append(
+                IREE.tensor_slice(global_pkv,
+                                  i,
+                                  0,
+                                  0,
+                                  (0, seq_step),
+                                  0) #sequence context dim
+                                  )
+
+    return all_pkv_tensors
+
+def update_state(self, state_updates=AbstractTensor, seq_step=AbstractIndex):
+    all_updates = []
+    # maybe instead of a for loop here we can concatenate the pkv from inside pytorch
+    for i in range(self.kv_count):
+        all_updates.append(
+               IREE.tensor_update(
+                   self.global_pkv, 
+                   state_updates[i],
+                   #this probably doesn't work, need to figure out how to replace
+                   i, 0, 0, seq_step, 0))
+    return all_updates
+
+import torch.nn as nn
+class SimpleParams(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.classifier = nn.Linear(20, 30)
+
+    def forward(self, x):
+        return self.classifier(x)
+
+mod = InferenceModel() 
+class StateUpdateModule(CompiledModule):
+    params = export_parameters(mod)
+    compute = jittable(mod.initialize)
+    def run(self, x=AbstractTensor(1,89, dtype=torch.int32)):
+        return self.compute(x)
+
+
+
+def test_class():
+    inst = StateUpdateModule(context=Context())
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    print(module_str[-100:])
+    #dont define init this way, define  
+#        self.global_pkv = IREE.tensor_splat(*context_dims, value=0, dtype=torch.float32)
+#        self.wrapped_module=wrapped_module
+#        self.seq_step=0
+
+    #global_pkv = export_globals(...)
+    #seq_step = export_global()
+    #params = export_parameters(wrapped_module)
+
+
+
+
+#    def initialize_wrapper(self, input_ids=AbstractTensor(dims, dtype=torch.int32)):
+#        #This will be called on after a user prompt. input_ids should have prompt+_history already baked
+#        #not sure on interaction with existing compiled module
+#        #replace with jittable(nnmodule.intiialize(input_ids))
+#        token, state = self.wrapped_module.call("initialize", input_ids)
+#        self.seq_step = IREE.tensor_dim(state[0], 3) #3rd dimension of arbitrarily 0th kv tensor
+#        all_updates = []
+#        for i in range(self.kv_count):
+#            all_updates.append(
+#                    IREE.tensor_update(
+#                        self.global_pkv,
+#                        state[i],
+#                        i,0,0,0,0))
+#
+#
+#    def forward_wrapper(self, next_token, seq_step):
+#        # seems unlikely
+#        token, state_update = self.wrapped_module.call("forward", next_token, *slice_up_to_step(seq_step))
+#        #probably needs to be replaced with some ir gen
+#        self.seq_step= self.seq_step+1
+        
 def test_against_golden():
     def unpack_tensor(pkv, seq_step):
         return [pkv[i,:,:,:seq_step+1,:] for i in range(64)]
@@ -180,6 +290,7 @@ def test_compile():
 
 
 if __name__ == "__main__":
-    test_compile()
-
-    test_against_golden()
+#    test_compile()
+    test_class() 
+#    test_against_golden()
+#    stateless_loop()
