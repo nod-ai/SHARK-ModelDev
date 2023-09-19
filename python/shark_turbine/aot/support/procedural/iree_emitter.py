@@ -12,7 +12,7 @@ import functools
 
 import torch
 
-from ..support.ir_imports import (
+from ..ir_imports import (
     IndexType,
     RankedTensorType,
     StringAttr,
@@ -20,19 +20,17 @@ from ..support.ir_imports import (
     flow_d,
 )
 
-from ..support.ir_utils import (
+from ..ir_utils import (
     TORCH_DTYPE_TO_IREE_TYPE,
     build_index_value,
 )
 
-from ..support.procedural import (
-    AbstractScalar,
-    AbstractTensor,
+from .base import (
     Intrinsic,
     IrValueTensor,
     IrValueScalar,
     current_ir_trace,
-    _ShapedTypeDynamicSizeSentinel,
+    ShapedTypeDynamicSizeSentinel,
 )
 
 BuildableScalarValue = Union[IrValueScalar, Value]
@@ -82,7 +80,7 @@ def cast_tensor_dim_decl(
         x = unwrap_intrinsic_value(x)
         if isinstance(x, Value):
             assert_value_is_index(x)
-            dim_decls.append(_ShapedTypeDynamicSizeSentinel)
+            dim_decls.append(ShapedTypeDynamicSizeSentinel)
             dynamic_dim_values.append(x)
         elif isinstance(x, int) and x >= 0:
             dim_decls.append(x)
@@ -119,9 +117,9 @@ def emitter(f):
     return wrapper
 
 
-class IREEBuilder:
+class IREEEmitter:
     @emitter
-    def tensor_dim(self, source: BuildableTensorType, index: int) -> IrValueScalar:
+    def tensor_dim(self, source: BuildableTensorType, index: int) -> "IrValueScalar":
         """Gets the dimension size of a tensor at a static position."""
         source = cast_tensor_value(source)
         index = cast_static_bounded_index(index, 0, source.rank - 1)
@@ -152,7 +150,7 @@ class IREEBuilder:
         *dims: BuildableTensorDimDecl,
         value: BuildableScalarValue,
         dtype: torch.dtype,
-    ) -> IrValueTensor:
+    ) -> "IrValueTensor":
         # TODO: Type infer the dtype if missing.
         dim_decls, dyn_dim_values = cast_tensor_dim_decl(dims)
         try:
@@ -176,4 +174,8 @@ class IREEBuilder:
         flow_d.TensorTraceOp(StringAttr.get(key), ts)
 
 
-IREE = IREEBuilder()
+# Circular imports to resolve typing.
+from .primitives import (
+    IrValueScalar,
+    IrValueTensor,
+)

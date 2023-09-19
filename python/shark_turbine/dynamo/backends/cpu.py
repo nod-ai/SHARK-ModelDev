@@ -73,9 +73,7 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     importer.import_graph_module(gm)
     print(module, file=sys.stderr)
     with context:
-        pm = PassManager.parse(
-            "builtin.module(torch-to-iree)"
-        )
+        pm = PassManager.parse("builtin.module(torch-to-iree)")
         pm.run(module.operation)
     print(module, file=sys.stderr)
 

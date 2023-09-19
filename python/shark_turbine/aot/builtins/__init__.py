@@ -17,7 +17,11 @@ from ..support.procedural import (
     abstractify,
 )
 
-from .iree_ir import IREE
+# Export the instantiated IREEEmitter as "IREE"
+from ..support.procedural.iree_emitter import IREEEmitter as _IREEEmitter
+
+IREE = _IREEEmitter()
+del _IREEEmitter
 
 __all__ = [
     "AbstractBool",

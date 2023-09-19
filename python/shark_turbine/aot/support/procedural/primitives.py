@@ -1,0 +1,186 @@
+# Copyright 2023 Nod Labs, Inc
+# Portions Copyright 2022 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Live types during runtime of a procedure trace. User code will
+# operate on instances of these.
+
+from typing import (
+    List,
+    Optional,
+    Sequence,
+    Union,
+)
+
+import torch
+
+from ..ir_imports import (
+    IrType,
+    RankedTensorType,
+    Value,
+)
+
+from ..ir_utils import (
+    build_tensor_dim_value,
+)
+
+from ..utils import (
+    Empty,
+    EmptyType,
+)
+
+from .base import (
+    Intrinsic,
+    IrTrace,
+    ShapedTypeDynamicSizeSentinel,
+)
+
+###############################################################################
+# Tensors and scalars
+###############################################################################
+
+
+class IrValueScalar(Intrinsic):
+    """Represents an IR scalar value."""
+
+    __slots__ = [
+        "ir_value",
+    ]
+
+    def __init__(self, ir_value: Value):
+        assert isinstance(ir_value, Value)
+        self.ir_value = ir_value
+
+    def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
+        return (self.ir_value,)
+
+
+class IrTensorBase(Intrinsic):
+    """Base class for 'tensors' that resolve to some IR value.
+
+    These are not real tensors (i.e. no operations can be performed on them),
+    but they stand in as reasonable proxies during procedural tracing.
+    """
+
+    __slots__ = [
+        "ir_type",
+        "dtype",
+        "_dynamic_dims",
+        "_shape",
+    ]
+
+    def __init__(self, ir_type: IrType, dtype: torch.dtype):
+        ranked_ir_type = RankedTensorType(ir_type)
+        self.ir_type = ranked_ir_type
+        self.dtype = dtype
+
+        # Figure dynamic dims.
+        # _dynamic_dims is either Empty if static, or Value/None if dynamic.
+        self._shape = ranked_ir_type.shape
+        self._dynamic_dims: List[Union[EmptyType, Value, None]] = [
+            None if d == ShapedTypeDynamicSizeSentinel else Empty for d in self._shape
+        ]
+
+    @property
+    def rank(self) -> int:
+        return len(self._shape)
+
+    @property
+    def dynamic_dim_count(self) -> int:
+        return len(self._dynamic_dims) - self._dynamic_dims.count(Empty)
+
+    def set_dim_value(self, index: int, value: Optional[Value]):
+        """Sets the value of a dynamic dim.
+
+        Raises ValueError if the dimension is not dynamic.
+        """
+        if self._dynamic_dims is Empty:
+            raise ValueError(f"Dimension {index} of {self} is not dynamic")
+        self._dynamic_dims[index] = value
+
+    def set_dynamic_dim_values(self, values: Sequence[Value]):
+        """Sets all dynamic dim values."""
+        dd = self._dynamic_dims
+        input_index = 0
+        for pos in range(len(dd)):
+            if dd[pos] is Empty:
+                # Static
+                continue
+            assert input_index < len(values), "Mismatched static/dynamic dims"
+            assert isinstance(values[input_index], Value)
+            dd[pos] = values[input_index]
+            input_index += 1
+        assert input_index == len(values), "Mismatched static/dynamic dims"
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        return NotImplemented
+
+    def _to_meta_tensor(self) -> torch.Tensor:
+        """Converts to a fake Tensor that dynamo can handle."""
+        ir_tensor_type = self.ir_type
+        shape = ir_tensor_type.shape
+        # TODO: Remove this assert. We need to extend this method to also be
+        # able to contribute dynamic_dim constraints and then return a minimum
+        # quantity (2) for any dynamic dim.
+        assert not any(
+            d < 0 for d in shape
+        ), "Dynamic dims to jittable not yet implemented"
+
+        # TODO: We shouldn't need to create a real tensor here, as Dynamo will
+        # immediately convert it to fake. However, it will also set up the shape
+        # environment and asserts that any fake tensor inputs are from its
+        # internal FakeMode. There should be a way but needs more investigation.
+        # TODO: This tensor needs a device that matches the model being exported.
+        # We just create these on the CPU because that is common.
+        return torch.empty(shape, dtype=self.dtype)
+
+
+class IrValueTensor(IrTensorBase):
+    """Represents a Value in the IR under construction during procedural tracing."""
+
+    __slots__ = [
+        "ir_value",
+        "_cached_dim_values",
+    ]
+
+    def __init__(self, ir_value: Value, dtype: torch.dtype):
+        super().__init__(ir_value.type, dtype)
+        self.ir_value = ir_value
+        # If we computed a dim, then stash it here for later use.
+        self._cached_dim_values: List[Optional[Value]] = [None] * len(
+            self._dynamic_dims
+        )
+
+    def __repr__(self):
+        return f"IrValueTensor(@{self.ir_value})"
+
+    def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
+        return (self.ir_value,)
+
+    def get_dim_value(self, index: int) -> Value:
+        """Gets a dimension as an Index value.
+
+        Requires that an InsertionPoint and Location are on the context stack.
+
+        This will cache the dim value, returning the cached value later if
+        requested.
+        """
+        cached_dim = self._cached_dim_values[index]
+        if cached_dim:
+            return cached_dim
+        dynamic_dim = self._dynamic_dims[index]
+        if dynamic_dim is Empty or dynamic_dim is None:
+            # Construct a static dimension.
+            # TODO: Add MLIR API support for creating an insertion point after
+            # an operation and use that to set the InsertionPoint to the
+            # earliest point.
+            dim_value = build_tensor_dim_value(self.ir_value, index)
+            self._cached_dim_values[index] = dim_value
+            return dim_value
+        else:
+            # Dynamic dim is known.
+            return dynamic_dim
