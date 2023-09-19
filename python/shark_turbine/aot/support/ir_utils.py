@@ -265,8 +265,7 @@ def build_index_attribute(value: int) -> IntegerAttr:
 
 
 def build_index_value(value: int) -> Value:
-    attr = build_index_attribute(value)
-    return arith_d.ConstantOp(attr.type, attr).result
+    return arith_d.ConstantOp(IndexType.get(), value).result
 
 
 def build_tensor_dim_value(t: Value, dim: int) -> Value:
