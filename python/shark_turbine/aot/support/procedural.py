@@ -5,17 +5,33 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 from contextlib import contextmanager
 
 import torch
 
 from .ir_imports import (
+    F32Type,
+    F64Type,
+    IndexType,
+    InsertionPoint,
+    IntegerType,
     IrType,
     Location,
     Operation,
     RankedTensorType,
+    ShapedType,
     StringAttr,
     Value,
     func_d,
@@ -25,9 +41,12 @@ from .ir_imports import (
 from .ir_utils import (
     FunctionBuilder,
     ModuleBuilder,
+    build_tensor_dim_value,
 )
 
 from .utils import (
+    Empty,
+    EmptyType,
     TreeSpec,
     logger,
     thread_state,
@@ -183,9 +202,45 @@ class AbstractTensor(AbstractIntrinsic, AbstractTypedef):
         element_type = builder.torch_dtype_to_iree_type(self.dtype)
         with Location.unknown(builder.context):
             tensor_type = RankedTensorType.get(
-                [s if s is not None else -1 for s in self.size], element_type
+                [
+                    s if s is not None else _ShapedTypeDynamicSizeSentinel
+                    for s in self.size
+                ],
+                element_type,
             )
         return tensor_type
+
+
+class AbstractScalar(AbstractIntrinsic, AbstractTypedef):
+    """Represents a scalar value of some type."""
+
+    __slots__ = [
+        "label",
+        "type_producer",
+    ]
+
+    def __init__(self, label: str, type_producer: Callable[[], IrType]):
+        self.label = label
+        self.type_producer = type_producer
+
+    def __repr__(self):
+        return f"AbstractScalar({self.label})"
+
+    def create_intrinsic(self, ir_value: Value) -> Intrinsic:
+        return IrValueScalar(ir_value)
+
+    def get_ir_type(self, builder: ModuleBuilder) -> IrType:
+        with builder.context:
+            return self.type_producer()
+
+
+# Concrete scalar types.
+AbstractIndex = AbstractScalar("index", lambda: IndexType.get())
+AbstractF32 = AbstractScalar("f32", lambda: F32Type.get())
+AbstractF64 = AbstractScalar("f64", lambda: F64Type.get())
+AbstractBool = AbstractScalar("bool", lambda: IntegerType.get_signless(1))
+AbstractI32 = AbstractScalar("i32", lambda: IntegerType.get_signless(32))
+AbstractI64 = AbstractScalar("i64", lambda: IntegerType.get_signless(64))
 
 
 def abstractify_single_value(value) -> AbstractTypedef:
@@ -207,8 +262,25 @@ def abstractify(tree):
 
 
 ###############################################################################
-# Tensors
+# Tensors and scalars
 ###############################################################################
+
+_ShapedTypeDynamicSizeSentinel = ShapedType.get_dynamic_size()
+
+
+class IrValueScalar(Intrinsic):
+    """Represents an IR scalar value."""
+
+    __slots__ = [
+        "ir_value",
+    ]
+
+    def __init__(self, ir_value: Value):
+        assert isinstance(ir_value, Value)
+        self.ir_value = ir_value
+
+    def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
+        return (self.ir_value,)
 
 
 class IrTensorBase(Intrinsic):
@@ -221,11 +293,52 @@ class IrTensorBase(Intrinsic):
     __slots__ = [
         "ir_type",
         "dtype",
+        "_dynamic_dims",
+        "_shape",
     ]
 
     def __init__(self, ir_type: IrType, dtype: torch.dtype):
-        self.ir_type = ir_type
+        ranked_ir_type = RankedTensorType(ir_type)
+        self.ir_type = ranked_ir_type
         self.dtype = dtype
+
+        # Figure dynamic dims.
+        # _dynamic_dims is either Empty if static, or Value/None if dynamic.
+        self._shape = ranked_ir_type.shape
+        self._dynamic_dims: List[Union[EmptyType, Value, None]] = [
+            None if d == _ShapedTypeDynamicSizeSentinel else Empty for d in self._shape
+        ]
+
+    @property
+    def rank(self) -> int:
+        return len(self._shape)
+
+    @property
+    def dynamic_dim_count(self) -> int:
+        return len(self._dynamic_dims) - self._dynamic_dims.count(Empty)
+
+    def set_dim_value(self, index: int, value: Optional[Value]):
+        """Sets the value of a dynamic dim.
+
+        Raises ValueError if the dimension is not dynamic.
+        """
+        if self._dynamic_dims is Empty:
+            raise ValueError(f"Dimension {index} of {self} is not dynamic")
+        self._dynamic_dims[index] = value
+
+    def set_dynamic_dim_values(self, values: Sequence[Value]):
+        """Sets all dynamic dim values."""
+        dd = self._dynamic_dims
+        input_index = 0
+        for pos in range(len(dd)):
+            if dd[pos] is Empty:
+                # Static
+                continue
+            assert input_index < len(values), "Mismatched static/dynamic dims"
+            assert isinstance(values[input_index], Value)
+            dd[pos] = values[input_index]
+            input_index += 1
+        assert input_index == len(values), "Mismatched static/dynamic dims"
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -233,7 +346,7 @@ class IrTensorBase(Intrinsic):
 
     def _to_meta_tensor(self) -> torch.Tensor:
         """Converts to a fake Tensor that dynamo can handle."""
-        ir_tensor_type = RankedTensorType(self.ir_type)
+        ir_tensor_type = self.ir_type
         shape = ir_tensor_type.shape
         # TODO: Remove this assert. We need to extend this method to also be
         # able to contribute dynamic_dim constraints and then return a minimum
@@ -256,17 +369,46 @@ class IrValueTensor(IrTensorBase):
 
     __slots__ = [
         "ir_value",
+        "_cached_dim_values",
     ]
 
     def __init__(self, ir_value: Value, dtype: torch.dtype):
         super().__init__(ir_value.type, dtype)
         self.ir_value = ir_value
+        # If we computed a dim, then stash it here for later use.
+        self._cached_dim_values: List[Optional[Value]] = [None] * len(
+            self._dynamic_dims
+        )
 
     def __repr__(self):
         return f"IrValueTensor(@{self.ir_value})"
 
     def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
         return (self.ir_value,)
+
+    def get_dim_value(self, index: int) -> Value:
+        """Gets a dimension as an Index value.
+
+        Requires that an InsertionPoint and Location are on the context stack.
+
+        This will cache the dim value, returning the cached value later if
+        requested.
+        """
+        cached_dim = self._cached_dim_values[index]
+        if cached_dim:
+            return cached_dim
+        dynamic_dim = self._dynamic_dims[index]
+        if dynamic_dim is Empty or dynamic_dim is None:
+            # Construct a static dimension.
+            # TODO: Add MLIR API support for creating an insertion point after
+            # an operation and use that to set the InsertionPoint to the
+            # earliest point.
+            dim_value = build_tensor_dim_value(self.ir_value, index)
+            self._cached_dim_values[index] = dim_value
+            return dim_value
+        else:
+            # Dynamic dim is known.
+            return dynamic_dim
 
 
 ###############################################################################
@@ -574,7 +716,8 @@ def convert_py_value_to_ir(
     """Given procedurally traced python values, type check and convert to IR."""
     if isinstance(py_value, Intrinsic):
         return py_value.resolve_ir_values(proc_trace)
-
+    if isinstance(py_value, Value):
+        return [py_value]
     raise TypeError(
         f"Illegal type passed in procedural trace: {py_value.__class__} ({py_value})"
     )

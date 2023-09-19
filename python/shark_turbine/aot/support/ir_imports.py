@@ -8,16 +8,22 @@
 """Unifies all imports of iree.compiler.ir into one place."""
 
 from iree.compiler.ir import (
+    Block,
+    BlockArgument,
     Context,
     DenseElementsAttr,
     FlatSymbolRefAttr,
     FunctionType,
+    IndexType,
     InsertionPoint,
+    IntegerAttr,
     Location,
     MLIRError,
     Module,
+    OpResult,
     Operation,
     RankedTensorType,
+    ShapedType,
     StringAttr,
     SymbolTable,
     Type as IrType,
@@ -39,6 +45,9 @@ from iree.compiler.passmanager import (
 )
 
 from iree.compiler.dialects import (
+    flow as flow_d,
     func as func_d,
     util as util_d,
+    arith as arith_d,
+    tensor as tensor_d,
 )

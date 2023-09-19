@@ -16,6 +16,8 @@ from ...dynamo.importer import (
 )
 
 from .ir_imports import (
+    Block,
+    BlockArgument,
     BF16Type,
     ComplexType,
     DenseElementsAttr,
@@ -23,10 +25,13 @@ from .ir_imports import (
     F32Type,
     F64Type,
     FunctionType,
+    IndexType,
     InsertionPoint,
+    IntegerAttr,
     IntegerType,
     IrType,
     Location,
+    OpResult,
     Operation,
     RankedTensorType,
     StringAttr,
@@ -34,7 +39,9 @@ from .ir_imports import (
     TypeAttr,
     UnitAttr,
     Value,
+    arith_d,
     func_d,
+    tensor_d,
 )
 
 from .utils import (
@@ -221,3 +228,21 @@ class FunctionBuilder:
             ftype = FunctionType.get(ftype.inputs, value_types)
             self.func_op.attributes["function_type"] = TypeAttr.get(ftype)
             assert self.func_op.verify(), "Created function is invalid"
+
+
+###############################################################################
+# Helpers
+###############################################################################
+
+
+def build_index_attribute(value: int) -> IntegerAttr:
+    return IntegerAttr.get(IndexType.get(), value)
+
+
+def build_index_value(value: int) -> Value:
+    attr = build_index_attribute(value)
+    return arith_d.ConstantOp(attr.type, attr).result
+
+
+def build_tensor_dim_value(t: Value, dim: int) -> Value:
+    return tensor_d.DimOp(t, build_index_value(dim)).result
