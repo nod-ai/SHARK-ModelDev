@@ -49,7 +49,7 @@ from .utils import (
 MLIR_TYPE_ASM_TO_TORCH_DTYPE = {v: k for k, v in TORCH_DTYPE_TO_MLIR_TYPE_ASM.items()}
 
 # When emitting constants, we have to create native IREE types.
-TORCH_DTYPE_TO_IREE_TYPE: Dict[str, Callable[[], IrType]] = {
+TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], IrType]] = {
     torch.float16: lambda: F16Type.get(),
     torch.bfloat16: lambda: BF16Type.get(),
     torch.float32: lambda: F32Type.get(),
@@ -167,7 +167,8 @@ class ModuleBuilder:
             if initialize:
                 detached_tensor = t.detach().contiguous().cpu()
                 array = np.array(detached_tensor)
-                contents = memoryview(array)
+                # We know that a Numpy array is a ReadableBuffer so ignore type error.
+                contents = memoryview(array)  # type: ignore
                 # TODO: Add resource elements to Python API and use that.
                 elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
                 attrs["initial_value"] = elements_attr
@@ -200,10 +201,10 @@ class FunctionBuilder:
         self.func_op = func_op
         self.context = func_op.context
         self.ip = InsertionPoint(self.func_op.entry_block)
-        self.return_types = None
+        self.return_types: Optional[Sequence[IrType]] = None
         self.loc = self.func_op.location
 
-    def emit_return(self, *ir_values: Sequence[Value]):
+    def emit_return(self, *ir_values: Value):
         with self.loc, self.ip:
             func_d.ReturnOp(ir_values)
             # Check or rewrite the function return type.

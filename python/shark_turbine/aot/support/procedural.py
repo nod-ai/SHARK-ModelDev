@@ -91,7 +91,7 @@ def current_ir_trace() -> IrTrace:
 class Intrinsic:
     """Objects which interact natively with the tracing system implement this."""
 
-    __slots__ = []
+    __slots__: List[str] = []
 
     def resolve_ir_values(self, proc_trace: "IrTrace") -> Sequence[Value]:
         raise NotImplementedError(
@@ -125,7 +125,7 @@ class CallableIntrinsic(Intrinsic):
 class AbstractIntrinsic:
     """Base class for descriptor types that can be converted to Python proxies."""
 
-    __slots__ = []
+    __slots__: List[str] = []
 
     def create_intrinsic(self, value: Value) -> Intrinsic:
         """Creates a proxy object that can flow through a procedural trace."""
@@ -192,7 +192,7 @@ def abstractify_single_value(value) -> AbstractTypedef:
     if isinstance(value, AbstractTypedef):
         return value
     if isinstance(value, Abstractifiable):
-        return value.get_abstract_typedef()
+        return value.abstractify()
     if isinstance(value, torch.Tensor):
         return AbstractTensor(*value.shape, dtype=value.dtype)
     raise TypeError(
@@ -494,7 +494,7 @@ class ProcedureTrace(IrTrace):
                 self.emit_return()
             else:
                 flat_return_py_values, schema = tree_flatten(return_py_value)
-                flat_return_ir_values = []
+                flat_return_ir_values: List[Value] = []
                 for py_value in flat_return_py_values:
                     flat_return_ir_values.extend(convert_py_value_to_ir(self, py_value))
                 self.func_op.attributes["torch.return_schema"] = StringAttr.get(

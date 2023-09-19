@@ -86,7 +86,7 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
 
         # Already materialized.
         logger.debug("Resolved defined global for literal %r", mapping)
-        materialized_global: MaterializedGlobal = mapping.value
+        materialized_global: MaterializedGlobal = mapping.value  # type: ignore
 
         # Clone the global into the import module (so that our symbol refs are
         # legal). Note that the merger will ignore these since they already
