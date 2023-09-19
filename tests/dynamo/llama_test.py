@@ -315,7 +315,6 @@ def main():
 
 
 class ModelTests(unittest.TestCase):
-    @unittest.expectedFailure
     def testLLama(self):
         main()
 
