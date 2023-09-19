@@ -16,6 +16,8 @@ from ...dynamo.importer import (
 )
 
 from .ir_imports import (
+    Block,
+    BlockArgument,
     BF16Type,
     ComplexType,
     DenseElementsAttr,
@@ -23,10 +25,13 @@ from .ir_imports import (
     F32Type,
     F64Type,
     FunctionType,
+    IndexType,
     InsertionPoint,
+    IntegerAttr,
     IntegerType,
     IrType,
     Location,
+    OpResult,
     Operation,
     RankedTensorType,
     StringAttr,
@@ -34,7 +39,9 @@ from .ir_imports import (
     TypeAttr,
     UnitAttr,
     Value,
+    arith_d,
     func_d,
+    tensor_d,
 )
 
 from .utils import (
@@ -178,6 +185,31 @@ class ModuleBuilder:
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op, tensor_type
 
+    def create_typed_global(
+        self,
+        symbol_name: str,
+        global_type: IrType,
+        *,
+        mutable: bool = False,
+        initialize: bool = True,
+        noinline: bool = True,
+    ) -> Tuple[str, Operation]:
+        with self.global_ip, Location.unknown():
+            attrs = {
+                "sym_name": StringAttr.get(symbol_name),
+                "sym_visibility": StringAttr.get("private"),
+                "type": TypeAttr.get(global_type),
+            }
+            if noinline:
+                attrs["noinline"] = UnitAttr.get()
+            if mutable:
+                attrs["is_mutable"] = UnitAttr.get()
+
+            global_op = Operation.create("util.global", attributes=attrs)
+            self.symbol_table.insert(global_op)
+            actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
+            return actual_symbol_name, global_op
+
 
 class FunctionBuilder:
     """Helpers for building function bodies."""
@@ -221,3 +253,20 @@ class FunctionBuilder:
             ftype = FunctionType.get(ftype.inputs, value_types)
             self.func_op.attributes["function_type"] = TypeAttr.get(ftype)
             assert self.func_op.verify(), "Created function is invalid"
+
+
+###############################################################################
+# Helpers
+###############################################################################
+
+
+def build_index_attribute(value: int) -> IntegerAttr:
+    return IntegerAttr.get(IndexType.get(), value)
+
+
+def build_index_value(value: int) -> Value:
+    return arith_d.ConstantOp(IndexType.get(), value).result
+
+
+def build_tensor_dim_value(t: Value, dim: int) -> Value:
+    return tensor_d.DimOp(t, build_index_value(dim)).result

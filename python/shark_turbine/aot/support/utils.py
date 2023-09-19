@@ -32,7 +32,11 @@ thread_state = threading.local()
 
 # Opaque value to indicate something is empty. Used in cases where 'None'
 # may have a different meaning.
-Empty = object()
+class EmptyType:
+    ...
+
+
+Empty = EmptyType()
 
 
 class RefMapping:
