@@ -74,7 +74,7 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     print(module, file=sys.stderr)
     with context:
         pm = PassManager.parse(
-            "builtin.module(torch-backend-to-linalg-on-tensors-backend-pipeline,symbol-dce)"
+            "builtin.module(torch-to-iree)"
         )
         pm.run(module.operation)
     print(module, file=sys.stderr)
