@@ -88,14 +88,6 @@ def train(model, images, labels, optimizer, criterion):
     optimizer.step()
     total_loss += loss.item()
 
-    # print('Training finished.')
-    # acc = 100 * num_correct / (config['batch_size'] * len(train_loader))
-    # total_loss = float(total_loss / len(train_loader))
-
-    # # Save the trained model
-    # torch.save(model.state_dict(), 'mnist_cnn.pth')
-    # return acc, total_loss
-
 # TODO Implement inference func
 """
 def test(model, images, labels, criterion):
