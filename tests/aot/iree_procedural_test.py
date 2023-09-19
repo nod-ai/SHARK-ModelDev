@@ -71,6 +71,21 @@ class CompiledModuleAPI(unittest.TestCase):
         print(module_str)
         self.assertIn('flow.tensor.trace {key = "DEBUG"} %arg0, %arg1', module_str)
 
+    def testStoreDynamic(self):
+        class BasicModule(CompiledModule):
+            x = export_global(AbstractTensor(None, 34), mutable=True)
+
+            def foobar(self, x=AbstractIndex, y=AbstractF32):
+                splat = IREE.tensor_splat(x, 34, value=y, dtype=torch.float32)
+                self.x = splat
+
+        inst = BasicModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global private mutable @_x.global {noinline} : tensor<?x34xf32>", module_str)
+        self.assertIn("%0 = flow.tensor.splat", module_str)
+        self.assertIn("util.global.store %0, @_x.global : tensor<?x34xf32>", module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

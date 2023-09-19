@@ -185,6 +185,31 @@ class ModuleBuilder:
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op, tensor_type
 
+    def create_typed_global(
+        self,
+        symbol_name: str,
+        global_type: IrType,
+        *,
+        mutable: bool = False,
+        initialize: bool = True,
+        noinline: bool = True,
+    ) -> Tuple[str, Operation]:
+        with self.global_ip, Location.unknown():
+            attrs = {
+                "sym_name": StringAttr.get(symbol_name),
+                "sym_visibility": StringAttr.get("private"),
+                "type": TypeAttr.get(global_type),
+            }
+            if noinline:
+                attrs["noinline"] = UnitAttr.get()
+            if mutable:
+                attrs["is_mutable"] = UnitAttr.get()
+
+            global_op = Operation.create("util.global", attributes=attrs)
+            self.symbol_table.insert(global_op)
+            actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
+            return actual_symbol_name, global_op
+
 
 class FunctionBuilder:
     """Helpers for building function bodies."""

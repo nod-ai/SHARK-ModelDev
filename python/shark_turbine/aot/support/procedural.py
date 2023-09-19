@@ -163,7 +163,8 @@ class AbstractIntrinsic:
 class AbstractTypedef:
     """Base class for instances which declare some form of public arg/result type definition."""
 
-    ...
+    def get_ir_type(self, builder: ModuleBuilder) -> IrType:
+        raise NotImplementedError
 
 
 class Abstractifiable:
@@ -472,8 +473,8 @@ class GlobalsDef:
         flat_globals = []
         for name, value in self.items():
             # Switch on types we support.
+            fq_name = f"{export_namespace}.{name}"
             if isinstance(value, torch.Tensor):
-                fq_name = f"{export_namespace}.{name}"
                 mapping = module_builder.global_ref_tracker.track(value)
                 if not mapping.is_empty:
                     logger.debug(
@@ -500,6 +501,24 @@ class GlobalsDef:
                 )
                 logger.debug("TRACK NEW TENSOR(%s): %r", fq_name, mapping)
                 flat_globals.append(mapping.value)
+                continue
+            elif isinstance(value, AbstractTypedef):
+                global_type = value.get_ir_type(module_builder)
+                (actual_symbol_name, global_op,) = module_builder.create_typed_global(
+                    f"_{fq_name}",
+                    global_type,
+                    initialize=self._initialize,
+                    mutable=self._mutable,
+                )
+                flat_globals.append(
+                    MaterializedGlobal(
+                        fq_name,
+                        self,
+                        symbol_name=actual_symbol_name,
+                        global_op=global_op,
+                        global_type=global_type,
+                    )
+                )
                 continue
 
             raise TypeError(f"Unsupported global type: {value.__class__}")
