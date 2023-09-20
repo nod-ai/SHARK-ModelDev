@@ -255,8 +255,6 @@ class ImportTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def testImportAtenFull(self):
-        """Expected to fail until torch-mlir op: torch.aten.empty_strided is implemented"""
-
         def foo(x):
             return torch.full(x.size(), fill_value=float("-inf"))
 
