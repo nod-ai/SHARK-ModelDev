@@ -82,9 +82,109 @@ class CompiledModuleAPI(unittest.TestCase):
         inst = BasicModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn("util.global private mutable @_x.global {noinline} : tensor<?x34xf32>", module_str)
+        self.assertIn(
+            "util.global private mutable @_x.global {noinline} : tensor<?x34xf32>",
+            module_str,
+        )
         self.assertIn("%0 = flow.tensor.splat", module_str)
         self.assertIn("util.global.store %0, @_x.global : tensor<?x34xf32>", module_str)
+
+    def testTensorSliceStatic(self):
+        class BasicModule(CompiledModule):
+            def foobar(self, x=AbstractTensor(3, 4)):
+                return IREE.tensor_slice(x, 0, (1, 3))
+
+        inst = BasicModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.slice %arg0[%c0, %c1_0 for %c1, %c3] : tensor<3x4xf32> -> tensor<1x3xf32>",
+            module_str,
+        )
+
+    def testTensorSliceDynamicIndex(self):
+        class SliceDynamicIndex(CompiledModule):
+            def foobar(self, x=AbstractIndex):
+                empty = IREE.tensor_empty(x, 16)
+                return IREE.tensor_slice(empty, x, 4)
+
+        inst = SliceDynamicIndex(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.slice %0[%arg0, %c4 for %c1, %c1] : tensor<?x16xf32>{%arg0} -> tensor<1x1xf32>",
+            module_str,
+        )
+
+    def testTensorSliceDynamicLength(self):
+        class SliceDynamicIndex(CompiledModule):
+            def foobar(self, x=AbstractIndex, y=AbstractIndex):
+                empty = IREE.tensor_empty(x, 16)
+                return IREE.tensor_slice(empty, (x, y), 4)
+
+        inst = SliceDynamicIndex(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.slice %0[%arg0, %c4 for %arg1, %c1] : tensor<?x16xf32>{%arg0} -> tensor<?x1xf32>{%arg1}",
+            module_str,
+        )
+
+    def testTensorUpdateStatic(self):
+        class UpdateStatic(CompiledModule):
+            def foobar(
+                self,
+                target=AbstractTensor(4, 4),
+                update=AbstractTensor(2, 2),
+                i=AbstractIndex,
+                j=AbstractIndex,
+            ):
+                return IREE.tensor_update(target, update, i, j)
+
+        inst = UpdateStatic(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.update %arg1, %arg0[%arg2, %arg3] : tensor<2x2xf32> -> %arg0 as tensor<4x4xf32>",
+            module_str,
+        )
+
+    def testTensorUpdateDynamic(self):
+        class UpdateDynamic(CompiledModule):
+            def foobar(
+                self,
+                x=AbstractIndex,
+                y=AbstractIndex,
+                i=AbstractIndex,
+                j=AbstractIndex,
+                value=AbstractF32,
+            ):
+                target = IREE.tensor_empty(x, y)
+                update = IREE.tensor_splat(i, j, value=value, dtype=torch.float32)
+                return IREE.tensor_update(target, update, 2, 2)
+
+        inst = UpdateDynamic(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.update %1, %0[%c2, %c2] : tensor<?x?xf32>{%arg2, %arg3} -> %0 as tensor<?x?xf32>{%arg0, %arg1}",
+            module_str,
+        )
+
+    def testTensorReshape(self):
+        class ReshapeModule(CompiledModule):
+            def foobar(self, x=AbstractIndex, y=AbstractIndex):
+                empty = IREE.tensor_empty(x, 16)
+                reshaped = IREE.tensor_reshape(empty, 1, y, y)
+                return reshaped
+
+        inst = ReshapeModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.reshape %0 : tensor<?x16xf32>{%arg0} -> tensor<1x?x?xf32>{%arg1, %arg1}",
+            module_str,
+        )
 
 
 if __name__ == "__main__":

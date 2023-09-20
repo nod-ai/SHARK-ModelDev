@@ -9,9 +9,11 @@
 # operate on instances of these.
 
 from typing import (
+    Dict,
     List,
     Optional,
     Sequence,
+    Tuple,
     Union,
 )
 
@@ -161,7 +163,12 @@ class IrValueTensor(IrTensorBase):
     def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
         return (self.ir_value,)
 
-    def get_dim_value(self, index: int) -> Value:
+    def get_dim_value(
+        self,
+        index: int,
+        *,
+        constant_cache: Optional[Dict[int, Value]] = None,
+    ) -> Value:
         """Gets a dimension as an Index value.
 
         Requires that an InsertionPoint and Location are on the context stack.
@@ -178,9 +185,21 @@ class IrValueTensor(IrTensorBase):
             # TODO: Add MLIR API support for creating an insertion point after
             # an operation and use that to set the InsertionPoint to the
             # earliest point.
-            dim_value = build_tensor_dim_value(self.ir_value, index)
+            dim_value = build_tensor_dim_value(
+                self.ir_value, index, constant_cache=constant_cache
+            )
             self._cached_dim_values[index] = dim_value
             return dim_value
         else:
             # Dynamic dim is known.
             return dynamic_dim
+
+    def get_only_dynamic_dim_values(
+        self, *, constant_cache: Optional[Dict[int, Value]] = None
+    ) -> List[Value]:
+        """Returns a list of *only* the dynamic dim Values."""
+        values: List[Value] = []
+        for i, sentinel in enumerate(self._dynamic_dims):
+            if sentinel is not Empty:
+                values.append(self.get_dim_value(i, constant_cache=constant_cache))
+        return values
