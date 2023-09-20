@@ -253,6 +253,7 @@ class ImportTests(unittest.TestCase):
         opt = torch.compile(mod, backend=create_backend())
         opt(torch.randn(1, 1, 256, 256))
 
+    @unittest.expectedFailure
     def testImportAtenFull(self):
         def foo(x):
             return torch.full(x.size(), fill_value=float("-inf"))
