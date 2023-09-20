@@ -264,9 +264,19 @@ def build_index_attribute(value: int) -> IntegerAttr:
     return IntegerAttr.get(IndexType.get(), value)
 
 
-def build_index_value(value: int) -> Value:
-    return arith_d.ConstantOp(IndexType.get(), value).result
+def build_index_value(
+    value: int, constant_cache: Optional[Dict[int, Value]] = None
+) -> Value:
+    if constant_cache is not None and value in constant_cache:
+        return constant_cache[value]
+    index_value = arith_d.ConstantOp(IndexType.get(), value).result
+    if constant_cache is not None:
+        constant_cache[value] = index_value
+    return index_value
 
 
-def build_tensor_dim_value(t: Value, dim: int) -> Value:
-    return tensor_d.DimOp(t, build_index_value(dim)).result
+def build_tensor_dim_value(
+    t: Value, dim: int, constant_cache: Optional[Dict[int, Value]] = None
+) -> Value:
+    dim_value = build_index_value(dim, constant_cache=constant_cache)
+    return tensor_d.DimOp(t, dim_value).result

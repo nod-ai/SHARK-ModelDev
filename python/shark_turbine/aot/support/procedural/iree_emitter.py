@@ -6,7 +6,7 @@
 
 """Python API for IREE's high-level tensor dialects."""
 
-from typing import Any, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import functools
 
@@ -36,7 +36,11 @@ from .base import (
 BuildableScalarValue = Union[IrValueScalar, Value]
 BuildableTensorDimDecl = Union[int, Value]
 BuildableTensorType = IrValueTensor
-BuildableIndexType = Union[Value, int]
+BuildableIndexType = Union[BuildableScalarValue, int]
+BuildableIndexLengthType = Union[
+    BuildableTensorDimDecl, Tuple[BuildableTensorDimDecl, BuildableTensorDimDecl]
+]
+BuildableSliceType = Sequence[BuildableIndexLengthType]
 StaticIndexType = int
 
 
@@ -52,9 +56,12 @@ def cast_tensor_value(x: BuildableTensorType) -> IrValueTensor:
     return x
 
 
-def cast_index_value(x: BuildableIndexType) -> Value:
+def cast_index_value(
+    x: BuildableIndexType, *, constant_cache: Optional[Dict[int, Value]] = None
+) -> Value:
+    x = unwrap_intrinsic_value(x)
     if isinstance(x, int):
-        return build_index_value(x)
+        return build_index_value(x, constant_cache=constant_cache)
     else:
         return x
 
@@ -142,6 +149,137 @@ class IREEEmitter:
         raw_tensor = flow_d.TensorEmptyOp(tensor_type, dyn_dim_values).result
         result = IrValueTensor(raw_tensor, dtype=dtype)
         result.set_dynamic_dim_values(dyn_dim_values)
+        return result
+
+    @emitter
+    def tensor_reshape(
+        self, source: BuildableTensorType, *result_dims: BuildableTensorDimDecl
+    ) -> "IrValueTensor":
+        constant_cache: Dict[int, Value] = {}
+        source = cast_tensor_value(source)
+        result_dim_decls, result_dynamic_dims = cast_tensor_dim_decl(result_dims)
+        result_type = RankedTensorType.get(
+            result_dim_decls, source.ir_type.element_type
+        )
+        result_value = flow_d.TensorReshapeOp(
+            result_type,
+            source.ir_value,
+            source.get_only_dynamic_dim_values(constant_cache=constant_cache),
+            result_dynamic_dims,
+        ).result
+        result = IrValueTensor(result_value, dtype=source.dtype)
+        result.set_dynamic_dim_values(result_dynamic_dims)
+        return result
+
+    @emitter
+    def tensor_slice(
+        self, source: BuildableTensorType, *indices: BuildableSliceType
+    ) -> "IrValueTensor":
+        """Extracts a slice of a tensor.
+
+        The given indices must match the rank of the source and each index is
+        interpreted as `(start_index[, length])`, where the `length` is taken
+        to be 1 if only a single value is given for an index.
+        """
+        source = cast_tensor_value(source)
+        source_value = source.ir_value
+        rank = source.rank
+        if len(indices) != rank:
+            raise ValueError(
+                f"Slice indices must match the source rank. Got {len(indices)}, expected {rank}"
+            )
+        # Unpack start_indices and lengths.
+        start_indices: List[BuildableIndexType] = []
+        lengths: List[BuildableIndexType] = []
+        for index_pack in indices:
+            if isinstance(index_pack, (tuple, list)):
+                if len(index_pack) == 2:
+                    start_indices.append(index_pack[0])
+                    lengths.append(index_pack[1])
+                    continue
+            else:
+                start_indices.append(index_pack)
+                lengths.append(1)
+                continue
+            raise ValueError(
+                f"Slice indices expected to be a single value or a 2-tuple. Got {index_pack}"
+            )
+
+        # Process the lengths into a result shape and input length.
+        index_value_cache: Dict[int, Value] = {}
+        length_values: List[Value] = []
+        result_shape: List[int] = []
+        result_dynamic_dims: List[Value] = []
+        for raw_length in lengths:
+            if isinstance(raw_length, int):
+                # Static.
+                result_shape.append(raw_length)
+                if raw_length in index_value_cache:
+                    # Cached.
+                    length_values.append(index_value_cache[raw_length])
+                else:
+                    # Not cached.
+                    length_value = cast_index_value(raw_length)
+                    index_value_cache[raw_length] = length_value
+                    length_values.append(length_value)
+            else:
+                # Dynamic.
+                result_shape.append(ShapedTypeDynamicSizeSentinel)
+                length_value = cast_index_value(raw_length)
+                length_values.append(length_value)
+                result_dynamic_dims.append(length_value)
+        assert len(length_values) == rank
+        assert result_shape.count(ShapedTypeDynamicSizeSentinel) == len(
+            result_dynamic_dims
+        )
+
+        # Process start indices.
+        start_index_values = [cast_index_value(idx) for idx in start_indices]
+        # Emit.
+        result_type = RankedTensorType.get(result_shape, source.ir_type.element_type)
+        constant_cache: Dict[int, Value] = {}
+        result_value = flow_d.TensorSliceOp(
+            result_type,
+            source_value,
+            source.get_only_dynamic_dim_values(constant_cache=constant_cache),
+            start_index_values,
+            length_values,
+            result_dynamic_dims,
+        ).result
+        result = IrValueTensor(result_value, dtype=source.dtype)
+        result.set_dynamic_dim_values(result_dynamic_dims)
+        return result
+
+    @emitter
+    def tensor_update(
+        self,
+        target: BuildableTensorType,
+        update: BuildableTensorType,
+        *start_indices: BuildableIndexType,
+    ) -> "IrValueTensor":
+        """Applies an update to a target at start_indices and returns the mutated target."""
+        constant_cache: Dict[int, Value] = {}
+        target = cast_tensor_value(target)
+        target_dynamic_dims = target.get_only_dynamic_dim_values(
+            constant_cache=constant_cache
+        )
+        update = cast_tensor_value(update)
+        update_dynamic_dims = update.get_only_dynamic_dim_values(
+            constant_cache=constant_cache
+        )
+        start_index_dim_values = [
+            cast_index_value(idx, constant_cache=constant_cache)
+            for idx in start_indices
+        ]
+        result_value = flow_d.TensorUpdateOp(
+            target.ir_value,
+            target_dynamic_dims,
+            start_index_dim_values,
+            update.ir_value,
+            update_dynamic_dims,
+        ).result
+        result = IrValueTensor(result_value, target.dtype)
+        result.set_dynamic_dim_values(target_dynamic_dims)
         return result
 
     @emitter
