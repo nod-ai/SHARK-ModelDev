@@ -192,6 +192,24 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("util.global.store %arg2, @_state0.seq.1", module_str)
         self.assertIn("util.global.store %arg3, @_state0.seq.2", module_str)
 
+    def testTensorUpdateGlobal(self):
+        state_example = torch.randn(5, 20)
+        update_example = torch.randn(1, 20)
+
+        class SingleState(CompiledModule):
+            state0 = export_global(state_example, mutable=True, initialize=False)
+
+            def tensor_update_state(self, update=abstractify(update_example)):
+                IREE.tensor_update(self.state0, update, 0, 0)
+
+        inst = SingleState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.update %arg0, %_state0.global[%c0, %c0] : tensor<1x20xf32> -> %_state0.global as tensor<5x20xf32>",
+            module_str,
+        )
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

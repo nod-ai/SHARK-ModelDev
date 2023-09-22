@@ -45,7 +45,21 @@ from .base import (
 ###############################################################################
 
 
-class IrValueScalar(Intrinsic):
+class IrScalar(Intrinsic):
+    """An intrinsic that represents a scalar value.
+
+    Subclasses are responsible for providing either value or load semantics.
+    """
+
+    __slots__ = [
+        "ir_type",
+    ]
+
+    def __init__(self, ir_type: IrType):
+        self.ir_type = ir_type
+
+
+class IrImmediateScalar(IrScalar):
     """Represents an IR scalar value."""
 
     __slots__ = [
@@ -53,6 +67,7 @@ class IrValueScalar(Intrinsic):
     ]
 
     def __init__(self, ir_value: Value):
+        super().__init__(ir_value.type)
         assert isinstance(ir_value, Value)
         self.ir_value = ir_value
 
@@ -60,16 +75,17 @@ class IrValueScalar(Intrinsic):
         return (self.ir_value,)
 
 
-class IrTensorBase(Intrinsic):
-    """Base class for 'tensors' that resolve to some IR value.
+class IrTensor(Intrinsic):
+    """An intrinsic that represents a tensor value.
 
-    These are not real tensors (i.e. no operations can be performed on them),
-    but they stand in as reasonable proxies during procedural tracing.
+    Carries additional metadata needed to resolve dimensions and original
+    PyTorch attributes.
     """
 
     __slots__ = [
         "ir_type",
         "dtype",
+        "_cached_dim_values",
         "_dynamic_dims",
         "_shape",
     ]
@@ -85,6 +101,11 @@ class IrTensorBase(Intrinsic):
         self._dynamic_dims: List[Union[EmptyType, Value, None]] = [
             None if d == ShapedTypeDynamicSizeSentinel else Empty for d in self._shape
         ]
+
+        # If we computed a dim, then stash it here for later use.
+        self._cached_dim_values: List[Optional[Value]] = [None] * len(
+            self._dynamic_dims
+        )
 
     @property
     def rank(self) -> int:
@@ -117,6 +138,63 @@ class IrTensorBase(Intrinsic):
             input_index += 1
         assert input_index == len(values), "Mismatched static/dynamic dims"
 
+    def get_dim_value(
+        self,
+        index: int,
+        *,
+        constant_cache: Optional[Dict[int, Value]] = None,
+        resolved_ir_value: Optional[Value] = None,
+    ) -> Value:
+        """Gets a dimension as an Index value.
+
+        Requires that an InsertionPoint and Location are on the context stack.
+
+        This will cache the dim value, returning the cached value later if
+        requested.
+        """
+        cached_dim = self._cached_dim_values[index]
+        if cached_dim:
+            return cached_dim
+        dynamic_dim = self._dynamic_dims[index]
+        if dynamic_dim is Empty or dynamic_dim is None:
+            if resolved_ir_value is None:
+                resolved_ir_value = self.ir_value
+            # Construct a static dimension.
+            # TODO: Add MLIR API support for creating an insertion point after
+            # an operation and use that to set the InsertionPoint to the
+            # earliest point.
+            dim_value = build_tensor_dim_value(
+                resolved_ir_value, index, constant_cache=constant_cache
+            )
+            self._cached_dim_values[index] = dim_value
+            return dim_value
+        else:
+            # Dynamic dim is known.
+            return dynamic_dim
+
+    def get_only_dynamic_dim_values(
+        self,
+        *,
+        constant_cache: Optional[Dict[int, Value]] = None,
+        resolved_ir_value: Optional[Value] = None,
+    ) -> List[Value]:
+        """Returns a list of *only* the dynamic dim Values."""
+        values: List[Value] = []
+        for i, sentinel in enumerate(self._dynamic_dims):
+            if sentinel is not Empty:
+                # Cache IR value so we don't materialize for each
+                # dynamic dim.
+                if resolved_ir_value is None:
+                    resolved_ir_value = self.ir_value
+                values.append(
+                    self.get_dim_value(
+                        i,
+                        constant_cache=constant_cache,
+                        resolved_ir_value=resolved_ir_value,
+                    )
+                )
+        return values
+
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         return NotImplemented
@@ -141,65 +219,19 @@ class IrTensorBase(Intrinsic):
         return torch.empty(shape, dtype=self.dtype)
 
 
-class IrValueTensor(IrTensorBase):
+class IrImmediateTensor(IrTensor):
     """Represents a Value in the IR under construction during procedural tracing."""
 
     __slots__ = [
         "ir_value",
-        "_cached_dim_values",
     ]
 
     def __init__(self, ir_value: Value, dtype: torch.dtype):
         super().__init__(ir_value.type, dtype)
         self.ir_value = ir_value
-        # If we computed a dim, then stash it here for later use.
-        self._cached_dim_values: List[Optional[Value]] = [None] * len(
-            self._dynamic_dims
-        )
 
     def __repr__(self):
         return f"IrValueTensor(@{self.ir_value})"
 
     def resolve_ir_values(self, proc_trace: IrTrace) -> Sequence[Value]:
         return (self.ir_value,)
-
-    def get_dim_value(
-        self,
-        index: int,
-        *,
-        constant_cache: Optional[Dict[int, Value]] = None,
-    ) -> Value:
-        """Gets a dimension as an Index value.
-
-        Requires that an InsertionPoint and Location are on the context stack.
-
-        This will cache the dim value, returning the cached value later if
-        requested.
-        """
-        cached_dim = self._cached_dim_values[index]
-        if cached_dim:
-            return cached_dim
-        dynamic_dim = self._dynamic_dims[index]
-        if dynamic_dim is Empty or dynamic_dim is None:
-            # Construct a static dimension.
-            # TODO: Add MLIR API support for creating an insertion point after
-            # an operation and use that to set the InsertionPoint to the
-            # earliest point.
-            dim_value = build_tensor_dim_value(
-                self.ir_value, index, constant_cache=constant_cache
-            )
-            self._cached_dim_values[index] = dim_value
-            return dim_value
-        else:
-            # Dynamic dim is known.
-            return dynamic_dim
-
-    def get_only_dynamic_dim_values(
-        self, *, constant_cache: Optional[Dict[int, Value]] = None
-    ) -> List[Value]:
-        """Returns a list of *only* the dynamic dim Values."""
-        values: List[Value] = []
-        for i, sentinel in enumerate(self._dynamic_dims):
-            if sentinel is not Empty:
-                values.append(self.get_dim_value(i, constant_cache=constant_cache))
-        return values

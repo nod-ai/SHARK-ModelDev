@@ -27,15 +27,20 @@ from ..ir_utils import (
 
 from .base import (
     Intrinsic,
-    IrValueTensor,
-    IrValueScalar,
     current_ir_trace,
     ShapedTypeDynamicSizeSentinel,
 )
 
-BuildableScalarValue = Union[IrValueScalar, Value]
+from .primitives import (
+    IrScalar,
+    IrImmediateScalar,
+    IrTensor,
+    IrImmediateTensor,
+)
+
+BuildableScalarValue = Union[IrScalar, Value]
 BuildableTensorDimDecl = Union[int, Value]
-BuildableTensorType = IrValueTensor
+BuildableTensorType = IrTensor
 BuildableIndexType = Union[BuildableScalarValue, int]
 BuildableIndexLengthType = Union[
     BuildableTensorDimDecl, Tuple[BuildableTensorDimDecl, BuildableTensorDimDecl]
@@ -51,8 +56,8 @@ def cast_scalar_value(x: BuildableScalarValue) -> Value:
     return x
 
 
-def cast_tensor_value(x: BuildableTensorType) -> IrValueTensor:
-    assert isinstance(x, IrValueTensor), f"Expected a tensor but got {type(x)}"
+def cast_tensor_value(x: BuildableTensorType) -> IrTensor:
+    assert isinstance(x, IrTensor), f"Expected a tensor but got {type(x)}"
     return x
 
 
@@ -126,16 +131,16 @@ def emitter(f):
 
 class IREEEmitter:
     @emitter
-    def tensor_dim(self, source: BuildableTensorType, index: int) -> "IrValueScalar":
+    def tensor_dim(self, source: BuildableTensorType, index: int) -> "IrScalar":
         """Gets the dimension size of a tensor at a static position."""
         source = cast_tensor_value(source)
         index = cast_static_bounded_index(index, 0, source.rank - 1)
-        return IrValueScalar(source.get_dim_value(index))
+        return IrImmediateScalar(source.get_dim_value(index))
 
     @emitter
     def tensor_empty(
         self, *dims: BuildableTensorDimDecl, dtype: torch.dtype = torch.float32
-    ) -> IrValueTensor:
+    ) -> IrTensor:
         """Constructs a tensor with uninitialized values.
 
         TODO: Support an IREE/raw element type in addition to the torch dtype.
@@ -147,14 +152,14 @@ class IREEEmitter:
             raise ValueError(f"Could not map Torch dtype {dtype} to an IREE type")
         tensor_type = RankedTensorType.get(dim_decls, element_type)
         raw_tensor = flow_d.TensorEmptyOp(tensor_type, dyn_dim_values).result
-        result = IrValueTensor(raw_tensor, dtype=dtype)
+        result = IrImmediateTensor(raw_tensor, dtype=dtype)
         result.set_dynamic_dim_values(dyn_dim_values)
         return result
 
     @emitter
     def tensor_reshape(
         self, source: BuildableTensorType, *result_dims: BuildableTensorDimDecl
-    ) -> "IrValueTensor":
+    ) -> "IrTensor":
         constant_cache: Dict[int, Value] = {}
         source = cast_tensor_value(source)
         result_dim_decls, result_dynamic_dims = cast_tensor_dim_decl(result_dims)
@@ -167,14 +172,14 @@ class IREEEmitter:
             source.get_only_dynamic_dim_values(constant_cache=constant_cache),
             result_dynamic_dims,
         ).result
-        result = IrValueTensor(result_value, dtype=source.dtype)
+        result = IrImmediateTensor(result_value, dtype=source.dtype)
         result.set_dynamic_dim_values(result_dynamic_dims)
         return result
 
     @emitter
     def tensor_slice(
         self, source: BuildableTensorType, *indices: BuildableSliceType
-    ) -> "IrValueTensor":
+    ) -> "IrTensor":
         """Extracts a slice of a tensor.
 
         The given indices must match the rank of the source and each index is
@@ -246,7 +251,7 @@ class IREEEmitter:
             length_values,
             result_dynamic_dims,
         ).result
-        result = IrValueTensor(result_value, dtype=source.dtype)
+        result = IrImmediateTensor(result_value, dtype=source.dtype)
         result.set_dynamic_dim_values(result_dynamic_dims)
         return result
 
@@ -256,7 +261,7 @@ class IREEEmitter:
         target: BuildableTensorType,
         update: BuildableTensorType,
         *start_indices: BuildableIndexType,
-    ) -> "IrValueTensor":
+    ) -> "IrTensor":
         """Applies an update to a target at start_indices and returns the mutated target."""
         constant_cache: Dict[int, Value] = {}
         target = cast_tensor_value(target)
@@ -278,7 +283,7 @@ class IREEEmitter:
             update.ir_value,
             update_dynamic_dims,
         ).result
-        result = IrValueTensor(result_value, target.dtype)
+        result = IrImmediateTensor(result_value, target.dtype)
         result.set_dynamic_dim_values(target_dynamic_dims)
         return result
 
@@ -288,7 +293,7 @@ class IREEEmitter:
         *dims: BuildableTensorDimDecl,
         value: BuildableScalarValue,
         dtype: torch.dtype,
-    ) -> "IrValueTensor":
+    ) -> "IrTensor":
         # TODO: Type infer the dtype if missing.
         dim_decls, dyn_dim_values = cast_tensor_dim_decl(dims)
         try:
@@ -302,7 +307,7 @@ class IREEEmitter:
             )
         tensor_type = RankedTensorType.get(dim_decls, element_type)
         raw_tensor = flow_d.TensorSplatOp(tensor_type, value, dyn_dim_values).result
-        result = IrValueTensor(raw_tensor, dtype=dtype)
+        result = IrImmediateTensor(raw_tensor, dtype=dtype)
         result.set_dynamic_dim_values(dyn_dim_values)
         return result
 
@@ -314,6 +319,6 @@ class IREEEmitter:
 
 # Circular imports to resolve typing.
 from .primitives import (
-    IrValueScalar,
-    IrValueTensor,
+    IrScalar,
+    IrTensor,
 )
