@@ -280,3 +280,12 @@ def build_tensor_dim_value(
 ) -> Value:
     dim_value = build_index_value(dim, constant_cache=constant_cache)
     return tensor_d.DimOp(t, dim_value).result
+
+
+# API name  inspired by mlir/python/mlir/dialects/_arith_ops_ext.py
+def _is_float_type(type):
+    return isinstance(type, (BF16Type, F16Type, F32Type, F64Type))
+
+
+def _is_integer_like_type(type):
+    return isinstance(type, (IntegerType, IndexType))
