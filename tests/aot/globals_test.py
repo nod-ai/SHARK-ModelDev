@@ -210,6 +210,22 @@ class ArgsTest(unittest.TestCase):
             module_str,
         )
 
+    @unittest.expectedFailure
+    def testJittableListReturn(self):
+        class ListFuncMod(nn.Module):
+            def ret_list(self):
+                b = [torch.ones(1,2,3)]*10
+                return b
+        m = ListFuncMod()
+        class ListModule(CompiledModule):
+            compute = jittable(m.ret_list)
+            def run(self):
+                should_be_list = self.compute()
+                assert(isinstance(should_be_list, list))
+                assert(len(should_be_list)==10)
+
+        inst = ListModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
