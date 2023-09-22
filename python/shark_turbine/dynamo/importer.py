@@ -20,6 +20,7 @@ from iree.compiler.ir import (
     InsertionPoint,
     IntegerAttr,
     IntegerType,
+    RankedTensorType,
     Location,
     Module,
     Operation,
@@ -27,6 +28,7 @@ from iree.compiler.ir import (
     Type as MlirType,
     Value,
     DenseElementsAttr,
+    DenseResourceElementsAttr,
 )
 
 import iree.compiler.dialects.func as func_dialect
@@ -889,6 +891,17 @@ def _make_constant_op(
     )
 
 
+def create_iree_tensor_type(tensor: torch.Tensor) -> MlirType:
+        try:
+            from ..aot.support.ir_utils import TORCH_DTYPE_TO_IREE_TYPE
+            dtype = tensor.dtype
+            element_type = TORCH_DTYPE_TO_IREE_TYPE[dtype]()
+            tensor_type = RankedTensorType.get(tuple(tensor.size()), element_type)
+            return tensor_type
+        except KeyError:
+            raise TypeError(f"Could not map Torch dtype {dtype} to an IREE type")
+
+
 def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Operation:
     npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
     assert (
@@ -902,7 +915,9 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Op
     # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
     np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
     bytes = memoryview(np_tensor)
-    elements_attr = DenseElementsAttr.get(bytes, signless=False)
+    tensor_type = create_iree_tensor_type(tensor)
+    #import pdb; pdb.set_trace()
+    elements_attr = DenseResourceElementsAttr.get_from_buffer(bytes, "from_py", tensor_type)
     return Operation.create(
         name="torch.vtensor.literal",
         results=[vtensor_type],
