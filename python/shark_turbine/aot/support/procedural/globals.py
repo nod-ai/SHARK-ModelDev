@@ -35,10 +35,16 @@ from ..utils import (
 )
 
 from .base import (
-    AbstractTypedef,
+    AbstractScalar,
+    AbstractTensor,
     Intrinsic,
     IrTrace,
     current_ir_trace,
+)
+
+from .primitives import (
+    IrScalar,
+    IrTensor,
 )
 
 ###############################################################################
@@ -121,17 +127,18 @@ class GlobalsDef:
                     initialize=self._initialize,
                     mutable=self._mutable,
                 )
-                mapping.value = MaterializedGlobal(
+                mapping.value = IrGlobalTensor(
                     fq_name,
                     self,
                     symbol_name=actual_symbol_name,
                     global_op=global_op,
                     global_type=global_type,
+                    dtype=value.dtype,
                 )
                 logger.debug("TRACK NEW TENSOR(%s): %r", fq_name, mapping)
                 flat_globals.append(mapping.value)
                 continue
-            elif isinstance(value, AbstractTypedef):
+            elif isinstance(value, AbstractTensor):
                 global_type = value.get_ir_type(module_builder)
                 (actual_symbol_name, global_op,) = module_builder.create_typed_global(
                     f"_{fq_name}",
@@ -140,7 +147,26 @@ class GlobalsDef:
                     mutable=self._mutable,
                 )
                 flat_globals.append(
-                    MaterializedGlobal(
+                    IrGlobalTensor(
+                        fq_name,
+                        self,
+                        symbol_name=actual_symbol_name,
+                        global_op=global_op,
+                        global_type=global_type,
+                        dtype=value.dtype,
+                    )
+                )
+                continue
+            elif isinstance(value, AbstractScalar):
+                global_type = value.get_ir_type(module_builder)
+                (actual_symbol_name, global_op,) = module_builder.create_typed_global(
+                    f"_{fq_name}",
+                    global_type,
+                    initialize=self._initialize,
+                    mutable=self._mutable,
+                )
+                flat_globals.append(
+                    IrGlobalScalar(
                         fq_name,
                         self,
                         symbol_name=actual_symbol_name,
@@ -158,8 +184,14 @@ class GlobalsDef:
             return LiveGlobalCollectionProxy(tree_globals)
 
 
-class MaterializedGlobal(Intrinsic):
-    """Associates a (possibly) materialized global with a name hint and info for the aggregate it is part of."""
+class MaterializedGlobal:
+    """Tags an Ir* that is duck-typed as a global."""
+
+    ...
+
+
+class IrGlobalScalar(IrScalar, MaterializedGlobal):
+    """An IrScalar that is loaded from a global and associated with its aggregate."""
 
     __slots__ = [
         "global_op",
@@ -178,15 +210,15 @@ class MaterializedGlobal(Intrinsic):
         global_op: Operation,
         global_type: IrType,
     ):
+        super().__init__(global_type)
         self.info = info
         self.export_name = export_name
         self.symbol_name = symbol_name
         self.global_op = global_op
-        self.global_type = global_type
 
     def resolve_ir_values(self, trace: IrTrace) -> Sequence[Value]:
         with trace.loc, trace.ip:
-            value = util_d.GlobalLoadOp(self.global_type, self.symbol_name).result
+            value = util_d.GlobalLoadOp(self.ir_type, self.symbol_name).result
         return [value]
 
     def resolve_assignment(self, proc_trace: "IrTrace", ir_values: Sequence[Value]):
@@ -195,12 +227,62 @@ class MaterializedGlobal(Intrinsic):
                 f"Can only assign a single value to a global. Got {len(ir_values)}"
             )
         source_ir_type = ir_values[0].type
-        if source_ir_type != self.global_type:
+        if source_ir_type != self.ir_type:
             raise TypeError(
-                f"Cannot assign to a global with a different type: {self.global_type} != {source_ir_type}"
+                f"Cannot assign to a global with a different type: {self.ir_type} != {source_ir_type}"
             )
         with proc_trace.loc, proc_trace.ip:
             util_d.GlobalStoreOp(ir_values[0], self.symbol_name)
 
     def __repr__(self):
-        return f"<MaterializedGlobal {self.export_name} = {self.symbol_name}:{self.global_type}>"
+        return (
+            f"<IrGlobalScalar {self.export_name} = {self.symbol_name}:{self.ir_type}>"
+        )
+
+
+class IrGlobalTensor(IrTensor, MaterializedGlobal):
+    """An IrScalar that is loaded from a global and associated with its aggregate."""
+
+    __slots__ = [
+        "global_op",
+        "info",
+        "export_name",
+        "symbol_name",
+    ]
+
+    def __init__(
+        self,
+        export_name: str,
+        info: GlobalsDef,
+        *,
+        symbol_name: str,
+        global_op: Operation,
+        global_type: IrType,
+        dtype: torch.dtype,
+    ):
+        super().__init__(global_type, dtype)
+        self.info = info
+        self.export_name = export_name
+        self.symbol_name = symbol_name
+        self.global_op = global_op
+
+    def resolve_ir_values(self, trace: IrTrace) -> Sequence[Value]:
+        with trace.loc, trace.ip:
+            value = util_d.GlobalLoadOp(self.ir_type, self.symbol_name).result
+        return [value]
+
+    def resolve_assignment(self, proc_trace: "IrTrace", ir_values: Sequence[Value]):
+        if len(ir_values) != 1:
+            raise ValueError(
+                f"Can only assign a single value to a global. Got {len(ir_values)}"
+            )
+        source_ir_type = ir_values[0].type
+        if source_ir_type != self.ir_type:
+            raise TypeError(
+                f"Cannot assign to a global with a different type: {self.ir_type} != {source_ir_type}"
+            )
+        with proc_trace.loc, proc_trace.ip:
+            util_d.GlobalStoreOp(ir_values[0], self.symbol_name)
+
+    def __repr__(self):
+        return f"<MaterializedGlobal {self.export_name} = {self.symbol_name}:{self.ir_type}>"

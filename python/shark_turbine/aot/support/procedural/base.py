@@ -112,6 +112,17 @@ class Intrinsic:
             f"Cannot use {self} as the target of an assignment in a procedural function"
         )
 
+    # Helpers for accessing the ir_value within the current trace.
+    @property
+    def ir_values(self) -> Sequence[Value]:
+        return self.resolve_ir_values(current_ir_trace())
+
+    @property
+    def ir_value(self) -> Value:
+        values = self.ir_values
+        assert len(values) == 1, "Expected arity one intrinsic"
+        return values[0]
+
 
 class CallableIntrinsic(Intrinsic):
     """Intrinsic subclass that supports calls.
@@ -182,7 +193,7 @@ class AbstractTensor(AbstractIntrinsic, AbstractTypedef):
         return f"AbstractTensor({', '.join(str(s) for s in self.size)}, dtype={self.dtype})"
 
     def create_intrinsic(self, ir_value: Value) -> Intrinsic:
-        return IrValueTensor(ir_value, self.dtype)
+        return IrImmediateTensor(ir_value, self.dtype)
 
     def get_ir_type(self, builder: ModuleBuilder) -> IrType:
         element_type = builder.torch_dtype_to_iree_type(self.dtype)
@@ -213,7 +224,7 @@ class AbstractScalar(AbstractIntrinsic, AbstractTypedef):
         return f"AbstractScalar({self.label})"
 
     def create_intrinsic(self, ir_value: Value) -> Intrinsic:
-        return IrValueScalar(ir_value)
+        return IrImmediateScalar(ir_value)
 
     def get_ir_type(self, builder: ModuleBuilder) -> IrType:
         with builder.context:
@@ -249,6 +260,6 @@ def abstractify(tree):
 
 # Circular iports.
 from .primitives import (
-    IrValueScalar,
-    IrValueTensor,
+    IrImmediateScalar,
+    IrImmediateTensor,
 )

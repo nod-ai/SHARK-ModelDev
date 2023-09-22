@@ -41,8 +41,9 @@ from ..support.ir_utils import (
 
 from ..support.procedural import (
     CallableIntrinsic,
+    IrImmediateTensor,
+    IrTensor,
     IrTrace,
-    IrValueTensor,
     MaterializedGlobal,
 )
 
@@ -98,7 +99,7 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
         # Emit a global load and conversion.
         vtensor_type = gni._cc.tensor_to_vtensor_type(py_value)
         loaded_value = util_d.GlobalLoadOp(
-            materialized_global.global_type, materialized_global.symbol_name
+            materialized_global.ir_type, materialized_global.symbol_name
         ).result
         converted_value = Operation.create(
             "torch_c.from_builtin_tensor",
@@ -249,7 +250,7 @@ class jittable(CallableIntrinsic):
         flat_py_results = []
         for ir_result, pytorch_meta in zip(flat_ir_results, pytorch_meta_results):
             if isinstance(pytorch_meta, TensorMetadata):
-                flat_py_results.append(IrValueTensor(ir_result, pytorch_meta.dtype))
+                flat_py_results.append(IrImmediateTensor(ir_result, pytorch_meta.dtype))
             else:
                 raise TypeError(
                     f"Unknown PyTorch->IREE value mapping for jittable result: {pytorch_meta}->{ir_result}"
@@ -264,7 +265,7 @@ class jittable(CallableIntrinsic):
             return flat_py_results
 
     def _split_py_arg(self, arg) -> Tuple[Value, Any]:
-        if isinstance(arg, IrValueTensor):
+        if isinstance(arg, IrTensor):
             return arg.ir_value, arg._to_meta_tensor()
 
         raise TypeError(f"Unsupported argument to jittable: {arg}")
