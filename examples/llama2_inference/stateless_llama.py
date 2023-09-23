@@ -24,10 +24,7 @@ def import_compiler(gm: GraphModule, example_inputs):
     imp = FxImporter()
     gm = turbine_cpu_pass_pipeline(gm, example_inputs)
 
-    try:
-        imp.import_graph_module(gm)
-    finally:
-        print(imp.module)
+    imp.import_graph_module(gm)
     imp.module.operation.verify()
     return gm
 
@@ -205,19 +202,19 @@ class SimpleParams(nn.Module):
         state1_flat = [torch.ones(size=(1,32,1,128)) for x in range(MAGIC_SIZE)]
         return token, *state1_flat
 
-#mod = InferenceModel() 
-mod = SimpleParams()
+mod = InferenceModel() 
+#mod = SimpleParams()
 seq_step = AbstractIndex
 global_pkv = torch.zeros(size=(MAGIC_SIZE, 1, 32, 4095, 128), dtype=torch.float32)
 seq_incr = AbstractIndex
 # (64, 1, 32, 4095, 128)
 class StateUpdateModule(CompiledModule):
-    params = export_parameters(mod)
+    params = export_parameters(mod, initialize=False)
     global_state = export_global(global_pkv, mutable=True, initialize=False)
     global_seq_step = export_global(seq_step, mutable=True, initialize=False)
     initialize = jittable(mod.initialize)
     forward = jittable(mod.forward)
-    def run(self, x=AbstractTensor(1,1, dtype=torch.int32)):
+    def run(self, x=AbstractTensor(1,89, dtype=torch.int)):
         token, *state = self.initialize(x)
         updates=[]
         self.global_seq_step = IREE.tensor_dim(state[0], 3) #3rd dimension of arbitrarily 0th kv tensor
