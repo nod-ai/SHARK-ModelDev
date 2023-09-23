@@ -14,22 +14,16 @@ import shark_turbine.kernel as tk
 
 
 class Test(unittest.TestCase):
-    def testSimpleKernel(self):
-        def add_vectors_kernel(x, y, out):
-            out[:] = x + y
+    def testIota(self):
+        @tk.block_kernel(eager=True)
+        def iota_kernel(out: tk.KernelBuffer):
+            i = tk.program_id(0)
+            out[i] = i
 
-        example_x = torch.empty(5)
-        example_y = torch.empty(5)
-        example_out = torch.empty(5)
-
-        add_vectors_kernel(example_x, example_y, example_out)
-        print("OUT =", example_out)
-
-        exp_f = dynamo.export(add_vectors_kernel, aten_graph=True, assume_static_by_default=True, same_signature=False)
-        gm, guards = exp_f(example_x, example_y, example_out)
-        #print(gm)
-        gm.print_readable()
-
+        gridded = iota_kernel(grid=(8,))
+        out = torch.empty(8, dtype=torch.int32)
+        gridded(out)
+        print(out)
 
 
 if __name__ == "__main__":
