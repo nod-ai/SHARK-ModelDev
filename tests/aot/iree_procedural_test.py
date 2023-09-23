@@ -186,6 +186,45 @@ class CompiledModuleAPI(unittest.TestCase):
             module_str,
         )
 
+    def testScalarAddInt(self):
+        class ArithModule(CompiledModule):
+            def foobar(self, a=AbstractI32, b=AbstractI32):
+                return a + b
+
+        inst = ArithModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        self.assertIn("arith.addi %arg0, %arg1 : i32", module_str)
+
+    def testScalarAddFloat(self):
+        class ArithModule(CompiledModule):
+            def foobar(self, a=AbstractF32, b=AbstractF32):
+                return a + b
+
+        inst = ArithModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        self.assertIn("arith.addf %arg0, %arg1 : f32", module_str)
+
+    def testScalarAddLiteral(self):
+        class ArithModule(CompiledModule):
+            def foobar(self, a=AbstractI32):
+                return a + 1
+
+        inst = ArithModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        self.assertIn("%c1_i32 = arith.constant 1 : i32", module_str)
+        self.assertIn("arith.addi %arg0, %c1_i32 : i32", module_str)
+
+    def testScalarAddLiteralMixedType(self):
+        class ArithModule(CompiledModule):
+            def foobar(self, a=AbstractI32):
+                return a + 3.23
+
+        inst = ArithModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        self.assertIn("%0 = arith.sitofp %arg0 : i32 to f32", module_str)
+        self.assertIn("%cst = arith.constant 3.230000e+00 : f32", module_str)
+        self.assertIn("arith.addf %0, %cst : f32", module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

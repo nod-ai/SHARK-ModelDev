@@ -20,13 +20,17 @@ from typing import (
 import torch
 
 from ..ir_imports import (
+    F32Type,
     IrType,
     RankedTensorType,
     Value,
+    arith_d,
 )
 
 from ..ir_utils import (
     build_tensor_dim_value,
+    _is_float_type,
+    _is_integer_like_type,
 )
 
 from ..utils import (
@@ -38,6 +42,7 @@ from .base import (
     Intrinsic,
     IrTrace,
     ShapedTypeDynamicSizeSentinel,
+    current_ir_trace,
 )
 
 ###############################################################################
@@ -57,6 +62,36 @@ class IrScalar(Intrinsic):
 
     def __init__(self, ir_type: IrType):
         self.ir_type = ir_type
+
+    def __add__(self, other):
+        t = current_ir_trace()
+        with t.ip, t.loc:
+            # Type check and promotion.
+            # TODO: Add more comprehensive type promotion hiearchy as seen in
+            # https://jax.readthedocs.io/en/latest/jep/9407-type-promotion.html
+            lhs = self.ir_value
+            if isinstance(other, IrScalar):
+                # Assumes when both are Value, they have same type.
+                rhs = other.ir_value
+            elif isinstance(other, (int, bool)):
+                rhs = arith_d.ConstantOp(lhs.type, other).result
+            elif isinstance(other, float) and _is_integer_like_type(self.ir_type):
+                lhs = arith_d.SIToFPOp(F32Type.get(), lhs).result
+                rhs = arith_d.ConstantOp(F32Type.get(), other).result
+
+            #  Checks that lhs and rhs has same type.
+            if lhs.type != rhs.type:
+                raise ValueError("Mismatch type between lhs and rhs.")
+
+            # Emit computation.
+            if _is_integer_like_type(lhs.type):
+                return arith_d.AddIOp(lhs, rhs).result
+            elif _is_float_type(lhs.type):
+                return arith_d.AddFOp(lhs, rhs).result
+            else:
+                raise ValueError(
+                    f"Expected operand to be either Int or Float but got {self.ir_type} instead."
+                )
 
 
 class IrImmediateScalar(IrScalar):
