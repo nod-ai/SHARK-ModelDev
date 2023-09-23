@@ -193,8 +193,11 @@ class CompiledModuleClassInfo:
                 raise TypeError(
                     f"exported functions only support positional parameters"
                 )
-            param_desc = param.default
-            if param_desc is inspect.Parameter.empty:
+            if param.default is not inspect.Parameter.empty:
+                param_desc = param.default
+            elif param.annotation is not inspect.Parameter.empty:
+                param_desc = param.annotation
+            else:
                 # TODO: Merge from a decorator?
                 raise TypeError(
                     f"export function {name} missing required default value annotation "

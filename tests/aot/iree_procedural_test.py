@@ -19,7 +19,7 @@ from shark_turbine.aot import *
 class CompiledModuleAPI(unittest.TestCase):
     def testTensorDim(self):
         class BasicModule(CompiledModule):
-            def foobar(self, a=AbstractTensor(None, 3)):
+            def foobar(self, a: AbstractTensor(None, 3)):
                 return IREE.tensor_dim(a, 0)
 
         inst = BasicModule(context=Context())
@@ -31,7 +31,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorEmpty(self):
         class BasicModule(CompiledModule):
-            def foobar(self, x=AbstractIndex):
+            def foobar(self, x: AbstractIndex):
                 empty = IREE.tensor_empty(x, 16)
                 dim0 = IREE.tensor_dim(empty, 0)
                 return empty, dim0
@@ -46,7 +46,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorSplat(self):
         class BasicModule(CompiledModule):
-            def foobar(self, x=AbstractIndex, y=AbstractF32):
+            def foobar(self, x: AbstractIndex, y: AbstractF32):
                 empty = IREE.tensor_splat(x, 34, value=y, dtype=torch.float32)
                 dim0 = IREE.tensor_dim(empty, 0)
                 return empty, dim0
@@ -63,7 +63,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorTrace(self):
         class BasicModule(CompiledModule):
-            def foobar(self, x=AbstractTensor(None), y=AbstractTensor(3)):
+            def foobar(self, x: AbstractTensor(None), y: AbstractTensor(3)):
                 IREE.tensor_trace("DEBUG", x, y)
 
         inst = BasicModule(context=Context())
@@ -75,7 +75,7 @@ class CompiledModuleAPI(unittest.TestCase):
         class BasicModule(CompiledModule):
             x = export_global(AbstractTensor(None, 34), mutable=True)
 
-            def foobar(self, x=AbstractIndex, y=AbstractF32):
+            def foobar(self, x: AbstractIndex, y: AbstractF32):
                 splat = IREE.tensor_splat(x, 34, value=y, dtype=torch.float32)
                 self.x = splat
 
@@ -91,7 +91,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorSliceStatic(self):
         class BasicModule(CompiledModule):
-            def foobar(self, x=AbstractTensor(3, 4)):
+            def foobar(self, x: AbstractTensor(3, 4)):
                 return IREE.tensor_slice(x, 0, (1, 3))
 
         inst = BasicModule(context=Context())
@@ -104,7 +104,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorSliceDynamicIndex(self):
         class SliceDynamicIndex(CompiledModule):
-            def foobar(self, x=AbstractIndex):
+            def foobar(self, x: AbstractIndex):
                 empty = IREE.tensor_empty(x, 16)
                 return IREE.tensor_slice(empty, x, 4)
 
@@ -118,7 +118,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorSliceDynamicLength(self):
         class SliceDynamicIndex(CompiledModule):
-            def foobar(self, x=AbstractIndex, y=AbstractIndex):
+            def foobar(self, x: AbstractIndex, y: AbstractIndex):
                 empty = IREE.tensor_empty(x, 16)
                 return IREE.tensor_slice(empty, (x, y), 4)
 
@@ -134,10 +134,10 @@ class CompiledModuleAPI(unittest.TestCase):
         class UpdateStatic(CompiledModule):
             def foobar(
                 self,
-                target=AbstractTensor(4, 4),
-                update=AbstractTensor(2, 2),
-                i=AbstractIndex,
-                j=AbstractIndex,
+                target: AbstractTensor(4, 4),
+                update: AbstractTensor(2, 2),
+                i: AbstractIndex,
+                j: AbstractIndex,
             ):
                 return IREE.tensor_update(target, update, i, j)
 
@@ -153,11 +153,11 @@ class CompiledModuleAPI(unittest.TestCase):
         class UpdateDynamic(CompiledModule):
             def foobar(
                 self,
-                x=AbstractIndex,
-                y=AbstractIndex,
-                i=AbstractIndex,
-                j=AbstractIndex,
-                value=AbstractF32,
+                x: AbstractIndex,
+                y: AbstractIndex,
+                i: AbstractIndex,
+                j: AbstractIndex,
+                value: AbstractF32,
             ):
                 target = IREE.tensor_empty(x, y)
                 update = IREE.tensor_splat(i, j, value=value, dtype=torch.float32)
@@ -173,7 +173,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testTensorReshape(self):
         class ReshapeModule(CompiledModule):
-            def foobar(self, x=AbstractIndex, y=AbstractIndex):
+            def foobar(self, x: AbstractIndex, y: AbstractIndex):
                 empty = IREE.tensor_empty(x, 16)
                 reshaped = IREE.tensor_reshape(empty, 1, y, y)
                 return reshaped
@@ -188,7 +188,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testScalarAddInt(self):
         class ArithModule(CompiledModule):
-            def foobar(self, a=AbstractI32, b=AbstractI32):
+            def foobar(self, a: AbstractI32, b: AbstractI32):
                 return a + b
 
         inst = ArithModule(context=Context())
@@ -197,7 +197,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testScalarAddFloat(self):
         class ArithModule(CompiledModule):
-            def foobar(self, a=AbstractF32, b=AbstractF32):
+            def foobar(self, a: AbstractF32, b: AbstractF32):
                 return a + b
 
         inst = ArithModule(context=Context())
@@ -206,7 +206,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testScalarAddLiteral(self):
         class ArithModule(CompiledModule):
-            def foobar(self, a=AbstractI32):
+            def foobar(self, a: AbstractI32):
                 return a + 1
 
         inst = ArithModule(context=Context())
@@ -216,7 +216,7 @@ class CompiledModuleAPI(unittest.TestCase):
 
     def testScalarAddLiteralMixedType(self):
         class ArithModule(CompiledModule):
-            def foobar(self, a=AbstractI32):
+            def foobar(self, a: AbstractI32):
                 return a + 3.23
 
         inst = ArithModule(context=Context())
