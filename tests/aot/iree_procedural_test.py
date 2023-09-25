@@ -22,7 +22,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, a=AbstractTensor(None, 3)):
                 return IREE.tensor_dim(a, 0)
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn("%c0 = arith.constant 0", module_str)
@@ -36,7 +36,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 dim0 = IREE.tensor_dim(empty, 0)
                 return empty, dim0
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn("%0 = flow.tensor.empty : tensor<?x16xf32>{%arg0}", module_str)
@@ -51,7 +51,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 dim0 = IREE.tensor_dim(empty, 0)
                 return empty, dim0
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -66,7 +66,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, x=AbstractTensor(None), y=AbstractTensor(3)):
                 IREE.tensor_trace("DEBUG", x, y)
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn('flow.tensor.trace {key = "DEBUG"} %arg0, %arg1', module_str)
@@ -79,7 +79,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 splat = IREE.tensor_splat(x, 34, value=y, dtype=torch.float32)
                 self.x = splat
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -94,7 +94,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, x=AbstractTensor(3, 4)):
                 return IREE.tensor_slice(x, 0, (1, 3))
 
-        inst = BasicModule(context=Context())
+        inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -108,7 +108,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 empty = IREE.tensor_empty(x, 16)
                 return IREE.tensor_slice(empty, x, 4)
 
-        inst = SliceDynamicIndex(context=Context())
+        inst = SliceDynamicIndex(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -122,7 +122,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 empty = IREE.tensor_empty(x, 16)
                 return IREE.tensor_slice(empty, (x, y), 4)
 
-        inst = SliceDynamicIndex(context=Context())
+        inst = SliceDynamicIndex(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -141,7 +141,7 @@ class CompiledModuleAPI(unittest.TestCase):
             ):
                 return IREE.tensor_update(target, update, i, j)
 
-        inst = UpdateStatic(context=Context())
+        inst = UpdateStatic(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -163,7 +163,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 update = IREE.tensor_splat(i, j, value=value, dtype=torch.float32)
                 return IREE.tensor_update(target, update, 2, 2)
 
-        inst = UpdateDynamic(context=Context())
+        inst = UpdateDynamic(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -178,7 +178,7 @@ class CompiledModuleAPI(unittest.TestCase):
                 reshaped = IREE.tensor_reshape(empty, 1, y, y)
                 return reshaped
 
-        inst = ReshapeModule(context=Context())
+        inst = ReshapeModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
@@ -191,7 +191,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, a=AbstractI32, b=AbstractI32):
                 return a + b
 
-        inst = ArithModule(context=Context())
+        inst = ArithModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         self.assertIn("arith.addi %arg0, %arg1 : i32", module_str)
 
@@ -200,7 +200,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, a=AbstractF32, b=AbstractF32):
                 return a + b
 
-        inst = ArithModule(context=Context())
+        inst = ArithModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         self.assertIn("arith.addf %arg0, %arg1 : f32", module_str)
 
@@ -209,7 +209,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, a=AbstractI32):
                 return a + 1
 
-        inst = ArithModule(context=Context())
+        inst = ArithModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         self.assertIn("%c1_i32 = arith.constant 1 : i32", module_str)
         self.assertIn("arith.addi %arg0, %c1_i32 : i32", module_str)
@@ -219,7 +219,7 @@ class CompiledModuleAPI(unittest.TestCase):
             def foobar(self, a=AbstractI32):
                 return a + 3.23
 
-        inst = ArithModule(context=Context())
+        inst = ArithModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         self.assertIn("%0 = arith.sitofp %arg0 : i32 to f32", module_str)
         self.assertIn("%cst = arith.constant 3.230000e+00 : f32", module_str)

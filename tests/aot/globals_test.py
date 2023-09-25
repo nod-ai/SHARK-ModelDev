@@ -200,7 +200,7 @@ class ArgsTest(unittest.TestCase):
             state0 = export_global(state_example, mutable=True, initialize=False)
 
             def tensor_update_state(self, update=abstractify(update_example)):
-                IREE.tensor_update(self.state0, update, 0, 0)
+                return IREE.tensor_update(self.state0, update, 0, 0)
 
         inst = SingleState(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))

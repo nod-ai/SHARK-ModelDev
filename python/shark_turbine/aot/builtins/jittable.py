@@ -50,9 +50,7 @@ from ..support.procedural import (
 from ..support.ir_imports import (
     FlatSymbolRefAttr,
     FunctionType,
-    MLIRError,
     Operation,
-    PassManager,
     StringAttr,
     SymbolTable,
     TypeAttr,
@@ -158,6 +156,7 @@ class jittable(CallableIntrinsic):
         return f"<Jittable PyTorch func: {self.exported_f}>"
 
     def resolve_call(self, proc_trace: IrTrace, *py_args, **py_kwargs):
+        type_converter = proc_trace.module_builder.native_type_converter
         flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
 
         # Convert procedural trace values to things that Dynamo can handle.
@@ -190,19 +189,19 @@ class jittable(CallableIntrinsic):
         # print(fx_importer.module, file=sys.stderr)
 
         # Within the isolated module, convert to MLIR.
-        with proc_trace.context as context:
-            try:
-                pm = PassManager.parse("builtin.module(torch-to-iree)")
-                # Uncomment these two lines to debug.
-                # TODO: Real debug options.
-                # context.enable_multithreading(False)
-                # pm.enable_ir_printing()
-                # Run.
-                pm.run(fx_importer.module.operation)
-            except MLIRError:
-                # TODO: Better error handling.
-                print(fx_importer.module.operation, file=sys.stderr)
-                raise
+        # with proc_trace.context as context:
+        #     try:
+        #         pm = PassManager.parse("builtin.module(torch-to-iree)")
+        #         # Uncomment these two lines to debug.
+        #         # TODO: Real debug options.
+        #         # context.enable_multithreading(False)
+        #         # pm.enable_ir_printing()
+        #         # Run.
+        #         pm.run(fx_importer.module.operation)
+        #     except MLIRError:
+        #         # TODO: Better error handling.
+        #         print(fx_importer.module.operation, file=sys.stderr)
+        #         raise
 
         # Uncomment to print the final module.
         # TODO: Real debugging options.
@@ -227,6 +226,10 @@ class jittable(CallableIntrinsic):
         target_op = merger.merge()
         assert target_op, "Could not find target op in merged module"
 
+        # Uncomment to print the final module.
+        # TODO: Real debugging options.
+        # print(target_op, file=sys.stderr)
+
         # TODO: Debug upstream why iteration over children isn't creating a typed view.
         # This should just be `target_op.function_type`
         target_ftype = FunctionType(
@@ -242,6 +245,13 @@ class jittable(CallableIntrinsic):
             f"  For call to: {target_ftype}"
         )
 
+        # Since the target function is defined on torch types, we must do
+        # a cast on each from native->torch.
+        flat_ir_args = [
+            type_converter.materialize_native_to_torch(v, torch_type)
+            for v, torch_type in zip(flat_ir_args, target_ftype.inputs)
+        ]
+
         with proc_trace.ip, proc_trace.loc:
             flat_ir_results = func_d.CallOp(
                 target_ftype.results, target_symbol_ref, flat_ir_args
@@ -249,11 +259,14 @@ class jittable(CallableIntrinsic):
 
         flat_py_results = []
         for ir_result, pytorch_meta in zip(flat_ir_results, pytorch_meta_results):
+            native_ir_result = type_converter.materialize_torch_to_native(ir_result)
             if isinstance(pytorch_meta, TensorMetadata):
-                flat_py_results.append(IrImmediateTensor(ir_result, pytorch_meta.dtype))
+                flat_py_results.append(
+                    IrImmediateTensor(native_ir_result, pytorch_meta.dtype)
+                )
             else:
                 raise TypeError(
-                    f"Unknown PyTorch->IREE value mapping for jittable result: {pytorch_meta}->{ir_result}"
+                    f"Unknown PyTorch->IREE value mapping for jittable result: {pytorch_meta}->{native_ir_result}"
                 )
 
         # TODO: Unflatten the right way with the PyTorch captured schema.
