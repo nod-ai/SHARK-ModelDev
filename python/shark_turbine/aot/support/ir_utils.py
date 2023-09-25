@@ -15,6 +15,10 @@ from ...dynamo.importer import (
     TORCH_DTYPE_TO_MLIR_TYPE_ASM,
 )
 
+from ...dynamo.type_conversion import (
+    NativeTypeConverter,
+)
+
 from .ir_imports import (
     Block,
     BlockArgument,
@@ -109,6 +113,7 @@ class ModuleBuilder:
         "module_op",
         "symbol_table",
         "global_ref_tracker",
+        "native_type_converter",
     ]
 
     def __init__(self, module_op: Operation):
@@ -121,6 +126,7 @@ class ModuleBuilder:
         self.cache = ContextCache(self.context)
         # Tracks global references to a MaterializedGlobal.
         self.global_ref_tracker = RefTracker()
+        self.native_type_converter = NativeTypeConverter(self.context)
 
     def finalize_construct(self):
         self.module_op.verify()

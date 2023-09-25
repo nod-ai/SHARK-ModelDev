@@ -7,10 +7,13 @@
 
 from typing import Callable, Dict, Generator, List, Optional, Tuple, Union
 
+import enum
 import inspect
 import logging
+from pathlib import Path
 import re
 import weakref
+import sys
 
 from . import builtins
 
@@ -23,8 +26,10 @@ from .support.procedural import (
 from .support.ir_imports import (
     Context,
     Location,
+    MLIRError,
     Module,
     Operation,
+    PassManager,
     StringAttr,
 )
 
@@ -43,6 +48,33 @@ __all__ = [
 ################################################################################
 # Data structures
 ################################################################################
+
+
+class ImportPhase(enum.IntEnum):
+    # Compiles to valid MLIR that IREE can ingest as an input.
+    IMPORT = 0
+    # Runs the IREE input pipeline to compile to internal form.
+    INPUT = 1
+
+    # The full import pipeline (this is an alias for another enum value).
+    FULL = 1
+
+    @staticmethod
+    def parse(spec: Union[str, None, "ImportPhase"]) -> "ImportPhase":
+        if spec is None:
+            return ImportPhase.IMPORT
+        if isinstance(spec, ImportPhase):
+            return spec
+        spec = spec.upper().replace("-", "_")
+        if spec not in ImportPhase.__members__:
+            raise ValueError(
+                f"For import_phase= argument, expected one of: "
+                f"{', '.join(ImportPhase.__members__.keys())}"
+            )
+        return ImportPhase[spec]
+
+    def __str__(self):
+        return self.name
 
 
 class PyOnlyDef:
@@ -214,6 +246,7 @@ class CompiledModuleInstanceInfo:
         "class_info",
         "module_builder",
         "shadow_dict",
+        "current_import_phase",
     ]
 
     def __init__(
@@ -224,6 +257,7 @@ class CompiledModuleInstanceInfo:
         # The shadow dict holds instance attributes. We stash them here and the
         # Program instance itself arbitrates access via getattr/setattr.
         self.shadow_dict = dict()
+        self.current_import_phase = ImportPhase.IMPORT
 
 
 ################################################################################
@@ -264,6 +298,9 @@ _COMPILED_MODULE_API_ATTRIBUTES = [
     "get_module_builder",
     "get_mlir_module",
     "jittable",
+    "run_import",
+    "run_pass_pipeline",
+    "save_mlir",
 ]
 
 
@@ -345,6 +382,70 @@ class CompiledModule(metaclass=CompiledModuleMeta):
     def get_mlir_module(inst: "CompiledModule") -> Operation:
         return CompiledModule.get_module_builder(inst).module_op
 
+    @staticmethod
+    def run_import(
+        inst: "CompiledModule", import_to: Union[ImportPhase, str, None] = "full"
+    ):
+        import_to = ImportPhase.parse(import_to)
+        info = CompiledModule.get_info(inst)
+        if info.current_import_phase >= import_to:
+            return
+
+        for phase in [ImportPhase.IMPORT, ImportPhase.INPUT]:
+            if info.current_import_phase >= phase:
+                continue
+            logger.debug("Run import phase %s", phase)
+            if phase == ImportPhase.IMPORT:
+                ...
+            if phase == ImportPhase.INPUT:
+                CompiledModule.run_pass_pipeline(inst, "builtin.module(torch-to-iree)")
+            else:
+                assert False, f"Phase {phase} not handled in switch"
+
+    @staticmethod
+    def run_pass_pipeline(
+        inst: "CompiledModule", pipeline: str, enable_ir_printing: bool = False
+    ):
+        """Runs an arbitrary pass pipeline against the current IR.
+
+        Args:
+          pipeline: The text format pass pipeline as supported by PassManager.parse.
+          enable_ir_printing: Enables print-after-all to stderr.
+        """
+        logger.debug("Run pass pipeline: %s", pipeline)
+        module_op = CompiledModule.get_mlir_module(inst)
+        with module_op.context:
+            pm = PassManager.parse(pipeline)
+            if enable_ir_printing:
+                module_op.context.enable_multithreading(False)
+                pm.enable_ir_printing()
+            try:
+                pm.run(module_op)
+            except MLIRError:
+                # TODO: Better error handling.
+                print(module_op, file=sys.stderr)
+                raise
+
+    @staticmethod
+    def save_mlir(inst: "CompiledModule", path: Union[Path, str]):
+        """Saves a snapshot of the MLIR module in this CompiledModule to a file.
+
+        This is a convenience wrapper around the facilities of the underlying
+        API and does not expose all features.
+
+        Args:
+          path: The file path to write to. If the extension is ".mlirbc", it
+            will be written as bytecode.
+        """
+        path = Path(path)
+        bytecode = path.suffix == ".mlirbc"
+        module_op = CompiledModule.get_mlir_module(inst)
+        with open(path, "wb") as f:
+            if bytecode:
+                module_op.write_bytecode(f)
+            else:
+                module_op.print(f, binary=True)
+
     jittable = staticmethod(builtins.jittable)
 
     def __getattr__(self, name):
@@ -363,8 +464,13 @@ class CompiledModule(metaclass=CompiledModuleMeta):
         current_ir_trace().handle_assignment(self, descriptor, value)
 
     def __new__(
-        cls, *, context: Optional[Context] = None, module_op: Optional[Operation] = None
+        cls,
+        *,
+        context: Optional[Context] = None,
+        module_op: Optional[Operation] = None,
+        import_to: Union[ImportPhase, None, str] = "full",
     ):
+        import_to = ImportPhase.parse(import_to)
         self = super().__new__(cls)
         class_info = CompiledModule.get_class_info(cls)
         if context and module_op:
@@ -428,6 +534,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
             do_export(proc_def)
 
         module_builder.finalize_construct()
+        CompiledModule.run_import(self, import_to)
         return self
 
 
