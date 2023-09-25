@@ -34,7 +34,7 @@ class ArgsTest(unittest.TestCase):
             params = export_parameters(m)
             compute = jittable(m.forward)
 
-            def run(self, x=AbstractTensor(128, 20)):
+            def run(self, x: AbstractTensor(128, 20)):
                 return self.compute(x)
 
         inst = GlobalModule(context=Context())
@@ -91,7 +91,7 @@ class ArgsTest(unittest.TestCase):
         class GlobalModule(CompiledModule):
             params = export_parameters(m, initialize=False, mutable=True)
 
-            def update_params(me, updates=abstractify(params)):
+            def update_params(me, updates: abstractify(params)):
                 self.assertIn("classifier.weight", updates)
                 self.assertIn("classifier.bias", updates)
                 me.params = updates
@@ -108,7 +108,7 @@ class ArgsTest(unittest.TestCase):
         class GlobalModule(CompiledModule):
             params = export_parameters(m, initialize=False, mutable=True)
 
-            def update_bias(self, new_bias=abstractify(params["classifier.bias"])):
+            def update_bias(self, new_bias: abstractify(params["classifier.bias"])):
                 self.params["classifier.bias"] = new_bias
 
         inst = GlobalModule(context=Context())
@@ -177,7 +177,7 @@ class ArgsTest(unittest.TestCase):
         class SingleState(CompiledModule):
             state0 = export_global_tree(state_example, mutable=True, initialize=False)
 
-            def read_state(self, updates=abstractify(state_example)):
+            def read_state(self, updates: abstractify(state_example)):
                 self.state0 = updates
 
         inst = SingleState(context=Context())
@@ -199,7 +199,7 @@ class ArgsTest(unittest.TestCase):
         class SingleState(CompiledModule):
             state0 = export_global(state_example, mutable=True, initialize=False)
 
-            def tensor_update_state(self, update=abstractify(update_example)):
+            def tensor_update_state(self, update: abstractify(update_example)):
                 IREE.tensor_update(self.state0, update, 0, 0)
 
         inst = SingleState(context=Context())

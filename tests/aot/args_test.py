@@ -17,7 +17,7 @@ from shark_turbine.aot import *
 class ArgsTest(unittest.TestCase):
     def testProcArgs(self):
         class ProcArgsModule(CompiledModule):
-            def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
+            def foobar(self, a: AbstractTensor(3, 2), b: AbstractTensor(1, 1)):
                 return b, a
 
         inst = ProcArgsModule(context=Context())
@@ -31,7 +31,7 @@ class ArgsTest(unittest.TestCase):
 
     def testProcToJitArgs(self):
         class ProcArgsModule(CompiledModule):
-            def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
+            def foobar(self, a: AbstractTensor(3, 2), b: AbstractTensor(1, 1)):
                 return self.compute(a, b)
 
             @jittable
@@ -56,7 +56,7 @@ class ArgsTest(unittest.TestCase):
 
     def testProcToJitArgs(self):
         class ProcArgsModule(CompiledModule):
-            def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
+            def foobar(self, a: AbstractTensor(3, 2), b: AbstractTensor(1, 1)):
                 x = self.compute(a, b)
                 y = self.compute(x, a)
                 return y
