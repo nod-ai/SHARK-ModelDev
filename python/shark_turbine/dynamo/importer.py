@@ -916,7 +916,6 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Op
     np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
     bytes = memoryview(np_tensor)
     tensor_type = create_iree_tensor_type(tensor)
-    #import pdb; pdb.set_trace()
     elements_attr = DenseResourceElementsAttr.get_from_buffer(bytes, "from_py", tensor_type)
     return Operation.create(
         name="torch.vtensor.literal",
