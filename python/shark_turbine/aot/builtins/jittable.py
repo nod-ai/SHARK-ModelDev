@@ -188,25 +188,6 @@ class jittable(CallableIntrinsic):
         # TODO: Real debugging options
         # print(fx_importer.module, file=sys.stderr)
 
-        # Within the isolated module, convert to MLIR.
-        # with proc_trace.context as context:
-        #     try:
-        #         pm = PassManager.parse("builtin.module(torch-to-iree)")
-        #         # Uncomment these two lines to debug.
-        #         # TODO: Real debug options.
-        #         # context.enable_multithreading(False)
-        #         # pm.enable_ir_printing()
-        #         # Run.
-        #         pm.run(fx_importer.module.operation)
-        #     except MLIRError:
-        #         # TODO: Better error handling.
-        #         print(fx_importer.module.operation, file=sys.stderr)
-        #         raise
-
-        # Uncomment to print the final module.
-        # TODO: Real debugging options.
-        # print(fx_importer.module.operation, file=sys.stderr)
-
         # Splice the converted module into the main module by taking advantage
         # of what we know about the conversion module:
         #   1. There will be a public function of `self.function_name` that we
