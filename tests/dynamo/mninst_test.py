@@ -28,27 +28,28 @@ class MNISTDataLoader:
         self.shuffle = shuffle
 
         # Data Transformations
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,))
-        ])
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+        )
 
         # Download MNIST dataset
-        self.mnist_trainset = datasets.MNIST(root='../data', train=True, download=True, transform=transform)
-        self.mnist_testset = datasets.MNIST(root='../data', train=False, download=True, transform=transform)
+        self.mnist_trainset = datasets.MNIST(
+            root="../data", train=True, download=True, transform=transform
+        )
+        self.mnist_testset = datasets.MNIST(
+            root="../data", train=False, download=True, transform=transform
+        )
 
     def get_train_loader(self):
         return DataLoader(
             dataset=self.mnist_trainset,
             batch_size=self.batch_size,
-            shuffle=self.shuffle
+            shuffle=self.shuffle,
         )
 
     def get_test_loader(self):
         return DataLoader(
-            dataset=self.mnist_testset,
-            batch_size=self.batch_size,
-            shuffle=False
+            dataset=self.mnist_testset, batch_size=self.batch_size, shuffle=False
         )
 
 
@@ -69,6 +70,7 @@ class CNN(nn.Module):
         x = self.fc1(x)
         return x
 
+
 # Training
 def train(model, images, labels, optimizer, criterion):
     model.train()
@@ -87,6 +89,7 @@ def train(model, images, labels, optimizer, criterion):
     loss.backward()
     optimizer.step()
     total_loss += loss.item()
+
 
 # TODO Implement inference func
 """
@@ -109,24 +112,25 @@ def test(model, images, labels, criterion):
     # return acc, total_loss
 """
 
+
 def main():
     # Example Hyperparameters
     config = {
-        'batch_size': 64,
-        'learning_rate': 0.001,
+        "batch_size": 64,
+        "learning_rate": 0.001,
         # 'threshold' : 0.001,
         # 'factor' : 0.1,
-        'num_epochs': 10,
+        "num_epochs": 10,
     }
 
     # Data Loader
-    custom_data_loader = MNISTDataLoader(config['batch_size'])
+    custom_data_loader = MNISTDataLoader(config["batch_size"])
     train_loader = custom_data_loader.get_train_loader()
     # test_loader = MNISTDataLoader.get_test_loader()
 
     # Model, optimizer, loss
     model = CNN()
-    optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
+    optimizer = optim.Adam(model.parameters(), lr=config["learning_rate"])
     criterion = nn.CrossEntropyLoss()
 
     # Training
@@ -134,14 +138,12 @@ def main():
     for i, (images, labels) in enumerate(train_loader):
         train_opt(model, images, labels, optimizer, criterion)
 
-
     # TODO: Inference
     """
     test_opt = torch.compile(test, backend="turbine_cpu", mode="reduce-overhead")
     for i, (images, labels) in enumerate(test_loader):    
         test(model, images, labels, criterion)
     """
-
 
 
 class ModelTests(unittest.TestCase):
