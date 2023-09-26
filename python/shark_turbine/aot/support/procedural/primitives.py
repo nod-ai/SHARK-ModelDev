@@ -19,11 +19,6 @@ from typing import (
 
 import torch
 
-from torch.export import (
-    Constraint,
-    dynamic_dim,
-)
-
 from ..ir_imports import (
     F32Type,
     IrType,
@@ -128,21 +123,12 @@ class IrTensor(Intrinsic):
         "_cached_dim_values",
         "_dynamic_dims",
         "_shape",
-        "_meta_tensor",
-        "_meta_tensor_constraints",
     ]
 
     def __init__(self, ir_type: IrType, dtype: torch.dtype):
-        assert isinstance(dtype, torch.dtype)
         ranked_ir_type = RankedTensorType(ir_type)
         self.ir_type = ranked_ir_type
         self.dtype = dtype
-        # We always cache the meta tensor once asked for since it is used
-        # to anchor constraints. The constraints list is the same size as
-        # the rank and has a non-None dynamic_dim constraint for each
-        # dynamic dimension in the type.
-        self._meta_tensor: Optional[torch.Tensor] = None
-        self._meta_tensor_constraints: Optional[List[Constraint]] = None
 
         # Figure dynamic dims.
         # _dynamic_dims is either Empty if static, or Value/None if dynamic.
@@ -155,16 +141,6 @@ class IrTensor(Intrinsic):
         self._cached_dim_values: List[Optional[Value]] = [None] * len(
             self._dynamic_dims
         )
-
-    def dynamic_dim(self, i: int) -> Constraint:
-        """Access the dynamic_dim constraint for the i'th dimension."""
-        self._populate_meta_tensor()
-        c = self._meta_tensor_constraints[i]
-        if c is None:
-            raise TypeError(
-                f"Requested dynamic_dim constraint for dimension {i} of {self.ir_type} which is not dynamic"
-            )
-        return c
 
     @property
     def rank(self) -> int:
@@ -258,36 +234,24 @@ class IrTensor(Intrinsic):
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         return NotImplemented
 
-    def _populate_meta_tensor(self):
-        if self._meta_tensor is not None:
-            return
-
+    def _to_meta_tensor(self) -> torch.Tensor:
+        """Converts to a fake Tensor that dynamo can handle."""
         ir_tensor_type = self.ir_type
         shape = ir_tensor_type.shape
+        # TODO: Remove this assert. We need to extend this method to also be
+        # able to contribute dynamic_dim constraints and then return a minimum
+        # quantity (2) for any dynamic dim.
+        assert not any(
+            d < 0 for d in shape
+        ), "Dynamic dims to jittable not yet implemented"
+
         # TODO: We shouldn't need to create a real tensor here, as Dynamo will
         # immediately convert it to fake. However, it will also set up the shape
         # environment and asserts that any fake tensor inputs are from its
         # internal FakeMode. There should be a way but needs more investigation.
         # TODO: This tensor needs a device that matches the model being exported.
         # We just create these on the CPU because that is common.
-        # Note that in Dynamo's modeling of dynamic shapes, 0/1 are specialized and
-        # cannot be dynamic, and we must use a >= 2 dimension value to represent
-        # a dynamic quantity. We therefore adjust the shape in this way and
-        # add a dynamic_dim constraint.
-        extents = [2 if d < 0 else d for d in shape]
-        mt = self._meta_tensor = torch.empty(extents, dtype=self.dtype)
-        # Generate constraints that are aligned with any dynamic dimensions or None
-        # if static.
-        self._meta_tensor_constraints = [
-            dynamic_dim(mt, i) if d < 0 else None for i, d in enumerate(shape)
-        ]
-
-    def _to_meta_tensor(self) -> Tuple[torch.Tensor, List[Constraint]]:
-        """Converts to a fake Tensor that dynamo can handle."""
-        self._populate_meta_tensor()
-        return self._meta_tensor, [
-            c for c in self._meta_tensor_constraints if c is not None
-        ]
+        return torch.empty(shape, dtype=self.dtype)
 
 
 class IrImmediateTensor(IrTensor):

@@ -54,7 +54,7 @@ class ArgsTest(unittest.TestCase):
             module_str,
         )
 
-    def testProcToJitArgsMultiCall(self):
+    def testProcToJitArgs(self):
         class ProcArgsModule(CompiledModule):
             def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
                 x = self.compute(a, b)

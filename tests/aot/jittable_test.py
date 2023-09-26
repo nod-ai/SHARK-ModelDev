@@ -40,57 +40,6 @@ class JittableTests(unittest.TestCase):
         print(module_str)
         self.assertNotIn("!torch.vtensor", module_str)
 
-    def testCallWithStructure(self):
-        class ProcArgsModule(CompiledModule):
-            def call_with_dicts(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
-                intermediate = self.compute({"a": a, "b": b})
-                return self.compute(intermediate)
-
-            @jittable
-            def compute(struct):
-                a = struct["a"]
-                b = struct["b"]
-                result = a + b
-                return {"a": result, "b": b}
-
-        inst = ProcArgsModule(context=Context(), import_to=None)
-        module_str = str(CompiledModule.get_mlir_module(inst))
-        print(module_str)
-
-    def testCallWithArgsKwargs(self):
-        class ProcArgsModule(CompiledModule):
-            def call_with_kwargs(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
-                intermediate = self.compute(**{"a": a, "b": b})
-                return self.compute(**intermediate)
-
-            @jittable
-            def compute(*, a, b):
-                result = a + b
-                return {"a": result, "b": b}
-
-        inst = ProcArgsModule(context=Context(), import_to=None)
-        module_str = str(CompiledModule.get_mlir_module(inst))
-        print(module_str)
-
-    def testDynamicDims(self):
-        class ProcArgsModule(CompiledModule):
-            def dynamic_dim(self, a=AbstractTensor(None, 2), b=AbstractTensor(None, 1)):
-                return self.compute(
-                    a,
-                    b,
-                    constraints=[
-                        a.dynamic_dim(0) == b.dynamic_dim(0),
-                    ],
-                )
-
-            @jittable
-            def compute(a, b):
-                return a * b
-
-        inst = ProcArgsModule(context=Context(), import_to=None)
-        module_str = str(CompiledModule.get_mlir_module(inst))
-        print(module_str)
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
