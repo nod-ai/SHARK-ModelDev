@@ -27,7 +27,6 @@ from iree.compiler.ir import (
     StringAttr,
     Type as MlirType,
     Value,
-    DenseElementsAttr,
     DenseResourceElementsAttr,
 )
 
