@@ -14,6 +14,10 @@ import sys
 import torch
 from torch._decomp import get_decompositions
 import torch._dynamo as dynamo
+from torch.export import (
+    Constraint,
+    dynamic_dim,
+)
 from torch.fx import (
     Graph,
     GraphModule,
@@ -117,8 +121,9 @@ class jittable(CallableIntrinsic):
     """
 
     __slots__ = [
+        "constraints",
+        "decomposition_table",
         "wrapped_f",
-        "exported_f",
         "function_name",
     ]
 
@@ -130,7 +135,7 @@ class jittable(CallableIntrinsic):
         decomposition_table: Optional[
             Dict[torch._ops.OpOverload, Callable[..., Any]]
         ] = None,
-        constraints=None,
+        constraints: Optional[List[Constraint]] = None,
         function_name: Optional[str] = None,
     ):
         if decomposition_table is None:
@@ -141,34 +146,55 @@ class jittable(CallableIntrinsic):
         if decompose_ops:
             decomposition_table.update(get_decompositions(decompose_ops))
 
+        self.constraints = constraints
+        self.decomposition_table = decomposition_table
         self.wrapped_f = wrapped_f
-        self.exported_f = dynamo.export(
-            wrapped_f,
-            aten_graph=True,
-            decomposition_table=decomposition_table,
-            constraints=constraints,
-            assume_static_by_default=True,
-        )
         self.function_name = function_name if function_name else wrapped_f.__name__
 
     def __repr__(self):
-        return f"<Jittable PyTorch func: {self.exported_f}>"
+        return f"<Jittable PyTorch func: {self.wrapped_f}>"
 
-    def resolve_call(self, proc_trace: IrTrace, *py_args, **py_kwargs):
+    def resolve_call(
+        self,
+        proc_trace: IrTrace,
+        *py_args,
+        constraints: Optional[List[Constraint]] = None,
+        **py_kwargs,
+    ):
         type_converter = proc_trace.module_builder.native_type_converter
-        flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
+        # Accumulate all constraints into a new list.
+        if constraints is None:
+            constraints = []
+        else:
+            constraints = list(constraints)
+        if self.constraints is not None:
+            constraints.extend(self.constraints)
 
         # Convert procedural trace values to things that Dynamo can handle.
+        flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
         flat_pytorch_args = []
         flat_ir_args = []
         for py_arg in flat_py_args:
-            ir_arg, pytorch_arg = self._split_py_arg(py_arg)
+            ir_arg, pytorch_arg = self._split_py_arg(py_arg, constraints=constraints)
             flat_ir_args.append(ir_arg)
             flat_pytorch_args.append(pytorch_arg)
 
         # Ask dynamo to give us an aten graph.
         pytorch_args, pytorch_kwargs = tree_unflatten(flat_pytorch_args, args_tree)
-        gm, guards = self.exported_f(*pytorch_args, **pytorch_kwargs)
+
+        # TODO: Cache this for repeated calls.
+        logger.debug("Performing dynamo.export(constraints=%r)", constraints)
+        exported_f = dynamo.export(
+            self.wrapped_f,
+            aten_graph=True,
+            decomposition_table=self.decomposition_table,
+            constraints=constraints,
+            assume_static_by_default=True,
+        )
+        logger.debug("Invoking dynamo trace")
+        gm, guards = exported_f(*pytorch_args, **pytorch_kwargs)
+        logger.debug("Dyanmo trace complete")
+
         # We capture metadata about the results from the raw graph so that we can
         # pass it along in the trace (since the IREE type system is a partial erasure
         # of the PyTorch type system and we need the fidelity).
@@ -252,9 +278,11 @@ class jittable(CallableIntrinsic):
         tree_py_results = tree_unflatten(flat_py_results, out_spec)
         return tree_py_results
 
-    def _split_py_arg(self, arg) -> Tuple[Value, Any]:
+    def _split_py_arg(self, arg, constraints: List[Constraint]) -> Tuple[Value, Any]:
         if isinstance(arg, IrTensor):
-            return arg.ir_value, arg._to_meta_tensor()
+            meta_tensor, meta_constraints = arg._to_meta_tensor()
+            constraints.extend(meta_constraints)
+            return arg.ir_value, meta_tensor
 
         raise TypeError(f"Unsupported argument to jittable: {arg}")
 
