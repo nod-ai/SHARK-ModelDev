@@ -126,6 +126,7 @@ class IrTensor(Intrinsic):
     ]
 
     def __init__(self, ir_type: IrType, dtype: torch.dtype):
+        assert isinstance(dtype, torch.dtype)
         ranked_ir_type = RankedTensorType(ir_type)
         self.ir_type = ranked_ir_type
         self.dtype = dtype

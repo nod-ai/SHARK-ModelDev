@@ -16,6 +16,7 @@ from torch._decomp import get_decompositions
 import torch._dynamo as dynamo
 from torch.fx import (
     Graph,
+    GraphModule,
 )
 from torch.fx.passes.shape_prop import TensorMetadata
 
@@ -147,8 +148,6 @@ class jittable(CallableIntrinsic):
             decomposition_table=decomposition_table,
             constraints=constraints,
             assume_static_by_default=True,
-            # TODO: Need to do the signature/tree recomposition ourselves.
-            same_signature=False,
         )
         self.function_name = function_name if function_name else wrapped_f.__name__
 
@@ -175,7 +174,7 @@ class jittable(CallableIntrinsic):
         # of the PyTorch type system and we need the fidelity).
         # This could be done by the importer but the API gets twisty so just
         # doing it here since it isn't clear anyone else would ever want this.
-        pytorch_meta_results = _extract_graph_output_metadata(gm.graph)
+        out_spec, result_tensor_infos = _extract_graph_output_metadata(gm)
 
         # Import the FX graph to MLIR in a new module.
         fx_importer = FxImporter(
@@ -238,25 +237,20 @@ class jittable(CallableIntrinsic):
                 target_ftype.results, target_symbol_ref, flat_ir_args
             ).results
 
+        assert len(flat_ir_results) == len(result_tensor_infos)
         flat_py_results = []
-        for ir_result, pytorch_meta in zip(flat_ir_results, pytorch_meta_results):
+        for ir_result, result_tensor_info in zip(flat_ir_results, result_tensor_infos):
+            (dtype,) = result_tensor_info
             native_ir_result = type_converter.materialize_torch_to_native(ir_result)
-            if isinstance(pytorch_meta, TensorMetadata):
-                flat_py_results.append(
-                    IrImmediateTensor(native_ir_result, pytorch_meta.dtype)
-                )
+            if dtype is not None:
+                flat_py_results.append(IrImmediateTensor(native_ir_result, dtype))
             else:
                 raise TypeError(
-                    f"Unknown PyTorch->IREE value mapping for jittable result: {pytorch_meta}->{native_ir_result}"
+                    f"Unknown PyTorch->IREE value mapping for jittable result: {result_tensor_info}->{native_ir_result}"
                 )
 
-        # TODO: Unflatten the right way with the PyTorch captured schema.
-        if len(flat_py_results) == 0:
-            return None
-        elif len(flat_py_results) == 1:
-            return flat_py_results[0]
-        else:
-            return flat_py_results
+        tree_py_results = tree_unflatten(flat_py_results, out_spec)
+        return tree_py_results
 
     def _split_py_arg(self, arg) -> Tuple[Value, Any]:
         if isinstance(arg, IrTensor):
@@ -374,19 +368,42 @@ def _uniqueify_name(local_name: str, st: SymbolTable) -> str:
             return full_name
 
 
-def _extract_graph_output_metadata(g: Graph) -> List[Union[None, TensorMetadata]]:
-    output_metadata = []
-    for node in g.nodes:
+ResultTensorInfo = Optional[Tuple[torch.dtype]]
+
+
+def _extract_graph_output_metadata(
+    gm: GraphModule,
+) -> Tuple[Any, List[ResultTensorInfo]]:
+    # In "preserve signatures" mode, there will only be one output and its arguments
+    # will be the flat list of results that can be unflattened against the _out_spec
+    # on the graph module. There is a bit of archaelogy going on here but the idea
+    # is to extract an output tree spec and a tensor dtype (or None) for each flat
+    # tensor return value. We need this in order to propagate the actual tensor dtype
+    # on the procedural side.
+    output_metadata: List[ResultTensorInfo] = []
+    try:
+        out_spec = gm._out_spec
+    except AttributeError:
+        raise AssertionError(
+            "Expected PyTorch to add an _out_spec attribute to the GraphModule"
+        )
+
+    output_nodes = []
+    for node in gm.graph.nodes:
         if node.op == "output":
-            # An output node's args[0] is the return value. This seems to
-            # always be "boxed" as a tuple, which we emit as multi-results.
-            for result_node in node.args[0]:
-                if result_node is None:
-                    output_metadata.append(None)
-                else:
-                    tensor_meta = result_node.meta.get("tensor_meta")
-                    assert tensor_meta is None or isinstance(
-                        tensor_meta, TensorMetadata
-                    )
-                    output_metadata.append(tensor_meta)
-    return output_metadata
+            output_nodes.append(node)
+
+    assert (
+        len(output_nodes) == 1
+    ), "Expected PyTorch to produce a graph with one output node"
+    for flat_output_list in output_nodes[0].args:
+        for flat_output_node in flat_output_list:
+            tensor_meta = flat_output_node.meta.get("tensor_meta")
+            fake_val = flat_output_node.meta.get("val")
+            dtype = None
+            if tensor_meta is not None:
+                dtype = tensor_meta.dtype
+            elif fake_val is not None:
+                dtype = fake_val.dtype
+            output_metadata.append((dtype,))
+    return out_spec, output_metadata
