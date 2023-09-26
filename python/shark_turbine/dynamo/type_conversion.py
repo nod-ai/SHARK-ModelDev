@@ -74,11 +74,23 @@ class NativeTypeConverter:
                     assert tm, f"Could not parse !torch.vtensor params: {params_str}"
                     dim_list_str, dtype_str = tm.groups()
                     dim_list = parse_tensor_dim_list(dim_list_str)
-                    dtype = IrType.parse(dtype_str)
+                    dtype = self.convert_torch_element_type_to_native(
+                        IrType.parse(dtype_str)
+                    )
                     # TODO: Eliminate RankedTensorType dependence on Location.
                     with Location.unknown():
                         return RankedTensorType.get(dim_list, dtype)
         raise TypeError(f"Unsupported torch type conversion for {torch_type}")
+
+    def convert_torch_element_type_to_native(self, torch_type: IrType) -> IrType:
+        # Torch uses the builtin type hierarchy of IntegerType and FloatType
+        # to represent dtypes. These are mostly the same, but it always uses
+        # signed IntegerTypes which we must convert to signless for the native
+        # type system.
+        if IntegerType.isinstance(torch_type):
+            signed_int_type = IntegerType(torch_type)
+            return IntegerType.get_signless(signed_int_type.width)
+        return torch_type
 
     def materialize_native_to_torch(
         self, native_value: Value, torch_type: IrType

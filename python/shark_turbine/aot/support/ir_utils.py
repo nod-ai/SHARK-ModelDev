@@ -7,6 +7,9 @@
 
 from typing import Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple
 
+from pathlib import Path
+import tempfile
+
 import numpy as np
 import torch
 
@@ -35,6 +38,7 @@ from .ir_imports import (
     IntegerType,
     IrType,
     Location,
+    MLIRError,
     OpResult,
     Operation,
     RankedTensorType,
@@ -50,6 +54,7 @@ from .ir_imports import (
 
 from .utils import (
     RefTracker,
+    logger,
 )
 
 ###############################################################################
@@ -128,8 +133,28 @@ class ModuleBuilder:
         self.global_ref_tracker = RefTracker()
         self.native_type_converter = NativeTypeConverter(self.context)
 
+    def handle_mlir_error(self, op: Operation, e: MLIRError, message: str):
+        # TODO: Replace with a real dumping facility.
+        dump_path = Path(tempfile.gettempdir()) / "turbine_module_builder_error.mlir"
+        logger.exception(f"{message} (dumping to {dump_path})")
+        try:
+            with open(dump_path, "wb") as f:
+                op.print(
+                    f,
+                    binary=True,
+                    print_generic_op_form=True,
+                    large_elements_limit=100,
+                )
+            logger.debug(f"Dump complete to {dump_path}")
+        except Exception:
+            logger.exception("Error generating dump file")
+
     def finalize_construct(self):
-        self.module_op.verify()
+        try:
+            self.module_op.verify()
+        except MLIRError as e:
+            self.handle_mlir_error(self.module_op, e, "module failed to verify")
+            raise
 
     def create_func_op(
         self,
@@ -258,7 +283,13 @@ class FunctionBuilder:
             ftype = self.func_op.type
             ftype = FunctionType.get(ftype.inputs, value_types)
             self.func_op.attributes["function_type"] = TypeAttr.get(ftype)
-            assert self.func_op.verify(), "Created function is invalid"
+            try:
+                self.func_op.verify()
+            except MLIRError as e:
+                self.module_builder.handle_mlir_error(
+                    self.func_op, e, "created function does not verify"
+                )
+                raise
 
 
 ###############################################################################

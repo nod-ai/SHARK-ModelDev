@@ -91,6 +91,23 @@ class JittableTests(unittest.TestCase):
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
 
+    def testIntTensors(self):
+        class ProcArgsModule(CompiledModule):
+            def dynamic_dim(
+                self,
+                a=AbstractTensor(2, 2, dtype=torch.int64),
+                b=AbstractTensor(1, 1, dtype=torch.int64),
+            ):
+                return self.compute(a, b)
+
+            @jittable
+            def compute(a, b):
+                return a * b
+
+        inst = ProcArgsModule(context=Context(), import_to=None)
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
