@@ -4,13 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import List, Optional, Tuple
+from typing import assert_type, List, Optional, Tuple
 
 import functools
 import math
 import threading
 
-import torch.fx
+import torch
+import torch.fx as fx
+from torch import SymInt
 
 _tls = threading.local()
 
@@ -40,12 +42,31 @@ class KernelBuffer:
 
 
 def program_id(axis: int) -> int:
-    context = Context.current()
-    if context.executing_eagerly:
+    context = BaseContext.current()
+    if context.eager:
+        # Eager.
+        assert_type(context, EagerContext)
         assert axis >= 0 and axis < context.rank
         return context.current_thread[axis]
+    else:
+        # Compiled. Note that tracing must be open coded on this
+        # function because it does not take a proxy as an argument
+        # (and therefore, the symbolic tracer exempts it from tracing
+        # according to its heuristic).
+        assert_type(context, CompiledContext)
+        proxy = context.tracer.create_proxy("call_function", program_id, (axis,), {})
+        return proxy
 
-    assert False, "Non eager not yet implemented"
+
+###############################################################################
+# Wrapped tracing trampolines for proxy objects.
+# These only get called during tracing of proxy objects.
+###############################################################################
+
+
+@fx.wrap
+def _kernel_buffer_setitem(kernel_buffer: KernelBuffer, key, item) -> None:
+    ...
 
 
 ###############################################################################
@@ -53,13 +74,14 @@ def program_id(axis: int) -> int:
 ###############################################################################
 
 
-class KernelBufferProxy(torch.fx.Proxy):
+class KernelBufferProxy(fx.Proxy):
     """Custom proxy for KernelBuffer so that we can override special methods."""
 
-    ...
+    def __setitem__(self, key, item):
+        _kernel_buffer_setitem(self, key, item)
 
 
-class KernelTracer(torch.fx.Tracer):
+class KernelTracer(fx.Tracer):
     """Custom Tracer for generating a trace of a kernel.
 
     A "kernel" in this context takes as input KernelBuffer objects
@@ -69,10 +91,15 @@ class KernelTracer(torch.fx.Tracer):
     to handle the limited operations that they support.
     """
 
-    def proxy(self, node: torch.fx.Node) -> torch.fx.Proxy:
+    def proxy(self, node: fx.Node) -> fx.Proxy:
         if node.type == KernelBuffer:
             return KernelBufferProxy(node, self)
         return super().proxy(node)
+
+
+class CapturedTrace:
+    def __init__(self, gm: fx.GraphModule):
+        self.gm = gm
 
 
 ###############################################################################
@@ -83,6 +110,12 @@ class KernelTracer(torch.fx.Tracer):
 def block_kernel(f=None, *, eager: bool = False):
     if f is None:
         return functools.partial(block_kernel, eager=eager)
+
+    # Eagerly capture the trace and attach it to the wrapped function.
+    tracer = KernelTracer()
+    with CompiledContext(tracer) as context:
+        g = tracer.trace(f)
+        gm = fx.GraphModule(tracer.root, g, f.__name__)
 
     @functools.wraps(f)
     def wrapped(*args, grid: Optional[Grid] = None, **kwargs):
@@ -101,8 +134,9 @@ def block_kernel(f=None, *, eager: bool = False):
         if eager:
             _eager_execute_kernel(f, *args, grid=grid, **kwargs)
         else:
-            assert False, "Compiled not yet supported"
+            assert False, "Calling compiled not yet supported"
 
+    wrapped.tk_trace = CapturedTrace(gm)
     return wrapped
 
 
@@ -111,20 +145,18 @@ def block_kernel(f=None, *, eager: bool = False):
 ###############################################################################
 
 
-class Context:
-    def __init__(self, executing_eagerly: bool = False, rank: int = 0):
-        self.rank = rank
-        self.current_thread: List[int] = rank * [0]
-        self.executing_eagerly = executing_eagerly
+class BaseContext:
+    def __init__(self, eager: bool):
+        self.eager = eager
 
     @staticmethod
-    def current() -> "Context":
+    def current() -> "BaseContext":
         try:
             return _tls.context[-1]
         except (AttributeError, IndexError):
-            raise RuntimeError("No eager context is on the stack")
+            raise RuntimeError("No context is on the stack")
 
-    def __enter__(self) -> "Context":
+    def __enter__(self) -> "BaseContext":
         try:
             stack = _tls.context
         except AttributeError:
@@ -137,9 +169,22 @@ class Context:
         _tls.context.pop()
 
 
+class EagerContext(BaseContext):
+    def __init__(self, rank: int = 0):
+        super().__init__(True)
+        self.rank = rank
+        self.current_thread: List[int] = rank * [0]
+
+
+class CompiledContext(BaseContext):
+    def __init__(self, tracer: KernelTracer):
+        super().__init__(False)
+        self.tracer = tracer
+
+
 def _eager_execute_kernel(f, *args, grid: Grid, **kwargs):
     rank = len(grid)
-    with Context(executing_eagerly=True, rank=rank) as context:
+    with EagerContext(rank=rank) as context:
         # Transform args to KernelBuffers.
         buffer_args = [
             arg if isinstance(arg, KernelBuffer) else KernelBuffer(arg) for arg in args

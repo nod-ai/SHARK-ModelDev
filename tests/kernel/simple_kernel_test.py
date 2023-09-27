@@ -14,7 +14,7 @@ import shark_turbine.kernel as tk
 
 
 class Test(unittest.TestCase):
-    def testIota(self):
+    def testIotaEager(self):
         @tk.block_kernel(eager=True)
         def iota_kernel(out: tk.KernelBuffer):
             i = tk.program_id(0)
@@ -24,6 +24,20 @@ class Test(unittest.TestCase):
         out = torch.empty(8, dtype=torch.int32)
         gridded(out)
         print(out)
+
+    def testIotaFx(self):
+        @tk.block_kernel
+        def iota_kernel(out: tk.KernelBuffer):
+            i = tk.program_id(0)
+            out[i] = i
+
+        print(iota_kernel.tk_trace.gm.graph)
+        # Prints:
+        # .graph():
+        #     %out : shark_turbine.kernel.core.KernelBuffer [num_users=1] = placeholder[target=out]
+        #     %program_id : [num_users=1] = call_function[target=shark_turbine.kernel.core.program_id](args = (0,), kwargs = {})
+        #     %_kernel_buffer_setitem : [num_users=0] = call_function[target=shark_turbine.kernel.core._kernel_buffer_setitem](args = (%out, %program_id, %program_id), kwargs = {})
+        #     return None
 
 
 if __name__ == "__main__":
