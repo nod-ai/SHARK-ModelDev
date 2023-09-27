@@ -9,8 +9,6 @@
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-import sys
-
 import torch
 from torch._decomp import get_decompositions
 import torch._dynamo as dynamo
@@ -32,6 +30,10 @@ from ...dynamo.importer import (
 from ...dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
     CPU_DECOMPOSITIONS,
+)
+
+from ..passes import (
+    functorch_functionalize,
 )
 
 from ..support.utils import (
@@ -114,6 +116,10 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
     return resolver
 
 
+ALL_PASSES: Set[str] = set(["functorch_functionalize"])
+DEFAULT_PASSES: Tuple[str, ...] = ("functorch_functionalize",)
+
+
 class jittable(CallableIntrinsic):
     """Decorator which takes a PyTorch function and makes it callable from tracing.
 
@@ -125,6 +131,7 @@ class jittable(CallableIntrinsic):
         "decomposition_table",
         "wrapped_f",
         "function_name",
+        "_passes",
     ]
 
     def __init__(
@@ -137,6 +144,7 @@ class jittable(CallableIntrinsic):
         ] = None,
         constraints: Optional[List[Constraint]] = None,
         function_name: Optional[str] = None,
+        passes: Sequence[str] = DEFAULT_PASSES,
     ):
         if decomposition_table is None:
             decomposition_table = {}
@@ -150,6 +158,10 @@ class jittable(CallableIntrinsic):
         self.decomposition_table = decomposition_table
         self.wrapped_f = wrapped_f
         self.function_name = function_name if function_name else wrapped_f.__name__
+        self._passes = set(passes)
+        for p in passes:
+            if p not in ALL_PASSES:
+                raise ValueError(f"Pass is unknown: {p}")
 
     def __repr__(self):
         return f"<Jittable PyTorch func: {self.wrapped_f}>"
@@ -179,21 +191,38 @@ class jittable(CallableIntrinsic):
             flat_ir_args.append(ir_arg)
             flat_pytorch_args.append(pytorch_arg)
 
-        # Ask dynamo to give us an aten graph.
-        pytorch_args, pytorch_kwargs = tree_unflatten(flat_pytorch_args, args_tree)
+        # We have to do a bit of a contortion to preserve the ability for torch.export
+        # to rewrite output signatures in a way that is useful for us, and some passes
+        # clobber them or don't support structured arguments. So we split the difference
+        # and operate on linearized inputs (which is what we are working to get to and
+        # have already captured the schema above) and structured outputs, only using
+        # output clobbering passes as pre-processors. These kind of jagged
+        # composability constraints kind of suck, but seem to be where we are...
+        def flat_wrapped_f(*args):
+            pytorch_args, pytorch_kwargs = tree_unflatten(args, args_tree)
+            return self.wrapped_f(*pytorch_args, **pytorch_kwargs)
 
+        # Run pre-processing passes.
+        transformed_f = flat_wrapped_f
+        if "functorch_functionalize" in self._passes:
+            transformed_f = functorch_functionalize(transformed_f, *flat_pytorch_args)
+
+        # Ask dynamo to give us an aten graph.
         # TODO: Cache this for repeated calls.
         logger.debug("Performing dynamo.export(constraints=%r)", constraints)
         exported_f = dynamo.export(
-            self.wrapped_f,
+            transformed_f,
             aten_graph=True,
             decomposition_table=self.decomposition_table,
             constraints=constraints,
             assume_static_by_default=True,
         )
         logger.debug("Invoking dynamo trace")
-        gm, guards = exported_f(*pytorch_args, **pytorch_kwargs)
+        gm, guards = exported_f(*flat_pytorch_args)
         logger.debug("Dyanmo trace complete")
+
+        # TODO: Add debug logging for the exported graph module.
+        # gm.print_readable()
 
         # We capture metadata about the results from the raw graph so that we can
         # pass it along in the trace (since the IREE type system is a partial erasure
