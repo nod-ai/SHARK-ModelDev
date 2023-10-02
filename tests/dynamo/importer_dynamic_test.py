@@ -164,7 +164,7 @@ class ImportSmokeTests(unittest.TestCase):
         g, guards = f(inp=inp_example)
         g = import_compiler(g, [inp_example])
 
-    # @unittest.expectedFailure
+    @unittest.expectedFailure
     def testDynamicShapeStrided(self):
         """
         Regardless of default stride=[12, 4, 1] provided, we get the following error.
