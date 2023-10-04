@@ -4,7 +4,7 @@ from torch._decomp import get_decompositions
 from torch.func import functionalize
 from typing import Dict, List
 
-# default decompositions pulled from SHARK
+# default decompositions pulled from SHARK / torch._decomp
 DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.embedding_dense_backward,
     torch.ops.aten.native_layer_norm_backward,
@@ -20,10 +20,6 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.masked_fill.Scalar,
     torch.ops.aten.t,
     torch.ops.aten.addmm,
-]
-
-
-CPU_DECOMPOSITIONS = [
     # decompositions that aid us in handling nn.BatchNorm2d
     torch.ops.aten._native_batch_norm_legit_functional,
     torch.ops.aten._native_batch_norm_legit.no_stats,
@@ -44,7 +40,10 @@ CPU_DECOMPOSITIONS = [
     torch.ops.aten.full,
     torch.ops.aten._log_softmax,
     torch.ops.aten.nll_loss_forward,
+    torch.ops.aten.nll_loss_backward,
     torch.ops.aten._to_copy,
+    torch.ops.aten._log_softmax_backward_data,
+
 ]
 
 
@@ -66,5 +65,5 @@ def apply_decompositions(
 
 
 def turbine_cpu_pass_pipeline(gm: torch.fx.GraphModule, example_inputs):
-    decompose_ops = DEFAULT_DECOMPOSITIONS + CPU_DECOMPOSITIONS
+    decompose_ops = DEFAULT_DECOMPOSITIONS
     return apply_decompositions(gm, example_inputs, decompose_ops)

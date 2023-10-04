@@ -55,3 +55,41 @@ INTERNAL ASSERT FAILED at "../aten/src/ATen/FunctionalizeFallbackKernel.cpp":167
 in particular it seems that the input tensor fails an [assertion](https://github.com/pytorch/pytorch/blob/3a3cf0e09d475df9237c95ebd14debf650e0c038/aten/src/ATen/FunctionalTensorWrapper.cpp#L575) that it is of functional form.
 
 [PyTorch Issue](https://github.com/pytorch/pytorch/issues/107961)
+
+## TorchDynamo failure in training backward due to `aten.scalar_tensor` output not wrapped as a fake tensor
+
+```python
+class LinearModel(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(LinearModel, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        out = self.linear(x)
+        return out
+```
+During the training in backwards,
+`aten.where.self` expects fake inputs, but `aten.scalar_tensor` output is not wrapped as a fake tensor.
+```
+File "/home/brucekimrok/CLionProjects/SHARK-Turbine/tvenv3.11/lib/python3.11/site-packages/torch/_subclasses/fake_tensor.py", line 1632, in validate
+raise Exception(
+Exception: Please convert all Tensors to FakeTensors first or instantiate FakeTensorMode with 'allow_non_fake_inputs'. Found in aten.where.self(FakeTensor(..., size=(64, 1), dtype=torch.bool), FakeTensor(..., size=(64, 1), dtype=torch.int64), tensor(0, size=()))
+```
+https://github.com/pytorch/pytorch/blob/98c8550158a4a79c4d39533a5331c5953f6ea279/torch/_subclasses/fake_tensor.py#L1657-L1669
+
+Relevant issue is raised here: [PyTorch Issue](https://github.com/pytorch/pytorch/issues/92941).
+However, this case is about when DDP optimization + Dynamo + `aten.where` are invoked.
+The [PR](https://github.com/pytorch/pytorch/pull/92986) to address this issue was made in `torch/_dynamo/optimizations/distributed.py`.
+In our case, we do not use DDP optimization. 
+
+## FX emitted as None due to bug in TorchScript in `aten.convolution_backward` 
+
+When schema calls for a Tensor, sometimes None is emitted due to the way TS is maintained.  
+For `convolution_backward` op, TS has a problem of returning None when output_mask=[True, True, False].  
+In eager mode, similar can happen.
+https://github.com/pytorch/pytorch/issues/97524
+
+Vivek [fixed movdedim](https://github.com/llvm/torch-mlir/pull/1773) to allow torch-mlir emitted when output_mask=[True, True, True]  
+So we should find a way to set Output_mask = [True, True, True] to fix this issue.
+
