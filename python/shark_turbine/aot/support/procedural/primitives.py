@@ -90,9 +90,9 @@ class IrScalar(Intrinsic):
 
             # Emit computation.
             if _is_integer_like_type(lhs.type):
-                return arith_d.AddIOp(lhs, rhs).result
+                return IrImmediateScalar(arith_d.AddIOp(lhs, rhs).result)
             elif _is_float_type(lhs.type):
-                return arith_d.AddFOp(lhs, rhs).result
+                return IrImmediateScalar(arith_d.AddFOp(lhs, rhs).result)
             else:
                 raise ValueError(
                     f"Expected operand to be either Int or Float but got {self.ir_type} instead."
