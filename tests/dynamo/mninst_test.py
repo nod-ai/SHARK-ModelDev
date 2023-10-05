@@ -55,6 +55,13 @@ class MNISTDataLoader:
 
 # Simple CNN Model
 class CNN(nn.Module):
+    # TODO: Fix the below error
+    """
+    When the model is CNN,
+    failed to legalize operation 'arith.sitofp' that was explicitly marked illegal
+    convolution_backward is emitted as None due to the way TS is maintained.
+    Output_mask = [True, True, True] should be the kwarg to fix this.
+    """
     def __init__(self):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5)
@@ -70,26 +77,30 @@ class CNN(nn.Module):
         x = self.fc1(x)
         return x
 
+class LinearModel(nn.Module):
+    """
+    During the training in backwards,
+    aten.where.self expects fake inputs, but aten.scalar_tensor output is not wrapped as a fake tensor.
+    Refer to known_issues.md in doc
+    """
+    def __init__(self, input_dim, output_dim):
+        super(LinearModel, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        out = self.linear(x)
+        return out
 
 # Training
-def train(model, images, labels, optimizer, criterion):
+def training_iteration(model, images, labels, optimizer, criterion):
     model.train()
-
-    total_loss = 0.0
-    num_correct = 0.0
-
     optimizer.zero_grad()
-    # images, labels = images.to(device), labels.to(device)
     outputs = model(images)
     loss = criterion(outputs, labels)
-
-    num_correct += int((torch.argmax(outputs, dim=1) == labels).sum())
-    total_loss += float(loss.item())
-
     loss.backward()
     optimizer.step()
-    total_loss += loss.item()
-
+    return loss
 
 # TODO Implement inference func
 """
@@ -114,27 +125,24 @@ def test(model, images, labels, criterion):
 
 
 def main():
-    # Example Hyperparameters
+
     config = {
         "batch_size": 64,
         "learning_rate": 0.001,
-        # 'threshold' : 0.001,
-        # 'factor' : 0.1,
         "num_epochs": 10,
     }
 
-    # Data Loader
     custom_data_loader = MNISTDataLoader(config["batch_size"])
     train_loader = custom_data_loader.get_train_loader()
     # test_loader = MNISTDataLoader.get_test_loader()
 
-    # Model, optimizer, loss
-    model = CNN()
-    optimizer = optim.Adam(model.parameters(), lr=config["learning_rate"])
+    # model = CNN()
+    model = LinearModel(28*28, 10)
+    # optimizer = optim.Adam(model.parameters(), lr=config["learning_rate"])
+    optimizer = optim.SGD(model.parameters(), lr=config["learning_rate"])
     criterion = nn.CrossEntropyLoss()
 
-    # Training
-    train_opt = torch.compile(train, backend="turbine_cpu")
+    train_opt = torch.compile(training_iteration, backend="turbine_cpu")
     for i, (images, labels) in enumerate(train_loader):
         train_opt(model, images, labels, optimizer, criterion)
 
@@ -149,10 +157,6 @@ def main():
 class ModelTests(unittest.TestCase):
     @unittest.expectedFailure
     def testMNIST(self):
-        # TODO: Fix the below error
-        """
-        failed to legalize operation 'arith.sitofp' that was explicitly marked illegal
-        """
         main()
 
 

@@ -29,7 +29,6 @@ from ...dynamo.importer import (
 
 from ...dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
-    CPU_DECOMPOSITIONS,
 )
 
 from ..passes import (
@@ -149,7 +148,7 @@ class jittable(CallableIntrinsic):
         if decomposition_table is None:
             decomposition_table = {}
         if decompose_ops is None:
-            decompose_ops = DEFAULT_DECOMPOSITIONS + CPU_DECOMPOSITIONS
+            decompose_ops = DEFAULT_DECOMPOSITIONS
 
         if decompose_ops:
             decomposition_table.update(get_decompositions(decompose_ops))
