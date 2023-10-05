@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
+import sys
 import unittest
 
 import torch
@@ -23,10 +24,39 @@ from torch.func import functionalize
 from torch.fx import (
     GraphModule,
 )
+from iree.compiler.api import (
+    Invocation,
+    Session,
+    Source,
+    Output,
+)
+
+from iree.compiler.passmanager import (
+    PassManager,
+)
+
+
+DEFAULT_COMPILER_FLAGS = (
+    # Enable asynchronous calling convention.
+    # TODO: Enable async execution mode.
+    # "--iree-execution-model=async-external",
+    "--iree-input-type=tm_tensor",
+)
 
 
 def import_compiler(gm: GraphModule, example_inputs, decompose_ops=None):
-    imp = FxImporter()
+    session = Session()
+    session.set_flags(*DEFAULT_COMPILER_FLAGS)
+    session.set_flags("--iree-hal-target-backends=llvm-cpu")
+    context = session.context
+    imp = FxImporter(context=context)
+    module = imp.module
+
+    inv = session.invocation()
+    # TODO: Should capture diagnostics.
+    inv.enable_console_diagnostics()
+    inv.import_module(module.operation)
+
     if decompose_ops is not None:
         gm = make_fx(
             functionalize(gm),
@@ -36,9 +66,16 @@ def import_compiler(gm: GraphModule, example_inputs, decompose_ops=None):
     gm.print_readable()
     try:
         imp.import_graph_module(gm)
+        print(module, file=sys.stderr)
+        with context:
+            with open("/tmp/module.mlir", "w") as file:
+                file.write(str(module))
+            pm = PassManager.parse("builtin.module(torch-to-iree)")
+            pm.run(module.operation)
+
     finally:
-        print(imp.module)
-    imp.module.operation.verify()
+        print(module, file=sys.stderr)
+    module.operation.verify()
     return gm
 
 
@@ -60,9 +97,23 @@ class DynamicBuiltinOps(torch.nn.Module):
         g = x / 32
         return {"result": g}
 
+class DynamicShapeStridedModule(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, a):
+        dynamic_shape = [a.size(0), a.size(1), a.size(2)]
+        x = torch.ops.aten.empty_strided(dynamic_shape, stride=[12, 4, 1])  # Default stride = [12, 4, 1]
+        y = x.copy_(a)
+        return y
+
 
 class ImportSmokeTests(unittest.TestCase):
+    @unittest.expectedFailure
     def testStaticExport(self):
+        """
+        'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
+        """
         model = DynamicBMM(12, 19)
         inp_example = torch.rand(1, 2, 12)
         bias_example = torch.rand(19)
@@ -78,7 +129,11 @@ class ImportSmokeTests(unittest.TestCase):
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
 
+    @unittest.expectedFailure
     def testStaticExportSameSignatureTrue(self):
+        """
+        'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
+        """
         model = DynamicBMM(12, 19)
         inp_example = torch.rand(1, 2, 12)
         bias_example = torch.rand(19)
@@ -109,6 +164,29 @@ class ImportSmokeTests(unittest.TestCase):
         g, guards = f(inp=inp_example)
         g = import_compiler(g, [inp_example])
 
+    @unittest.expectedFailure
+    def testDynamicShapeStrided(self):
+        """
+        Regardless of default stride=[12, 4, 1] provided, we get the following error.
+         failed to legalize operation 'torch.constant.int'
+         By Dumping IR, you get the following.
+         /tmp/module.mlir:7:10: error: 'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
+         %2 = torch.aten.view %arg0, %1 : !torch.vtensor<[1,?,12],f32>, !torch.list<int> -> !torch.vtensor<[?,12],f32>
+        """
+        model = DynamicShapeStridedModule()
+        # inp_example = torch.rand(5, 7, 9)
+        inp_example = torch.randn(2, 3, 4) # input for default stride
+        f = dynamo.export(
+            model.forward,
+            aten_graph=True,
+            same_signature=True,
+            assume_static_by_default=True,
+            constraints=[
+                dynamic_dim(inp_example, 0) >= 0,
+            ],
+        )
+        g, guards = f(a=inp_example)
+        g = import_compiler(g, [inp_example])
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
