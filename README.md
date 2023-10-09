@@ -2,10 +2,10 @@
 ![image](https://netl.doe.gov/sites/default/files/2020-11/Turbine-8412270026_83cfc8ee8f_c.jpg)
 
 Turbine is the set of development tools that the [SHARK Team](https://github.com/nod-ai/SHARK)
-is transitioning to for deploying all of our models, from the cloud to devices as we
-transition from TorchScript-era 1-off export and compilation to a unified approach
-based on PyTorch 2 and Dynamo. While we use it heavily ourselves, it is intended
-to be a general purpose model compilation and execution tool.
+is building for deploying all of our models for deployment to the cloud and devices. We
+are building it as we transition from our TorchScript-era 1-off export and compilation 
+to a unified approach based on PyTorch 2 and Dynamo. While we use it heavily ourselves, it 
+is intended to be a general purpose model compilation and execution tool.
 
 Turbine provides three primary tools:
 
@@ -17,7 +17,7 @@ Turbine provides three primary tools:
   is available for more native, interactive use within a PyTorch session.
 * *Turbine Kernels*: (coming soon) A union of the [Triton](https://github.com/openai/triton) approach and
   [Pallas](https://jax.readthedocs.io/en/latest/pallas/index.html) but based on
-  native PyTorch constructs and tracing. It is intended to compliment for simple
+  native PyTorch constructs and tracing. It is intended to complement for simple
   cases where direct emission to the underlying, cross platform, vector programming model
   is desirable.
 
