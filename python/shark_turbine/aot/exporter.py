@@ -22,6 +22,7 @@ from iree.compiler.api import (
 from .builtins import *
 from .compiled_module import (
     CompiledModule,
+    CompiledModuleMeta,
     ExportProcDef,
 )
 from .support.ir_imports import (
@@ -36,6 +37,7 @@ from .support.procedural import (
 _is_windows = platform.system() == "Windows"
 
 
+ModuleLike = Union[torch.nn.Module, CompiledModuleMeta]
 SaveableTarget = Union[str, Path, None, Output]
 
 
@@ -151,7 +153,7 @@ def export_proc(f=None, *, signature: Sequence[AbstractTypedef]) -> ExportProcDe
     return ExportProcDef(f.__name__, f, signature=signature)
 
 
-def export(mdl: torch.nn.Module, *example_args: torch.Tensor) -> ExportOutput:
+def export(mdl: ModuleLike, *example_args: torch.Tensor) -> ExportOutput:
     """One shot export of an nn.Module.
 
     This is a very restrictive API vs the lower level `CompiledModule`
@@ -169,14 +171,19 @@ def export(mdl: torch.nn.Module, *example_args: torch.Tensor) -> ExportOutput:
       An ExportOutput object that wraps the compilation and provides
       easy access.
     """
-    signature = [abstractify(t) for t in example_args]
+    if isinstance(mdl, torch.nn.Module):
+        signature = [abstractify(t) for t in example_args]
 
-    class Exported(CompiledModule, export_name=mdl._get_name()):
-        params = export_parameters(mdl)
+        class Exported(CompiledModule, export_name=mdl._get_name()):
+            params = export_parameters(mdl)
 
-        @export_proc(signature=signature)
-        def main(self, *args):
-            return jittable(mdl.forward)(*args)
+            @export_proc(signature=signature)
+            def main(self, *args):
+                return jittable(mdl.forward)(*args)
+
+    else:
+        assert isinstance(mdl, CompiledModuleMeta)
+        Exported = mdl
 
     session = Session()
     # There are some bugs with respect to Session/context interop that we
