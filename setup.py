@@ -32,16 +32,8 @@ def load_version_info():
         return json.load(f)
 
 
-try:
-    version_info = load_version_info()
-except FileNotFoundError:
-    print("version_info.json not found. Using defaults", file=sys.stderr)
-    version_info = {}
-
-PACKAGE_VERSION = version_info.get("package-version")
-if not PACKAGE_VERSION:
-    PACKAGE_VERSION = f"0.9.1dev1"
-
+version_info = load_version_info()
+PACKAGE_VERSION = version_info["package-version"]
 
 packages = find_namespace_packages(
     include=[
@@ -100,7 +92,6 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
     ],
-
     package_dir={
         "": "python",
     },
