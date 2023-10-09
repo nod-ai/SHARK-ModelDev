@@ -36,7 +36,7 @@ please reach out to us on the `#turbine` channel of the
 1. Install from source:
 
 ```
-pip install .[torch-cpu-nightly]
+pip install .
 ```
 
 (or follow the "Developers" instructions below for installing from head/nightly)
