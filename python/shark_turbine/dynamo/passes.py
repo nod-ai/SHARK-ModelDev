@@ -43,7 +43,6 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.nll_loss_backward,
     torch.ops.aten._to_copy,
     torch.ops.aten._log_softmax_backward_data,
-
 ]
 
 

@@ -9,6 +9,7 @@ import torch.nn as nn
 
 import shark_turbine.aot as aot
 
+
 class MLP(nn.Module):
     def __init__(self):
         super().__init__()
@@ -26,7 +27,7 @@ class MLP(nn.Module):
         x = torch.sigmoid(x)
         x = self.layer3(x)
         return x
-    
+
 
 model = MLP()
 example_x = torch.empty(97, 8, dtype=torch.float32)
@@ -38,13 +39,18 @@ compiled_binary = exported.compile(save_to=None)
 def infer():
     import numpy as np
     import iree.runtime as rt
+
     config = rt.Config("local-task")
     print("Loading module")
-    vmm = rt.load_vm_module(rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()), config)
+    vmm = rt.load_vm_module(
+        rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
+        config,
+    )
     print("Loaded.")
-    
+
     x = np.random.rand(97, 8).astype(np.float32)
     y = vmm.main(x)
     print(y.to_host())
+
 
 infer()

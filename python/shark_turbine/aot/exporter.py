@@ -38,9 +38,17 @@ _is_windows = platform.system() == "Windows"
 
 SaveableTarget = Union[str, Path, None, Output]
 
+
 class ExportOutput:
     """Wrapper around a CompiledModule produced by `export`."""
-    def __init__(self, session: Session, compiled_module: CompiledModule, *, importer_uses_session: bool = False):
+
+    def __init__(
+        self,
+        session: Session,
+        compiled_module: CompiledModule,
+        *,
+        importer_uses_session: bool = False,
+    ):
         self.session = session
         self.session.set_flags("--iree-input-type=torch")
         self.compiled_module = compiled_module
@@ -50,14 +58,14 @@ class ExportOutput:
     def mlir_module(self) -> Operation:
         """Gets the MLIR module resulting from the last compilation phase."""
         return CompiledModule.get_mlir_module(self.compiled_module)
-    
+
     def print_readable(self, large_elements_limit: int = 50):
         """Prints a human readable version of the current compilation IR."""
         self.mlir_module.print(large_elements_limit=large_elements_limit)
 
     def save_mlir(self, file_path: Union[str, Path]):
         """Saves the current compilation IR to a path on disk.
-        
+
         Args:
             file_path: Path to save the file. If it has a ".mlirbc"
               extension, it will be saved as bytecode. Otherwise as
@@ -73,9 +81,14 @@ class ExportOutput:
     def _run_import(self):
         CompiledModule.run_import(self.compiled_module)
 
-    def compile(self, save_to: SaveableTarget, *, target_backends: Union[str, Sequence[str]] = ("llvm-cpu",)) -> Optional[memoryview]:
+    def compile(
+        self,
+        save_to: SaveableTarget,
+        *,
+        target_backends: Union[str, Sequence[str]] = ("llvm-cpu",),
+    ) -> Optional[memoryview]:
         """Compiles the exported program to an executable binary.
-        
+
         Args:
             save_to: Where to save the compiled binary. Can be one of:
               None: outputs to a memory buffer and return the API Output.
@@ -99,7 +112,11 @@ class ExportOutput:
             assert isinstance(output, Output)
             output = save_to
 
-        target_backends = target_backends if isinstance(target_backends, str) else ",".join(target_backends)
+        target_backends = (
+            target_backends
+            if isinstance(target_backends, str)
+            else ",".join(target_backends)
+        )
         inv = self.session.invocation()
         if self._importer_uses_session:
             inv.import_module(self.mlir_module)
@@ -125,6 +142,7 @@ class ExportOutput:
         else:
             return None
 
+
 # Decorator which explicitly exports a function.
 # TODO: Make this a public API on CompiledModule.
 def export_proc(f=None, *, signature: Sequence[AbstractTypedef]) -> ExportProcDef:
@@ -135,8 +153,8 @@ def export_proc(f=None, *, signature: Sequence[AbstractTypedef]) -> ExportProcDe
 
 def export(mdl: torch.nn.Module, *example_args: torch.Tensor) -> ExportOutput:
     """One shot export of an nn.Module.
-    
-    This is a very restrictive API vs the lower level `CompiledModule` 
+
+    This is a very restrictive API vs the lower level `CompiledModule`
     facility. It is suitable for one-short modules, with a single
     entrypoint and static example arguments where no additional
     configuration is needed for mutable parameters/buffers or state
@@ -155,6 +173,7 @@ def export(mdl: torch.nn.Module, *example_args: torch.Tensor) -> ExportOutput:
 
     class Exported(CompiledModule, export_name=mdl._get_name()):
         params = export_parameters(mdl)
+
         @export_proc(signature=signature)
         def main(self, *args):
             return jittable(mdl.forward)(*args)
