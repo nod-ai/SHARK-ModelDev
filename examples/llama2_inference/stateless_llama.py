@@ -305,6 +305,7 @@ def export_transformer_model(
             token, *state_update = self.forward(
                 x, *state_arg, constraints=forw_const
             )
+            self.global_seq_step = self.global_seq_step + 1
             res = update_state(
                 self.global_state,
                 state_update,
@@ -312,8 +313,14 @@ def export_transformer_model(
                 HEADS,
                 HIDDEN_DIM,
             )
-            self.global_seq_step = self.global_seq_step + 1
+
             return token
+
+        def get_global_state(self):
+            return self.global_state
+
+        def get_seq_step(self):
+            return self.seq_step
 
         @jittable
         def initialize(input_ids):
