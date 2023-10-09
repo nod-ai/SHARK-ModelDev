@@ -37,9 +37,9 @@ pip install shark-turbine
 
 2. Try one of the sample:
 
-  1. [AOT MNIST](TODO)
-  2. [Eager with `torch.compile`](TODO)
-  3. [AOT llama2](TODO)
+  * [AOT MNIST](TODO)
+  * [Eager with `torch.compile`](TODO)
+  * [AOT llama2](TODO)
 
 ## Developers
 
