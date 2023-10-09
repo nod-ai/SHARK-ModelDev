@@ -36,7 +36,7 @@ please reach out to us on the `#turbine` channel of the
 1. Install from source:
 
 ```
-pip install .[pytorch,iree]
+pip install .[torch-cpu-nightly]
 ```
 
 (or follow the "Developers" instructions below for installing from head/nightly)
@@ -67,7 +67,7 @@ Installing into a venv is highly recommended.
 
 ```
 pip install --upgrade -r requirements.txt
-pip install --upgrade -e .[torch,testing]
+pip install --upgrade -e .[torch-cpu-nightly,testing]
 ```
 
 Run tests:
