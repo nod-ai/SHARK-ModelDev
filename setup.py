@@ -17,6 +17,16 @@ THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 VERSION_INFO_FILE = os.path.join(THIS_DIR, "version_info.json")
 
 
+with open(
+    os.path.join(
+        THIS_DIR,
+        "README.md",
+    ),
+    "rt",
+) as f:
+    README = f.read()
+
+
 def load_version_info():
     with open(VERSION_INFO_FILE, "rt") as f:
         return json.load(f)
@@ -30,7 +40,7 @@ except FileNotFoundError:
 
 PACKAGE_VERSION = version_info.get("package-version")
 if not PACKAGE_VERSION:
-    PACKAGE_VERSION = f"0.dev0"
+    PACKAGE_VERSION = f"0.9.1dev1"
 
 
 packages = find_namespace_packages(
@@ -78,6 +88,19 @@ class BuildCommand(distutils.command.build.build):
 setup(
     name=f"shark-turbine",
     version=f"{PACKAGE_VERSION}",
+    author="SHARK Authors",
+    author_email="stella@nod.ai",
+    description="SHARK Turbine Machine Learning Deployment Tools",
+    long_description=README,
+    long_description_content_type="text/markdown",
+    url="https://github.com/nod-ai/SHARK-Turbine",
+    license="Apache-2.0",
+    classifiers=[
+        "Development Status :: 3 - Alpha",
+        "License :: OSI Approved :: Apache Software License",
+        "Programming Language :: Python :: 3",
+    ],
+
     package_dir={
         "": "python",
     },
@@ -91,9 +114,11 @@ setup(
         "numpy",
         f"iree-compiler{get_version_spec('iree-compiler')}",
         f"iree-runtime{get_version_spec('iree-runtime')}",
+        # Use the [torch-cpu-nightly] spec to get a more recent/specific version.
+        "torch>=2.1.0",
     ],
     extras_require={
-        "torch": [f"torch{get_version_spec('torch')}"],
+        "torch-cpu-nightly": [f"torch{get_version_spec('torch')}"],
         "testing": [
             "pytest",
             "pytest-xdist",
