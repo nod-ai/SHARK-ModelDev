@@ -25,12 +25,18 @@ Under the covers, Turbine is based heavily on [IREE](https://github.com/openxla/
 [torch-mlir](https://github.com/llvm/torch-mlir) and we use it to drive evolution
 of both, upstreaming infrastructure as it becomes timely to do so.
 
+## Contact Us
+
+Turbine is under active development. If you would like to participate as it comes online,
+please reach out to us on the `#turbine` channel of the 
+[nod-ai Discord server](https://discord.gg/QMmR6f8rGb).
+
 ## Quick Start for Users
 
-1. Install from PyPi for the latest stable version:
+1. Install from source:
 
 ```
-pip install shark-turbine
+pip install .[pytorch,iree]
 ```
 
 (or follow the "Developers" instructions below for installing from head/nightly)
