@@ -28,7 +28,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade -r requirements.txt
-          pip install --upgrade -e .[torch-cpu-nightly,testing]
+          pip install -e \
+            -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html \
+            .[torch-cpu-nightly,testing]
 
       - name: Run tests
         run: |
