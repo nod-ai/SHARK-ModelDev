@@ -41,13 +41,10 @@ def infer():
     import iree.runtime as rt
 
     config = rt.Config("local-task")
-    print("Loading module")
     vmm = rt.load_vm_module(
         rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
         config,
     )
-    print("Loaded.")
-
     x = np.random.rand(97, 8).astype(np.float32)
     y = vmm.main(x)
     print(y.to_host())
