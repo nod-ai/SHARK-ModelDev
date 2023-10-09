@@ -155,7 +155,7 @@ def export(mdl: torch.nn.Module, *example_args: torch.Tensor) -> ExportOutput:
     """One shot export of an nn.Module.
 
     This is a very restrictive API vs the lower level `CompiledModule`
-    facility. It is suitable for one-short modules, with a single
+    facility. It is suitable for one-shot modules, with a single
     entrypoint and static example arguments where no additional
     configuration is needed for mutable parameters/buffers or state
     management. Dynamic shape constraints are also not presently
