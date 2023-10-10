@@ -1,2 +1,4 @@
+protobuf
+sentencepiece
 shark_turbine
 transformers
