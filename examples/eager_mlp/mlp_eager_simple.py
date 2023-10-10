@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-torch._dynamo.config.dynamic_shapes = False
+torch._dynamo.config.dynamic_shapes = False # TODO: https://github.com/nod-ai/SHARK-Turbine/issues/93
 
 
 class MNISTDataLoader:
