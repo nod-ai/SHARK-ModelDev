@@ -13,6 +13,8 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
+torch._dynamo.config.dynamic_shapes = False
+
 
 class MNISTDataLoader:
     def __init__(self, batch_size, shuffle=True):
@@ -82,7 +84,7 @@ def infer():
 
 
 class ModelTests(unittest.TestCase):
-    def testMNIST(self):
+    def testMNISTEagerSimple(self):
         infer()
 
 

@@ -88,7 +88,7 @@ def infer():
 
 
 class ModelTests(unittest.TestCase):
-    def testMNIST(self):
+    def testMNISTEagerSimple(self):
         infer()
 
 
