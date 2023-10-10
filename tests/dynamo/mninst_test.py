@@ -64,7 +64,7 @@ class MLP(nn.Module):
         return x
 
 
-def test_iteration(model, images):
+def infer_iteration(model, images):
     outputs = model(images)
     return outputs
 
@@ -80,9 +80,8 @@ def infer():
     custom_data_loader = MNISTDataLoader(config["batch_size"])
     test_loader = custom_data_loader.get_test_loader()
 
-    # model = LinearModel(28 * 28, 10)
     model = MLP()
-    test_opt = torch.compile(test_iteration, backend="turbine_cpu")
+    test_opt = torch.compile(infer_iteration, backend="turbine_cpu")
 
     for i, (images, labels) in enumerate(test_loader):
         test_opt(model, images)
