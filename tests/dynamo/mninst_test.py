@@ -55,6 +55,24 @@ class LinearModel(nn.Module):
         out = self.linear(x)
         return out
 
+class MLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer0 = nn.Linear(28, 28, bias=True)
+        self.layer1 = nn.Linear(28, 14, bias=True)
+        self.layer2 = nn.Linear(14, 7, bias=True)
+        self.layer3 = nn.Linear(7, 7, bias=True)
+
+    def forward(self, x: torch.Tensor):
+        x = self.layer0(x)
+        x = torch.sigmoid(x)
+        x = self.layer1(x)
+        x = torch.sigmoid(x)
+        x = self.layer2(x)
+        x = torch.sigmoid(x)
+        x = self.layer3(x)
+        return x
+
 
 def test_iteration(model, images):
     outputs = model(images)
@@ -72,7 +90,8 @@ def infer():
     custom_data_loader = MNISTDataLoader(config["batch_size"])
     test_loader = custom_data_loader.get_test_loader()
 
-    model = LinearModel(28 * 28, 10)
+    # model = LinearModel(28 * 28, 10)
+    model = MLP()
     test_opt = torch.compile(test_iteration, backend="turbine_cpu")
 
     for i, (images, labels) in enumerate(test_loader):
