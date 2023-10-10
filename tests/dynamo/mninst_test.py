@@ -45,16 +45,6 @@ class MNISTDataLoader:
         )
 
 
-class LinearModel(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(LinearModel, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
-
-    def forward(self, x):
-        x = x.view(x.size(0), -1)
-        out = self.linear(x)
-        return out
-
 class MLP(nn.Module):
     def __init__(self):
         super().__init__()
