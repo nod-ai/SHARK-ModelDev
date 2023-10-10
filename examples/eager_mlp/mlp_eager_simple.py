@@ -13,9 +13,6 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-
-import torch._dynamo.config
-
 torch._dynamo.config.dynamic_shapes = False # TODO: https://github.com/nod-ai/SHARK-Turbine/issues/93
 
 
@@ -23,11 +20,9 @@ class MNISTDataLoader:
     def __init__(self, batch_size, shuffle=True):
         self.batch_size = batch_size
         self.shuffle = shuffle
-
         transform = transforms.Compose(
             [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
         )
-
         self.mnist_trainset = datasets.MNIST(
             root="../data", train=True, download=True, transform=transform
         )
@@ -82,10 +77,8 @@ def infer():
 
     custom_data_loader = MNISTDataLoader(config["batch_size"])
     test_loader = custom_data_loader.get_test_loader()
-
     model = MLP()
     test_opt = torch.compile(infer_iteration, backend="turbine_cpu")
-
     for i, (images, labels) in enumerate(test_loader):
         test_opt(model, images)
 

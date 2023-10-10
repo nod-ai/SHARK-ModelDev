@@ -4,6 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import logging
+import unittest
 import torch
 import torch.nn as nn
 
@@ -50,4 +52,11 @@ def infer():
     print(y.to_host())
 
 
-infer()
+class ModelTest(unittest.TestCase):
+    def testMLPExportSimple(selfs):
+        infer()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    unittest.main()
