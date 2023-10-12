@@ -40,8 +40,12 @@ class ArgsTest(unittest.TestCase):
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn("util.global private @_params.classifier.weight", module_str)
-        self.assertIn("util.global private @_params.classifier.bias", module_str)
+        self.assertIn(
+            "util.global private @_params.classifier.weight", module_str
+        )
+        self.assertIn(
+            "util.global private @_params.classifier.bias", module_str
+        )
 
     def testGlobalLoadFromPyTree(self):
         m = SimpleParams()
@@ -64,7 +68,8 @@ class ArgsTest(unittest.TestCase):
             module_str,
         )
         self.assertIn(
-            "return %_params.classifier.weight, %_params.classifier.bias", module_str
+            "return %_params.classifier.weight, %_params.classifier.bias",
+            module_str,
         )
 
     def testGlobalLoadFromPyLeaf(self):
@@ -99,8 +104,12 @@ class ArgsTest(unittest.TestCase):
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn("util.global.store %arg0, @_params.classifier.weight", module_str)
-        self.assertIn("util.global.store %arg1, @_params.classifier.bias", module_str)
+        self.assertIn(
+            "util.global.store %arg0, @_params.classifier.weight", module_str
+        )
+        self.assertIn(
+            "util.global.store %arg1, @_params.classifier.bias", module_str
+        )
 
     def testGlobalStoreFromLeaf(self):
         m = SimpleParams()
@@ -108,13 +117,17 @@ class ArgsTest(unittest.TestCase):
         class GlobalModule(CompiledModule):
             params = export_parameters(m, initialize=False, mutable=True)
 
-            def update_bias(self, new_bias=abstractify(params["classifier.bias"])):
+            def update_bias(
+                self, new_bias=abstractify(params["classifier.bias"])
+            ):
                 self.params["classifier.bias"] = new_bias
 
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn("util.global.store %arg0, @_params.classifier.bias", module_str)
+        self.assertIn(
+            "util.global.store %arg0, @_params.classifier.bias", module_str
+        )
 
     def testExportSingleGlobalTensor(self):
         state_example = torch.randn(3, 11)
@@ -129,7 +142,9 @@ class ArgsTest(unittest.TestCase):
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn("util.global private @_state0.global", module_str)
-        self.assertIn("%_state0.global = util.global.load @_state0.global", module_str)
+        self.assertIn(
+            "%_state0.global = util.global.load @_state0.global", module_str
+        )
         self.assertIn("return %_state0.global", module_str)
 
     def testExportTreeGlobalTensors(self):
@@ -155,10 +170,18 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("util.global private @_state0.seq.1", module_str)
         self.assertIn("util.global private @_state0.seq.2", module_str)
         self.assertIn("util.global private @_state0.data", module_str)
-        self.assertIn("%_state0.data = util.global.load @_state0.data", module_str)
-        self.assertIn("%_state0.seq.0 = util.global.load @_state0.seq.0", module_str)
-        self.assertIn("%_state0.seq.1 = util.global.load @_state0.seq.1", module_str)
-        self.assertIn("%_state0.seq.2 = util.global.load @_state0.seq.2", module_str)
+        self.assertIn(
+            "%_state0.data = util.global.load @_state0.data", module_str
+        )
+        self.assertIn(
+            "%_state0.seq.0 = util.global.load @_state0.seq.0", module_str
+        )
+        self.assertIn(
+            "%_state0.seq.1 = util.global.load @_state0.seq.1", module_str
+        )
+        self.assertIn(
+            "%_state0.seq.2 = util.global.load @_state0.seq.2", module_str
+        )
         self.assertIn(
             "return %_state0.data, %_state0.seq.0, %_state0.seq.1, %_state0.seq.2",
             module_str,
@@ -175,7 +198,9 @@ class ArgsTest(unittest.TestCase):
         }
 
         class SingleState(CompiledModule):
-            state0 = export_global_tree(state_example, mutable=True, initialize=False)
+            state0 = export_global_tree(
+                state_example, mutable=True, initialize=False
+            )
 
             def read_state(self, updates=abstractify(state_example)):
                 self.state0 = updates
@@ -196,17 +221,41 @@ class ArgsTest(unittest.TestCase):
         state_example = torch.randn(5, 20)
         update_example = torch.randn(1, 20)
 
-        class SingleState(CompiledModule):
-            state0 = export_global(state_example, mutable=True, initialize=False)
+        class UpdateState(CompiledModule):
+            state0 = export_global(
+                state_example, mutable=True, initialize=False
+            )
 
             def tensor_update_state(self, update=abstractify(update_example)):
                 return IREE.tensor_update(self.state0, update, 0, 0)
 
-        inst = SingleState(context=Context())
+        inst = UpdateState(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
             "flow.tensor.update %arg0, %_state0.global[%c0, %c0] : tensor<1x20xf32> -> %_state0.global as tensor<5x20xf32>",
+            module_str,
+        )
+
+    def testTensorUpdateGlobalReturnNone(self):
+        state_example = torch.randn(5, 20, 4)
+        update_example = torch.randn(1, 1, 4)
+
+        class UpdateState(CompiledModule):
+            state0 = export_global(
+                state_example, mutable=True, initialize=False
+            )
+
+            def tensor_update_state(self, update=abstractify(update_example)):
+                thing = []
+                self.state0 = IREE.tensor_update(self.state0, update, 4, 0, 0)
+                return None
+
+        inst = UpdateState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "flow.tensor.update %arg0, %_state0.global[%c4, %c0, %c0] : tensor<1x1x4xf32> -> %_state0.global as tensor<5x20x4xf32>",
             module_str,
         )
 
