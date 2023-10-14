@@ -78,9 +78,10 @@ def infer():
     custom_data_loader = MNISTDataLoader(config["batch_size"])
     test_loader = custom_data_loader.get_test_loader()
     model = MLP()
-    test_opt = torch.compile(infer_iteration, backend="turbine_cpu")
+    test_opt = torch.compile(infer_iteration, backend="turbine_rocm")
     for i, (images, labels) in enumerate(test_loader):
-        test_opt(model, images)
+        outputs = test_opt(model, images)
+        print(f"Iter {i}: {outputs}")
 
 
 class ModelTests(unittest.TestCase):

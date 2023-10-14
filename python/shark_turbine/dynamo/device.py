@@ -9,6 +9,7 @@ from typing import List, Optional, Sequence, Union
 from threading import local, Lock
 
 from iree.runtime import (
+    _binding,
     asdevicearray,
     create_hal_module,
     HalBufferView,
@@ -38,6 +39,9 @@ def get_vm_instance() -> VmInstance:
     if not _GLOBAL_VM_INSTANCE:
         with _CONFIG_LOCK:
             if not _GLOBAL_VM_INSTANCE:
+                # Using Dynamo in eager mode creates global garbage that is not
+                # freed before we unload extensions. Disable leak spew.
+                _binding.disable_leak_checker()
                 _GLOBAL_VM_INSTANCE = VmInstance()
     return _GLOBAL_VM_INSTANCE
 
