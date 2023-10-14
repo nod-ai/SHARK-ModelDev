@@ -39,7 +39,7 @@ class MNISTDataLoader:
 
     def get_test_loader(self):
         return DataLoader(
-            dataset=self.mnist_testset, batch_size=self.batch_size, shuffle=False
+            dataset=self.mnist_testset, batch_size=self.batch_size, shuffle=False, drop_last=True,
         )
 
 
@@ -70,7 +70,7 @@ def infer_iteration(model, images):
 def infer():
     # Example Parameters
     config = {
-        "batch_size": 100,
+        "batch_size": 64,
         "learning_rate": 0.001,
         "num_epochs": 10,
     }
