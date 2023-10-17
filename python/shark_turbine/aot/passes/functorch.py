@@ -43,6 +43,7 @@ from torch.utils import _pytree as pytree
 def functorch_functionalize(gm: GraphModule, *args) -> GraphModule:
     functionalized_callable = _functionalize_callabale(gm)
     # TODO: There is more of a dance needed if the user has entered with a fake_mode.
+    # import pdb; pdb.set_trace()
     with proxy_tensor.maybe_disable_fake_tensor_mode():
         new_gm = proxy_tensor.make_fx(
             functionalized_callable,

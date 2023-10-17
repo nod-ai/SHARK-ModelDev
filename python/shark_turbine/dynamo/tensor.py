@@ -12,14 +12,22 @@ zoo: https://github.com/albanD/subclass_zoo/blob/main/new_device.py
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import functools
+import sys
+import atexit
 from array import array
 import numpy as np
 
 import torch
+import torch._dynamo as dynamo
 from torch.overrides import TorchFunctionMode
 
 from .device import (
     Device,
+    DeviceState,
+)
+from .executor import (
+    EagerSpecializedExecutable,
 )
 
 from ..support import (
@@ -33,6 +41,20 @@ from iree.runtime import (
     HalCommandBuffer,
     HalElementType,
     HalFence,
+    VmModule,
+)
+
+from iree.compiler.api import Session, Output
+from iree.compiler.passmanager import PassManager
+
+from .importer import FxImporter
+from .passes import turbine_cpu_pass_pipeline
+
+DEFAULT_COMPILER_FLAGS = (
+    # Enable asynchronous calling convention.
+    # TODO: Enable async execution mode.
+    # "--iree-execution-model=async-external",
+    "--iree-input-type=tm_tensor",
 )
 
 
@@ -49,15 +71,18 @@ class TurbineMode(TorchFunctionMode):
     """
 
     IMPLEMENTATIONS = {}
+    COMPUTE_METHODS = set()
+    CACHED_IMPLEMENTATIONS = {}
 
-    def __torch_function__(self, func, types, args=(), kwargs=None):
+    def __torch_function__(self, func, types, args=(), kwargs={}):
         def super_fn(*args, **kwargs):
             # Disable torch_function by hand because we don't want the wrapping behavior of
             # the super() impl
             with torch._C.DisableTorchFunction():
                 return func(*args, **kwargs)
-
         if func in self.IMPLEMENTATIONS:
+            if func in self.COMPUTE_METHODS:
+                args += (func,)
             return self.IMPLEMENTATIONS[func](super_fn, *args, **kwargs or {})
 
         # This is just a no-op for all the non-factory functions:
@@ -67,7 +92,12 @@ class TurbineMode(TorchFunctionMode):
 def enable():
     """Enables PyTorch tensor device= support for Turbine permanently."""
     TurbineMode().__enter__()
+    Device("local-task").set()
+    atexit.register(disable)
 
+def disable():
+    Device.current().clear()
+    TurbineMode().__exit__(None, None, None)
 
 # Convenient wrapper to register functions
 def raw_factory(func):
@@ -75,6 +105,17 @@ def raw_factory(func):
 
     def _inner_fn(impl):
         TurbineMode.IMPLEMENTATIONS[func] = impl
+        return impl
+
+    return _inner_fn
+
+# Convenient wrapper to register functions
+def compute_factory(func):
+    """Decorator to register an unconditional factory function."""
+
+    def _inner_fn(impl):
+        TurbineMode.IMPLEMENTATIONS[func] = impl
+        TurbineMode.COMPUTE_METHODS.add(func)
         return impl
 
     return _inner_fn
@@ -178,6 +219,16 @@ class Storage:
 class DeviceTensor(torch.Tensor):
     """A Tensor accessing memory on a Turbine device."""
 
+    def __torch_dispatch__(cls, func, types, args=(), kwargs={}):
+        # Now, we check the function to determine how to handle it. If it's
+        # aten.add, then we call aten.sub. Otherwise, we pass through to
+        # the original function
+        args += (func,)
+        return compute_method(func, *args, **kwargs)
+
+    def _to_meta_tensor(self):
+        return torch.empty(self.shape, dtype=self.dtype)
+
     @staticmethod
     def __new__(cls, size, dtype, raw_data=None, requires_grad=False):
         # Using a meta tensor as the wrapped gives us shape and dtype
@@ -197,6 +248,15 @@ class DeviceTensor(torch.Tensor):
                 raise NotImplementedError(
                     f"raw_data= not implemented for DeviceTensor ({raw_data.__class__})"
                 )
+    @staticmethod
+    def from_torch(input_tensor : torch.Tensor):
+        if isinstance(input_tensor, torch.Tensor):
+            dev_tensor = DeviceTensor._async_create_empty(input_tensor.size(), Device("local-task"), input_tensor.dtype)
+            dev_tensor._async_copy_from_host(input_tensor.numpy())
+            return dev_tensor
+        else:
+            if input_tensor is not None:
+                raise ValueError("Expected input to be of type torch.Tensor.")
 
     @property
     def buffer_view(self) -> HalBufferView:
@@ -210,6 +270,10 @@ class DeviceTensor(torch.Tensor):
 
     def cpu(self):
         return self.to("cpu")
+
+    @property
+    def device(self):
+        return "turbine"
 
     def __repr__(self):
         hal_device = self._storage.device.hal_device
@@ -289,7 +353,7 @@ def _calculate_c_contig_size(size: Sequence[int], dtype: torch.dtype) -> int:
 # And some factory functions
 # By hand
 @raw_factory(torch.Tensor.to)
-def to(super_fn, self, device):
+def to(super_fn, self, device, dtype=None, non_blocking=None):
     # Note that we only implement a subset of .to() here
     turbine_device = _parse_device(device)
     if turbine_device:
@@ -315,6 +379,17 @@ def to(super_fn, self, device):
     else:
         return super_fn(self, device)
 
+@raw_factory(torch._C._nn._parse_to)
+def _parse_to(super_fn, *args, **kwargs):
+    if "turbine" in args:
+      #TODO: Parse through args and kwargs for correct params.
+      device = "turbine"
+      dtype = None
+      non_blocking = False
+      convert_to_format = None
+      return device, dtype, non_blocking, convert_to_format
+    else:
+        return super_fn(self, device)
 
 @device_factory(torch.empty)
 def _empty(*size, device: Device, dtype=torch.float32):
@@ -370,6 +445,99 @@ def _rand(*args, dtype=None):
     if dtype:
         t = t.to(dtype)
     return t
+
+
+@functools.lru_cache(maxsize=None)
+def _get_device_state() -> DeviceState:
+    return DeviceState(driver="local-task")
+
+# Inspiration from https://github.com/nod-ai/SHARK-Turbine/blob/8293de5414889c72ff5cd10bf33c43fb0a3ea3ee/python/shark_turbine/aot/builtins/jittable.py#L212-L237
+# and https://github.com/nod-ai/SHARK-Turbine/blob/main/python/shark_turbine/dynamo/backends/cpu.py
+# TODO: Try to generalize for other devices.
+@compute_factory(torch.add)
+@compute_factory(torch.sub)
+@compute_factory(torch.mul)
+@compute_factory(torch.abs)
+def compute_method(super_fn, *args, **kwargs):
+    # Compute factory fns reserve the last arg as src_op
+    # Requires src_op rather than super_fn, because super_fn
+    # is often wrapped by DisableTorchFunction.
+    py_args = args[:-1]
+    src_op = args[-1]
+
+    # Check if turbine and if all devices are the same.
+    py_args =[DeviceTensor.from_torch(torch.tensor(py_arg)) if isinstance(py_arg, (int, float)) else py_arg for py_arg in py_args]
+    devices = {tensor.device for tensor in py_args}
+    if "turbine" not in devices:
+        super_fn(*py_args, **kwargs)
+    if len(devices) > 1:
+        raise ValueError("Turbine do not support mixed device!")
+    # Get a unique encoding to identify computation/dispatch using opCode, input shapes, and dtypes.
+    compute_id_encode = str(src_op) + "".join([str(py_arg.shape) + str(py_arg.dtype) for py_arg in py_args])
+    compute_hash = hash(compute_id_encode)
+    if compute_hash in TurbineMode.CACHED_IMPLEMENTATIONS:
+        # TODO: Handle multiple output.
+        return DeviceTensor.from_torch(TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash](*py_args, **kwargs)[0])
+
+    # Preprocess func and generate into FX.
+    flat_pytorch_args = [py_arg._to_meta_tensor() for py_arg in py_args]
+    # TODO: Replace all the below with torch.compile, although currently seems like
+    #       the problem lies in it will try to generate DeviceTensor, but it would be missing
+    #       _storage and causes error.
+    def func_src_op(*args, **kwargs):
+        return src_op(*args, **kwargs)
+    exported_f = dynamo.export(
+        func_src_op,
+        aten_graph=True,
+        decomposition_table={},
+        constraints={},
+        assume_static_by_default=True,
+    )
+    gm, guards = exported_f(*flat_pytorch_args)
+
+    # Setup mlir compilation pipeline.
+    session = Session()
+    session.set_flags(*DEFAULT_COMPILER_FLAGS)
+    session.set_flags("--iree-hal-target-backends=llvm-cpu")
+    context = session.context
+
+    # Generate MLIR from FX.
+    importer = FxImporter(context=context)
+    module = importer.module
+    inv = session.invocation()
+    # TODO: Should capture diagnostics.
+    inv.enable_console_diagnostics()
+    inv.import_module(module.operation)
+    importer.import_graph_module(gm)
+    with context:
+        pm = PassManager.parse("builtin.module(torch-to-iree)")
+        pm.run(module.operation)
+
+    # Compile MLIR to vmfb.
+    inv.execute()
+    output = Output.open_membuffer()
+    inv.output_vm_bytecode(output)
+
+    # Map VMFB to buffer.
+    device_state = _get_device_state()
+    vmfb_module = VmModule.copy_buffer(
+        device_state.instance,
+        output.map_memory(),
+    )
+    output.close()
+
+    # Load and execute VMFB file.
+    exec = EagerSpecializedExecutable(vmfb_module, device_state)
+    res_host = exec(*py_args)
+
+    TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash] = exec
+
+    # Rewrap torch tensor into DeviceTensor and return.
+    # TODO: Handle multiple output.
+    # TODO: Refactor to not need to create new buffers every time once https://github.com/openxla/iree/pull/14997 lands.
+    dev_res = DeviceTensor._async_create_empty(res_host[0].size(), Device("local-task"), res_host[0].dtype)
+    dev_res._async_copy_from_host(res_host[0].numpy())
+    return dev_res
 
 
 ###############################################################################

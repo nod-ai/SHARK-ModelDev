@@ -79,6 +79,54 @@ class TensorTest(unittest.TestCase):
         t1 = torch.rand(4, device="turbine", dtype=torch.float32)
         print(t1.cpu())
 
+    def test_binary_op(self):
+        t1 = 5.3 * torch.ones(2, 3).to(device="turbine")
+        t2 = 2.3 * torch.ones(2, 3).to(device="turbine")
+        t3 = t1 * t2
+        np.testing.assert_allclose(t3.cpu(), [[12.19, 12.19, 12.19], [12.19, 12.19, 12.19]])
+
+    def test_unary_op(self):
+        t1 = -5.3 * torch.ones(2, 3).to(device="turbine")
+        t2 = torch.abs(t1)
+        np.testing.assert_allclose(t2.cpu(), [[5.3, 5.3, 5.3], [5.3, 5.3, 5.3]])
+
+    def test_nn_linear(self):
+        m = torch.nn.Linear(20, 30)
+        input = torch.randn(128, 20)
+        ref_output = m(input)
+        m.to("turbine")
+        input = input.to("turbine")
+        turbine_output = m(input)
+        np.testing.assert_allclose(turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6)
+
+    def test_nn_MLP(self):
+        class MLP(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layer0 = torch.nn.Linear(64, 32, bias=True)
+                self.layer1 = torch.nn.Linear(32, 16, bias=True)
+                self.layer2 = torch.nn.Linear(16, 7, bias=True)
+                self.layer3 = torch.nn.Linear(7, 7, bias=True)
+
+            def forward(self, x: torch.Tensor):
+                x = self.layer0(x)
+                x = torch.sigmoid(x)
+                x = self.layer1(x)
+                x = torch.sigmoid(x)
+                x = self.layer2(x)
+                x = torch.sigmoid(x)
+                x = self.layer3(x)
+                return x
+
+        m = MLP()
+        input = torch.randn(16, 64)
+        ref_output = m(input)
+        m.to("turbine")
+        input = input.to("turbine")
+        turbine_output = m(input)
+        import pdb; pdb.set_trace()
+        np.testing.assert_allclose(turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
