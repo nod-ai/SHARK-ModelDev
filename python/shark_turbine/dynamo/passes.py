@@ -22,7 +22,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.addmm,
     # decompositions that aid us in handling nn.BatchNorm2d
     torch.ops.aten._native_batch_norm_legit_functional,
-    torch.ops.aten._native_batch_norm_legit_no_train,
+    torch.ops.aten._native_batch_norm_legit_no_training,
     torch.ops.aten._native_batch_norm_legit,
     torch.ops.aten._native_batch_norm_legit.no_stats,
     torch.ops.aten.squeeze.dims,
