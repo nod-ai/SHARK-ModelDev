@@ -22,6 +22,8 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.addmm,
     # decompositions that aid us in handling nn.BatchNorm2d
     torch.ops.aten._native_batch_norm_legit_functional,
+    torch.ops.aten._native_batch_norm_legit_no_train,
+    torch.ops.aten._native_batch_norm_legit,
     torch.ops.aten._native_batch_norm_legit.no_stats,
     torch.ops.aten.squeeze.dims,
     # decompositions for miscellaneous ops that are not handled in torch-mlir but have available decompositions
@@ -43,6 +45,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.nll_loss_backward,
     torch.ops.aten._to_copy,
     torch.ops.aten._log_softmax_backward_data,
+    torch.ops.aten.lift_fresh_copy.default,
 ]
 
 
