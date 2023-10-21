@@ -47,6 +47,57 @@ CPU_DECOMPOSITIONS = [
     torch.ops.aten._to_copy,
 ]
 
+def gptq_transform(fx_g):
+    for node in fx_g.graph.nodes:
+        if node.op == "call_function":
+            print(dir(torch.ops.constant))
+           # if node.kwargs.get("device") == torch.device(device="cuda:0"):
+            if node.target in [torch.ops.prims.device_put.default, torch.ops.prims.device_put]:
+                print("before changing graph")            
+                fx_g.print_readable()
+                prev_node = node.all_input_nodes[0]
+                prev_node_kwargs = prev_node.kwargs.copy()
+                print("kwargs = ", prev_node_kwargs)
+                print(dir(prev_node))
+                print("setting prev_node: ", prev_node.name)
+                prev_node.next.prepend(node.next)
+                print("prev_node next: ", prev_node.next)
+                i = 0
+                for n in node.next.all_input_nodes:
+                    if n == node:
+                        print("node next: ", node.next.name)
+                        print("setting node next input: ", node.next.all_input_nodes[i].name)
+                        node.next.all_input_nodes[i].prepend(prev_node)
+                    i += 1
+                print("after changing graph")
+                fx_g.print_readable()
+                fx_g.graph.erase_node(node)
+                '''
+                print("node: ", dir(node))
+                print("node inputs: ", node.all_input_nodes)
+                print("node next: ", node.next)
+                #print("node target: ", node._pretty_print_target())#target.name)#dir(node.target))
+                print("graph: ", dir(fx_g.graph))
+                tracer = torch.fx.proxy.GraphAppendingTracer(node.graph)
+                fx_g.print_readable()
+                with node.graph.inserting_before(node):
+                    proxy_args = torch.fx.node.map_arg(node.args, lambda x: torch.fx.Proxy(x, tracer))
+                    proxy_kwargs = torch.fx.node.map_arg(node.kwargs, lambda x: torch.fx.Proxy(x, tracer))
+                    output_proxy = node.target(*proxy_args, **proxy_kwargs)
+                    print("creating node: ", output_proxy.node)
+                    node.replace_all_uses_with(output_proxy.node)
+                    print("erasing node: ", node.name)
+                    fx_g.graph.erase_node(node)
+                print("after removeal")
+                fx_g.recompile()
+                fx_g.print_readable()
+                '''
+            elif node.kwargs.get("device") == torch.device(device="cuda:0"):
+                updated_kwargs = node.kwargs.copy()
+                updated_kwargs["device"] = torch.device(device="cpu")
+                node.kwargs = updated_kwargs
+    fx_g.graph.eliminate_dead_code()
+    fx_g.recompile()
 
 def apply_decompositions(
     gm: torch.fx.GraphModule,
@@ -57,10 +108,18 @@ def apply_decompositions(
         return gm
 
     decompositions = get_decompositions(decompose_ops)
+    print("before make_fx gm:\n", gm)
     gm = make_fx(
         functionalize(gm),
         decomposition_table=decompositions,
     )(*example_inputs)
+#    print("after make_fx")
+#    gm.half()
+#    print("after half")
+    gptq_transform(gm)
+    print("after make_fx gm:\n", gm)
+#    gm.graph.lint()
+#    gm.recompile()
 
     return gm
 
