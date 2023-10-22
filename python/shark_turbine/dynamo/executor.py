@@ -6,11 +6,12 @@
 
 import functools
 from typing import List, Optional, Sequence, Union
-
+from collections import namedtuple
 from iree.runtime import (
     asdevicearray,
     create_hal_module,
     HalBufferView,
+    HalElementType,
     DeviceArray,
     get_driver,
     VmContext,
@@ -21,6 +22,7 @@ from iree.runtime import (
     VmVariantList,
 )
 
+import torch
 from torch import (
     from_numpy as torch_from_numpy,
 )
@@ -32,6 +34,19 @@ from .device import DeviceState
 def get_vm_instance() -> VmInstance:
     return VmInstance()
 
+import numpy as np
+
+NUMPY_STR_TO_TORCH_DTYPE = {
+    np.dtypes.UInt8DType : torch.uint8,
+    np.dtypes.Int8DType : torch.int8,
+    np.dtypes.Int16DType : torch.int16,
+    np.dtypes.Int32DType : torch.int32,
+    np.dtypes.Int64DType : torch.int64,
+    np.dtypes.Float16DType : torch.float16,
+    np.dtypes.Float32DType : torch.float32,
+    np.dtypes.Float64DType : torch.float64,
+    np.dtypes.BoolDType : torch.bool,
+}
 
 class SpecializedExecutable:
     """A concrete executable that has been specialized in some way."""
@@ -101,6 +116,7 @@ class SpecializedExecutable:
         return user_returns
 
 
+EagerExecResult = namedtuple('EagerExecResult', ['buffer', 'size', 'dtype'])
 
 class EagerSpecializedExecutable:
     """A concrete executable that has been specialized in some way."""
@@ -159,8 +175,9 @@ class EagerSpecializedExecutable:
         user_returns = [None] * num_returns
         for i in range(num_returns):
             device_buffer_view = HalBufferView.__iree_vm_cast__(ret_list.get_as_ref(i))
-            device_array = DeviceArray(device, device_buffer_view)
-            host_array = device_array.to_host()
-            user_returns[i] = torch_from_numpy(host_array)
-
+            npy_dtype = HalElementType.map_to_dtype(device_buffer_view.element_type)
+            size = torch.Size(device_buffer_view.shape)
+            dtype = NUMPY_STR_TO_TORCH_DTYPE[type(npy_dtype)]
+            device_buffer = device_buffer_view.get_buffer()
+            user_returns[i] = EagerExecResult(device_buffer, size, dtype)
         return user_returns

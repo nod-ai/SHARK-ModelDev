@@ -273,7 +273,7 @@ class DeviceTensor(torch.Tensor):
 
     @property
     def device(self):
-        return "turbine"
+        return self._storage.device
 
     def __repr__(self):
         hal_device = self._storage.device.hal_device
@@ -301,6 +301,14 @@ class DeviceTensor(torch.Tensor):
         buffer = hal_device.queue_alloca(alloc_size, wait_semaphores, signal_semaphores)
         storage = Storage(device, buffer)
         storage.ready_fence.insert(*alloca_complete_semaphore)
+        return DeviceTensor(size, dtype, raw_data=storage)
+
+    @staticmethod
+    def _from_buffer(
+        buffer: HalBuffer, size: Sequence[int], dtype: torch.dtype, device: Device
+    ) -> "DeviceTensor":
+        """Creates an uninitialized tensor with a given size and dtype."""
+        storage = Storage(device, buffer)
         return DeviceTensor(size, dtype, raw_data=storage)
 
     def _async_fill_py_value(self, value):
@@ -465,19 +473,32 @@ def compute_method(super_fn, *args, **kwargs):
     py_args = args[:-1]
     src_op = args[-1]
 
-    # Check if turbine and if all devices are the same.
-    py_args =[DeviceTensor.from_torch(torch.tensor(py_arg)) if isinstance(py_arg, (int, float)) else py_arg for py_arg in py_args]
-    devices = {tensor.device for tensor in py_args}
-    if "turbine" not in devices:
+    any_turbine_tensor = False
+    devices_set = set()
+    arg_shape_dtype_encode = []
+    for arg_idx, py_arg in enumerate(py_args):
+        if isinstance(py_arg, DeviceTensor):
+            any_turbine_tensor = True
+        if isinstance(py_arg, (int, float)):
+            py_arg[arg_idx] = DeviceTensor.from_torch(torch.tensor(py_arg))
+        devices_set.add(py_args[arg_idx].device)
+        arg_shape_dtype_encode.append(str(py_arg.shape) + str(py_arg.dtype))
+
+    # Check if turbine device exist. If doesn't run regular fn.
+    if not any_turbine_tensor:
         super_fn(*py_args, **kwargs)
-    if len(devices) > 1:
+
+    # Do not support interop between Turbine and other devices.
+    if len(devices_set) > 1:
         raise ValueError("Turbine do not support mixed device!")
+    cur_device = py_args[0].device
     # Get a unique encoding to identify computation/dispatch using opCode, input shapes, and dtypes.
-    compute_id_encode = str(src_op) + "".join([str(py_arg.shape) + str(py_arg.dtype) for py_arg in py_args])
+    compute_id_encode = src_op.name() + "".join(arg_shape_dtype_encode)
     compute_hash = hash(compute_id_encode)
     if compute_hash in TurbineMode.CACHED_IMPLEMENTATIONS:
         # TODO: Handle multiple output.
-        return DeviceTensor.from_torch(TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash](*py_args, **kwargs)[0])
+        exec_res = TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash](*py_args, **kwargs)[0]
+        return DeviceTensor._from_buffer(exec_res.buffer, exec_res.size, exec_res.dtype, cur_device)
 
     # Preprocess func and generate into FX.
     flat_pytorch_args = [py_arg._to_meta_tensor() for py_arg in py_args]
@@ -528,15 +549,13 @@ def compute_method(super_fn, *args, **kwargs):
 
     # Load and execute VMFB file.
     exec = EagerSpecializedExecutable(vmfb_module, device_state)
-    res_host = exec(*py_args)
+    exec_res = exec(*py_args)[0]
 
     TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash] = exec
 
     # Rewrap torch tensor into DeviceTensor and return.
     # TODO: Handle multiple output.
-    # TODO: Refactor to not need to create new buffers every time once https://github.com/openxla/iree/pull/14997 lands.
-    dev_res = DeviceTensor._async_create_empty(res_host[0].size(), Device("local-task"), res_host[0].dtype)
-    dev_res._async_copy_from_host(res_host[0].numpy())
+    dev_res = DeviceTensor._from_buffer(exec_res.buffer, exec_res.size, exec_res.dtype, cur_device)
     return dev_res
 
 

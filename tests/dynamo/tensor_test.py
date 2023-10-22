@@ -124,7 +124,6 @@ class TensorTest(unittest.TestCase):
         m.to("turbine")
         input = input.to("turbine")
         turbine_output = m(input)
-        import pdb; pdb.set_trace()
         np.testing.assert_allclose(turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6)
 
 
