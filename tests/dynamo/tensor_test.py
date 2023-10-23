@@ -83,7 +83,9 @@ class TensorTest(unittest.TestCase):
         t1 = 5.3 * torch.ones(2, 3).to(device="turbine")
         t2 = 2.3 * torch.ones(2, 3).to(device="turbine")
         t3 = t1 * t2
-        np.testing.assert_allclose(t3.cpu(), [[12.19, 12.19, 12.19], [12.19, 12.19, 12.19]])
+        np.testing.assert_allclose(
+            t3.cpu(), [[12.19, 12.19, 12.19], [12.19, 12.19, 12.19]]
+        )
 
     def test_unary_op(self):
         t1 = -5.3 * torch.ones(2, 3).to(device="turbine")
@@ -97,7 +99,9 @@ class TensorTest(unittest.TestCase):
         m.to("turbine")
         input = input.to("turbine")
         turbine_output = m(input)
-        np.testing.assert_allclose(turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6)
+        np.testing.assert_allclose(
+            turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6
+        )
 
     def test_nn_MLP(self):
         class MLP(torch.nn.Module):
@@ -124,7 +128,9 @@ class TensorTest(unittest.TestCase):
         m.to("turbine")
         input = input.to("turbine")
         turbine_output = m(input)
-        np.testing.assert_allclose(turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6)
+        np.testing.assert_allclose(
+            turbine_output.cpu(), ref_output.detach().numpy(), atol=1e-6
+        )
 
 
 if __name__ == "__main__":

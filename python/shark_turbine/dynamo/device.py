@@ -7,7 +7,6 @@
 from functools import lru_cache
 from typing import List, Optional, Sequence, Union
 from threading import local, Lock
-import torch
 
 from iree.runtime import (
     asdevicearray,

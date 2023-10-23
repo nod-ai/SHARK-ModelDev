@@ -13,10 +13,10 @@ zoo: https://github.com/albanD/subclass_zoo/blob/main/new_device.py
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import functools
-import sys
 import atexit
 from array import array
 import numpy as np
+from types import BuiltinFunctionType
 
 import torch
 import torch._dynamo as dynamo
@@ -26,9 +26,7 @@ from .device import (
     Device,
     DeviceState,
 )
-from .executor import (
-    EagerSpecializedExecutable,
-)
+from .executor import EagerSpecializedExecutable
 
 from ..support import (
     ApiSequencingError,
@@ -48,15 +46,12 @@ from iree.compiler.api import Session, Output
 from iree.compiler.passmanager import PassManager
 
 from .importer import FxImporter
-from .passes import turbine_cpu_pass_pipeline
 
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
-    # TODO: Enable async execution mode.
-    # "--iree-execution-model=async-external",
+    "--iree-execution-model=async-external",
     "--iree-input-type=tm_tensor",
 )
-
 
 ###############################################################################
 # Factories and device enablement
@@ -80,6 +75,7 @@ class TurbineMode(TorchFunctionMode):
             # the super() impl
             with torch._C.DisableTorchFunction():
                 return func(*args, **kwargs)
+
         if func in self.IMPLEMENTATIONS:
             if func in self.COMPUTE_METHODS:
                 args += (func,)
@@ -95,9 +91,11 @@ def enable():
     Device("local-task").set()
     atexit.register(disable)
 
+
 def disable():
     Device.current().clear()
     TurbineMode().__exit__(None, None, None)
+
 
 # Convenient wrapper to register functions
 def raw_factory(func):
@@ -108,6 +106,7 @@ def raw_factory(func):
         return impl
 
     return _inner_fn
+
 
 # Convenient wrapper to register functions
 def compute_factory(func):
@@ -219,6 +218,7 @@ class Storage:
 class DeviceTensor(torch.Tensor):
     """A Tensor accessing memory on a Turbine device."""
 
+    @classmethod
     def __torch_dispatch__(cls, func, types, args=(), kwargs={}):
         # Now, we check the function to determine how to handle it. If it's
         # aten.add, then we call aten.sub. Otherwise, we pass through to
@@ -248,10 +248,13 @@ class DeviceTensor(torch.Tensor):
                 raise NotImplementedError(
                     f"raw_data= not implemented for DeviceTensor ({raw_data.__class__})"
                 )
+
     @staticmethod
-    def from_torch(input_tensor : torch.Tensor):
+    def from_torch(input_tensor: torch.Tensor):
         if isinstance(input_tensor, torch.Tensor):
-            dev_tensor = DeviceTensor._async_create_empty(input_tensor.size(), Device("local-task"), input_tensor.dtype)
+            dev_tensor = DeviceTensor._async_create_empty(
+                input_tensor.size(), Device("local-task"), input_tensor.dtype
+            )
             dev_tensor._async_copy_from_host(input_tensor.numpy())
             return dev_tensor
         else:
@@ -305,10 +308,16 @@ class DeviceTensor(torch.Tensor):
 
     @staticmethod
     def _from_buffer(
-        buffer: HalBuffer, size: Sequence[int], dtype: torch.dtype, device: Device
+        buffer: HalBuffer,
+        size: Sequence[int],
+        dtype: torch.dtype,
+        device: Device,
+        signal: HalFence,
     ) -> "DeviceTensor":
         """Creates an uninitialized tensor with a given size and dtype."""
         storage = Storage(device, buffer)
+        if signal is not None:
+            storage.ready_fence = signal
         return DeviceTensor(size, dtype, raw_data=storage)
 
     def _async_fill_py_value(self, value):
@@ -387,17 +396,19 @@ def to(super_fn, self, device, dtype=None, non_blocking=None):
     else:
         return super_fn(self, device)
 
+
 @raw_factory(torch._C._nn._parse_to)
 def _parse_to(super_fn, *args, **kwargs):
     if "turbine" in args:
-      #TODO: Parse through args and kwargs for correct params.
-      device = "turbine"
-      dtype = None
-      non_blocking = False
-      convert_to_format = None
-      return device, dtype, non_blocking, convert_to_format
+        # TODO: Parse through args and kwargs for correct params.
+        device = "turbine"
+        dtype = None
+        non_blocking = False
+        convert_to_format = None
+        return device, dtype, non_blocking, convert_to_format
     else:
         return super_fn(self, device)
+
 
 @device_factory(torch.empty)
 def _empty(*size, device: Device, dtype=torch.float32):
@@ -459,6 +470,7 @@ def _rand(*args, dtype=None):
 def _get_device_state() -> DeviceState:
     return DeviceState(driver="local-task")
 
+
 # Inspiration from https://github.com/nod-ai/SHARK-Turbine/blob/8293de5414889c72ff5cd10bf33c43fb0a3ea3ee/python/shark_turbine/aot/builtins/jittable.py#L212-L237
 # and https://github.com/nod-ai/SHARK-Turbine/blob/main/python/shark_turbine/dynamo/backends/cpu.py
 # TODO: Try to generalize for other devices.
@@ -470,19 +482,22 @@ def compute_method(super_fn, *args, **kwargs):
     # Compute factory fns reserve the last arg as src_op
     # Requires src_op rather than super_fn, because super_fn
     # is often wrapped by DisableTorchFunction.
-    py_args = args[:-1]
+    init_py_args = args[:-1]
     src_op = args[-1]
 
     any_turbine_tensor = False
     devices_set = set()
     arg_shape_dtype_encode = []
-    for arg_idx, py_arg in enumerate(py_args):
+    py_args = []
+    for arg_idx, py_arg in enumerate(init_py_args):
+        ret_val = py_arg
         if isinstance(py_arg, DeviceTensor):
             any_turbine_tensor = True
         if isinstance(py_arg, (int, float)):
-            py_arg[arg_idx] = DeviceTensor.from_torch(torch.tensor(py_arg))
-        devices_set.add(py_args[arg_idx].device)
-        arg_shape_dtype_encode.append(str(py_arg.shape) + str(py_arg.dtype))
+            ret_val = DeviceTensor.from_torch(torch.tensor(py_arg))
+        devices_set.add(ret_val.device)
+        arg_shape_dtype_encode.append(str(ret_val.shape) + str(ret_val.dtype))
+        py_args.append(ret_val)
 
     # Check if turbine device exist. If doesn't run regular fn.
     if not any_turbine_tensor:
@@ -493,20 +508,33 @@ def compute_method(super_fn, *args, **kwargs):
         raise ValueError("Turbine do not support mixed device!")
     cur_device = py_args[0].device
     # Get a unique encoding to identify computation/dispatch using opCode, input shapes, and dtypes.
-    compute_id_encode = src_op.name() + "".join(arg_shape_dtype_encode)
+    if isinstance(src_op, torch._ops.OpOverload):
+        src_op_name = src_op.name()
+    elif isinstance(src_op, BuiltinFunctionType):
+        src_op_name = src_op.__name__
+    else:
+        raise ValueError("Expected srcOp to be torchOp or builtinFn.")
+    compute_id_encode = src_op_name + "".join(arg_shape_dtype_encode)
     compute_hash = hash(compute_id_encode)
     if compute_hash in TurbineMode.CACHED_IMPLEMENTATIONS:
         # TODO: Handle multiple output.
-        exec_res = TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash](*py_args, **kwargs)[0]
-        return DeviceTensor._from_buffer(exec_res.buffer, exec_res.size, exec_res.dtype, cur_device)
+        exec_res = TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash](*py_args, **kwargs)[
+            0
+        ]
+        res_buf = DeviceTensor._from_buffer(
+            exec_res.buffer, exec_res.size, exec_res.dtype, cur_device, exec_res.signal
+        )
+        return res_buf
 
     # Preprocess func and generate into FX.
     flat_pytorch_args = [py_arg._to_meta_tensor() for py_arg in py_args]
+
     # TODO: Replace all the below with torch.compile, although currently seems like
     #       the problem lies in it will try to generate DeviceTensor, but it would be missing
     #       _storage and causes error.
     def func_src_op(*args, **kwargs):
         return src_op(*args, **kwargs)
+
     exported_f = dynamo.export(
         func_src_op,
         aten_graph=True,
@@ -549,13 +577,18 @@ def compute_method(super_fn, *args, **kwargs):
 
     # Load and execute VMFB file.
     exec = EagerSpecializedExecutable(vmfb_module, device_state)
-    exec_res = exec(*py_args)[0]
+    exec_results = exec(*py_args)
+    if len(exec_results) != 1:
+        raise ValueError("Currently only support one output for now.")
+    exec_res = exec_results[0]
 
     TurbineMode.CACHED_IMPLEMENTATIONS[compute_hash] = exec
 
     # Rewrap torch tensor into DeviceTensor and return.
     # TODO: Handle multiple output.
-    dev_res = DeviceTensor._from_buffer(exec_res.buffer, exec_res.size, exec_res.dtype, cur_device)
+    dev_res = DeviceTensor._from_buffer(
+        exec_res.buffer, exec_res.size, exec_res.dtype, cur_device, exec_res.signal
+    )
     return dev_res
 
 

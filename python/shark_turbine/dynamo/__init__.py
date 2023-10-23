@@ -8,7 +8,6 @@
 from .device import Device
 from .tensor import (
     enable,
-    disable,
     TurbineMode,
     DeviceTensor,
 )
