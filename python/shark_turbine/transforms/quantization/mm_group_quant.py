@@ -68,17 +68,18 @@ class TransposedMMMatcher(NamedOpMatcher):
 
 GROUP_MATMUL_TEMPLATE = r"""
 module {{
-  util.global private @{param_name}.quant {{noinline}} : tensor<{k}x{n_div2}xi8>
+  util.global private @{param_name}.quant {{noinline}} : tensor<{k}x{n_div}xi8>
   util.global private @{param_name}.quant.scale {{noinline}} : tensor<{k}x{group0}x{element_type}>
   util.global private @{param_name}.quant.zero_point {{noinline}} : tensor<{k}x{group0}x{element_type}>
 
-  func.func private @{function_name}(
-        %a : tensor<{m}x{n}x{element_type}>,
-        %m : index, %n : index, %k : index) -> tensor<{m}x{k}x{element_type}> {{
-    %weight_raw = util.global.load @{param_name}.quant : tensor<{k}x{n_div2}xi8>
+  func.func private @{function_name}(%a : tensor<{m}x{n}x{element_type}>) -> tensor<{m}x{k}x{element_type}> {{
+    %c0 = arith.constant 0 : index        
+    %weight_raw = util.global.load @{param_name}.quant : tensor<{k}x{n_div}xi8>
+    %m = tensor.dim %a, %c0 : tensor<{m}x{n}x{element_type}>
+    %k = tensor.dim %weight_raw, %c0 : tensor<{k}x{n_div}xi8>
     %scale = util.global.load @{param_name}.quant.scale : tensor<{k}x{group0}x{element_type}>
     %zp = util.global.load @{param_name}.quant.zero_point : tensor<{k}x{group0}x{element_type}>
-    %weight = flow.tensor.bitcast %weight_raw : tensor<{k}x{n_div2}xi8> -> tensor<{k}x{n}x{lowp_type}>
+    %weight = flow.tensor.bitcast %weight_raw : tensor<{k}x{n_div}xi8> -> tensor<{k}x{n}x{lowp_type}>
     %a_exp = tensor.expand_shape %a [[0], [1, 2]] : tensor<{m}x{n}x{element_type}> into tensor<{m}x{group0}x{group1}x{element_type}>
     %weight_exp = tensor.expand_shape %weight [[0], [1, 2]] : tensor<{k}x{n}x{lowp_type}> into tensor<{k}x{group0}x{group1}x{lowp_type}>
     %empty_0 = tensor.empty() : tensor<{k}x{group0}x{group1}x{element_type}>
@@ -99,7 +100,8 @@ module {{
         linalg.yield %19 : {element_type}
     }} -> tensor<{k}x{group0}x{group1}x{element_type}>
     %cst = arith.constant 0.000000e+00 : {element_type}
-    %empty_1 = tensor.empty({m_k_index_operands}) : tensor<{m}x{k}x{element_type}>
+    %empty_1_dyn = tensor.empty(%m, %k) : tensor<?x?x{element_type}>
+    %empty_1 = tensor.cast %empty_1_dyn : tensor<?x?x{element_type}> to tensor<{m}x{k}x{element_type}>
     %zero_init = linalg.fill ins(%cst : {element_type}) outs(%empty_1 : tensor<{m}x{k}x{element_type}>) -> tensor<{m}x{k}x{element_type}>
     %result = linalg.generic {{
         indexing_maps = [
@@ -133,9 +135,6 @@ class MMGroupQuantRewriter(Pass):
 
     def rewrite(self, mr: TransposedMMResult):
         none_to_q = lambda x: "?" if x is None else x
-        dyn_dims = lambda *args: ", ".join(
-            [operand for operand, dim in args if dim is not None]
-        )
         function_name = f"compute__{mr.param_name}"
         inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
             function_name=function_name,
@@ -144,8 +143,7 @@ class MMGroupQuantRewriter(Pass):
             m=none_to_q(mr.m),
             n=none_to_q(mr.n),
             k=none_to_q(mr.k),
-            n_div2=mr.n // 2,
-            m_k_index_operands=dyn_dims(("%m", mr.m), ("%k", mr.k)),
+            n_div=mr.n // 2,
             group0=32,
             group1=128,
             element_type=mr.element_type,
