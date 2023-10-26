@@ -23,6 +23,19 @@ from iree.compiler.ir import (
     Value,
 )
 
+from . import builder
+
+__all__ = [
+    "GlobalLoadMatcher",
+    "GlobalsDict",
+    "NamedOpMatcher",
+    "OpMatchResult",
+    "Pass",
+    "Transpose2DMatcher",
+    "match_children",
+    "pass_main",
+]
+
 ###############################################################################
 # Matching
 ###############################################################################
@@ -227,6 +240,7 @@ class Pass:
 
     def __init__(self, root_op: Operation):
         self.root_op = root_op
+        self.builder = builder.Builder(root_op.context)
 
     def run(self):
         raise NotImplementedError
@@ -241,7 +255,7 @@ class Pass:
         return {r.sym_name: r for r in results}
 
 
-def main(pass_class: Type[Pass], *, argv=None):
+def pass_main(pass_class: Type[Pass], *, argv=None):
     """Simple main entry-point which reads a file, runs a callback and outputs."""
     parser = argparse.ArgumentParser(description="Rewrite driver")
     parser.add_argument("input_file", help="File to process")
