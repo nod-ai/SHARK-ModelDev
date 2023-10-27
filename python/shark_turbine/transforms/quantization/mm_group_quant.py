@@ -158,9 +158,7 @@ class MMGroupQuantRewriterPass(Pass):
             results = self.builder.call_native(
                 actual_callee_name, [mr.op.result.type], mr.op.operands[0]
             )
-            for old, new in zip(mr.op.results, results):
-                old.replace_all_uses_with(new)
-        self.erase_torch_op(mr.op)
+            self.replace_op(mr.op, *results)
 
 
 if __name__ == "__main__":

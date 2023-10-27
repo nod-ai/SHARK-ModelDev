@@ -281,7 +281,16 @@ class Pass:
             pm = PassManager.parse("builtin.module(canonicalize, symbol-dce)")
             pm.run(self.root_op)
 
-    def erase_torch_op(self, op: Operation):
+    def replace_op(self, old_op: Operation, *new_results: Value):
+        old_results = old_op.results
+        assert len(old_results) == len(
+            new_results
+        ), "Can only replace_op with the same arity"
+        for old_result, new_result in zip(old_results, new_results):
+            old_result.replace_all_uses_with(new_result)
+        self.erase_unused_op(old_op)
+
+    def erase_unused_op(self, op: Operation):
         """Recursively erases any unused torch ops, starting with op.
 
         Torch ops generally are not erased automatically, but as part of
