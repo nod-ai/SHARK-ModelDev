@@ -32,8 +32,6 @@ from torch import (
 
 from .device import Device, DeviceState
 
-turbine_exec_model = os.getenv("TURBINE_EXEC_MODEL", "default")
-
 
 @functools.lru_cache(maxsize=None)
 def get_vm_instance() -> VmInstance:
@@ -131,7 +129,7 @@ class EagerExecResult:
     buffer: HalBuffer
     size: int
     dtype: torch.dtype
-    signal: HalFence = None
+    signal: Optional[HalFence] = None
 
 
 def _element_type_to_dtype(element_type) -> torch.dtype:

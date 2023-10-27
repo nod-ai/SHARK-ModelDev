@@ -50,7 +50,7 @@ from .importer import FxImporter
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
     "--iree-execution-model=async-external",
-    "--iree-input-type=tm_tensor",
+    "--iree-input-type=torch",
 )
 
 ###############################################################################
@@ -66,10 +66,10 @@ class TurbineMode(TorchFunctionMode):
     """
 
     IMPLEMENTATIONS = {}
-    COMPUTE_METHODS = set()
     CACHED_IMPLEMENTATIONS = {}
+    COMPUTE_METHODS = set((torch.add, torch.sub, torch.mul, torch.abs))
 
-    def __torch_function__(self, func, types, args=(), kwargs={}):
+    def __torch_function__(self, func, types, args=(), kwargs=None):
         def super_fn(*args, **kwargs):
             # Disable torch_function by hand because we don't want the wrapping behavior of
             # the super() impl
@@ -474,10 +474,6 @@ def _get_device_state() -> DeviceState:
 # Inspiration from https://github.com/nod-ai/SHARK-Turbine/blob/8293de5414889c72ff5cd10bf33c43fb0a3ea3ee/python/shark_turbine/aot/builtins/jittable.py#L212-L237
 # and https://github.com/nod-ai/SHARK-Turbine/blob/main/python/shark_turbine/dynamo/backends/cpu.py
 # TODO: Try to generalize for other devices.
-@compute_factory(torch.add)
-@compute_factory(torch.sub)
-@compute_factory(torch.mul)
-@compute_factory(torch.abs)
 def compute_method(super_fn, *args, **kwargs):
     # Compute factory fns reserve the last arg as src_op
     # Requires src_op rather than super_fn, because super_fn
@@ -558,9 +554,6 @@ def compute_method(super_fn, *args, **kwargs):
     inv.enable_console_diagnostics()
     inv.import_module(module.operation)
     importer.import_graph_module(gm)
-    with context:
-        pm = PassManager.parse("builtin.module(torch-to-iree)")
-        pm.run(module.operation)
 
     # Compile MLIR to vmfb.
     inv.execute()
@@ -569,11 +562,11 @@ def compute_method(super_fn, *args, **kwargs):
 
     # Map VMFB to buffer.
     device_state = _get_device_state()
-    vmfb_module = VmModule.copy_buffer(
+    vmfb_module = VmModule.wrap_buffer(
         device_state.instance,
         output.map_memory(),
+        destroy_callback=output.close,
     )
-    output.close()
 
     # Load and execute VMFB file.
     exec = EagerSpecializedExecutable(vmfb_module, device_state)
