@@ -28,6 +28,8 @@ class Int4Quant(unittest.TestCase):
             Path(__file__).resolve().parent / "mm_f32_to_int4.mlir"
         ).read_text()
 
+    # Requires IREE bump.
+    @unittest.expectedFailure
     def testBasic(self):
         with Context() as context:
             module_op = Operation.parse(self.MM_F32_TO_INT4_CONTENTS)
