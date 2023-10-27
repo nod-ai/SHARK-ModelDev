@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Dict, List, Optional, Union, Type, cast
+from typing import Dict, List, Optional, Set, Union, Type, cast
 
 import argparse
 import sys
@@ -23,9 +23,15 @@ from iree.compiler.ir import (
     Value,
 )
 
-from . import builder
+from iree.compiler.passmanager import (
+    PassManager,
+)
+
+from .builder import Builder
+from .merger import Merger
 
 __all__ = [
+    "Builder",
     "GlobalLoadMatcher",
     "GlobalsDict",
     "NamedOpMatcher",
@@ -240,7 +246,7 @@ class Pass:
 
     def __init__(self, root_op: Operation):
         self.root_op = root_op
-        self.builder = builder.Builder(root_op.context)
+        self.builder = Builder(root_op.context)
 
     def run(self):
         raise NotImplementedError
@@ -253,6 +259,48 @@ class Pass:
     def globals(self) -> GlobalsDict:
         results = match_children(self.root_op, GlobalOpMatcher())
         return {r.sym_name: r for r in results}
+
+    def merge_module(self, source_module: Operation) -> Merger:
+        """Merges the given source module into the root.
+
+        See documentation for the Merger for more information.
+        """
+        merger = Merger(source_module, self.root_op)
+        merger.merge()
+        return merger
+
+    def inline(self):
+        """Runs the inliner."""
+        with self.root_op.context:
+            pm = PassManager.parse("builtin.module(inline)")
+            pm.run(self.root_op)
+
+    def cleanup(self):
+        """Runs module cleanup passes."""
+        with self.root_op.context:
+            pm = PassManager.parse("builtin.module(canonicalize, symbol-dce)")
+            pm.run(self.root_op)
+
+    def erase_torch_op(self, op: Operation):
+        """Recursively erases any unused torch ops, starting with op.
+
+        Torch ops generally are not erased automatically, but as part of
+        pattern matching, when we know we want to replace them, we can do
+        this ourself.
+        """
+        worklist: Set[Operation] = set()
+        worklist.add(op)
+        while worklist:
+            ops = worklist
+            worklist = set()
+            for op in ops:
+                if not _is_erasable_value_op(op):
+                    continue
+                if not _op_is_live(op):
+                    for operand in op.operands:
+                        if OpResult.isinstance(operand):
+                            worklist.add(operand.owner)
+                    op.erase()
 
 
 def pass_main(pass_class: Type[Pass], *, argv=None):
@@ -292,3 +340,18 @@ def _op_as_operation(op: Union[Operation, OpView]) -> Operation:
         return op.operation
     else:
         return op
+
+
+def _op_is_live(op: Operation) -> bool:
+    for r in op.results:
+        try:
+            next(r.uses)
+            return True
+        except StopIteration:
+            pass
+    return False
+
+
+def _is_erasable_value_op(op: Operation):
+    name = op.name
+    return name.startswith("torch.") or name.startswith("torch_c.")

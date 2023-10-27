@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from ..dynamo import type_conversion
 
@@ -12,6 +12,11 @@ from iree.compiler.ir import (
     Context,
     RankedTensorType,
     Type as IrType,
+    Value,
+)
+
+from iree.compiler.dialects import (
+    func as func_d,
 )
 
 __all__ = [
@@ -47,3 +52,21 @@ class Builder:
     def get_tensor_element_type(self, tensor_type: IrType) -> IrType:
         rt = self.to_native_tensor_type(tensor_type)
         return rt.element_type
+
+    def call_native(
+        self, callee_name: str, result_types: Sequence[IrType], *operands: Value
+    ) -> Sequence[Value]:
+        """Calls a function on native types, adding conversions as needed."""
+        native_result_types = [
+            self.native_type_conversion.torch_type_to_native(t) for t in result_types
+        ]
+        native_operands = [
+            self.native_type_conversion.materialize_torch_to_native(v) for v in operands
+        ]
+        native_results = func_d.CallOp(
+            native_result_types, callee_name, native_operands
+        ).results
+        return [
+            self.native_type_conversion.materialize_native_to_torch(v, t)
+            for t, v in zip(result_types, native_results)
+        ]

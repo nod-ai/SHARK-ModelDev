@@ -7,12 +7,13 @@
 from typing import Optional, cast
 
 from iree.compiler.ir import (
+    InsertionPoint,
+    Location,
     Operation,
     Type as IrType,
 )
 
 from ..rewriter import *
-from ..builder import *
 
 
 class TransposedMMResult(OpMatchResult):
@@ -72,7 +73,7 @@ module {{
   util.global private @{param_name}.quant.scale {{noinline}} : tensor<{k}x{group0}x{element_type}>
   util.global private @{param_name}.quant.zero_point {{noinline}} : tensor<{k}x{group0}x{element_type}>
 
-  func.func private @{function_name}(%a : tensor<{m}x{n}x{element_type}>) -> tensor<{m}x{k}x{element_type}> {{
+  func.func private @compute_mm_group_quant(%a : tensor<{m}x{n}x{element_type}>) -> tensor<{m}x{k}x{element_type}> {{
     %c0 = arith.constant 0 : index        
     %weight_raw = util.global.load @{param_name}.quant : tensor<{k}x{n_div}xi8>
     %m = tensor.dim %a, %c0 : tensor<{m}x{n}x{element_type}>
@@ -105,7 +106,7 @@ module {{
     %zero_init = linalg.fill ins(%cst : {element_type}) outs(%empty_1 : tensor<{m}x{k}x{element_type}>) -> tensor<{m}x{k}x{element_type}>
     %result = linalg.generic {{
         indexing_maps = [
-            affine_map<(d0, d1, d2, d3) -> (d0, d2, d3)>, 
+            affine_map<(d0, d1, d2, d3) -> (d0, d2, d3)>,
             affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)>, 
             affine_map<(d0, d1, d2, d3) -> (d0, d1)>], 
         iterator_types = ["parallel", "parallel", "reduction", "reduction"] }} 
@@ -122,22 +123,22 @@ module {{
 """
 
 
-class MMGroupQuantRewriter(Pass):
+class MMGroupQuantRewriterPass(Pass):
     def run(self):
         globals = self.globals
         mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
-        print(mms)
 
         for mr in mms:
             if mr.k is None or mr.n is None:
                 continue
             self.rewrite(mr)
 
+        self.inline()
+        self.cleanup()
+
     def rewrite(self, mr: TransposedMMResult):
         none_to_q = lambda x: "?" if x is None else x
-        function_name = f"compute__{mr.param_name}"
         inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
-            function_name=function_name,
             param_name=mr.param_name,
             lowp_type="i4",
             m=none_to_q(mr.m),
@@ -148,10 +149,19 @@ class MMGroupQuantRewriter(Pass):
             group1=128,
             element_type=mr.element_type,
         )
-        print(inline_module_asm)
+
         inline_module = Operation.parse(inline_module_asm)
-        print(inline_module)
+        actual_callee_name = self.merge_module(inline_module).translate_symbol(
+            "compute_mm_group_quant"
+        )
+        with InsertionPoint(mr.op), mr.op.location:
+            results = self.builder.call_native(
+                actual_callee_name, [mr.op.result.type], mr.op.operands[0]
+            )
+            for old, new in zip(mr.op.results, results):
+                old.replace_all_uses_with(new)
+        self.erase_torch_op(mr.op)
 
 
 if __name__ == "__main__":
-    pass_main(MMGroupQuantRewriter)
+    pass_main(MMGroupQuantRewriterPass)
