@@ -69,7 +69,7 @@ class CompiledModuleAPI(unittest.TestCase):
         inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn('flow.tensor.trace {key = "DEBUG"} %arg0, %arg1', module_str)
+        self.assertIn('flow.tensor.trace "DEBUG" = [%arg0 : tensor<?xf32>{%dim}, %arg1 : tensor<3xf32>]', module_str)
 
     def testStoreDynamic(self):
         class BasicModule(CompiledModule):

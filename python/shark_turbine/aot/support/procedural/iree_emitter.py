@@ -313,8 +313,11 @@ class IREEEmitter:
 
     @emitter
     def tensor_trace(self, key: str, *ts: BuildableTensorType):
+        dynamic_dims = []
+        for t in ts:
+            dynamic_dims.extend(t.get_only_dynamic_dim_values())
         ts = [cast_tensor_value(t).ir_value for t in ts]
-        flow_d.TensorTraceOp(StringAttr.get(key), ts)
+        flow_d.TensorTraceOp(StringAttr.get(key), ts, dynamic_dims)
 
 
 # Circular imports to resolve typing.
