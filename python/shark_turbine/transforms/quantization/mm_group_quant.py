@@ -8,7 +8,6 @@ from typing import Optional, cast
 
 from iree.compiler.ir import (
     InsertionPoint,
-    Location,
     Operation,
     Type as IrType,
 )
@@ -124,12 +123,18 @@ module {{
 
 
 class MMGroupQuantRewriterPass(Pass):
+    def __init__(self, root_op: Operation, *, group_size: int = 128):
+        super().__init__(root_op)
+        self.group_size = group_size
+
     def run(self):
         globals = self.globals
         mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
 
         for mr in mms:
             if mr.k is None or mr.n is None:
+                continue
+            if (mr.k % self.group_size) != 0:
                 continue
             self.rewrite(mr)
 
@@ -145,8 +150,8 @@ class MMGroupQuantRewriterPass(Pass):
             n=none_to_q(mr.n),
             k=none_to_q(mr.k),
             n_div=mr.n // 2,
-            group0=32,
-            group1=128,
+            group0=mr.k // self.group_size,
+            group1=self.group_size,
             element_type=mr.element_type,
         )
 
