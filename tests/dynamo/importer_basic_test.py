@@ -140,8 +140,6 @@ class ImportTests(unittest.TestCase):
         t = torch.randn([4, 4, 4, 4])
         opt(t)
 
-    # TODO: After importing DenseResourceElementsAttr, the testLiftFreshCopy fails to lower correctly to linalg
-    @unittest.expectedFailure
     def testLiftFreshCopy(self):
         def foo():
             w = torch.tensor([[1, 2], [3, 4]], dtype=torch.uint8)
@@ -161,6 +159,26 @@ class ImportTests(unittest.TestCase):
             return x, y
 
         opt_foo = torch.compile(foo, backend=create_backend())
+        opt_foo()
+
+    def testDenseResourceIntegerTypes(self):
+        def foo():
+            b = torch.tensor([True, False], dtype=torch.bool)
+            ui8 = torch.tensor([[1, 2], [3, -4]], dtype=torch.uint8)
+            i16 = torch.tensor([[1, 2], [-3, 4]], dtype=torch.int16)
+            i32 = torch.tensor([[1, -2], [3, 4]], dtype=torch.int32)
+            i64 = torch.tensor([[-1, 2], [3, 4]], dtype=torch.int64)
+            return b, ui8, i16, i32, i64
+
+        opt_foo = torch.compile(foo, backend="turbine_cpu")
+        opt_foo()
+
+    def testDenseResourceFloatTypes(self):
+        def foo():
+            f32 = torch.tensor([1.1, 2.2, 3.3, 4.4], dtype=torch.float32)
+            return f32
+        
+        opt_foo = torch.compile(foo, backend="turbine_cpu")
         opt_foo()
 
     def testImportVisionModule(self):
