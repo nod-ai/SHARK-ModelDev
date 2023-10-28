@@ -77,6 +77,22 @@ class ArgsTest(unittest.TestCase):
             module_str,
         )
 
+    @unittest.expectedFailure
+    def testProcToJitScalarArgs(self):
+        """Expected to fail, missing jittable support for IrValueScalar."""
+
+        class BasicModule(CompiledModule):
+            def foobar(self, a=AbstractI32, b=AbstractI32):
+                return self.compute(a, b)
+
+            @jittable
+            def compute(a, b):
+                return a + b
+
+        inst = BasicModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
