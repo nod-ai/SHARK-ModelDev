@@ -4,8 +4,8 @@
 Turbine is the set of development tools that the [SHARK Team](https://github.com/nod-ai/SHARK)
 is building for deploying all of our models for deployment to the cloud and devices. We
 are building it as we transition from our TorchScript-era 1-off export and compilation 
-to a unified approach based on PyTorch 2 and Dynamo. While we use it heavily ourselves, it 
-is intended to be a general purpose model compilation and execution tool.
+to a unified approach based on PyTorch 2 and Dynamo. While we use it heavily ourselves, 
+it is intended to be a general purpose model compilation and execution tool.
 
 Turbine provides three primary tools:
 
