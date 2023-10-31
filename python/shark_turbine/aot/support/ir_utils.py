@@ -135,6 +135,7 @@ class ModuleBuilder:
 
     def handle_mlir_error(self, op: Operation, e: MLIRError, message: str):
         # TODO: Replace with a real dumping facility.
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/136
         dump_path = Path(tempfile.gettempdir()) / "turbine_module_builder_error.mlir"
         logger.exception(f"{message} (dumping to {dump_path})")
         try:
@@ -208,6 +209,7 @@ class ModuleBuilder:
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
                 # TODO: Add resource elements to Python API and use that.
+                # See: https://github.com/nod-ai/SHARK-Turbine/issues/137
                 elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
                 attrs["initial_value"] = elements_attr
 

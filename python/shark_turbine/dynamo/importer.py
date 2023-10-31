@@ -248,6 +248,7 @@ class FxImporter:
         ftype, loc = self._graph_to_function_meta(g)
         # TODO: The FuncOp constructor requires a context-manager context.
         # Fix upstream and then unnest.
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/138
         with loc:
             func = func_dialect.FuncOp(
                 func_name,
@@ -355,6 +356,7 @@ class ContextCache:
                 # TODO: We should probably only be doing this if "vanilla".
                 # Specifically, there are strides/qparams/etc on there that
                 # should be annotated somewhere.
+                # See: https://github.com/nod-ai/SHARK-Turbine/issues/139
                 return self.tensor_metadata_to_type(tensor_meta)
             elif val is not None:
                 # some nodes with symbolic inputs pass a 'val' attribute rather than
@@ -630,6 +632,7 @@ class GraphNodeImporter:
 
         if not self._c.is_registered_operation(mlir_op_name):
             # TODO: Implement a config setting to allow these to flow through.
+            # See: https://github.com/nod-ai/SHARK-Turbine/issues/141
             raise NotImplementedError(
                 f"Unimplemented torch op in the IREE compiler: '{mlir_op_name}' "
                 f"(either implement this op/variant or configure the compiler to "
@@ -642,7 +645,7 @@ class GraphNodeImporter:
             # if "tensor_meta" is None, this will throw unsupported placeholder node error
             result_types = [self._cc.node_val_to_type(node)]
         elif return_count == 0:
-            # TODO: Implement.
+            # TODO: Implement (https://github.com/nod-ai/SHARK-Turbine/issues/142)
             raise NotImplementedError("FIXME: Zero ATen results")
         else:
             # Multi-return will unpack the meta["val"] and trigger our getitem subscripting
@@ -661,6 +664,7 @@ class GraphNodeImporter:
         for i, parameter in enumerate(schema.arguments):
             if parameter.kwarg_only and parameter.name in node.kwargs:
                 # TODO: Nice error if KeyError.
+                # See: https://github.com/nod-ai/SHARK-Turbine/issues/143
                 operands.append(
                     self._import_argument(
                         loc, node.kwargs[parameter.name], parameter.type
@@ -836,6 +840,7 @@ class GraphNodeImporter:
         # These all require an expected_jit_type to convert.
         # torch.dtype, torch.device, torch.memory_format, torch.layout
         # list
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/144
 
 
 class TypeSubclassMap:

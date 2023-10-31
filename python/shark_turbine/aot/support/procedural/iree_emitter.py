@@ -144,6 +144,7 @@ class IREEEmitter:
         """Constructs a tensor with uninitialized values.
 
         TODO: Support an IREE/raw element type in addition to the torch dtype.
+        See: https://github.com/nod-ai/SHARK-Turbine/issues/130
         """
         dim_decls, dyn_dim_values = cast_tensor_dim_decl(dims)
         try:
@@ -295,6 +296,7 @@ class IREEEmitter:
         dtype: torch.dtype,
     ) -> "IrTensor":
         # TODO: Type infer the dtype if missing.
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/125
         dim_decls, dyn_dim_values = cast_tensor_dim_decl(dims)
         try:
             element_type = TORCH_DTYPE_TO_IREE_TYPE[dtype]()
