@@ -70,7 +70,7 @@ TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], IrType]] = {
     torch.bfloat16: lambda: BF16Type.get(),
     torch.float32: lambda: F32Type.get(),
     torch.float64: lambda: F64Type.get(),
-    torch.uint8: lambda: IntegerType.get_unsigned(8),
+    torch.uint8: lambda: IntegerType.get_signless(8),
     torch.int8: lambda: IntegerType.get_signless(8),
     torch.int16: lambda: IntegerType.get_signless(16),
     torch.int32: lambda: IntegerType.get_signless(32),
