@@ -148,7 +148,7 @@ class ImportTests(unittest.TestCase):
             z = torch.tensor([[1, 2], [3, 4]], dtype=torch.float64)
             return w, x, y, z
 
-        opt_foo = torch.compile(foo, backend="turbine_cpu")
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     @unittest.expectedFailure
@@ -170,7 +170,7 @@ class ImportTests(unittest.TestCase):
             i64 = torch.tensor([[-1, 2], [3, 4]], dtype=torch.int64)
             return b, ui8, i16, i32, i64
 
-        opt_foo = torch.compile(foo, backend="turbine_cpu")
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     def testDenseResourceFloatTypes(self):
@@ -179,7 +179,7 @@ class ImportTests(unittest.TestCase):
             f32 = torch.tensor([1.1, 2.2, 3.3, 4.4], dtype=torch.float32)
             return f16, f32
         
-        opt_foo = torch.compile(foo, backend="turbine_cpu")
+        opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
     def testImportVisionModule(self):
