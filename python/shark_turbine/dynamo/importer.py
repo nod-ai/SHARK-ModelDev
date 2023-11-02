@@ -100,7 +100,7 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex128: "complex<f64>",
 }
 
-TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], MlirType]] = {
+TORCH_DTYPE_TO_MLIR_TYPE: Dict[torch.dtype, Callable[[], MlirType]] = {
     torch.float16: lambda: F16Type.get(),
     torch.bfloat16: lambda: BF16Type.get(),
     torch.float32: lambda: F32Type.get(),
@@ -111,8 +111,8 @@ TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], MlirType]] = {
     torch.int32: lambda: IntegerType.get_signed(32),
     torch.int64: lambda: IntegerType.get_signed(64),
     torch.bool: lambda: IntegerType.get_signless(1),
-    torch.qint8: lambda: IntegerType.get_signless(8),
-    torch.quint8: lambda: IntegerType.get_signless(8),
+    torch.qint8: lambda: IntegerType.get_signed(8),
+    torch.quint8: lambda: IntegerType.get_unsigned(8),
     torch.complex32: lambda: ComplexType.get(F16Type.get()),
     torch.complex64: lambda: ComplexType.get(F32Type.get()),
     torch.complex128: lambda: ComplexType.get(F64Type.get()),
@@ -913,10 +913,10 @@ def _make_constant_op(
     )
 
 
-def create_iree_tensor_type(tensor: torch.Tensor) -> MlirType:
+def create_mlir_tensor_type(tensor: torch.Tensor) -> MlirType:
         try:
             dtype = tensor.dtype
-            element_type = TORCH_DTYPE_TO_IREE_TYPE[dtype]()
+            element_type = TORCH_DTYPE_TO_MLIR_TYPE[dtype]()
             tensor_type = RankedTensorType.get(tuple(tensor.size()), element_type)
             return tensor_type
         except KeyError:
@@ -936,7 +936,7 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Op
     # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
     np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
     bytes = memoryview(np_tensor)
-    tensor_type = create_iree_tensor_type(tensor)
+    tensor_type = create_mlir_tensor_type(tensor)
     elements_attr = DenseResourceElementsAttr.get_from_buffer(bytes, "from_py", tensor_type)
     return Operation.create(
         name="torch.vtensor.literal",
