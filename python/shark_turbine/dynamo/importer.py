@@ -16,6 +16,11 @@ from iree.compiler.ir import (
     Block,
     Context,
     FloatAttr,
+    BF16Type,
+    ComplexType,
+    F16Type,
+    F32Type,
+    F64Type,
     FunctionType,
     InsertionPoint,
     IntegerAttr,
@@ -93,6 +98,24 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex32: "complex<f16>",
     torch.complex64: "complex<f32>",
     torch.complex128: "complex<f64>",
+}
+
+TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], MlirType]] = {
+    torch.float16: lambda: F16Type.get(),
+    torch.bfloat16: lambda: BF16Type.get(),
+    torch.float32: lambda: F32Type.get(),
+    torch.float64: lambda: F64Type.get(),
+    torch.uint8: lambda: IntegerType.get_unsigned(8),
+    torch.int8: lambda: IntegerType.get_signed(8),
+    torch.int16: lambda: IntegerType.get_signed(16),
+    torch.int32: lambda: IntegerType.get_signed(32),
+    torch.int64: lambda: IntegerType.get_signed(64),
+    torch.bool: lambda: IntegerType.get_signless(1),
+    torch.qint8: lambda: IntegerType.get_signless(8),
+    torch.quint8: lambda: IntegerType.get_signless(8),
+    torch.complex32: lambda: ComplexType.get(F16Type.get()),
+    torch.complex64: lambda: ComplexType.get(F32Type.get()),
+    torch.complex128: lambda: ComplexType.get(F64Type.get()),
 }
 
 TORCH_DTYPE_TO_NPY_TYPE = {
@@ -892,7 +915,6 @@ def _make_constant_op(
 
 def create_iree_tensor_type(tensor: torch.Tensor) -> MlirType:
         try:
-            from ..aot.support.ir_utils import TORCH_DTYPE_TO_IREE_TYPE
             dtype = tensor.dtype
             element_type = TORCH_DTYPE_TO_IREE_TYPE[dtype]()
             tensor_type = RankedTensorType.get(tuple(tensor.size()), element_type)
