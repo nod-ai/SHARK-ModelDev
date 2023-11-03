@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any
+from typing import Any, Callable, Optional
 
 import torch.nn as nn
 
@@ -15,6 +15,11 @@ from ..support.procedural import (
     GlobalsDef,
     TreeAbstractifiable,
     abstractify_single_value,
+)
+
+from ..support.ir_utils import (
+    NameMapCallback,
+    GlobalAttributes,
 )
 
 from ..support.utils import (
@@ -34,10 +39,22 @@ class export_global(GlobalsDef, Abstractifiable):
         value: Any,
         *,
         name: str = "global",
-        initialize: bool = True,
-        mutable: bool = False,
+        mutable: Optional[bool] = None,
+        initialize: Optional[bool] = None,
+        external: Optional[bool] = None,
+        external_scope: Optional[str] = None,
+        name_mapper: Optional[NameMapCallback] = None,
+        attrs: Optional[GlobalAttributes] = None,
     ):
-        super().__init__(initialize=initialize, mutable=mutable)
+        if attrs is None:
+            attrs = GlobalAttributes(
+                mutable=mutable,
+                initialize=initialize,
+                external=external,
+                external_scope=external_scope,
+                name_mapper=name_mapper,
+            )
+        super().__init__(attrs)
         self._name = name
         self._value = value
         _, self._schema = tree_flatten(self._value)
@@ -59,11 +76,22 @@ class export_global_tree(GlobalsDef, Abstractifiable):
         self,
         tree,
         *,
-        name: str = "global",
-        initialize: bool = True,
-        mutable: bool = False,
+        mutable: Optional[bool] = None,
+        initialize: Optional[bool] = None,
+        external: Optional[bool] = None,
+        external_scope: Optional[str] = None,
+        name_mapper: Optional[NameMapCallback] = None,
+        attrs: Optional[GlobalAttributes] = None,
     ):
-        super().__init__(initialize=initialize, mutable=mutable)
+        if attrs is None:
+            attrs = GlobalAttributes(
+                mutable=mutable,
+                initialize=initialize,
+                external=external,
+                external_scope=external_scope,
+                name_mapper=name_mapper,
+            )
+        super().__init__(attrs)
         self._tree = tree
         self._items, self._schema = tree_flatten(tree)
         self._names, _ = tree_flatten(_transform_tree_to_names("", tree))
@@ -95,9 +123,25 @@ class export_parameters(GlobalsDef, TreeAbstractifiable):
     ]
 
     def __init__(
-        self, nn_module: nn.Module, *, initialize: bool = True, mutable: bool = False
+        self,
+        nn_module: nn.Module,
+        *,
+        mutable: Optional[bool] = None,
+        initialize: Optional[bool] = None,
+        external: Optional[bool] = None,
+        external_scope: Optional[str] = None,
+        name_mapper: Optional[NameMapCallback] = None,
+        attrs: Optional[GlobalAttributes] = None,
     ):
-        super().__init__(initialize=initialize, mutable=mutable)
+        if attrs is None:
+            attrs = GlobalAttributes(
+                mutable=mutable,
+                initialize=initialize,
+                external=external,
+                external_scope=external_scope,
+                name_mapper=name_mapper,
+            )
+        super().__init__(attrs)
         self._param_list = list(nn_module.named_parameters())
         self._tree = dict(self._param_list)
         _, self._schema = tree_flatten(self._tree)
