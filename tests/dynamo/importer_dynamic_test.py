@@ -109,7 +109,6 @@ class DynamicShapeStridedModule(torch.nn.Module):
 
 
 class ImportSmokeTests(unittest.TestCase):
-    @unittest.expectedFailure
     def testStaticExport(self):
         """
         'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
@@ -129,7 +128,6 @@ class ImportSmokeTests(unittest.TestCase):
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
 
-    @unittest.expectedFailure
     def testStaticExportSameSignatureTrue(self):
         """
         'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1

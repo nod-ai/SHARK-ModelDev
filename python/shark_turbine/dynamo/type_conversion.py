@@ -78,6 +78,7 @@ class NativeTypeConverter:
                         IrType.parse(dtype_str)
                     )
                     # TODO: Eliminate RankedTensorType dependence on Location.
+                    # See: https://github.com/nod-ai/SHARK-Turbine/issues/145
                     with Location.unknown():
                         return RankedTensorType.get(dim_list, dtype)
         raise TypeError(f"Unsupported torch type conversion for {torch_type}")
