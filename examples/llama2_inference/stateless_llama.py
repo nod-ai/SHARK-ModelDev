@@ -255,10 +255,10 @@ def export_transformer_model(
     seq_step = AbstractIndex
 
     class StateUpdateModule(CompiledModule):
-        params = export_parameters(mod, initialize=True)
-        global_state = export_global(global_pkv, mutable=True, initialize=True)
+        params = export_parameters(mod, initialize=False)
+        global_state = export_global(global_pkv, mutable=True, initialize=False)
         global_seq_step = export_global(
-            seq_step, mutable=True, initialize=True
+            seq_step, mutable=True, initialize=False
         )
 
         def run_initialize(
