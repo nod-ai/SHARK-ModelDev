@@ -13,6 +13,7 @@ from iree.compiler.ir import (
     Operation,
     StringAttr,
     SymbolTable,
+    Context,
 )
 
 
@@ -148,7 +149,7 @@ class Merger:
 
     def translate_symbol(self, source_symbol_name: str) -> str:
         """Looks up the actual name of a source symbol after merge into the target."""
-        source_symbol_attr = StringAttr.get(source_symbol_name)
+        source_symbol_attr = StringAttr.get(source_symbol_name, context=self._context)
         rename_symbol_attr = self._rename_map.get(source_symbol_attr)
         if rename_symbol_attr is None:
             return source_symbol_name
