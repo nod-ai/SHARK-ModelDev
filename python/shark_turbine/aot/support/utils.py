@@ -30,6 +30,7 @@ thread_state = threading.local()
 # Reference mapping
 ###############################################################################
 
+
 # Opaque value to indicate something is empty. Used in cases where 'None'
 # may have a different meaning.
 class EmptyType:

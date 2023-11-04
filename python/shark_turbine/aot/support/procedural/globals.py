@@ -9,8 +9,10 @@
 
 from typing import (
     Any,
+    Callable,
     Dict,
     Generator,
+    Optional,
     Sequence,
     Tuple,
 )
@@ -25,6 +27,7 @@ from ..ir_imports import (
 )
 
 from ..ir_utils import (
+    GlobalAttributes,
     ModuleBuilder,
 )
 
@@ -87,13 +90,11 @@ class GlobalsDef:
     """Base class for all exporting descriptors."""
 
     __slots__ = [
-        "_initialize",
-        "_mutable",
+        "_attrs",
     ]
 
-    def __init__(self, *, initialize: bool, mutable: bool):
-        self._initialize = initialize
-        self._mutable = mutable
+    def __init__(self, attrs: GlobalAttributes):
+        self._attrs = attrs
 
     def items(self) -> Generator[Tuple[str, Any], None, None]:
         """Yields tuples of name/value exports."""
@@ -124,8 +125,8 @@ class GlobalsDef:
                 ) = module_builder.create_tensor_global(
                     f"_{fq_name}",
                     value,
-                    initialize=self._initialize,
-                    mutable=self._mutable,
+                    attrs=self._attrs,
+                    logical_name=fq_name,
                 )
                 mapping.value = IrGlobalTensor(
                     fq_name,
@@ -140,11 +141,14 @@ class GlobalsDef:
                 continue
             elif isinstance(value, AbstractTensor):
                 global_type = value.get_ir_type(module_builder)
-                (actual_symbol_name, global_op,) = module_builder.create_typed_global(
+                (
+                    actual_symbol_name,
+                    global_op,
+                ) = module_builder.create_typed_global(
                     f"_{fq_name}",
                     global_type,
-                    initialize=self._initialize,
-                    mutable=self._mutable,
+                    attrs=self._attrs,
+                    logical_name=fq_name,
                 )
                 flat_globals.append(
                     IrGlobalTensor(
@@ -159,11 +163,14 @@ class GlobalsDef:
                 continue
             elif isinstance(value, AbstractScalar):
                 global_type = value.get_ir_type(module_builder)
-                (actual_symbol_name, global_op,) = module_builder.create_typed_global(
+                (
+                    actual_symbol_name,
+                    global_op,
+                ) = module_builder.create_typed_global(
                     f"_{fq_name}",
                     global_type,
-                    initialize=self._initialize,
-                    mutable=self._mutable,
+                    attrs=self._attrs,
+                    logical_name=fq_name,
                 )
                 flat_globals.append(
                     IrGlobalScalar(
