@@ -82,7 +82,7 @@ def get_llama_ir(
     seq_step = AbstractIndex
 
     class StateUpdateModule(CompiledModule):
-        params = export_parameters(mod, initialize=False)
+        params = export_parameters(mod, initialize=True)
         global_state = export_global(global_pkv, mutable=True, initialize=True)
         global_seq_step = export_global(
             seq_step, mutable=True, initialize=True
@@ -169,4 +169,8 @@ if __name__ == "__main__":
     dialect_postfix = args.compile_to
     with open(f"{safe_name}_{args.compile_to}.mlir", "w+") as f:
         f.write(module_str)
+<<<<<<< HEAD
     
+=======
+    
+>>>>>>> aefc3c5 (moved models->turbine models)
