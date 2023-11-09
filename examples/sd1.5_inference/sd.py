@@ -28,7 +28,7 @@ class VaeModel(torch.nn.Module):
         )
 
     def forward(self, input):
-        x = self.vae.encode(input, return_dict=False)[0]
+        x = self.vae.decode(input, return_dict=False)[0]
         return x
 
 class UnetModel(torch.nn.Module):
@@ -40,7 +40,7 @@ class UnetModel(torch.nn.Module):
         )
 
     def forward(self, sample, timestep, encoder_hidden_states):
-        return self.unet.forward(sample, timestep, encoder_hidden_states)[0]
+        return self.unet.forward(sample, timestep, encoder_hidden_states, return_dict=False)[0]
 
 
 def load_models():
@@ -93,7 +93,7 @@ def perform_inference(vae, tokenizer, text_encoder_model, unet, prompt):
         latent_model_input = scheduler.scale_model_input(latent_model_input, timestep=t)
 
         with torch.no_grad():
-            noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
+            noise_pred = unet.forward(latent_model_input, t, encoder_hidden_states=text_embeddings)
 
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
@@ -102,7 +102,7 @@ def perform_inference(vae, tokenizer, text_encoder_model, unet, prompt):
 
     latents = 1 / 0.18215 * latents
     with torch.no_grad():
-        image = vae.vae.decode(latents).sample
+        image = vae.forward(latents)
 
     image = (image / 2 + 0.5).clamp(0, 1)
     image = image.detach().cpu().permute(0, 2, 3, 1).numpy()
