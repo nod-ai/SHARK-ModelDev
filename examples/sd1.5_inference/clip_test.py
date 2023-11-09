@@ -7,6 +7,7 @@
 import logging
 import unittest
 
+import shark_turbine.aot as aot
 import torch
 import torch._dynamo as dynamo
 from torch._export import dynamic_dim
@@ -16,7 +17,7 @@ from PIL import Image
 
 pretrained_model_name_or_path = "runwayml/stable-diffusion-v1-5"
 
-# 2. Load the tokenizer and text encoder to tokenize and encode the text. 
+# Load the tokenizer and text encoder to tokenize and encode the text. 
 tokenizer = CLIPTokenizer.from_pretrained(
     pretrained_model_name_or_path,
     subfolder="tokenizer"
@@ -25,24 +26,34 @@ text_encoder_model = CLIPTextModel.from_pretrained(
     pretrained_model_name_or_path,
     subfolder="text_encoder"
 )
+example_x = torch.empty(1, 77, dtype=torch.int64)
+exported = aot.export(text_encoder_model, example_x)
+exported.print_readable()
+compiled_binary = exported.compile(save_to=None)
 
-def main():
-    # Example input values
+
+def infer():
+    import numpy as np
+    import iree.runtime as rt
+
+    config = rt.Config("local-task")
+    vmm = rt.load_vm_module(
+        rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
+        config,
+    )
     prompt = ["a photograph of an astronaut riding a horse"]
     text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
-    print('INPUT IDS:', text_input.input_ids, text_input.input_ids.shape, text_input.input_ids.dtype) # 1x77
-
-    outputs = text_encoder_model(text_input.input_ids)
-
-    opt = torch.compile(text_encoder_model, backend="turbine_cpu")
-    opt(text_input.input_ids)
+    inp = text_input.input_ids
+    outputs = vmm.main(inp)
+    for output in outputs:
+        print(output.to_host(), output.to_host().shape)
 
 
 class ModelTests(unittest.TestCase):
     def testCLIP(self):
-        main()
+        infer()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    main()
+    unittest.main()
