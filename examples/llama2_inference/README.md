@@ -20,7 +20,7 @@ cd SHARK-Turbine
 pip install -r requirements.txt
 
 # Step 6: Install additional Python packages
-pip install -y transformers sentencepiece protobuf
+pip install transformers sentencepiece protobuf
 
 # or use huggingface-cli login --token (your token) for headless
 huggingface-cli login
