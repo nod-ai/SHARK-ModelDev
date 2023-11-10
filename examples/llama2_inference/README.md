@@ -22,6 +22,8 @@ pip install -r requirements.txt
 # Step 6: Install additional Python packages
 pip install transformers sentencepiece protobuf
 
+pip install -e .
+
 # or use huggingface-cli login --token (your token) for headless
 huggingface-cli login
 
