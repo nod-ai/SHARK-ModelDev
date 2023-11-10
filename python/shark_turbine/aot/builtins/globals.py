@@ -40,7 +40,6 @@ class export_global(GlobalsDef, Abstractifiable):
         *,
         name: str = "global",
         mutable: Optional[bool] = None,
-        initialize: Optional[bool] = None,
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
@@ -49,7 +48,6 @@ class export_global(GlobalsDef, Abstractifiable):
         if attrs is None:
             attrs = GlobalAttributes(
                 mutable=mutable,
-                initialize=initialize,
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,
@@ -77,7 +75,6 @@ class export_global_tree(GlobalsDef, Abstractifiable):
         tree,
         *,
         mutable: Optional[bool] = None,
-        initialize: Optional[bool] = None,
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
@@ -86,7 +83,6 @@ class export_global_tree(GlobalsDef, Abstractifiable):
         if attrs is None:
             attrs = GlobalAttributes(
                 mutable=mutable,
-                initialize=initialize,
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,
@@ -127,7 +123,6 @@ class export_parameters(GlobalsDef, TreeAbstractifiable):
         nn_module: nn.Module,
         *,
         mutable: Optional[bool] = None,
-        initialize: Optional[bool] = None,
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
@@ -136,7 +131,6 @@ class export_parameters(GlobalsDef, TreeAbstractifiable):
         if attrs is None:
             attrs = GlobalAttributes(
                 mutable=mutable,
-                initialize=initialize,
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,

@@ -32,6 +32,7 @@ from .ir_imports import (
     F16Type,
     F32Type,
     F64Type,
+    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,
@@ -126,20 +127,12 @@ class GlobalAttributes:
     def __init__(
         self,
         mutable: bool = False,
-        initialize: Optional[bool] = None,
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
         noinline: bool = True,
     ):
-        if initialize and external:
-            raise ValueError("Only one of initialize=True or external=True is allowed")
-        if initialize is None and external is None:
-            # Initialize by default.
-            initialize = True
-
         self.mutable = mutable
-        self.initialize = initialize
         self.external = external
         self.external_scope = external_scope
         self.name_mapper = name_mapper
@@ -254,16 +247,8 @@ class ModuleBuilder:
                 ir_attrs["noinline"] = UnitAttr.get()
             if attrs.mutable:
                 ir_attrs["is_mutable"] = UnitAttr.get()
-            if attrs.initialize:
-                detached_tensor = t.detach().contiguous().cpu()
-                array = np.array(detached_tensor)
-                # We know that a Numpy array is a ReadableBuffer so ignore type error.
-                contents = memoryview(array)  # type: ignore
-                # TODO: Add resource elements to Python API and use that.
-                # See: https://github.com/nod-ai/SHARK-Turbine/issues/137
-                elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
-                ir_attrs["initial_value"] = elements_attr
-            elif attrs.external:
+            if attrs.external:
+                # Emit named external reference.
                 external_scope_attr = StringAttr.get(attrs.external_scope or "model")
                 external_name = attrs.map_name(
                     logical_name if logical_name is not None else symbol_name
@@ -273,6 +258,16 @@ class ModuleBuilder:
                 ir_attrs["initial_value"] = Attribute.parse(
                     f"#stream.parameter.named<{external_scope_attr}::{external_name_attr}> : {tensor_type}"
                 )
+            else:
+                # Emit inline initialized.
+                detached_tensor = t.detach().contiguous().cpu()
+                array = np.array(detached_tensor)
+                # We know that a Numpy array is a ReadableBuffer so ignore type error.
+                contents = memoryview(array)  # type: ignore
+                # TODO: Add resource elements to Python API and use that.
+                # See: https://github.com/nod-ai/SHARK-Turbine/issues/137
+                elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
+                ir_attrs["initial_value"] = elements_attr
 
             global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
@@ -292,6 +287,7 @@ class ModuleBuilder:
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(global_type),
+                "initial_value": self._create_initial_value_for_type(global_type),
             }
             if attrs.noinline:
                 ir_attrs["noinline"] = UnitAttr.get()
@@ -302,6 +298,29 @@ class ModuleBuilder:
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op
+
+    def _create_initial_value_for_type(self, t: IrType) -> Attribute:
+        # TODO(#169): Implement something upstream for this (it exists in the C++ API)
+        # and use it.
+        if RankedTensorType.isinstance(t):
+            rtt = RankedTensorType(t)
+            if not rtt.has_static_shape:
+                raise ValueError(
+                    "Cannot create initialization value for dynamic shaped tensor"
+                )
+            element_attr = self._create_initial_value_for_type(rtt.element_type)
+            return DenseElementsAttr.get_splat(t, element_attr)
+        elif IntegerType.isinstance(t):
+            return IntegerAttr.get(t, 0)
+        elif F32Type.isinstance(t) or F64Type.isinstance(t):
+            # TODO(#170): There should be a common way to check if a FloatType.
+            return FloatAttr.get(t, 0.0)
+        elif IndexType.isinstance(t):
+            return IntegerAttr.get(IndexType.get(), 0)
+        else:
+            raise ValueError(
+                f"Cannot create a default initialization value for type {t}"
+            )
 
 
 class FunctionBuilder:
