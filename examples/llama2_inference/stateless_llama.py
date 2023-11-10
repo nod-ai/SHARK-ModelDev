@@ -408,23 +408,21 @@ def run_vmfb_comparison(args):
         results = ModuleCompiled["run_forward"](results)
         step = ModuleCompiled["get_seq_step"]()
         pkv = ModuleCompiled["get_global_state"]().to_host()
-        # print(f"turbine: {tokenizer.decode(format_out(results))}")
         base_model_results = model.base_model.forward(
             torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
         )
-        base_model_token = int(get_token_from_logits(base_model_results.logits)[0])
+        base_model_token = get_token_from_logits(base_model_results.logits)
         bm_pkv = base_model_results.past_key_values
+        # uncomment to see tokens as they are emittd
         # print(f"pytorch: {tokenizer.decode(base_model_token)}")
+        # print(f"turbine: {tokenizer.decode(format_out(results))}")
         turbine_results.append(format_out(results))
-        torch_results.append(base_model_token)
+        torch_results.append(int(base_model_token[0]))
 
-    print("\n\n")
-    print("what is the best hardware company?")
-    print("\n\n")
 
     print("turbine output: ")
     print(tokenizer.decode(turbine_results))
-    print("torch output: ")
+    print("\ntorch output: ")
     print(tokenizer.decode(torch_results))
 
 
