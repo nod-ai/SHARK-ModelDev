@@ -28,6 +28,7 @@ from .ir_imports import (
     BlockArgument,
     BF16Type,
     ComplexType,
+    DenseElementsAttr,
     DenseResourceElementsAttr,
     F16Type,
     F32Type,
