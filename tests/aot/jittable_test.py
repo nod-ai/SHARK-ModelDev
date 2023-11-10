@@ -42,9 +42,7 @@ class JittableTests(unittest.TestCase):
 
     def testCallWithStructure(self):
         class ProcArgsModule(CompiledModule):
-            def call_with_dicts(
-                self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)
-            ):
+            def call_with_dicts(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
                 intermediate = self.compute({"a": a, "b": b})
                 return self.compute(intermediate)
 
@@ -61,9 +59,7 @@ class JittableTests(unittest.TestCase):
 
     def testCallWithArgsKwargs(self):
         class ProcArgsModule(CompiledModule):
-            def call_with_kwargs(
-                self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)
-            ):
+            def call_with_kwargs(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
                 intermediate = self.compute(**{"a": a, "b": b})
                 return self.compute(**intermediate)
 
@@ -78,9 +74,7 @@ class JittableTests(unittest.TestCase):
 
     def testDynamicDims(self):
         class ProcArgsModule(CompiledModule):
-            def dynamic_dim(
-                self, a=AbstractTensor(None, 2), b=AbstractTensor(None, 1)
-            ):
+            def dynamic_dim(self, a=AbstractTensor(None, 2), b=AbstractTensor(None, 1)):
                 return self.compute(
                     a,
                     b,

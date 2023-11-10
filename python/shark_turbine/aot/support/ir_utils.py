@@ -23,6 +23,7 @@ from ...dynamo.type_conversion import (
 )
 
 from .ir_imports import (
+    Attribute,
     Block,
     BlockArgument,
     BF16Type,
@@ -100,6 +101,57 @@ TORCH_DTYPE_TO_IREE_TYPE_ASM = {
     torch.complex64: "complex<f32>",
     torch.complex128: "complex<f64>",
 }
+
+###############################################################################
+# Configuration
+###############################################################################
+
+# Maps a name to an altered name. If returns None, then the original
+# name is used (this lets Dict.get serve as a NameMapCallback).
+NameMapCallback = Callable[[str], Optional[str]]
+
+
+class GlobalAttributes:
+    """Settings for how to initialize the global."""
+
+    __slots__ = [
+        "mutable",
+        "initialize",
+        "external",
+        "external_scope",
+        "name_mapper",
+        "noinline",
+    ]
+
+    def __init__(
+        self,
+        mutable: bool = False,
+        initialize: Optional[bool] = None,
+        external: Optional[bool] = None,
+        external_scope: Optional[str] = None,
+        name_mapper: Optional[NameMapCallback] = None,
+        noinline: bool = True,
+    ):
+        if initialize and external:
+            raise ValueError("Only one of initialize=True or external=True is allowed")
+        if initialize is None and external is None:
+            # Initialize by default.
+            initialize = True
+
+        self.mutable = mutable
+        self.initialize = initialize
+        self.external = external
+        self.external_scope = external_scope
+        self.name_mapper = name_mapper
+        self.noinline = noinline
+
+    def map_name(self, name: str) -> str:
+        if self.name_mapper:
+            new_name = self.name_mapper(name)
+            if new_name is not None:
+                return new_name
+        return name
+
 
 ###############################################################################
 # Builders
@@ -187,31 +239,42 @@ class ModuleBuilder:
         symbol_name: str,
         t: torch.Tensor,
         *,
-        mutable: bool = False,
-        initialize: bool = True,
-        noinline: bool = True,
+        attrs: GlobalAttributes,
+        logical_name: Optional[str] = None,
     ) -> Tuple[str, Operation, IrType]:
         element_type = self.torch_dtype_to_iree_type(t.dtype)
         with self.global_ip, Location.unknown():
             tensor_type = RankedTensorType.get(list(t.shape), element_type)
-            attrs = {
+            ir_attrs = {
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(tensor_type),
             }
-            if noinline:
-                attrs["noinline"] = UnitAttr.get()
-            if mutable:
-                attrs["is_mutable"] = UnitAttr.get()
-            if initialize:
+            if attrs.noinline:
+                ir_attrs["noinline"] = UnitAttr.get()
+            if attrs.mutable:
+                ir_attrs["is_mutable"] = UnitAttr.get()
+            if attrs.initialize:
                 detached_tensor = t.detach().contiguous().cpu()
                 array = np.array(detached_tensor)
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
+                # TODO: Add resource elements to Python API and use that.
+                # See: https://github.com/nod-ai/SHARK-Turbine/issues/137
                 elements_attr = DenseResourceElementsAttr.get_from_buffer(contents, "from_py", tensor_type)
-                attrs["initial_value"] = elements_attr
+                ir_attrs["initial_value"] = elements_attr
+            elif attrs.external:
+                external_scope_attr = StringAttr.get(attrs.external_scope or "model")
+                external_name = attrs.map_name(
+                    logical_name if logical_name is not None else symbol_name
+                )
+                external_name_attr = StringAttr.get(external_name)
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#stream.parameter.named<{external_scope_attr}::{external_name_attr}> : {tensor_type}"
+                )
 
-            global_op = Operation.create("util.global", attributes=attrs)
+            global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op, tensor_type
@@ -221,22 +284,21 @@ class ModuleBuilder:
         symbol_name: str,
         global_type: IrType,
         *,
-        mutable: bool = False,
-        initialize: bool = True,
-        noinline: bool = True,
+        attrs: GlobalAttributes,
+        logical_name: Optional[str] = None,
     ) -> Tuple[str, Operation]:
         with self.global_ip, Location.unknown():
-            attrs = {
+            ir_attrs = {
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(global_type),
             }
-            if noinline:
-                attrs["noinline"] = UnitAttr.get()
-            if mutable:
-                attrs["is_mutable"] = UnitAttr.get()
+            if attrs.noinline:
+                ir_attrs["noinline"] = UnitAttr.get()
+            if attrs.mutable:
+                ir_attrs["is_mutable"] = UnitAttr.get()
 
-            global_op = Operation.create("util.global", attributes=attrs)
+            global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op

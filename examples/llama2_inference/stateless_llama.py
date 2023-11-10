@@ -44,6 +44,7 @@ parser.add_argument(
     default="meta-llama/Llama-2-7b-chat-hf",
 )
 parser.add_argument("--schema_path", type=str, help="Schema path")
+parser.add_argument("--quantization", type=str, default="None")
 
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
@@ -219,7 +220,6 @@ def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
 
     return all_pkv_tensors
 
-
 def export_transformer_model(
     state_schema_path, hf_model_name, hf_auth_token, compile_to
 ):
@@ -255,10 +255,10 @@ def export_transformer_model(
     seq_step = AbstractIndex
 
     class StateUpdateModule(CompiledModule):
-        params = export_parameters(mod, initialize=True)
-        global_state = export_global(global_pkv, mutable=True, initialize=True)
+        params = export_parameters(mod, initialize=False)
+        global_state = export_global(global_pkv, mutable=True, initialize=False)
         global_seq_step = export_global(
-            seq_step, mutable=True, initialize=True
+            seq_step, mutable=True, initialize=False
         )
 
         def run_initialize(
@@ -332,7 +332,15 @@ def export_transformer_model(
 
     import_to = "IMPORT" if compile_to == "torch" else "INPUT"
     inst = StateUpdateModule(context=Context(), import_to=import_to)
+
+    # TODO: Integrate with external parameters to actually be able to run
+    # TODO: Make more generalizable to be able to quantize with all  compile_to options
+    if args.quantization == "int4" and compile_to == "torch":
+        from shark_turbine.transforms.quantization import mm_group_quant
+        mm_group_quant.MMGroupQuantRewriterPass(CompiledModule.get_mlir_module(inst).operation).run()
+
     module_str = str(CompiledModule.get_mlir_module(inst))
+
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
     if compile_to != "vmfb":

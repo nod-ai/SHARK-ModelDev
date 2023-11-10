@@ -40,12 +40,8 @@ class ArgsTest(unittest.TestCase):
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn(
-            "util.global private @_params.classifier.weight", module_str
-        )
-        self.assertIn(
-            "util.global private @_params.classifier.bias", module_str
-        )
+        self.assertIn("util.global private @_params.classifier.weight", module_str)
+        self.assertIn("util.global private @_params.classifier.bias", module_str)
 
     def testGlobalLoadFromPyTree(self):
         m = SimpleParams()
@@ -104,12 +100,8 @@ class ArgsTest(unittest.TestCase):
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn(
-            "util.global.store %arg0, @_params.classifier.weight", module_str
-        )
-        self.assertIn(
-            "util.global.store %arg1, @_params.classifier.bias", module_str
-        )
+        self.assertIn("util.global.store %arg0, @_params.classifier.weight", module_str)
+        self.assertIn("util.global.store %arg1, @_params.classifier.bias", module_str)
 
     def testGlobalStoreFromLeaf(self):
         m = SimpleParams()
@@ -117,17 +109,13 @@ class ArgsTest(unittest.TestCase):
         class GlobalModule(CompiledModule):
             params = export_parameters(m, initialize=False, mutable=True)
 
-            def update_bias(
-                self, new_bias=abstractify(params["classifier.bias"])
-            ):
+            def update_bias(self, new_bias=abstractify(params["classifier.bias"])):
                 self.params["classifier.bias"] = new_bias
 
         inst = GlobalModule(context=Context())
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn(
-            "util.global.store %arg0, @_params.classifier.bias", module_str
-        )
+        self.assertIn("util.global.store %arg0, @_params.classifier.bias", module_str)
 
     def testExportSingleGlobalTensor(self):
         state_example = torch.randn(3, 11)
@@ -142,9 +130,7 @@ class ArgsTest(unittest.TestCase):
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn("util.global private @_state0.global", module_str)
-        self.assertIn(
-            "%_state0.global = util.global.load @_state0.global", module_str
-        )
+        self.assertIn("%_state0.global = util.global.load @_state0.global", module_str)
         self.assertIn("return %_state0.global", module_str)
 
     def testExportTreeGlobalTensors(self):
@@ -170,18 +156,10 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("util.global private @_state0.seq.1", module_str)
         self.assertIn("util.global private @_state0.seq.2", module_str)
         self.assertIn("util.global private @_state0.data", module_str)
-        self.assertIn(
-            "%_state0.data = util.global.load @_state0.data", module_str
-        )
-        self.assertIn(
-            "%_state0.seq.0 = util.global.load @_state0.seq.0", module_str
-        )
-        self.assertIn(
-            "%_state0.seq.1 = util.global.load @_state0.seq.1", module_str
-        )
-        self.assertIn(
-            "%_state0.seq.2 = util.global.load @_state0.seq.2", module_str
-        )
+        self.assertIn("%_state0.data = util.global.load @_state0.data", module_str)
+        self.assertIn("%_state0.seq.0 = util.global.load @_state0.seq.0", module_str)
+        self.assertIn("%_state0.seq.1 = util.global.load @_state0.seq.1", module_str)
+        self.assertIn("%_state0.seq.2 = util.global.load @_state0.seq.2", module_str)
         self.assertIn(
             "return %_state0.data, %_state0.seq.0, %_state0.seq.1, %_state0.seq.2",
             module_str,
@@ -198,9 +176,7 @@ class ArgsTest(unittest.TestCase):
         }
 
         class SingleState(CompiledModule):
-            state0 = export_global_tree(
-                state_example, mutable=True, initialize=False
-            )
+            state0 = export_global_tree(state_example, mutable=True, initialize=False)
 
             def read_state(self, updates=abstractify(state_example)):
                 self.state0 = updates
@@ -222,9 +198,7 @@ class ArgsTest(unittest.TestCase):
         update_example = torch.randn(1, 20)
 
         class UpdateState(CompiledModule):
-            state0 = export_global(
-                state_example, mutable=True, initialize=False
-            )
+            state0 = export_global(state_example, mutable=True, initialize=False)
 
             def tensor_update_state(self, update=abstractify(update_example)):
                 return IREE.tensor_update(self.state0, update, 0, 0)
@@ -242,9 +216,7 @@ class ArgsTest(unittest.TestCase):
         update_example = torch.randn(1, 1, 4)
 
         class UpdateState(CompiledModule):
-            state0 = export_global(
-                state_example, mutable=True, initialize=False
-            )
+            state0 = export_global(state_example, mutable=True, initialize=False)
 
             def tensor_update_state(self, update=abstractify(update_example)):
                 thing = []
@@ -256,6 +228,85 @@ class ArgsTest(unittest.TestCase):
         print(module_str)
         self.assertIn(
             "flow.tensor.update %arg0, %_state0.global[%c4, %c0, %c0] : tensor<1x1x4xf32> -> %_state0.global as tensor<5x20x4xf32>",
+            module_str,
+        )
+
+    def testExternalGlobalParametersDefaults(self):
+        m = SimpleParams()
+
+        class GlobalModule(
+            CompiledModule, export_name="external_global_parameters_defaults"
+        ):
+            params = export_parameters(m, external=True)
+            compute = jittable(m.forward)
+
+            def run(self, x=AbstractTensor(128, 20)):
+                return self.compute(x)
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            '#stream.parameter.named<"model"::"params.classifier.weight"> : tensor<30x20xf32>',
+            module_str,
+        )
+        self.assertIn(
+            '#stream.parameter.named<"model"::"params.classifier.bias"> : tensor<30xf32>',
+            module_str,
+        )
+
+    def testExternalGlobalParametersExplicit(self):
+        m = SimpleParams()
+
+        class GlobalModule(
+            CompiledModule, export_name="external_global_parameters_explicit"
+        ):
+            params = export_parameters(
+                m, external=True, external_scope="foo", name_mapper=lambda s: s.upper()
+            )
+            compute = jittable(m.forward)
+
+            def run(self, x=AbstractTensor(128, 20)):
+                return self.compute(x)
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            '#stream.parameter.named<"foo"::"PARAMS.CLASSIFIER.WEIGHT"> : tensor<30x20xf32>',
+            module_str,
+        )
+        self.assertIn(
+            '#stream.parameter.named<"foo"::"PARAMS.CLASSIFIER.BIAS"> : tensor<30xf32>',
+            module_str,
+        )
+
+    def testExternalGlobalParametersMapDict(self):
+        m = SimpleParams()
+        mapper = {
+            "params.classifier.weight": "WEIGHT",
+        }
+
+        class GlobalModule(
+            CompiledModule, export_name="external_global_parameters_map_dict"
+        ):
+            params = export_parameters(
+                m, external=True, external_scope="foo", name_mapper=mapper.get
+            )
+            compute = jittable(m.forward)
+
+            def run(self, x=AbstractTensor(128, 20)):
+                return self.compute(x)
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            '#stream.parameter.named<"foo"::"WEIGHT"> : tensor<30x20xf32>',
+            module_str,
+        )
+        self.assertIn(
+            '#stream.parameter.named<"foo"::"params.classifier.bias"> : tensor<30xf32>',
             module_str,
         )
 

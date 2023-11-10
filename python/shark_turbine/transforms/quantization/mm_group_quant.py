@@ -13,6 +13,7 @@ from iree.compiler.ir import (
 )
 
 from ..rewriter import *
+from iree.compiler.ir import Context
 
 
 class TransposedMMResult(OpMatchResult):
@@ -126,6 +127,7 @@ class MMGroupQuantRewriterPass(Pass):
     def __init__(self, root_op: Operation, *, group_size: int = 128):
         super().__init__(root_op)
         self.group_size = group_size
+        self.context = root_op.context
 
     def run(self):
         globals = self.globals
@@ -150,12 +152,12 @@ class MMGroupQuantRewriterPass(Pass):
             n=none_to_q(mr.n),
             k=none_to_q(mr.k),
             n_div=mr.n // 2,
-            group0=mr.k // self.group_size,
+            group0=mr.n // self.group_size,
             group1=self.group_size,
             element_type=mr.element_type,
         )
 
-        inline_module = Operation.parse(inline_module_asm)
+        inline_module = Operation.parse(inline_module_asm, context=self.context)
         actual_callee_name = self.merge_module(inline_module).translate_symbol(
             "compute_mm_group_quant"
         )
