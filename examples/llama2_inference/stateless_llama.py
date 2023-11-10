@@ -50,6 +50,7 @@ prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
 """
 
+
 class InferenceModel(torch.nn.Module):
     def __init__(
         self,
@@ -197,9 +198,7 @@ def test_stateless_against_torch():
             next_input_token, *unpack_tensor(session_state, seq_step)
         )
         for i in range(64):
-            session_state[
-                i, :, :, seq_step : seq_step + 1, :
-            ] = state1_flat_update[i]
+            session_state[i, :, :, seq_step : seq_step + 1, :] = state1_flat_update[i]
         seq_step += 1
 
         print(f"stateless_token {model.tokenizer.decode(token)}")
@@ -220,14 +219,13 @@ def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
 
     return all_pkv_tensors
 
+
 def export_transformer_model(
     state_schema_path, hf_model_name, hf_auth_token, compile_to
 ):
     state_schema = None
     if state_schema_path == None:
-        state_schema_path = (
-            "examples/llama2_inference/llama2_state_schema.json"
-        )
+        state_schema_path = "examples/llama2_inference/llama2_state_schema.json"
     if os.path.exists(state_schema_path):
         with open(state_schema_path, "r+") as f:
             state_schema = pytree.treespec_loads(f.read())
@@ -252,18 +250,13 @@ def export_transformer_model(
         size=(HEADS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
         dtype=torch.float32,
     )
-    seq_step = AbstractIndex
 
     class StateUpdateModule(CompiledModule):
-        params = export_parameters(mod, initialize=False)
-        global_state = export_global(global_pkv, mutable=True, initialize=False)
-        global_seq_step = export_global(
-            seq_step, mutable=True, initialize=False
-        )
+        params = export_parameters(mod, external=True)
+        global_state = export_global(abstractify(global_pkv), mutable=True)
+        global_seq_step = export_global(AbstractIndex, mutable=True)
 
-        def run_initialize(
-            self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
-        ):
+        def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
             init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
             token, *state = self.initialize(x, constraints=init_const)
             updates = []
@@ -284,12 +277,9 @@ def export_transformer_model(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
             )
             forw_const = [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ] + [
-                x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                for x in state_arg[1:]
+                x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1)) for x in state_arg[1:]
             ]
-            token, *state_update = self.forward(
-                x, *state_arg, constraints=forw_const
-            )
+            token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
             for i in range(HEADS * 2):
                 update = IREE.tensor_reshape(
                     state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
@@ -323,9 +313,7 @@ def export_transformer_model(
             state0 = pytree.tree_unflatten(state0_flat, state_schema)
             result = mod.forward(token0, past_key_values=state0)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [
-                torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat
-            ]
+            state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
             return token1, *state1_flat
@@ -337,7 +325,10 @@ def export_transformer_model(
     # TODO: Make more generalizable to be able to quantize with all  compile_to options
     if args.quantization == "int4" and compile_to == "torch":
         from shark_turbine.transforms.quantization import mm_group_quant
-        mm_group_quant.MMGroupQuantRewriterPass(CompiledModule.get_mlir_module(inst).operation).run()
+
+        mm_group_quant.MMGroupQuantRewriterPass(
+            CompiledModule.get_mlir_module(inst).operation
+        ).run()
 
     module_str = str(CompiledModule.get_mlir_module(inst))
 
@@ -421,9 +412,7 @@ def run_vmfb_comparison(args):
         base_model_results = model.base_model.forward(
             torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
         )
-        base_model_token = int(
-            get_token_from_logits(base_model_results.logits)[0]
-        )
+        base_model_token = int(get_token_from_logits(base_model_results.logits)[0])
         bm_pkv = base_model_results.past_key_values
         # print(f"pytorch: {tokenizer.decode(base_model_token)}")
         turbine_results.append(format_out(results))
