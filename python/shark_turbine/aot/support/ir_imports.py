@@ -14,6 +14,7 @@ from iree.compiler.ir import (
     Context,
     DenseResourceElementsAttr,
     FlatSymbolRefAttr,
+    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,
