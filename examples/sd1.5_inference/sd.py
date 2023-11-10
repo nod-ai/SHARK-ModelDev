@@ -101,6 +101,10 @@ def perform_inference(vae, tokenizer, text_encoder_model, unet, prompt):
         latents = scheduler.step(noise_pred, t, latents).prev_sample
 
     latents = 1 / 0.18215 * latents
+    print(latents, latents.shape)
+    np_latents = latents.numpy()
+    import numpy as np
+    np.save('latents.npy', np_latents)
     with torch.no_grad():
         image = vae.forward(latents)
 

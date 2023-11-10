@@ -10,7 +10,6 @@ import unittest
 import shark_turbine.aot as aot
 import torch
 from diffusers import UNet2DConditionModel
-from PIL import Image
 
 
 pretrained_model_name_or_path = "runwayml/stable-diffusion-v1-5"
@@ -39,5 +38,29 @@ class CompiledUnet(aot.CompiledModule):
 
 exported = aot.export(CompiledUnet)
 exported.print_readable()
+compiled_binary = exported.compile(save_to=None)
 
-print('DONE')
+def infer():
+    import numpy as np
+    import iree.runtime as rt
+
+    config = rt.Config("local-task")
+    vmm = rt.load_vm_module(
+        rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
+        config,
+    )
+    sample = np.random.rand(1, 4, 64, 64).astype(np.float32)
+    timestep = np.ones((1)).astype(np.float32)
+    encoder_hidden_states = np.random.rand(1, 77, 768).astype(np.float32)
+    output = vmm.main(sample, timestep, encoder_hidden_states)
+    print(output.to_host(), output.to_host().shape)
+
+
+class ModelTests(unittest.TestCase):
+    def testUnet(self):
+        infer()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    unittest.main()

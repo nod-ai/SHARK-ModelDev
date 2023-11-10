@@ -12,22 +12,27 @@ import torch
 import torch._dynamo as dynamo
 from torch._export import dynamic_dim
 from torch._export.constraints import constrain_as_size, constrain_as_value
-from transformers import CLIPTextModel, CLIPTokenizer
-
+from diffusers import AutoencoderKL
 
 pretrained_model_name_or_path = "runwayml/stable-diffusion-v1-5"
 
-# Load the tokenizer and text encoder to tokenize and encode the text. 
-tokenizer = CLIPTokenizer.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="tokenizer"
-)
-text_encoder_model = CLIPTextModel.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="text_encoder"
-)
-example_x = torch.empty(1, 77, dtype=torch.int64)
-exported = aot.export(text_encoder_model, example_x)
+
+class VaeModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.vae = AutoencoderKL.from_pretrained(
+            pretrained_model_name_or_path,
+            subfolder="vae"
+        )
+
+    def forward(self, inp):
+        x = self.vae.decode(inp, return_dict=False)[0]
+        return x
+
+
+vae_model = VaeModel()
+example_x = torch.empty(1, 4, 64, 64, dtype=torch.float32)
+exported = aot.export(vae_model, example_x)
 exported.print_readable()
 compiled_binary = exported.compile(save_to=None)
 
@@ -41,16 +46,13 @@ def infer():
         rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
         config,
     )
-    prompt = ["a photograph of an astronaut riding a horse"]
-    text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
-    inp = text_input.input_ids
-    outputs = vmm.main(inp)
-    for output in outputs:
-        print(output.to_host(), output.to_host().shape)
+    inp = np.random.rand(1, 4, 64, 64).astype(np.float32)
+    output = vmm.main(inp)
+    print(output.to_host())
 
 
 class ModelTests(unittest.TestCase):
-    def testCLIP(self):
+    def testVAE(self):
         infer()
 
 

@@ -46,6 +46,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._to_copy,
     torch.ops.aten._log_softmax_backward_data,
     torch.ops.aten.lift_fresh_copy.default,
+    torch.ops.aten._unsafe_index.Tensor,
 ]
 
 
