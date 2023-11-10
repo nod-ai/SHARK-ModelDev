@@ -12,6 +12,7 @@ from iree.compiler.ir import (
     Block,
     BlockArgument,
     Context,
+    DenseElementsAttr,
     DenseResourceElementsAttr,
     FlatSymbolRefAttr,
     FloatAttr,
