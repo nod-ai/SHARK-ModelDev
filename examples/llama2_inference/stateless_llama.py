@@ -20,6 +20,8 @@ from torch._export.constraints import constrain_as_size, constrain_as_value
 from shark_turbine.aot import *
 from iree.compiler.ir import Context
 from iree import runtime as ireert
+from shark_turbine.transforms import rewriter
+from shark_turbine.transforms.general import rename_parameters
 
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
@@ -45,6 +47,13 @@ parser.add_argument(
 )
 parser.add_argument("--schema_path", type=str, help="Schema path")
 parser.add_argument("--quantization", type=str, default="None")
+parser.add_argument("--external_weight_file", type=str, default="")
+parser.add_argument("--vmfb_path", type=str, default="")
+parser.add_argument(
+    "--external_weights",
+    action="store_true",
+    help="saves ir/vmfb without global weights for size and readability",
+)
 
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
@@ -251,8 +260,21 @@ def export_transformer_model(
         dtype=torch.float32,
     )
 
+    if args.external_weights:
+        import remap_gguf
+
+        tensor_mapper = remap_gguf.TensorNameMap(
+            remap_gguf.MODEL_ARCH.LLAMA, HEADS
+        )
+        mapper = tensor_mapper.mapping
+
     class StateUpdateModule(CompiledModule):
-        params = export_parameters(mod, external=True)
+        if args.external_weights:
+            params = export_parameters(
+                mod, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(mod)
         global_state = export_global(abstractify(global_pkv), mutable=True)
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
@@ -357,6 +379,7 @@ def export_transformer_model(
             "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             "--iree-opt-const-expr-hoisting=False",
         ]
+
         import iree.compiler as ireec
 
         flatbuffer_blob = ireec.compile_str(
@@ -370,14 +393,27 @@ def export_transformer_model(
 
 def run_vmfb_comparison(args):
     config = ireert.Config("local-task")
-    ctx = ireert.SystemContext(config=config)
-    vm_module = ireert.VmModule.mmap(
-        config.vm_instance, "/home/dan/SHARK-Turbine/Llama_2_7b_chat_hf.vmfb"
-    )
-    ctx.add_vm_module(vm_module)
-    ModuleCompiled = getattr(ctx.modules, vm_module.name)
-    print(ModuleCompiled)
 
+    if args.external_weight_file:
+        from pathlib import Path
+
+        index = ireert.ParameterIndex()
+
+        index.load(args.external_weight_file)
+    if args.vmfb_path:
+        mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
+    else:
+        sys.exit("no vmfb_path provided, required for run_vmfb")
+    ctx = ireert.SystemContext(
+        vm_modules=[
+            ireert.create_io_parameters_module(
+                config.vm_instance, index.create_provider(scope="model")
+            ),
+            ireert.create_hal_module(config.vm_instance, config.device),
+            mod,
+        ],
+        config=config,
+    )
     tokenizer = AutoTokenizer.from_pretrained(
         args.hf_model_name,
         use_fast=False,
@@ -387,6 +423,7 @@ def run_vmfb_comparison(args):
     example_input_id = initial_input.input_ids
     device_inputs = [ireert.asdevicearray(config.device, example_input_id)]
 
+    ModuleCompiled = ctx.modules.state_update
     results = ModuleCompiled["run_initialize"](*device_inputs)
 
     def format_out(results):
@@ -412,6 +449,7 @@ def run_vmfb_comparison(args):
             torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
         )
         base_model_token = get_token_from_logits(base_model_results.logits)
+
         bm_pkv = base_model_results.past_key_values
         # uncomment to see tokens as they are emittd
         # print(f"pytorch: {tokenizer.decode(base_model_token)}")
