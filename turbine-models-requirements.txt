@@ -1,4 +1,10 @@
+shark_turbine
+
+#pinned due to a bug in current releases. we require https://github.com/huggingface/transformers/pull/26059
+transformers @ git+https://github.com/huggingface/transformers.git@7d8ff3629b2725ec43ace99c1a6e87ac1978d433
 protobuf
 sentencepiece
-shark_turbine
-transformers @ git+https://github.com/huggingface/transformers.git@7d8ff3629b2725ec43ace99c1a6e87ac1978d433
+numpy
+
+#model downloading and uploading
+google-cloud-storage

@@ -1,4 +1,5 @@
 import os
+import turbine_models.utils.turbine_tank as turbine_tank
 import sys
 import re
 
@@ -40,6 +41,8 @@ parser.add_argument(
     action="store_true",
     help="saves ir/vmfb without global weights for size and readability",
 )
+parser.add_argument("--download_ir", action=argparse.BooleanOptionalAction, default=True, help="download ir from shark tank")
+parser.add_argument("--upload_ir", action=argparse.BooleanOptionalAction, default=False, help="download ir from shark tank")
 
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
@@ -65,18 +68,23 @@ def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
 
 
 def export_transformer_model(
-    hf_model_name, hf_auth_token, compile_to, external_weights=False, quantization=None
+    hf_model_name, hf_auth_token, compile_to, external_weights=False, quantization=None,
+    download_ir=True, upload_ir=False
 ):
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name,
+        use_fast=False,
+        use_auth_token=hf_auth_token,
+    )
+
+    if download_ir:
+        return turbine_tank.download_model(hf_model_name), tokenizer
+
     state_schema = pytree.treespec_loads(json_schema)
 
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
         torch_dtype=torch.float,
-        use_auth_token=hf_auth_token,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
         use_auth_token=hf_auth_token,
     )
     # TODO: generate these values instead of magic numbers
@@ -181,6 +189,10 @@ def export_transformer_model(
 
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
+    if args.upload_ir and compile_to == "torch":
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(module_str)
+        turbine_tank.upload_to_tank(f"{safe_name}.mlir")
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
@@ -295,6 +307,8 @@ def run_vmfb_comparison(args):
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    if args.download_ir and args.upload_ir:
+        raise ValueError("download_ir and upload_ir are mutually exclusive")
     if args.run_vmfb:
         run_vmfb_comparison(args)
     else:
@@ -304,4 +318,6 @@ if __name__ == "__main__":
             args.compile_to,
             args.external_weights,
             args.quantization,
+            args.download_ir,
+            args.upload_ir,
         )
