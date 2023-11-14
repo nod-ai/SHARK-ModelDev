@@ -29,6 +29,7 @@ from .ir_imports import (
     BF16Type,
     ComplexType,
     DenseElementsAttr,
+    DenseResourceElementsAttr,
     F16Type,
     F32Type,
     F64Type,
@@ -264,9 +265,7 @@ class ModuleBuilder:
                 array = np.array(detached_tensor)
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
-                # TODO: Add resource elements to Python API and use that.
-                # See: https://github.com/nod-ai/SHARK-Turbine/issues/137
-                elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
+                elements_attr = DenseResourceElementsAttr.get_from_buffer(contents, "from_py", tensor_type)
                 ir_attrs["initial_value"] = elements_attr
 
             global_op = Operation.create("util.global", attributes=ir_attrs)
