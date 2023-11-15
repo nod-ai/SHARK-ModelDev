@@ -3,43 +3,12 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-import builtins
 import logging
 import operator
 import re
 from types import NoneType, BuiltinMethodType, BuiltinFunctionType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
-
-from iree.compiler.ir import (
-    Attribute as MlirAttribute,
-    Block,
-    Context,
-    FloatAttr,
-    BF16Type,
-    ComplexType,
-    F16Type,
-    F32Type,
-    F64Type,
-    FunctionType,
-    InsertionPoint,
-    IntegerAttr,
-    IntegerType,
-    RankedTensorType,
-    Location,
-    Module,
-    Operation,
-    StringAttr,
-    Type as MlirType,
-    Value,
-    DenseResourceElementsAttr,
-)
-
-import iree.compiler.dialects.func as func_dialect
-from iree.compiler.ir import SymbolTable
-
-# import iree.compiler.dialects.torch as torch_dialect
-
 
 import torch
 import torch.fx as torch_fx
@@ -65,6 +34,36 @@ from torch.fx import (
 
 from torch.fx.node import (
     Argument as NodeArgument,
+)
+
+from .ir import (
+    Attribute,
+    Block,
+    Context,
+    DenseResourceElementsAttr,
+    FloatAttr,
+    BF16Type,
+    ComplexType,
+    F16Type,
+    F32Type,
+    F64Type,
+    FunctionType,
+    InsertionPoint,
+    IntegerAttr,
+    IntegerType,
+    RankedTensorType,
+    Location,
+    Module,
+    Operation,
+    StringAttr,
+    SymbolTable,
+    IrType,
+    Value,
+    func_dialect,
+)
+
+from .utils import (
+    TypeSubclassMap,
 )
 
 __all__ = [
@@ -100,7 +99,7 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex128: "complex<f64>",
 }
 
-TORCH_DTYPE_TO_MLIR_TYPE: Dict[torch.dtype, Callable[[], MlirType]] = {
+TORCH_DTYPE_TO_MLIR_TYPE: Dict[torch.dtype, Callable[[], IrType]] = {
     torch.float16: lambda: F16Type.get(),
     torch.bfloat16: lambda: BF16Type.get(),
     torch.float32: lambda: F32Type.get(),
@@ -313,7 +312,7 @@ class FxImporter:
                 for result_node in node.args[0]:
                     if result_node is None:
                         result_types.append(
-                            MlirType.parse("!torch.none", context=self._c)
+                            IrType.parse("!torch.none", context=self._c)
                         )
                     else:
                         result_types.append(self._cc.node_val_to_type(result_node))
@@ -341,19 +340,19 @@ class ContextCache:
 
     def __init__(self, context: Context):
         self._c = context
-        self._dtype_to_type: Dict[TorchDtype, MlirType] = {}
-        self._tensor_metadata_cache: Dict[Tuple[torch.Size, torch.dtype], MlirType] = {}
+        self._dtype_to_type: Dict[TorchDtype, IrType] = {}
+        self._tensor_metadata_cache: Dict[Tuple[torch.Size, torch.dtype], IrType] = {}
 
         # Common types.
         with context:
-            self.torch_bool_type = MlirType.parse("!torch.bool")
-            self.torch_float_type = MlirType.parse("!torch.float")
-            self.torch_int_type = MlirType.parse("!torch.int")
-            self.torch_none_type = MlirType.parse("!torch.none")
-            self.torch_str_type = MlirType.parse("!torch.str")
-            self.torch_device_type = MlirType.parse("!torch.Device")
+            self.torch_bool_type = IrType.parse("!torch.bool")
+            self.torch_float_type = IrType.parse("!torch.float")
+            self.torch_int_type = IrType.parse("!torch.int")
+            self.torch_none_type = IrType.parse("!torch.none")
+            self.torch_str_type = IrType.parse("!torch.str")
+            self.torch_device_type = IrType.parse("!torch.Device")
 
-    def integer_attr(self, value: int, bits: int) -> MlirAttribute:
+    def integer_attr(self, value: int, bits: int) -> Attribute:
         c = self._c
         return IntegerAttr.get(IntegerType.get_signless(bits, c), value)
 
@@ -362,16 +361,16 @@ class ContextCache:
     def format_asm_shape(self, shape: torch.Size) -> str:
         return ",".join("?" if is_symbolic(d) else str(d) for d in list(shape))
 
-    """Return MlirType for !torch.vtensor with the given shape and dtype"""
+    """Return IrType for !torch.vtensor with the given shape and dtype"""
 
     def get_vtensor_type(self, shape: torch.Size, dtype: torch.dtype):
         shape_asm = self.format_asm_shape(shape)
         mlir_dtype = str(self.dtype_to_type(dtype))
-        return MlirType.parse(
+        return IrType.parse(
             f"!torch.vtensor<[{shape_asm}],{str(mlir_dtype)}>", context=self._c
         )
 
-    def node_val_to_type(self, node: torch_fx.Node) -> MlirType:
+    def node_val_to_type(self, node: torch_fx.Node) -> IrType:
         try:
             tensor_meta = node.meta.get("tensor_meta")
             val = node.meta.get("val")
@@ -393,7 +392,7 @@ class ContextCache:
 
                 t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(val))
                 if t is not None:
-                    return MlirType.parse(t, self._c)
+                    return IrType.parse(t, self._c)
 
             raise NotImplementedError(
                 f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
@@ -404,7 +403,7 @@ class ContextCache:
                 f"FIXME: Illegal access to torch.fx.Node.meta: {e} ({node.meta.keys()} : {node.meta})"
             )
 
-    def tensor_metadata_to_type(self, tm: TensorMetadata) -> MlirType:
+    def tensor_metadata_to_type(self, tm: TensorMetadata) -> IrType:
         tm_shape = tuple(
             item.node if is_symbolic(item) else item for item in list(tm.shape)
         )
@@ -416,20 +415,20 @@ class ContextCache:
             self._tensor_metadata_cache[key] = t
         return t
 
-    def dtype_to_type(self, dtype: TorchDtype) -> MlirType:
+    def dtype_to_type(self, dtype: TorchDtype) -> IrType:
         t = self._dtype_to_type.get(dtype)
         if t is None:
             try:
                 asm = TORCH_DTYPE_TO_MLIR_TYPE_ASM[dtype]
             except IndexError:
                 raise ValueError(f"Unknown conversion from {dtype} to IREE type")
-            t = MlirType.parse(asm, self._c)
+            t = IrType.parse(asm, self._c)
             self._dtype_to_type[dtype] = t
         return t
 
-    def tensor_to_vtensor_type(self, tensor: torch.Tensor) -> MlirType:
+    def tensor_to_vtensor_type(self, tensor: torch.Tensor) -> IrType:
         dtype_asm = str(self.dtype_to_type(tensor.dtype))
-        return MlirType.parse(f"!torch.vtensor<{list(tensor.size())},{dtype_asm}>")
+        return IrType.parse(f"!torch.vtensor<{list(tensor.size())},{dtype_asm}>")
 
     def get_node_location(self, node: torch_fx.Node) -> Optional[Location]:
         stack_trace = node.meta.get("stack_trace")
@@ -844,7 +843,7 @@ class GraphNodeImporter:
         else:
             list_type = PY_TYPE_TO_TORCH_LIST_TYPE[element_type]
 
-        result_type = MlirType.parse(list_type, context=self._c)
+        result_type = IrType.parse(list_type, context=self._c)
         operation = Operation.create(
             "torch.prim.ListConstruct",
             results=[result_type],
@@ -869,44 +868,8 @@ class GraphNodeImporter:
             return cvt(arg, self, self._cc)
 
 
-class TypeSubclassMap:
-    """Mapping of super-types to values.
-
-    Maintains a cache of actual types seen and uses that instead of a linear
-    scan.
-    """
-
-    __slots__ = [
-        "_cache",
-        "_mapping",
-    ]
-
-    def __init__(self):
-        # The linear list of converters.
-        self._mapping: List[Tuple[type, Any]] = []
-        # When there is a hit on the linear mapping, memoize it here.
-        self._cache: Dict[type, Any] = {}
-
-    def map(self, t: type, value: Any):
-        self._mapping.append((t, value))
-        self._cache[t] = value
-
-    def lookup(self, t: type) -> Any:
-        try:
-            return self._cache[t]
-        except KeyError:
-            pass
-        for t_super, value in self._mapping:
-            if issubclass(t, t_super):
-                self._cache[t] = value
-                return value
-        else:
-            self._cache[t] = None
-            return None
-
-
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+    op_name: str, value_attr: Attribute, result_type: Optional[IrType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
@@ -915,7 +878,7 @@ def _make_constant_op(
     )
 
 
-def create_mlir_tensor_type(tensor: torch.Tensor) -> MlirType:
+def create_mlir_tensor_type(tensor: torch.Tensor) -> IrType:
     try:
         dtype = tensor.dtype
         element_type = TORCH_DTYPE_TO_MLIR_TYPE[dtype]()
@@ -925,7 +888,7 @@ def create_mlir_tensor_type(tensor: torch.Tensor) -> MlirType:
         raise TypeError(f"Could not map Torch dtype {dtype} to an IREE type")
 
 
-def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Operation:
+def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: IrType) -> Operation:
     npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
     assert (
         npy_dtype is not None

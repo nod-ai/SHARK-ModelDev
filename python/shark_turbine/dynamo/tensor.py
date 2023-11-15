@@ -45,7 +45,7 @@ from iree.runtime import (
 from iree.compiler.api import Session, Output
 from iree.compiler.passmanager import PassManager
 
-from .importer import FxImporter
+from ..importers.fx_importer import FxImporter
 
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
