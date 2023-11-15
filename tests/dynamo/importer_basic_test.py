@@ -179,7 +179,7 @@ class ImportTests(unittest.TestCase):
             f16 = torch.tensor([1.1, 2.2, 3.3, 4.4], dtype=torch.float16)
             f32 = torch.tensor([1.1, 2.2, 3.3, 4.4], dtype=torch.float32)
             return f16, f32
-        
+
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 

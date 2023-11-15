@@ -412,9 +412,7 @@ class TensorNameMap:
                 continue
             gguf_tensor_name = TENSOR_NAMES[tensor]
             if MODEL_ARCH_NAMES[arch] in tensor_dict:
-                self.mapping[
-                    tensor_dict[MODEL_ARCH_NAMES[arch]]
-                ] = gguf_tensor_name
+                self.mapping[tensor_dict[MODEL_ARCH_NAMES[arch]]] = gguf_tensor_name
         for bid in range(n_blocks):
             for tensor, tensor_dict in self.block_mappings_cfg.items():
                 if tensor not in MODEL_TENSORS[arch]:

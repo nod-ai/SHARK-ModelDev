@@ -97,13 +97,16 @@ class DynamicBuiltinOps(torch.nn.Module):
         g = x / 32
         return {"result": g}
 
+
 class DynamicShapeStridedModule(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
     def forward(self, a):
         dynamic_shape = [a.size(0), a.size(1), a.size(2)]
-        x = torch.ops.aten.empty_strided(dynamic_shape, stride=[12, 4, 1])  # Default stride = [12, 4, 1]
+        x = torch.ops.aten.empty_strided(
+            dynamic_shape, stride=[12, 4, 1]
+        )  # Default stride = [12, 4, 1]
         y = x.copy_(a)
         return y
 
@@ -173,7 +176,7 @@ class ImportSmokeTests(unittest.TestCase):
         """
         model = DynamicShapeStridedModule()
         # inp_example = torch.rand(5, 7, 9)
-        inp_example = torch.randn(2, 3, 4) # input for default stride
+        inp_example = torch.randn(2, 3, 4)  # input for default stride
         f = dynamo.export(
             model.forward,
             aten_graph=True,
@@ -185,6 +188,7 @@ class ImportSmokeTests(unittest.TestCase):
         )
         g, guards = f(a=inp_example)
         g = import_compiler(g, [inp_example])
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

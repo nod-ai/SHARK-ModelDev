@@ -265,7 +265,9 @@ class ModuleBuilder:
                 array = np.array(detached_tensor)
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
-                elements_attr = DenseResourceElementsAttr.get_from_buffer(contents, "from_py", tensor_type)
+                elements_attr = DenseResourceElementsAttr.get_from_buffer(
+                    contents, "from_py", tensor_type
+                )
                 ir_attrs["initial_value"] = elements_attr
 
             global_op = Operation.create("util.global", attributes=ir_attrs)

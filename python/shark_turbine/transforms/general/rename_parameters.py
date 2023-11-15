@@ -38,7 +38,9 @@ class RenameParametersPass(Pass):
         root_op: Operation,
         *,
         rename_map: Optional[Dict[MaybeScopedName, MaybeScopedName]] = None,
-        rename_callback: Callable[[Optional[str], str], Optional[ScopedName]] = lambda scope, name: None
+        rename_callback: Callable[
+            [Optional[str], str], Optional[ScopedName]
+        ] = lambda scope, name: None,
     ):
         super().__init__(root_op)
         self.context = root_op.context
@@ -82,22 +84,26 @@ class RenameParametersPass(Pass):
                 return orig_scope, result[0]
             else:
                 return result[0], result[1]
-        
+
         def make_attr(scoped_name: ScopedName) -> Attribute:
             if scoped_name[0] is None:
                 name = StringAttr.get(scoped_name[1])
-                return Attribute.parse(f"#stream.parameter.named<{name}> : {parameter_attr.type}")
+                return Attribute.parse(
+                    f"#stream.parameter.named<{name}> : {parameter_attr.type}"
+                )
             else:
                 scope = StringAttr.get(scoped_name[0])
                 name = StringAttr.get(scoped_name[1])
-                return Attribute.parse(f"#stream.parameter.named<{scope}::{name}> : {parameter_attr.type}")
-        
+                return Attribute.parse(
+                    f"#stream.parameter.named<{scope}::{name}> : {parameter_attr.type}"
+                )
+
         # Check the rename map.
         # Check with a fully-qualified name.
         result = self.rename_map.get((orig_scope, name))
         if result is not None:
             return make_attr(norm_map_result(result))
-        # Check with just the 
+        # Check with just the
         result = self.rename_map.get(name)
         if result is not None:
             return make_attr(norm_map_result(result))
