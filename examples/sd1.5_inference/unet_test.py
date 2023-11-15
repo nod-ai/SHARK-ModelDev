@@ -37,7 +37,11 @@ class CompiledUnet(aot.CompiledModule):
         )
 
 exported = aot.export(CompiledUnet)
-exported.print_readable()
+exported._run_import()
+from contextlib import redirect_stdout
+with open('unet_test2.mlir', 'w') as f:
+    with redirect_stdout(f):
+        exported.print_readable()
 compiled_binary = exported.compile(save_to=None)
 
 def infer():
