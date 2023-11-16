@@ -13,7 +13,7 @@ import tempfile
 import numpy as np
 import torch
 
-from ...dynamo.importer import (
+from ...importers.fx_importer import (
     ContextCache,
     TORCH_DTYPE_TO_MLIR_TYPE_ASM,
 )
