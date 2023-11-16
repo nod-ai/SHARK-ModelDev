@@ -63,19 +63,22 @@ class TransposedMMMatcher(NamedOpMatcher):
             m=m,
             n=n,
             k=k,
-            element_type=self.builder.get_tensor_element_type(op.operands[0].type),
+            element_type=self.builder.get_tensor_element_type(
+                op.operands[0].type
+            ),
         )
 
 
+# TODO (ian): Make more generalizable using RenameParametersPass. Currently hardcoded for brevitas quantization
 GROUP_MATMUL_TEMPLATE = r"""
 module {{
-  util.global private @{param_name}.quant {{noinline}} : tensor<{k}x{n_div}xi8>
-  util.global private @{param_name}.quant.scale {{noinline}} : tensor<{k}x{group0}x{element_type}>
-  util.global private @{param_name}.quant.zero_point {{noinline}} : tensor<{k}x{group0}x{element_type}>
+  util.global private @{param_name} {{noinline}} = #stream.parameter.named<"model"::"{param_name}"> : tensor<{k}x{n_div}xi8>
+  util.global private @{param_name}.quant.scale {{noinline}} = #stream.parameter.named<"model"::"{param_name}_scale"> : tensor<{k}x{group0}x{element_type}>
+  util.global private @{param_name}.quant.zero_point {{noinline}} = #stream.parameter.named<"model"::"{param_name}_zp"> : tensor<{k}x{group0}x{element_type}>
 
   func.func private @compute_mm_group_quant(%a : tensor<{m}x{n}x{element_type}>) -> tensor<{m}x{k}x{element_type}> {{
     %c0 = arith.constant 0 : index        
-    %weight_raw = util.global.load @{param_name}.quant : tensor<{k}x{n_div}xi8>
+    %weight_raw = util.global.load @{param_name} : tensor<{k}x{n_div}xi8>
     %m = tensor.dim %a, %c0 : tensor<{m}x{n}x{element_type}>
     %k = tensor.dim %weight_raw, %c0 : tensor<{k}x{n_div}xi8>
     %scale = util.global.load @{param_name}.quant.scale : tensor<{k}x{group0}x{element_type}>
@@ -131,7 +134,9 @@ class MMGroupQuantRewriterPass(Pass):
 
     def run(self):
         globals = self.globals
-        mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
+        mms = match_children(
+            self.funcs, TransposedMMMatcher(globals, self.builder)
+        )
 
         for mr in mms:
             if mr.k is None or mr.n is None:
@@ -145,27 +150,31 @@ class MMGroupQuantRewriterPass(Pass):
 
     def rewrite(self, mr: TransposedMMResult):
         none_to_q = lambda x: "?" if x is None else x
-        inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
-            param_name=mr.param_name,
-            lowp_type="i4",
-            m=none_to_q(mr.m),
-            n=none_to_q(mr.n),
-            k=none_to_q(mr.k),
-            n_div=mr.n // 2,
-            group0=mr.n // self.group_size,
-            group1=self.group_size,
-            element_type=mr.element_type,
-        )
-
-        inline_module = Operation.parse(inline_module_asm, context=self.context)
-        actual_callee_name = self.merge_module(inline_module).translate_symbol(
-            "compute_mm_group_quant"
-        )
-        with InsertionPoint(mr.op), mr.op.location:
-            results = self.builder.call_native(
-                actual_callee_name, [mr.op.result.type], mr.op.operands[0]
+        # TODO (ian): make generalizable and not specific for brevitas
+        if "lm_head.weight" not in mr.param_name:
+            inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
+                param_name=mr.param_name[8:],
+                lowp_type="i4",
+                m=none_to_q(mr.m),
+                n=none_to_q(mr.n),
+                k=none_to_q(mr.k),
+                n_div=mr.n // 2,
+                group0=mr.n // self.group_size,
+                group1=self.group_size,
+                element_type=mr.element_type,
             )
-            self.replace_op(mr.op, *results)
+
+            inline_module = Operation.parse(
+                inline_module_asm, context=self.context
+            )
+            actual_callee_name = self.merge_module(
+                inline_module
+            ).translate_symbol("compute_mm_group_quant")
+            with InsertionPoint(mr.op), mr.op.location:
+                results = self.builder.call_native(
+                    actual_callee_name, [mr.op.result.type], mr.op.operands[0]
+                )
+                self.replace_op(mr.op, *results)
 
 
 if __name__ == "__main__":
