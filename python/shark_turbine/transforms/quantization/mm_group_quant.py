@@ -153,6 +153,7 @@ class MMGroupQuantRewriterPass(Pass):
         # TODO (ian): make generalizable and not specific for brevitas
         if "lm_head.weight" not in mr.param_name:
             inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
+                # TODO (ian): Fix skipping the "_params." portion of the name to match safetensor format with RenameParametersPass
                 param_name=mr.param_name[8:],
                 lowp_type="i4",
                 m=none_to_q(mr.m),

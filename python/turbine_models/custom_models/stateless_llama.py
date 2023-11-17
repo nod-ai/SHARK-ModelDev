@@ -196,7 +196,7 @@ def export_transformer_model(
 
     # TODO: Integrate with external parameters to actually be able to run
     # TODO: Make more generalizable to be able to quantize with all  compile_to options
-    if args.quantization == "int4" and not compile_to == "linalg":
+    if quantization == "int4" and not compile_to == "linalg":
         from shark_turbine.transforms.quantization import mm_group_quant
 
         mm_group_quant.MMGroupQuantRewriterPass(
