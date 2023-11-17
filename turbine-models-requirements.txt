@@ -1,4 +1,5 @@
 protobuf
 sentencepiece
 shark_turbine
-transformers @ git+https://github.com/huggingface/transformers.git@7d8ff3629b2725ec43ace99c1a6e87ac1978d433
+transformers
+brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b
