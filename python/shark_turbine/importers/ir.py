@@ -6,9 +6,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from iree.compiler.ir import (
+    ArrayAttr,
     Attribute as Attribute,
     Block,
     Context,
+    DenseElementsAttr,
     DenseResourceElementsAttr,
     FloatAttr,
     BF16Type,
@@ -16,10 +18,14 @@ from iree.compiler.ir import (
     F16Type,
     F32Type,
     F64Type,
+    Float8E4M3FNType,
+    Float8E5M2FNUZType,
+    Float8E5M2Type,
     FunctionType,
     InsertionPoint,
     IntegerAttr,
     IntegerType,
+    MLIRError,
     RankedTensorType,
     Location,
     Module,
