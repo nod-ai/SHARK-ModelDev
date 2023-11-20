@@ -110,7 +110,11 @@ setup(
     ],
     extras_require={
         "torch-cpu-nightly": [f"torch{get_version_spec('torch')}"],
+        "onnx": [
+            "onnx>=1.15.0",
+        ],
         "testing": [
+            "onnx==1.15.0",
             "pytest",
             "pytest-xdist",
         ],
