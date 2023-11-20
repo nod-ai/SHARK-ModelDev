@@ -108,9 +108,7 @@ def export_transformer_model(
                 safetensors.torch.save_file(mod_params, external_weight_file)
 
         elif external_weights == "gguf":
-            tensor_mapper = remap_gguf.TensorNameMap(
-                remap_gguf.MODEL_ARCH.LLAMA, HEADS
-            )
+            tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
 
     class StateUpdateModule(CompiledModule):
@@ -123,9 +121,7 @@ def export_transformer_model(
         global_state = export_global(abstractify(global_pkv), mutable=True)
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
-        def run_initialize(
-            self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
-        ):
+        def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
             init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
             token, *state = self.initialize(x, constraints=init_const)
             self.global_seq_step = IREE.tensor_dim(
@@ -145,12 +141,9 @@ def export_transformer_model(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
             )
             forw_const = [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ] + [
-                x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                for x in state_arg[1:]
+                x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1)) for x in state_arg[1:]
             ]
-            token, *state_update = self.forward(
-                x, *state_arg, constraints=forw_const
-            )
+            token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
             for i in range(HEADS * 2):
                 update = IREE.tensor_reshape(
                     state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
@@ -184,9 +177,7 @@ def export_transformer_model(
             state0 = pytree.tree_unflatten(state0_flat, state_schema)
             result = mod.forward(token0, past_key_values=state0)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [
-                torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat
-            ]
+            state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
             return token1, *state1_flat
@@ -324,7 +315,7 @@ if __name__ == "__main__":
     if args.run_vmfb:
         run_vmfb_comparison(args)
     else:
-        export_transformer_model(
+        mod_str, _ = export_transformer_model(
             args.hf_model_name,
             args.hf_auth_token,
             args.compile_to,
@@ -332,3 +323,7 @@ if __name__ == "__main__":
             args.external_weight_file,
             args.quantization,
         )
+        safe_name = args.hf_model_name.split("/")[-1].strip()
+        safe_name = re.sub("-", "_", safe_name)
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)

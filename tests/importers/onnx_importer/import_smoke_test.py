@@ -335,7 +335,7 @@ class ImportSmokeTest(unittest.TestCase):
             m.verify()
         finally:
             with open(OUTPUT_PATH / f"{norm_name}.mlir", "wt") as f:
-                m.print(f)
+                print(m.get_asm(), file=f)
 
     def testExists(self):
         # We expect a lot of test cases. Die if not the case (i.e. if paths change
