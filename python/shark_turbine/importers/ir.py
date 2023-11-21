@@ -12,6 +12,7 @@ from iree.compiler.ir import (
     Context,
     DenseElementsAttr,
     DenseResourceElementsAttr,
+    DictAttr,
     FloatAttr,
     BF16Type,
     ComplexType,
