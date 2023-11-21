@@ -125,7 +125,9 @@ def export_transformer_model(
             )
         else:
             params = export_parameters(mod)
-        global_state = export_global(abstractify(global_pkv), mutable=True)
+        global_state = export_global(
+            abstractify(global_pkv), uninitialized=True, mutable=True
+        )
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
         def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
