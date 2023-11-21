@@ -118,11 +118,11 @@ class GlobalAttributes:
 
     __slots__ = [
         "mutable",
-        "initialize",
         "external",
         "external_scope",
         "name_mapper",
         "noinline",
+        "uninitialized",
     ]
 
     def __init__(
@@ -132,12 +132,22 @@ class GlobalAttributes:
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
         noinline: bool = True,
+        uninitialized: Optional[bool] = None,
     ):
+        if external and uninitialized:
+            raise ValueError(
+                f"Globals with external=True cannot also have uninitialized=True"
+            )
+        if uninitialized and not mutable:
+            raise ValueError(
+                f"Globals with uninitialized=True must also be mutable=True"
+            )
         self.mutable = mutable
         self.external = external
         self.external_scope = external_scope
         self.name_mapper = name_mapper
         self.noinline = noinline
+        self.uninitialized = uninitialized
 
     def map_name(self, name: str) -> str:
         if self.name_mapper:
@@ -259,6 +269,13 @@ class ModuleBuilder:
                 ir_attrs["initial_value"] = Attribute.parse(
                     f"#stream.parameter.named<{external_scope_attr}::{external_name_attr}> : {tensor_type}"
                 )
+            elif attrs.uninitialized:
+                # Emit unitialized initial_value to signal that the memory
+                # is valid but has undefined contents.
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#util.uninitialized : {tensor_type}"
+                )
             else:
                 # Emit inline initialized.
                 detached_tensor = t.detach().contiguous().cpu()
@@ -288,13 +305,23 @@ class ModuleBuilder:
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(global_type),
-                "initial_value": self._create_initial_value_for_type(global_type),
             }
             if attrs.noinline:
                 ir_attrs["noinline"] = UnitAttr.get()
             if attrs.mutable:
                 ir_attrs["is_mutable"] = UnitAttr.get()
-
+            if attrs.uninitialized:
+                # Emit unitialized initial_value to signal that the memory
+                # is valid but has undefined contents.
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#util.uninitialized : {global_type}"
+                )
+            else:
+                # Initialized by default.
+                ir_attrs["initial_value"] = self._create_initial_value_for_type(
+                    global_type
+                )
             global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value

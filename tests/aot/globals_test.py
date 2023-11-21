@@ -348,6 +348,35 @@ class ArgsTest(unittest.TestCase):
             module_str,
         )
 
+    def testUninitializedParameters(self):
+        m = SimpleParams()
+
+        class GlobalModule(CompiledModule, export_name="uninitialized_parameters"):
+            params = export_parameters(m, uninitialized=True, mutable=True)
+            y = export_global(AbstractF32, uninitialized=True, mutable=True)
+            compute = jittable(m.forward)
+
+            def run(self, x=AbstractTensor(128, 20)):
+                return self.compute(x), self.y
+
+        inst = GlobalModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn(
+            "#util.uninitialized : tensor<30x20xf32>",
+            module_str,
+        )
+        self.assertIn(
+            "#util.uninitialized : f32",
+            module_str,
+        )
+
+    def testUnsupportedCombinations(self):
+        with self.assertRaisesRegex(ValueError, "mutable=True"):
+            export_global(AbstractF32, uninitialized=True)
+        with self.assertRaisesRegex(ValueError, "external=True"):
+            export_global(AbstractF32, external=True, uninitialized=True)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

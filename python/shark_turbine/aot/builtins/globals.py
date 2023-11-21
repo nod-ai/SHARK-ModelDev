@@ -43,6 +43,7 @@ class export_global(GlobalsDef, Abstractifiable):
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
+        uninitialized: Optional[bool] = None,
         attrs: Optional[GlobalAttributes] = None,
     ):
         if attrs is None:
@@ -51,6 +52,7 @@ class export_global(GlobalsDef, Abstractifiable):
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,
+                uninitialized=uninitialized,
             )
         super().__init__(attrs)
         self._name = name
@@ -78,6 +80,7 @@ class export_global_tree(GlobalsDef, Abstractifiable):
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
+        uninitialized: Optional[bool] = None,
         attrs: Optional[GlobalAttributes] = None,
     ):
         if attrs is None:
@@ -86,6 +89,7 @@ class export_global_tree(GlobalsDef, Abstractifiable):
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,
+                uninitialized=uninitialized,
             )
         super().__init__(attrs)
         self._tree = tree
@@ -126,6 +130,7 @@ class export_parameters(GlobalsDef, TreeAbstractifiable):
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
+        uninitialized: Optional[bool] = None,
         attrs: Optional[GlobalAttributes] = None,
     ):
         if attrs is None:
@@ -134,6 +139,7 @@ class export_parameters(GlobalsDef, TreeAbstractifiable):
                 external=external,
                 external_scope=external_scope,
                 name_mapper=name_mapper,
+                uninitialized=uninitialized,
             )
         super().__init__(attrs)
         self._param_list = list(nn_module.named_parameters())
