@@ -135,7 +135,7 @@ def export_transformer_model(
                     self.global_state, slice_of_state, i, 0, 0, 0, 0
                 )
             return token
-
+        #TODO: Change None to AbstractTensor(1, 1, dtype=torch.int64) and debug dynamo constraints
         def run_forward(self, x=AbstractTensor(1, None, dtype=torch.int64)):
             state_arg = slice_up_to_step(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
