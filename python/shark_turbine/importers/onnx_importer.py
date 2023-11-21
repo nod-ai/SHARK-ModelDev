@@ -88,7 +88,6 @@ class GraphInfo:
     def __init__(self, model_info: ModelInfo, graph_proto: onnx.GraphProto):
         self.model_info = model_info
         self.graph_proto = graph_proto
-        self.node_map: dict[str, onnx.NodeProto] = {n.name: n for n in graph_proto.node}
         self.initializer_map: dict[str, onnx.TensorProto] = {
             n.name: n for n in graph_proto.initializer
         }
