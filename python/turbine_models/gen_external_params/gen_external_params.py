@@ -1,3 +1,4 @@
+import re
 from turbine_models.model_builder import HFTransformerBuilder
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -12,14 +13,17 @@ parser.add_argument(
     default="meta-llama/Llama-2-7b-chat-hf",
 )
 parser.add_argument("--quantization", type=str, default="int4")
-parser.add_argument("--weight_path", type=str, default="Llama2_7b_i4quant.safetensors")
+parser.add_argument("--weight_path", type=str, default="")
 parser.add_argument(
     "--hf_auth_token", type=str, help="The HF auth token required for some models"
 )
+parser.add_argument(
+    "--precision", type=str, default="f16", help="Data type of model [f16, f32]"
+)
 
 
-def quantize(model, quantization):
-    accumulates = torch.float32  # TODO (ian): adjust based on model precision
+def quantize(model, quantization, dtype):
+    accumulates = dtype
     if quantization in ["int4", "int8"]:
         from brevitas_examples.common.generative.quantize import quantize_model
         from brevitas_examples.llm.llm_quant.run_utils import get_model_impl
@@ -77,9 +81,25 @@ if __name__ == "__main__":
         hf_auth_token=args.hf_auth_token,
     )
     model_builder.build_model()
-    quant_weights = quantize(model_builder.model, args.quantization)
+    if args.precision == "f16":
+        model = model_builder.model.half()
+        dtype = torch.float16
+    elif args.precision == "f32":
+        model = model_builder.model
+        dtype = torch.float32
+    else:
+        sys.exit("invalid precision, f16 or f32 supported")
+    quant_weights = quantize(model, args.quantization, dtype)
     # TODO: Add more than just safetensor support
     import safetensors
 
-    safetensors.torch.save_file(quant_weights, args.weight_path)
-    print("Saved safetensor output to ", args.weight_path)
+    if args.weight_path == "":
+        save_path = args.hf_model_name.split("/")[-1].strip()
+        save_path = re.sub("-", "_", save_path)
+        save_path = (
+            save_path + "_" + args.precision + "_" + args.quantization + ".safetensors"
+        )
+    else:
+        save_path = args.weight_path
+    safetensors.torch.save_file(quant_weights, save_path)
+    print("Saved safetensor output to ", save_path)
