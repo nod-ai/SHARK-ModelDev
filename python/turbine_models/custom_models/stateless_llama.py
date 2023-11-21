@@ -44,6 +44,9 @@ parser.add_argument(
     default=None,
     help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
 )
+parser.add_argument(
+    "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
+)
 
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
@@ -75,6 +78,7 @@ def export_transformer_model(
     external_weights=None,
     external_weight_file=None,
     quantization=None,
+    precision=None,
 ):
     state_schema = pytree.treespec_loads(json_schema)
 
@@ -83,19 +87,22 @@ def export_transformer_model(
         torch_dtype=torch.float,
         use_auth_token=hf_auth_token,
     )
+    dtype = torch.float32
+    if precision == "f16":
+        mod = mod.half()
+        dtype = torch.float16
     tokenizer = AutoTokenizer.from_pretrained(
         hf_model_name,
         use_fast=False,
         use_auth_token=hf_auth_token,
     )
-
     # TODO: generate these values instead of magic numbers
     HEADS = 32
     HIDDEN_DIM = 128
     BATCH_SIZE = 1
     global_pkv = torch.zeros(
         size=(HEADS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
-        dtype=torch.float32,
+        dtype=dtype,
     )
 
     mapper = {}
@@ -135,7 +142,8 @@ def export_transformer_model(
                     self.global_state, slice_of_state, i, 0, 0, 0, 0
                 )
             return token
-        #TODO: Change None to AbstractTensor(1, 1, dtype=torch.int64) and debug dynamo constraints
+
+        # TODO: Change None to AbstractTensor(1, 1, dtype=torch.int64) and debug dynamo constraints
         def run_forward(self, x=AbstractTensor(1, None, dtype=torch.int64)):
             state_arg = slice_up_to_step(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
@@ -184,7 +192,6 @@ def export_transformer_model(
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = StateUpdateModule(context=Context(), import_to=import_to)
-
     # TODO: Integrate with external parameters to actually be able to run
     # TODO: Make more generalizable to be able to quantize with all  compile_to options
     if quantization == "int4" and not compile_to == "linalg":
@@ -227,6 +234,8 @@ def export_transformer_model(
         )
         with open(f"{safe_name}.vmfb", "wb+") as f:
             f.write(flatbuffer_blob)
+        print("saved to ", safe_name + ".vmfb")
+        exit()
 
 
 def run_vmfb_comparison(args):
@@ -322,8 +331,10 @@ if __name__ == "__main__":
             args.external_weights,
             args.external_weight_file,
             args.quantization,
+            args.precision,
         )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
+        print("Saved to ", safe_name + ".mlir")

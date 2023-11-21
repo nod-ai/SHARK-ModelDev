@@ -313,7 +313,7 @@ class ModuleBuilder:
             return DenseElementsAttr.get_splat(t, element_attr)
         elif IntegerType.isinstance(t):
             return IntegerAttr.get(t, 0)
-        elif F32Type.isinstance(t) or F64Type.isinstance(t):
+        elif F32Type.isinstance(t) or F64Type.isinstance(t) or F16Type.isinstance(t):
             # TODO(#170): There should be a common way to check if a FloatType.
             return FloatAttr.get(t, 0.0)
         elif IndexType.isinstance(t):
