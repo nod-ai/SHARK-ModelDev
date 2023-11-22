@@ -145,14 +145,18 @@ def export_transformer_model(
                 )
             return token
 
-        # TODO: Change None to AbstractTensor(1, 1, dtype=torch.int64) and debug dynamo constraints
-        def run_forward(self, x=AbstractTensor(1, None, dtype=torch.int64)):
+        def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
             state_arg = slice_up_to_step(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
             )
-            forw_const = [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ] + [
-                x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1)) for x in state_arg[1:]
-            ]
+            forw_const = (
+                [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                + [
+                    x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
+                    for x in state_arg[1:]
+                ]
+                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+            )
             token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
             for i in range(HEADS * 2):
                 update = IREE.tensor_reshape(
