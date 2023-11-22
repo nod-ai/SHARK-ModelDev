@@ -12,15 +12,23 @@ import torch
 from diffusers import UNet2DConditionModel
 
 
-pretrained_model_name_or_path = "runwayml/stable-diffusion-v1-5"
+pretrained_model_name_or_path = "CompVis/stable-diffusion-v1-4"
 
 class UnetModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.unet = UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder="unet")
+        self.guidance_scale = 7.5
 
     def forward(self, sample, timestep, encoder_hidden_states):
-        return self.unet.forward(sample, timestep, encoder_hidden_states, return_dict=False)[0]
+        samples = torch.cat([sample] * 2)
+        print(samples.size())
+        unet_out = self.unet.forward(samples, timestep, encoder_hidden_states, return_dict=False)[0]
+        noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
+        noise_pred = noise_pred_uncond + self.guidance_scale * (
+            noise_pred_text - noise_pred_uncond
+        )
+        return noise_pred
 
 
 unet_model = UnetModel()
@@ -44,6 +52,7 @@ with open('unet_test2.mlir', 'w') as f:
         exported.print_readable()
 compiled_binary = exported.compile(save_to=None)
 
+'''
 def infer():
     import numpy as np
     import iree.runtime as rt
@@ -54,7 +63,7 @@ def infer():
         config,
     )
     sample = np.random.rand(1, 4, 64, 64).astype(np.float32)
-    timestep = np.ones((1)).astype(np.float32)
+    timestep = np.zeros((1)).astype(np.float32)
     encoder_hidden_states = np.random.rand(1, 77, 768).astype(np.float32)
     output = vmm.main(sample, timestep, encoder_hidden_states)
     print(output.to_host(), output.to_host().shape)
@@ -67,4 +76,4 @@ class ModelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    unittest.main()
+    unittest.main()'''

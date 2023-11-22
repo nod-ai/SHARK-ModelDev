@@ -26,17 +26,37 @@ class VaeModel(torch.nn.Module):
         )
 
     def forward(self, inp):
-        x = self.vae.decode(inp, return_dict=False)[0]
-        return x
+        with torch.no_grad():
+            x = self.vae.decode(inp, return_dict=False)[0]
+            return x
 
+vae_model = VaeModel()
 
+class CompiledUnet(aot.CompiledModule):
+    params = aot.export_parameters(vae_model)
+
+    def main(self, inp=aot.AbstractTensor(1, 4, 64, 64, dtype=torch.float32)):
+        return aot.jittable(vae_model.forward)(
+            inp
+        )
+
+'''
 vae_model = VaeModel()
 example_x = torch.empty(1, 4, 64, 64, dtype=torch.float32)
 exported = aot.export(vae_model, example_x)
 exported.print_readable()
 compiled_binary = exported.compile(save_to=None)
+'''
 
+exported = aot.export(CompiledUnet)
+exported._run_import()
+from contextlib import redirect_stdout
+with open('vae_test.mlir', 'w') as f:
+    with redirect_stdout(f):
+        exported.print_readable()
+compiled_binary = exported.compile(save_to=None)
 
+'''
 def infer():
     import numpy as np
     import iree.runtime as rt
@@ -58,4 +78,4 @@ class ModelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    unittest.main()
+    unittest.main()'''
