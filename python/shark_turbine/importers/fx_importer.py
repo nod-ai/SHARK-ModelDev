@@ -628,6 +628,12 @@ class GraphNodeImporter:
         elif target == torch.ops.aten.lift_fresh_copy.out:
             node.target = target = torch.ops.aten.clone.out
             node.args = (node.args[0], None, node.args[1])
+        # TODO: generalize empty memory_format in the future
+        elif target == torch.ops.aten.empty.memory_format:
+            if len(node.users) == 1:
+                for key_node in node.users:
+                    if key_node.target == torch.ops.aten.baddbmm.default:
+                        node.target = target = torch.ops.aten.zeros.default
 
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
