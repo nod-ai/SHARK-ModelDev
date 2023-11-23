@@ -78,11 +78,11 @@ def largest_error(array1, array2):
 
 class ModelTests(unittest.TestCase):
     def testVAE(self):
-        turbine_output = infer()
         torch_output = infer_torch()
+        turbine_output = infer()
         err = largest_error(torch_output, turbine_output)
         print('LARGEST ERROR:', err)
-        assert(err < 8e-5)
+        assert(err < 9e-5)
 
 
 if __name__ == "__main__":

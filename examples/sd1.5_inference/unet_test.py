@@ -7,10 +7,10 @@
 import logging
 import unittest
 
+import numpy as np
 import shark_turbine.aot as aot
 import torch
 from diffusers import UNet2DConditionModel
-
 
 pretrained_model_name_or_path = "CompVis/stable-diffusion-v1-4"
 
@@ -21,14 +21,8 @@ class UnetModel(torch.nn.Module):
         self.guidance_scale = 7.5
 
     def forward(self, sample, timestep, encoder_hidden_states):
-        samples = torch.cat([sample] * 2)
-        print(samples.size())
-        unet_out = self.unet.forward(samples, timestep, encoder_hidden_states, return_dict=False)[0]
-        noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
-        noise_pred = noise_pred_uncond + self.guidance_scale * (
-            noise_pred_text - noise_pred_uncond
-        )
-        return noise_pred
+        unet_out = self.unet.forward(sample, timestep, encoder_hidden_states, return_dict=False)[0]
+        return unet_out
 
 
 unet_model = UnetModel()
@@ -45,16 +39,16 @@ class CompiledUnet(aot.CompiledModule):
         )
 
 exported = aot.export(CompiledUnet)
-exported._run_import()
-from contextlib import redirect_stdout
-with open('unet_test2.mlir', 'w') as f:
-    with redirect_stdout(f):
-        exported.print_readable()
 compiled_binary = exported.compile(save_to=None)
+sample = np.random.rand(1, 4, 64, 64).astype(np.float32)
+timestep = np.zeros((1)).astype(np.float32)
+encoder_hidden_states = np.random.rand(1, 77, 768).astype(np.float32)
+torch_sample = torch.from_numpy(sample)
+torch_timestep = torch.from_numpy(timestep)
+torch_encoder_hidden_states = torch.from_numpy(encoder_hidden_states)
 
-'''
+
 def infer():
-    import numpy as np
     import iree.runtime as rt
 
     config = rt.Config("local-task")
@@ -62,18 +56,33 @@ def infer():
         rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
         config,
     )
-    sample = np.random.rand(1, 4, 64, 64).astype(np.float32)
-    timestep = np.zeros((1)).astype(np.float32)
-    encoder_hidden_states = np.random.rand(1, 77, 768).astype(np.float32)
     output = vmm.main(sample, timestep, encoder_hidden_states)
-    print(output.to_host(), output.to_host().shape)
+    print(output.to_host(), output.to_host().shape, output.to_host().dtype)
+    return output.to_host()
+
+
+def infer_torch():
+    torch_output = unet_model.forward(torch_sample, torch_timestep, torch_encoder_hidden_states)
+    np_torch_output = torch_output.detach().cpu().numpy()
+    print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
+    return np_torch_output
+
+
+def largest_error(array1, array2):
+    absolute_diff = np.abs(array1 - array2)
+    max_error = np.max(absolute_diff)
+    return max_error
 
 
 class ModelTests(unittest.TestCase):
     def testUnet(self):
-        infer()
+        torch_output = infer_torch()
+        turbine_output = infer()
+        err = largest_error(torch_output, turbine_output)
+        print('LARGEST ERROR:', err)
+        assert(err < 9e-5)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    unittest.main()'''
+    unittest.main()
