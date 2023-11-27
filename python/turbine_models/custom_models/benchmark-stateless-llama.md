@@ -24,7 +24,7 @@ python python/turbine_models/custom_models/stateless_llama.py --compile_to=vmfb 
 By default the vmfb will be saved as `Llama_2_7b_chat_hf.vmfb`.
 
 
-# E2E Benchmarking
+# Benchmarking
 
 To run the benchmark, use this command:
 
