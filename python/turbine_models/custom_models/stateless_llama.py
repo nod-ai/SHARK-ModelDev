@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import numpy as np
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -20,6 +21,13 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_vmfb", action="store_true")
+parser.add_argument("--run_benchmark", action="store_true")
+parser.add_argument(
+    "--benchmark_steps",
+    type=int,
+    help="number of times second vicuna (run_forward) is run in benchmark",
+    default=10,
+)
 parser.add_argument(
     "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
 )
@@ -75,6 +83,7 @@ def export_transformer_model(
     hf_model_name,
     hf_auth_token,
     compile_to,
+    benchmark_steps,
     external_weights=None,
     external_weight_file=None,
     quantization=None,
@@ -168,6 +177,44 @@ def export_transformer_model(
 
             self.global_seq_step = self.global_seq_step + 1
             return token
+        
+        def run_all(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
+            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
+            token, *state = self.initialize(x, constraints=init_const)
+            self.global_seq_step = IREE.tensor_dim(
+                state[0], 1
+            )  # ? dimension of arbitrarily 0th kv tensor
+            for i in range(HEADS * 2):
+                slice_of_state = IREE.tensor_reshape(
+                    state[i], 1, 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                )
+                self.global_state = IREE.tensor_update(
+                    self.global_state, slice_of_state, i, 0, 0, 0, 0
+                )
+            x = token
+            for i in range(benchmark_steps):
+                state_arg = slice_up_to_step(
+                    self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
+                )
+                forw_const = (
+                    [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                    + [
+                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
+                        for x in state_arg[1:]
+                    ]
+                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                )
+                token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
+                for i in range(HEADS * 2):
+                    update = IREE.tensor_reshape(
+                        state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
+                    )
+                    self.global_state = IREE.tensor_update(
+                        self.global_state, update, i, 0, self.global_seq_step, 0, 0
+                    )
+
+                self.global_seq_step = self.global_seq_step + 1
+                x = token
 
         def get_global_state(self):
             return self.global_state
@@ -243,6 +290,38 @@ def export_transformer_model(
         print("saved to ", safe_name + ".vmfb")
         exit()
 
+def run_benchmark(args):
+    config = ireert.Config("local-task")
+
+    if args.external_weight_file:
+        weights = args.external_weight_file
+    else:
+        sys.exit("no external_weight_file provided, required for run_benchmark")
+
+    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+    if args.vmfb_path:
+        mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
+    elif os.path.exists(f"{safe_name}.vmfb"):
+        mod = ireert.VmModule.mmap(config.vm_instance, f"{safe_name}.vmfb")
+    else:
+        sys.exit("no vmfb_path provided, required for run_vmfb")
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.hf_model_name,
+        use_fast=False,
+        use_auth_token=args.hf_auth_token,
+    )
+
+    initial_input = tokenizer(prompt, return_tensors="pt")
+    example_input_id = initial_input.input_ids
+    input = np.asarray(example_input_id, dtype=None, order="C")
+    input = np.reshape(input, (1,) + (input.shape))
+    results = ireert.benchmark_module(mod, "run_all", input, parameters=f"model={weights}")
+    
+    for benchmark_result in results:
+        print(f"benchmark_name: {benchmark_result.benchmark_name}, time: {benchmark_result.time}, cpu_time: {benchmark_result.cpu_time}, iterations: {benchmark_result.iterations}, user_counters: {benchmark_result.user_counters}") 
+    
 
 def run_vmfb_comparison(args):
     config = ireert.Config("local-task")
@@ -329,11 +408,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.run_vmfb:
         run_vmfb_comparison(args)
+    elif args.run_benchmark:
+        run_benchmark(args)
     else:
         mod_str, _ = export_transformer_model(
             args.hf_model_name,
             args.hf_auth_token,
             args.compile_to,
+            args.benchmark_steps,
             args.external_weights,
             args.external_weight_file,
             args.quantization,
