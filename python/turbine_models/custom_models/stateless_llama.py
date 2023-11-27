@@ -25,7 +25,7 @@ parser.add_argument("--run_benchmark", action="store_true")
 parser.add_argument(
     "--benchmark_steps",
     type=int,
-    help="number of times second vicuna (run_forward) is run in benchmark",
+    help="number of times second vicuna (run_forward) is run in benchmark (# of tokens to benchmark)",
     default=10,
 )
 parser.add_argument(
