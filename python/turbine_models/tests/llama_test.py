@@ -17,6 +17,7 @@ class LLamaTest(unittest.TestCase):
             # TODO: replace with github secret
             "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",
             "torch",
+            10,
             "safetensors",
             "llama_f32.safetensors",
             None,
