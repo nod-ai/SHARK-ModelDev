@@ -21,7 +21,7 @@ To generate the vmfb for the benchmark
 ```
 python python/turbine_models/custom_models/stateless_llama.py --compile_to=vmfb --hf_auth_token=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 --external_weights="safetensors" --quantization="int4" --precision="f16"
 ```
-By default the model will be saved as `Llama_2_7b_chat_hf.vmfb`.
+By default the vmfb will be saved as `Llama_2_7b_chat_hf.vmfb`.
 
 
 # E2E Benchmarking
