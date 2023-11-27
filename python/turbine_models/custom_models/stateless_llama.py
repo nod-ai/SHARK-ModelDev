@@ -177,7 +177,7 @@ def export_transformer_model(
 
             self.global_seq_step = self.global_seq_step + 1
             return token
-        
+
         def run_all(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
             init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
             token, *state = self.initialize(x, constraints=init_const)
@@ -204,7 +204,9 @@ def export_transformer_model(
                     ]
                     + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
                 )
-                token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
+                token, *state_update = self.forward(
+                    x, *state_arg, constraints=forw_const
+                )
                 for i in range(HEADS * 2):
                     update = IREE.tensor_reshape(
                         state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
@@ -290,6 +292,7 @@ def export_transformer_model(
         print("saved to ", safe_name + ".vmfb")
         exit()
 
+
 def run_benchmark(args):
     config = ireert.Config("local-task")
 
@@ -317,11 +320,15 @@ def run_benchmark(args):
     example_input_id = initial_input.input_ids
     input = np.asarray(example_input_id, dtype=None, order="C")
     input = np.reshape(input, (1,) + (input.shape))
-    results = ireert.benchmark_module(mod, "run_all", input, parameters=f"model={weights}")
-    
+    results = ireert.benchmark_module(
+        mod, "run_all", input, parameters=f"model={weights}"
+    )
+
     for benchmark_result in results:
-        print(f"benchmark_name: {benchmark_result.benchmark_name}, time: {benchmark_result.time}, cpu_time: {benchmark_result.cpu_time}, iterations: {benchmark_result.iterations}, user_counters: {benchmark_result.user_counters}") 
-    
+        print(
+            f"benchmark_name: {benchmark_result.benchmark_name}, time: {benchmark_result.time}, cpu_time: {benchmark_result.cpu_time}, iterations: {benchmark_result.iterations}, user_counters: {benchmark_result.user_counters}"
+        )
+
 
 def run_vmfb_comparison(args):
     config = ireert.Config("local-task")
