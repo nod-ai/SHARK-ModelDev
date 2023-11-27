@@ -2,7 +2,7 @@
 
 Clone and install SHARK-Turbine
 ```
-git clone git@github.com:nod-ai/SHARK-Turbine.git
+git clone https://github.com/nod-ai/SHARK-Turbine.git
 cd SHARK-Turbine
 python -m venv turbine_venv && source turbine_venv/bin/activate
 
