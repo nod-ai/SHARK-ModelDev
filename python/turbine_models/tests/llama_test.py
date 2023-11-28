@@ -13,15 +13,14 @@ import os
 class LLamaTest(unittest.TestCase):
     def testExportTransformerModel(self):
         llama.export_transformer_model(
-            hf_model_name="meta-llama/Llama-2-7b-chat-hf",
+            "meta-llama/Llama-2-7b-chat-hf",
             # TODO: replace with github secret
-            hf_auth_token="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",
-            compile_to="torch",
-            benchmark_steps=10,
-            external_weights="safetensors",
-            external_weight_file="llama_f32.safetensors",
-            quantization=None,
-            precision="f32",
+            "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",
+            "torch",
+            "safetensors",
+            "llama_f32.safetensors",
+            None,
+            "f32",
         )
         os.remove("llama_f32.safetensors")
 
