@@ -27,12 +27,6 @@ parser.add_argument(
 )
 parser.add_argument("--external_weight_file", type=str, default="")
 parser.add_argument("--vmfb_path", type=str, default="")
-parser.add_argument(
-    "--benchmark_steps",
-    type=int,
-    help="number of times second vicuna (run_forward) is run in benchmark (# of tokens to benchmark)",
-    default=10,
-)
 
 
 def run_benchmark(args):
@@ -57,7 +51,6 @@ def run_benchmark(args):
     example_input_id = initial_input.input_ids
     input = np.asarray(example_input_id, dtype=None, order="C")
     input = np.reshape(input, (1,) + (input.shape))
-    llama.benchmark_steps = args.benchmark_steps
 
     if args.external_weight_file:
         weights = args.external_weight_file
