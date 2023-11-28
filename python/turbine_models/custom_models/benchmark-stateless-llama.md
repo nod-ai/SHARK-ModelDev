@@ -17,6 +17,10 @@ python python/turbine_models/gen_external_params/gen_external_params.py --hf_aut
 ```
 The model weights will then be saved in the current directory as `Llama_2_7b_chat_hf_f16_int4.safetensors`.
 
+Then, check the run_all method in the StateUpdateModule class in python/turbine_models/custom_models/stateless_llama.py. 
+It is defaulted to run the second vicuna (# of tokens to benchmark) 10 times.
+Change this if you want to benchmark a different number of tokens.
+
 To generate the vmfb for the benchmark
 ```
 python python/turbine_models/custom_models/stateless_llama.py --compile_to=vmfb --hf_auth_token=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 --external_weights="safetensors" --quantization="int4" --precision="f16"
@@ -29,5 +33,5 @@ By default the vmfb will be saved as `Llama_2_7b_chat_hf.vmfb`.
 To run the benchmark, use this command:
 
 ```
-python python/turbine_models/custom_models/stateless_llama_benchmark.py --hf_auth_token=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 --vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors --benchmark_steps=10
+python python/turbine_models/custom_models/stateless_llama_benchmark.py --hf_auth_token=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 --vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors
 ```
