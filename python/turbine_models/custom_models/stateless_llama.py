@@ -21,13 +21,6 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_vmfb", action="store_true")
-parser.add_argument("--run_benchmark", action="store_true")
-parser.add_argument(
-    "--benchmark_steps",
-    type=int,
-    help="number of times second vicuna (run_forward) is run in benchmark (# of tokens to benchmark)",
-    default=10,
-)
 parser.add_argument(
     "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
 )
@@ -65,6 +58,8 @@ json_schema = """
 [1, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}]}]
 """
 
+benchmark_steps = 10
+
 
 def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
     all_pkv_tensors = []
@@ -83,7 +78,6 @@ def export_transformer_model(
     hf_model_name,
     hf_auth_token,
     compile_to,
-    benchmark_steps,
     external_weights=None,
     external_weight_file=None,
     quantization=None,
@@ -293,43 +287,6 @@ def export_transformer_model(
         exit()
 
 
-def run_benchmark(args):
-    config = ireert.Config("local-task")
-
-    if args.external_weight_file:
-        weights = args.external_weight_file
-    else:
-        sys.exit("no external_weight_file provided, required for run_benchmark")
-
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-    if args.vmfb_path:
-        mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
-    elif os.path.exists(f"{safe_name}.vmfb"):
-        mod = ireert.VmModule.mmap(config.vm_instance, f"{safe_name}.vmfb")
-    else:
-        sys.exit("no vmfb_path provided, required for run_vmfb")
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.hf_model_name,
-        use_fast=False,
-        use_auth_token=args.hf_auth_token,
-    )
-
-    initial_input = tokenizer(prompt, return_tensors="pt")
-    example_input_id = initial_input.input_ids
-    input = np.asarray(example_input_id, dtype=None, order="C")
-    input = np.reshape(input, (1,) + (input.shape))
-    results = ireert.benchmark_module(
-        mod, "run_all", input, parameters=f"model={weights}"
-    )
-
-    for benchmark_result in results:
-        print(
-            f"benchmark_name: {benchmark_result.benchmark_name}, time: {benchmark_result.time}, cpu_time: {benchmark_result.cpu_time}, iterations: {benchmark_result.iterations}, user_counters: {benchmark_result.user_counters}"
-        )
-
-
 def run_vmfb_comparison(args):
     config = ireert.Config("local-task")
 
@@ -415,14 +372,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.run_vmfb:
         run_vmfb_comparison(args)
-    elif args.run_benchmark:
-        run_benchmark(args)
     else:
         mod_str, _ = export_transformer_model(
             args.hf_model_name,
             args.hf_auth_token,
             args.compile_to,
-            args.benchmark_steps,
             args.external_weights,
             args.external_weight_file,
             args.quantization,
