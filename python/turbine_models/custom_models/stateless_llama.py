@@ -1,7 +1,6 @@
 import os
 import sys
 import re
-import numpy as np
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
