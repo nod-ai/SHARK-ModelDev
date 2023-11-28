@@ -29,5 +29,5 @@ By default the vmfb will be saved as `Llama_2_7b_chat_hf.vmfb`.
 To run the benchmark, use this command:
 
 ```
-python python/turbine_models/custom_models/stateless_llama.py --run_benchmark --hf_auth_token=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 --vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors --benchmark_steps=10
+python python/turbine_models/custom_models/stateless_llama_benchmark.py --hf_auth_token=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 --vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors --benchmark_steps=10
 ```
