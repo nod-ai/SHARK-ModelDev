@@ -7,8 +7,10 @@
 import logging
 import unittest
 
+from iree.compiler.ir import Context
 import numpy as np
-import shark_turbine.aot as aot
+import re
+from shark_turbine.aot import *
 import torch
 import torch._dynamo as dynamo
 from torch._export import dynamic_dim
@@ -17,68 +19,110 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 pretrained_model_name_or_path = "CompVis/stable-diffusion-v1-4"
 
+import safetensors
+import argparse
 
-# Load the tokenizer and text encoder to tokenize and encode the text. 
-tokenizer = CLIPTokenizer.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="tokenizer"
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
+parser.add_argument("--external_weight_file", type=str, default="")
+parser.add_argument(
+    "--external_weights",
+    type=str,
+    default=None,
+    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
 )
-text_encoder_model = CLIPTextModel.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="text_encoder"
-)
-class CompiledUnet(aot.CompiledModule):
-    params = aot.export_parameters(text_encoder_model)
 
-    def main(self, inp=aot.AbstractTensor(1, 77, dtype=torch.int64)):
-        return aot.jittable(text_encoder_model.forward)(
-            inp
-        )
-
-
-exported = aot.export(CompiledUnet)
-compiled_binary = exported.compile(save_to=None)
-prompt = ["a photograph of an astronaut riding a horse"]
-text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
-inp = text_input.input_ids
-
-
-def infer():
-    import iree.runtime as rt
-
-    config = rt.Config("local-task")
-    vmm = rt.load_vm_module(
-        rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
-        config,
+def export_transformer_model(
+    compile_to,
+    external_weights=None,
+    external_weight_file=None,
+):
+    # Load the tokenizer and text encoder to tokenize and encode the text. 
+    tokenizer = CLIPTokenizer.from_pretrained(
+        pretrained_model_name_or_path,
+        subfolder="tokenizer"
     )
-    outputs = vmm.main(inp)
-    output = outputs[0]
-    print('TURBINE:', output.to_host(), output.to_host().shape, output.to_host().dtype)
-    return output
+    text_encoder_model = CLIPTextModel.from_pretrained(
+        pretrained_model_name_or_path,
+        subfolder="text_encoder"
+    )
+
+    mapper = {}
+    if external_weights is not None:
+        if external_weights == "safetensors":
+            mod_params = dict(text_encoder_model.named_parameters())
+            for name in mod_params:
+                mapper["params." + name] = name
+            if external_weight_file:
+                safetensors.torch.save_file(mod_params, external_weight_file)
+                print("Saved params to", external_weight_file)
 
 
-def infer_torch():
-    torch_output = text_encoder_model.forward(inp)[0]
-    np_torch_output = torch_output.detach().cpu().numpy()
-    print('TORCH:', np_torch_output, np_torch_output.shape, np_torch_output.dtype)
-    return np_torch_output
+    class CompiledClip(CompiledModule):
+        if external_weights:
+            params = export_parameters(
+                text_encoder_model, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(text_encoder_model)
 
+        def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
+            return jittable(text_encoder_model.forward)(
+                inp
+            )
 
-def largest_error(array1, array2):
-    absolute_diff = np.abs(array1 - array2)
-    max_error = np.max(absolute_diff)
-    return max_error
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+    inst = CompiledClip(context=Context(), import_to=import_to)
 
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    # TODO: for saving the vmfb
+    safe_name = pretrained_model_name_or_path.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+    if compile_to != "vmfb":
+        return module_str, tokenizer
+    else:
+        flags = [
+            "--iree-input-type=torch",
+            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+            "--mlir-print-debuginfo",
+            "--mlir-print-op-on-diagnostic=false",
+            "--iree-llvmcpu-target-cpu-features=host",
+            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
+            "--iree-llvmcpu-enable-microkernels",
+            "--iree-llvmcpu-stack-allocation-limit=256000",
+            "--iree-stream-resource-index-bits=64",
+            "--iree-vm-target-index-bits=64",
+            "--iree-vm-bytecode-module-strip-source-map=true",
+            "--iree-util-zero-fill-elided-attrs",
+            "--iree-vm-target-truncate-unsupported-floats",
+            "--iree-codegen-check-ir-before-llvm-conversion=false",
+            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+            "--iree-opt-const-expr-hoisting=False",
+        ]
 
-class ModelTests(unittest.TestCase):
-    def testCLIP(self):
-        torch_output = infer_torch()
-        turbine_output = infer()
-        err = largest_error(torch_output, turbine_output)
-        print('LARGEST ERROR:', err)
-        assert(err < 9e-5)
+        import iree.compiler as ireec
+
+        flatbuffer_blob = ireec.compile_str(
+            module_str,
+            target_backends=["llvm-cpu"],
+            extra_args=flags,
+        )
+        with open(f"{safe_name}.vmfb", "wb+") as f:
+            f.write(flatbuffer_blob)
+        print("Saved to", safe_name + ".vmfb")
+        exit()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    unittest.main()
+    args = parser.parse_args()
+    mod_str, _ = export_transformer_model(
+        args.compile_to,
+        args.external_weights,
+        args.external_weight_file,
+    )
+    safe_name = pretrained_model_name_or_path.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+    with open(f"{safe_name}.mlir", "w+") as f:
+        f.write(mod_str)
+    print("Saved to", safe_name + ".mlir")
