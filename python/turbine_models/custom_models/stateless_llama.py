@@ -73,8 +73,8 @@ def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
 
 def export_transformer_model(
     hf_model_name,
-    hf_auth_token,
-    compile_to,
+    hf_auth_token=None,
+    compile_to="torch",
     external_weights=None,
     external_weight_file=None,
     quantization=None,
@@ -85,7 +85,7 @@ def export_transformer_model(
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
         torch_dtype=torch.float,
-        use_auth_token=hf_auth_token,
+        token=hf_auth_token,
     )
     dtype = torch.float32
     if precision == "f16":
@@ -94,7 +94,7 @@ def export_transformer_model(
     tokenizer = AutoTokenizer.from_pretrained(
         hf_model_name,
         use_fast=False,
-        use_auth_token=hf_auth_token,
+        token=hf_auth_token,
     )
     # TODO: generate these values instead of magic numbers
     HEADS = 32
