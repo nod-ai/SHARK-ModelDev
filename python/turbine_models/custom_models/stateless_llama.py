@@ -48,6 +48,10 @@ parser.add_argument(
     "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
 )
 
+parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan")
+#TODO: Bring in detection for target triple 
+parser.add_argument("--iree_target_triple", type=str, default="",help="Specify target triple.")
+
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
 """
@@ -79,6 +83,8 @@ def export_transformer_model(
     external_weight_file=None,
     quantization=None,
     precision=None,
+    device=None,
+    target_triple=None,
 ):
     state_schema = pytree.treespec_loads(json_schema)
 
@@ -126,7 +132,7 @@ def export_transformer_model(
         else:
             params = export_parameters(mod)
         global_state = export_global(
-            abstractify(global_pkv), uninitialized=True, mutable=True
+            abstractify(global_pkv), uninitialized=False, mutable=True
         )
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
@@ -212,30 +218,92 @@ def export_transformer_model(
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        flags = [
-            "--iree-input-type=torch",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-llvmcpu-enable-microkernels",
-            "--iree-llvmcpu-stack-allocation-limit=256000",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-            "--iree-vm-bytecode-module-strip-source-map=true",
-            "--iree-util-zero-fill-elided-attrs",
-            "--iree-vm-target-truncate-unsupported-floats",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--iree-opt-const-expr-hoisting=False",
-        ]
-
+        # TODO (ian): lots of repeated flags, can reduce down
+        if device == "cpu":
+            flags = [
+                "--iree-input-type=torch",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--mlir-print-debuginfo",
+                "--mlir-print-op-on-diagnostic=false",
+                "--iree-llvmcpu-target-cpu-features=host",
+                "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
+                "--iree-llvmcpu-enable-microkernels",
+                "--iree-llvmcpu-stack-allocation-limit=256000",
+                "--iree-stream-resource-index-bits=64",
+                "--iree-vm-target-index-bits=64",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-util-zero-fill-elided-attrs",
+                "--iree-vm-target-truncate-unsupported-floats",
+                "--iree-codegen-check-ir-before-llvm-conversion=false",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-opt-const-expr-hoisting=False",
+            ]
+            device = "llvm-cpu"
+        elif device == "vulkan":
+            flags = [
+                "--iree-input-type=torch",
+                "--iree-hal-target-backends=vulkan",
+                "--iree-vulkan-target-triple=" + target_triple,
+                "--iree-llvmcpu-target-triple=x86_64-unknown-linux",
+                "--iree-llvmcpu-target-cpu-features=host",
+                "--iree-hal-cuda-llvm-target-arch=sm_80",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--mlir-print-debuginfo",
+                "--mlir-print-op-on-diagnostic=false",
+                "--iree-stream-resource-index-bits=64",
+                "--iree-vm-target-index-bits=64",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-util-zero-fill-elided-attrs",
+                "--iree-vm-target-truncate-unsupported-floats",
+                "--iree-codegen-check-ir-before-llvm-conversion=false",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-opt-const-expr-hoisting=False",
+            ]
+         
+        elif device == "rocm":
+            flags = [
+                "--iree-input-type=torch",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-hal-target-backends=rocm",
+                "--mlir-print-debuginfo",
+                "--mlir-print-op-on-diagnostic=false",
+                "--iree-llvmcpu-target-cpu-features=host",
+                "--iree-rocm-target-chip=gfx1100"
+                "--iree-rocm-link-bc=true",
+                "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-util-zero-fill-elided-attrs",
+                "--iree-opt-strip-assertions=true",
+                "--verify=false",
+                "--iree-vm-target-truncate-unsupported-floats",
+                "--iree-codegen-check-ir-before-llvm-conversion=false", 
+            ]
+        elif device == "cuda":
+            flags = [
+                "--iree-input-type=torch",
+                "--iree-hal-target-backends=cuda",
+                "--iree-llvmcpu-target-triple=x86_64-unknown-linux",
+                "--iree-llvmcpu-target-cpu-features=host",
+                "--iree-hal-cuda-llvm-target-arch=sm_80",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--mlir-print-debuginfo",
+                "--mlir-print-op-on-diagnostic=false",
+                "--iree-stream-resource-index-bits=64",
+                "--iree-vm-target-index-bits=64",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-util-zero-fill-elided-attrs",
+                "--iree-vm-target-truncate-unsupported-floats",
+                "--iree-codegen-check-ir-before-llvm-conversion=false",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-opt-const-expr-hoisting=False",
+            ]
+        else:
+            print("incorrect device: ", device) 
         import iree.compiler as ireec
 
         flatbuffer_blob = ireec.compile_str(
             module_str,
-            target_backends=["llvm-cpu"],
+            target_backends=[device],
             extra_args=flags,
         )
         with open(f"{safe_name}.vmfb", "wb+") as f:
@@ -243,9 +311,8 @@ def export_transformer_model(
         print("saved to ", safe_name + ".vmfb")
         exit()
 
-
 def run_vmfb_comparison(args):
-    config = ireert.Config("local-task")
+    config = ireert.Config(args.device)
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()
@@ -277,7 +344,7 @@ def run_vmfb_comparison(args):
     tokenizer = AutoTokenizer.from_pretrained(
         args.hf_model_name,
         use_fast=False,
-        use_auth_token=args.hf_auth_token,
+        token=args.hf_auth_token,
     )
     initial_input = tokenizer(prompt, return_tensors="pt")
     example_input_id = initial_input.input_ids
@@ -285,44 +352,43 @@ def run_vmfb_comparison(args):
 
     ModuleCompiled = ctx.modules.state_update
     results = ModuleCompiled["run_initialize"](*device_inputs)
-
     def format_out(results):
         return torch.tensor(results.to_host()[0][0])
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.hf_model_name,
-        torch_dtype=torch.float,
-        use_auth_token=args.hf_auth_token,
-    )
+    #model = AutoModelForCausalLM.from_pretrained(
+    #    args.hf_model_name,
+    #    torch_dtype=torch.float,
+    #    use_auth_token=args.hf_auth_token,
+    #)
 
     def get_token_from_logits(logits):
         return torch.argmax(logits[:, -1, :], dim=1)
 
-    base_model_results = model.forward(example_input_id)
-    base_model_token = get_token_from_logits(base_model_results.logits)
-    bm_pkv = base_model_results.past_key_values
+    #base_model_results = model.forward(example_input_id)
+    #base_model_token = get_token_from_logits(base_model_results.logits)
+    #bm_pkv = base_model_results.past_key_values
     turbine_results = []
-    torch_results = []
+    #torch_results = []
     turbine_results.append(format_out(results))
-    torch_results.append(int(base_model_token))
-    while base_model_token != 2:
+    #torch_results.append(int(base_model_token))
+    while format_out(results) != 2:#base_model_token != 2:
         results = ModuleCompiled["run_forward"](results)
-        base_model_results = model.forward(
-            torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
-        )
-        base_model_token = get_token_from_logits(base_model_results.logits)
+        #base_model_results = model.forward(
+        #    torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
+        #)
+        #base_model_token = get_token_from_logits(base_model_results.logits)
 
-        bm_pkv = base_model_results.past_key_values
+        #bm_pkv = base_model_results.past_key_values
         # uncomment to see tokens as they are emittd
         # print(f"pytorch: {tokenizer.decode(base_model_token)}")
-        # print(f"turbine: {tokenizer.decode(format_out(results))}")
+        print(f"turbine: {tokenizer.decode(format_out(results))}")
         turbine_results.append(format_out(results))
-        torch_results.append(int(base_model_token[0]))
+        #torch_results.append(int(base_model_token[0]))
 
     print("turbine output: ")
     print(tokenizer.decode(turbine_results))
-    print("\ntorch output: ")
-    print(tokenizer.decode(torch_results))
+    #print("\ntorch output: ")
+    #print(tokenizer.decode(torch_results))
 
 
 if __name__ == "__main__":
@@ -338,6 +404,8 @@ if __name__ == "__main__":
             args.external_weight_file,
             args.quantization,
             args.precision,
+            args.device,
+            args.iree_target_triple
         )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
