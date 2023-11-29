@@ -11,7 +11,7 @@ from setuptools import find_namespace_packages, setup
 TURBINE_MODELS_DIR = os.path.realpath(os.path.dirname(__file__))
 TURBINE_ROOT_DIR = Path(TURBINE_MODELS_DIR).parent.parent
 print(TURBINE_ROOT_DIR)
-VERSION_INFO_FILE = os.path.join(TURBINE_MODELS_DIR, "version_info.json")
+VERSION_INFO_FILE = os.path.join(TURBINE_ROOT_DIR, "version_info.json")
 
 
 with open(
@@ -57,11 +57,6 @@ setup(
         ],
         where=f"{str(TURBINE_ROOT_DIR)}/python",
     ),
-    entry_points={
-        "torch_dynamo_backends": [
-            "turbine_cpu = shark_turbine.dynamo.backends.cpu:backend",
-        ],
-    },
     install_requires=[
         "Shark-Turbine",
         "brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b",
