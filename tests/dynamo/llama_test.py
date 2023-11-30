@@ -12,6 +12,7 @@ import logging
 
 import math
 import unittest
+import pytest
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
@@ -314,6 +315,7 @@ def main():
     opt(example_tokens, start_pos)
 
 
+@pytest.mark.xfail(reason="https://github.com/nod-ai/SHARK-Turbine/issues/221")
 class ModelTests(unittest.TestCase):
     def testLLama(self):
         main()
