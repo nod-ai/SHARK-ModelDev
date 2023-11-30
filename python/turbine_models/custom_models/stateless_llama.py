@@ -197,15 +197,11 @@ def export_transformer_model(
             return token1, *state1_flat
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = StateUpdateModule(context=Context(), import_to=import_to)
-    # TODO: Integrate with external parameters to actually be able to run
-    # TODO: Make more generalizable to be able to quantize with all  compile_to options
+    pre_import_passes = []
     if quantization == "int4" and not compile_to == "linalg":
         from shark_turbine.transforms.quantization import mm_group_quant
-
-        mm_group_quant.MMGroupQuantRewriterPass(
-            CompiledModule.get_mlir_module(inst).operation
-        ).run()
+        pre_import_passes.append(mm_group_quant.MMGroupQuantRewriterPass)
+    inst = StateUpdateModule(context=Context(), import_to=import_to, pre_import_passes=pre_import_passes)
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)

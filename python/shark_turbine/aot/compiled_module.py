@@ -45,6 +45,8 @@ __all__ = [
     "CompiledModule",
 ]
 
+from shark_turbine.transforms.rewriter import Pass # for type annotations
+
 ################################################################################
 # Data structures
 ################################################################################
@@ -472,6 +474,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
         context: Optional[Context] = None,
         module_op: Optional[Operation] = None,
         import_to: Union[ImportPhase, None, str] = "full",
+        pre_import_passes=List[Pass]
     ):
         import_to = ImportPhase.parse(import_to)
         self = super().__new__(cls)
@@ -538,6 +541,13 @@ class CompiledModule(metaclass=CompiledModuleMeta):
             do_export(proc_def)
 
         module_builder.finalize_construct()
+        
+        # `run_import` transforms module from torch to linalg, and passes like MMGroupQuantRewriterPass need to be run before
+        module_op = CompiledModule.get_mlir_module(self)
+        from shark_turbine.transforms.quantization.mm_group_quant import MMGroupQuantRewriterPass
+        for p in pre_import_passes:
+            p(module_op).run()
+
         CompiledModule.run_import(self, import_to)
         return self
 
