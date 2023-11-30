@@ -21,8 +21,13 @@ class UnetModel(torch.nn.Module):
         self.guidance_scale = 7.5
 
     def forward(self, sample, timestep, encoder_hidden_states):
-        unet_out = self.unet.forward(sample, timestep, encoder_hidden_states, return_dict=False)[0]
-        return unet_out
+        samples = torch.cat([sample] * 2)
+        unet_out = self.unet.forward(samples, timestep, encoder_hidden_states, return_dict=False)[0]
+        noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
+        noise_pred = noise_pred_uncond + self.guidance_scale * (
+            noise_pred_text - noise_pred_uncond
+        )
+        return noise_pred
 
 
 unet_model = UnetModel()
@@ -33,7 +38,7 @@ class CompiledUnet(aot.CompiledModule):
 
     def main(self, sample=aot.AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
                 timestep=aot.AbstractTensor(1, dtype=torch.float32),
-                encoder_hidden_states=aot.AbstractTensor(1, 77, 768, dtype=torch.float32)):
+                encoder_hidden_states=aot.AbstractTensor(2, 77, 768, dtype=torch.float32)):
         return aot.jittable(unet_model.forward)(
             sample, timestep, encoder_hidden_states
         )
@@ -42,7 +47,7 @@ exported = aot.export(CompiledUnet)
 compiled_binary = exported.compile(save_to=None)
 sample = np.random.rand(1, 4, 64, 64).astype(np.float32)
 timestep = np.zeros((1)).astype(np.float32)
-encoder_hidden_states = np.random.rand(1, 77, 768).astype(np.float32)
+encoder_hidden_states = np.random.rand(2, 77, 768).astype(np.float32)
 torch_sample = torch.from_numpy(sample)
 torch_timestep = torch.from_numpy(timestep)
 torch_encoder_hidden_states = torch.from_numpy(encoder_hidden_states)
