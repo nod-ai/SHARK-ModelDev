@@ -24,6 +24,7 @@ parser.add_argument(
 
 def quantize(model, quantization, dtype):
     accumulates = dtype
+    int_weights = {}
     if quantization in ["int4", "int8"]:
         from brevitas_examples.common.generative.quantize import quantize_model
         from brevitas_examples.llm.llm_quant.run_utils import get_model_impl
@@ -48,7 +49,6 @@ def quantize(model, quantization, dtype):
             def forward(self, x):
                 raise NotImplementedError
 
-        int_weights = {}
         for prefix, layer in model.named_modules():
             if isinstance(layer, QuantLinear):
                 print(f"Exporting layer {prefix}")
@@ -68,7 +68,8 @@ def quantize(model, quantization, dtype):
         if "wrapped_scaling_impl" in k or "wrapped_zero_point_impl" in k:
             del all_weights[k]
 
-    all_weights.update(int_weights)
+    if len(int_weights) != 0:
+        all_weights.update(int_weights)
     return all_weights
 
 
