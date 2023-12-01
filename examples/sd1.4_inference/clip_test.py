@@ -18,12 +18,16 @@ from torch._export import dynamic_dim
 from torch._export.constraints import constrain_as_size, constrain_as_value
 from transformers import CLIPTextModel, CLIPTokenizer
 
-pretrained_model_name_or_path = "CompVis/stable-diffusion-v1-4"
-
 import safetensors
 import argparse
 
 parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    help="HF model name",
+    default="CompVis/stable-diffusion-v1-4",
+)
 parser.add_argument("--run_vmfb", action="store_true")
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_file", type=str, default="")
@@ -37,30 +41,41 @@ parser.add_argument(
 
 prompt = ["a photograph of an astronaut riding a horse"]
 
-def export_transformer_model(
+
+def save_external_weights(
+    mapper,
+    model,
+    external_weights=None,
+    external_weight_file=None,
+):
+    if external_weights is not None:
+        if external_weights == "safetensors":
+            mod_params = dict(model.named_parameters())
+            for name in mod_params:
+                mapper["params." + name] = name
+            if external_weight_file:
+                safetensors.torch.save_file(mod_params, external_weight_file)
+                print("Saved params to", external_weight_file)
+
+
+def export_clip_model(
+    hf_model_name,
     compile_to,
     external_weights=None,
     external_weight_file=None,
 ):
     # Load the tokenizer and text encoder to tokenize and encode the text. 
     tokenizer = CLIPTokenizer.from_pretrained(
-        pretrained_model_name_or_path,
+        hf_model_name,
         subfolder="tokenizer"
     )
     text_encoder_model = CLIPTextModel.from_pretrained(
-        pretrained_model_name_or_path,
+        hf_model_name,
         subfolder="text_encoder"
     )
 
     mapper = {}
-    if external_weights is not None:
-        if external_weights == "safetensors":
-            mod_params = dict(text_encoder_model.named_parameters())
-            for name in mod_params:
-                mapper["params." + name] = name
-            if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
-                print("Saved params to", external_weight_file)
+    save_external_weights(mapper, text_encoder_model, external_weights, external_weight_file)
 
 
     class CompiledClip(CompiledModule):
@@ -80,8 +95,7 @@ def export_transformer_model(
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    # TODO: for saving the vmfb
-    safe_name = pretrained_model_name_or_path.split("/")[-1].strip()
+    safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
     if compile_to != "vmfb":
         return module_str, tokenizer
@@ -124,14 +138,14 @@ def largest_error(array1, array2):
     return max_error
 
 
-def run_vmfb_comparison(args):
+def run_clip_vmfb_comparison(args):
     config = ireert.Config("local-task")
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()
         index.load(args.external_weight_file)
 
-    safe_name = pretrained_model_name_or_path.split("/")[-1].strip()
+    safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
     if args.vmfb_path:
         mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
@@ -155,7 +169,7 @@ def run_vmfb_comparison(args):
         config=config,
     )
     tokenizer = CLIPTokenizer.from_pretrained(
-        pretrained_model_name_or_path,
+        args.hf_model_name,
         subfolder="tokenizer"
     )
     text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
@@ -170,7 +184,7 @@ def run_vmfb_comparison(args):
 
     # Torch output
     text_encoder_model = CLIPTextModel.from_pretrained(
-        pretrained_model_name_or_path,
+        args.hf_model_name,
         subfolder="text_encoder"
     )
     torch_output = text_encoder_model.forward(inp)[0]
@@ -185,14 +199,15 @@ def run_vmfb_comparison(args):
 if __name__ == "__main__":
     args = parser.parse_args()
     if args.run_vmfb:
-        run_vmfb_comparison(args)
+        run_clip_vmfb_comparison(args)
     else:
-        mod_str, _ = export_transformer_model(
+        mod_str, _ = export_clip_model(
+            args.hf_model_name,
             args.compile_to,
             args.external_weights,
             args.external_weight_file,
         )
-        safe_name = pretrained_model_name_or_path.split("/")[-1].strip()
+        safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
