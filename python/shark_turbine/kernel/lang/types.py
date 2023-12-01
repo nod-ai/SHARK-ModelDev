@@ -34,3 +34,6 @@ class KernelBuffer:
 
     def __setitem__(self, key, item):
         self._tensor.__setitem__(key, item)
+
+    def __getitem__(self, key):
+        return self._tensor.__getitem__(key)
