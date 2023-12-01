@@ -9,6 +9,7 @@ import sys
 import re
 
 from iree import runtime as ireert
+import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
@@ -113,8 +114,6 @@ def export_clip_model(args):
             "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             "--iree-opt-const-expr-hoisting=False",
         ]
-
-        import iree.compiler as ireec
 
         flatbuffer_blob = ireec.compile_str(
             module_str,
