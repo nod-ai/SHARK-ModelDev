@@ -6,7 +6,7 @@ import math
 import torch.fx as fx
 
 from ..lang import (
-    GlobalBuffer,
+    KernelBuffer,
     Grid,
 )
 
@@ -68,7 +68,7 @@ class LaunchableThread(Launchable):
         with EagerContext(rank=rank) as context:
             # Transform args to KernelBuffers.
             buffer_args = [
-                arg if isinstance(arg, GlobalBuffer) else GlobalBuffer(arg)
+                arg if isinstance(arg, KernelBuffer) else KernelBuffer(arg)
                 for arg in args
             ]
             volume = math.prod(grid)

@@ -1,14 +1,14 @@
 import torch
 
 __all__ = [
-    "GlobalBuffer",
+    "KernelBuffer",
     "Grid",
 ]
 
 Grid = tuple[int, ...]
 
 
-class GlobalBuffer:
+class KernelBuffer:
     """Represents a buffer in global memory.
 
     Top level kernels always operate on global memory via these
@@ -30,7 +30,7 @@ class GlobalBuffer:
         self._tensor = tensor
 
     def __repr__(self):
-        return f"GlobalBuffer({self._tensor})"
+        return f"KernelBuffer({self._tensor})"
 
     def __setitem__(self, key, item):
         self._tensor.__setitem__(key, item)

@@ -15,7 +15,7 @@ import shark_turbine.kernel as tk
 class Test(unittest.TestCase):
     def testIotaEager(self):
         @tk.gen.thread
-        def iota_kernel(out: tk.lang.GlobalBuffer):
+        def iota_kernel(out: tk.lang.KernelBuffer):
             i = tk.lang.program_id(0)
             out[i] = i
 
@@ -28,14 +28,14 @@ class Test(unittest.TestCase):
 
     def testIotaFx(self):
         @tk.gen.thread
-        def iota_kernel(out: tk.lang.GlobalBuffer):
+        def iota_kernel(out: tk.lang.KernelBuffer):
             i = tk.lang.program_id(0)
             out[i] = i
 
         print(iota_kernel._trace.gm.graph)
         # Prints:
         # .graph():
-        #     %out : shark_turbine.kernel.lang.types.GlobalBuffer [num_users=1] = placeholder[target=out]
+        #     %out : shark_turbine.kernel.lang.types.KernelBuffer [num_users=1] = placeholder[target=out]
         #     %program_id : [num_users=1] = call_function[target=shark_turbine.kernel.lang.prims.program_id](args = (0,), kwargs = {})
         #     %_global_buffer_setitem : [num_users=0] = call_function[target=shark_turbine.kernel._support.tracing._global_buffer_setitem](args = (%out, %program_id, %program_id), kwargs = {})
         #     return None

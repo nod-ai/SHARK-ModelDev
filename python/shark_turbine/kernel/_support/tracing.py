@@ -8,7 +8,7 @@ import warnings
 import torch.fx as fx
 
 from ..lang.types import (
-    GlobalBuffer,
+    KernelBuffer,
     Grid,
 )
 
@@ -22,7 +22,7 @@ TCallable = TypeVar("TCallable", bound=Callable)
 
 
 @fx.wrap
-def _global_buffer_setitem(kernel_buffer: GlobalBuffer, key, item) -> None:
+def _kernel_buffer_setitem(kernel_buffer: KernelBuffer, key, item) -> None:
     ...
 
 
@@ -31,19 +31,19 @@ def _global_buffer_setitem(kernel_buffer: GlobalBuffer, key, item) -> None:
 ###############################################################################
 
 
-class GlobalBufferProxy(fx.Proxy):
-    """Custom proxy for GlobalBuffer so that we can override special methods."""
+class KernelBufferProxy(fx.Proxy):
+    """Custom proxy for KernelBuffer so that we can override special methods."""
 
     def __setitem__(self, key, item):
-        _global_buffer_setitem(self, key, item)
+        _kernel_buffer_setitem(self, key, item)
 
 
 class KernelTracer(fx.Tracer):
     """Custom Tracer for generating a trace of a kernel computation."""
 
     def proxy(self, node: fx.Node) -> fx.Proxy:
-        if node.type == GlobalBuffer:
-            return GlobalBufferProxy(node, self)
+        if node.type == KernelBuffer:
+            return KernelBufferProxy(node, self)
         return super().proxy(node)
 
 
