@@ -15,8 +15,6 @@ import numpy as np
 from shark_turbine.aot import *
 import torch
 import torch._dynamo as dynamo
-from torch._export import dynamic_dim
-from torch._export.constraints import constrain_as_size, constrain_as_value
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import safetensors
