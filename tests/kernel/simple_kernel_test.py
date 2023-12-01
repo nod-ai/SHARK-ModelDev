@@ -8,21 +8,22 @@ import logging
 import unittest
 
 import torch
-import torch._dynamo as dynamo
 
 import shark_turbine.kernel as tk
 
 
 class Test(unittest.TestCase):
     def testIotaEager(self):
-        @tk.gen.thread(eager=True)
+        @tk.gen.thread
         def iota_kernel(out: tk.lang.GlobalBuffer):
             i = tk.lang.program_id(0)
             out[i] = i
 
-        gridded = iota_kernel(grid=(8,))
+        print("iota_kernel:", iota_kernel)
+        print("iota_kernel[8]:", iota_kernel[8])
+        print("iota_kernel[8, 1]:", iota_kernel[8, 1])
         out = torch.empty(8, dtype=torch.int32)
-        gridded(out)
+        iota_kernel[8](out)
         print(out)
 
     def testIotaFx(self):
@@ -31,7 +32,7 @@ class Test(unittest.TestCase):
             i = tk.lang.program_id(0)
             out[i] = i
 
-        print(iota_kernel.tk_trace.gm.graph)
+        print(iota_kernel._trace.gm.graph)
         # Prints:
         # .graph():
         #     %out : shark_turbine.kernel.lang.types.GlobalBuffer [num_users=1] = placeholder[target=out]
