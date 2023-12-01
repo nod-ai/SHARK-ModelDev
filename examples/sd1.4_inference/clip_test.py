@@ -58,28 +58,23 @@ def save_external_weights(
                 print("Saved params to", external_weight_file)
 
 
-def export_clip_model(
-    hf_model_name,
-    compile_to,
-    external_weights=None,
-    external_weight_file=None,
-):
+def export_clip_model(args):
     # Load the tokenizer and text encoder to tokenize and encode the text. 
     tokenizer = CLIPTokenizer.from_pretrained(
-        hf_model_name,
+        args.hf_model_name,
         subfolder="tokenizer"
     )
     text_encoder_model = CLIPTextModel.from_pretrained(
-        hf_model_name,
+        args.hf_model_name,
         subfolder="text_encoder"
     )
 
     mapper = {}
-    save_external_weights(mapper, text_encoder_model, external_weights, external_weight_file)
+    save_external_weights(mapper, text_encoder_model, args.external_weights, args.external_weight_file)
 
 
     class CompiledClip(CompiledModule):
-        if external_weights:
+        if args.external_weights:
             params = export_parameters(
                 text_encoder_model, external=True, external_scope="", name_mapper=mapper.get
             )
@@ -91,13 +86,13 @@ def export_clip_model(
                 inp
             )
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+    import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
+    safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
-    if compile_to != "vmfb":
+    if args.compile_to != "vmfb":
         return module_str, tokenizer
     else:
         flags = [
@@ -201,12 +196,7 @@ if __name__ == "__main__":
     if args.run_vmfb:
         run_clip_vmfb_comparison(args)
     else:
-        mod_str, _ = export_clip_model(
-            args.hf_model_name,
-            args.compile_to,
-            args.external_weights,
-            args.external_weight_file,
-        )
+        mod_str, _ = export_clip_model(args)
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
         with open(f"{safe_name}.mlir", "w+") as f:
