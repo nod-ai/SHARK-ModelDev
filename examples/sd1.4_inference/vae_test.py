@@ -22,6 +22,9 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
@@ -43,7 +46,8 @@ class VaeModel(torch.nn.Module):
         super().__init__()
         self.vae = AutoencoderKL.from_pretrained(
             args.hf_model_name,
-            subfolder="vae"
+            subfolder="vae",
+            token=args.hf_auth_token,
         )
 
     def forward(self, inp):
@@ -164,7 +168,7 @@ def run_vae_vmfb_comparison(args, vae_model):
     print(turbine_output.to_host(), turbine_output.to_host().shape, turbine_output.to_host().dtype)
 
     # Torch output
-    torch_output = vae_model.forward(inp)[0]
+    torch_output = vae_model.forward(inp)
     torch_output = torch_output.detach().cpu().numpy()
     print(torch_output, torch_output.shape, torch_output.dtype)
 

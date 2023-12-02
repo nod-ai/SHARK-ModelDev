@@ -22,6 +22,9 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
@@ -61,11 +64,13 @@ def export_clip_model(args):
     # Load the tokenizer and text encoder to tokenize and encode the text. 
     tokenizer = CLIPTokenizer.from_pretrained(
         args.hf_model_name,
-        subfolder="tokenizer"
+        subfolder="tokenizer",
+        token=args.hf_auth_token,
     )
     text_encoder_model = CLIPTextModel.from_pretrained(
         args.hf_model_name,
-        subfolder="text_encoder"
+        subfolder="text_encoder",
+        token=args.hf_auth_token,
     )
 
     mapper = {}
@@ -162,7 +167,8 @@ def run_clip_vmfb_comparison(args):
     )
     tokenizer = CLIPTokenizer.from_pretrained(
         args.hf_model_name,
-        subfolder="tokenizer"
+        subfolder="tokenizer",
+        token=args.hf_auth_token,
     )
     text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
     inp = text_input.input_ids
@@ -177,13 +183,14 @@ def run_clip_vmfb_comparison(args):
     # Torch output
     text_encoder_model = CLIPTextModel.from_pretrained(
         args.hf_model_name,
-        subfolder="text_encoder"
+        subfolder="text_encoder",
+        token=args.hf_auth_token,
     )
     torch_output = text_encoder_model.forward(inp)[0]
-    torch_output = torch_output.detach().cpu().numpy()
-    print(torch_output, torch_output.shape, torch_output.dtype)
+    np_torch_output = torch_output.detach().cpu().numpy()
+    print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
 
-    err = largest_error(torch_output, turbine_output)
+    err = largest_error(np_torch_output, turbine_output)
     print('LARGEST ERROR:', err)
     assert(err < 9e-5)
 

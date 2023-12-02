@@ -22,6 +22,9 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
@@ -41,7 +44,11 @@ parser.add_argument(
 class UnetModel(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.unet = UNet2DConditionModel.from_pretrained(args.hf_model_name, subfolder="unet")
+        self.unet = UNet2DConditionModel.from_pretrained(
+                        args.hf_model_name,
+                        subfolder="unet",
+                        token=args.hf_auth_token,
+                    )
         self.guidance_scale = 7.5
 
     def forward(self, sample, timestep, encoder_hidden_states):
