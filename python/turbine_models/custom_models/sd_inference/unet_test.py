@@ -41,19 +41,22 @@ parser.add_argument(
     help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
 )
 
+
 class UnetModel(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.unet = UNet2DConditionModel.from_pretrained(
-                        args.hf_model_name,
-                        subfolder="unet",
-                        token=args.hf_auth_token,
-                    )
+            args.hf_model_name,
+            subfolder="unet",
+            token=args.hf_auth_token,
+        )
         self.guidance_scale = 7.5
 
     def forward(self, sample, timestep, encoder_hidden_states):
         samples = torch.cat([sample] * 2)
-        unet_out = self.unet.forward(samples, timestep, encoder_hidden_states, return_dict=False)[0]
+        unet_out = self.unet.forward(
+            samples, timestep, encoder_hidden_states, return_dict=False
+        )[0]
         noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
         noise_pred = noise_pred_uncond + self.guidance_scale * (
             noise_pred_text - noise_pred_uncond
@@ -79,9 +82,12 @@ def save_external_weights(
 
 def export_unet_model(args, unet_model):
     mapper = {}
-    save_external_weights(mapper, unet_model, args.external_weights, args.external_weight_file)
+    save_external_weights(
+        mapper, unet_model, args.external_weights, args.external_weight_file
+    )
 
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
+
         class CompiledUnet(CompiledModule):
             if args.external_weights:
                 params = export_parameters(
@@ -90,13 +96,18 @@ def export_unet_model(args, unet_model):
             else:
                 params = export_parameters(unet_model)
 
-            def main(self, sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
-                    timestep=AbstractTensor(1, dtype=torch.float32),
-                    encoder_hidden_states=AbstractTensor(2, 77, 768, dtype=torch.float32)):
+            def main(
+                self,
+                sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
+                timestep=AbstractTensor(1, dtype=torch.float32),
+                encoder_hidden_states=AbstractTensor(2, 77, 768, dtype=torch.float32),
+            ):
                 return jittable(unet_model.forward)(
                     sample, timestep, encoder_hidden_states
                 )
+
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
+
         class CompiledUnet(CompiledModule):
             if args.external_weights:
                 params = export_parameters(
@@ -105,13 +116,15 @@ def export_unet_model(args, unet_model):
             else:
                 params = export_parameters(unet_model)
 
-            def main(self, sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
-                    timestep=AbstractTensor(1, dtype=torch.float32),
-                    encoder_hidden_states=AbstractTensor(2, 77, 1024, dtype=torch.float32)):
+            def main(
+                self,
+                sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
+                timestep=AbstractTensor(1, dtype=torch.float32),
+                encoder_hidden_states=AbstractTensor(2, 77, 1024, dtype=torch.float32),
+            ):
                 return jittable(unet_model.forward)(
                     sample, timestep, encoder_hidden_states
                 )
-    
 
     import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
@@ -177,7 +190,7 @@ def run_unet_vmfb_comparison(args):
             config.vm_instance, index.create_provider(scope="model")
         )
         vm_modules.insert(0, param_module)
-    
+
     ctx = ireert.SystemContext(
         vm_modules=vm_modules,
         config=config,
@@ -188,15 +201,21 @@ def run_unet_vmfb_comparison(args):
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
         encoder_hidden_states = torch.rand(2, 77, 1024, dtype=torch.float32)
-    
-    device_inputs = [ireert.asdevicearray(config.device, sample),
-                    ireert.asdevicearray(config.device, timestep),
-                    ireert.asdevicearray(config.device, encoder_hidden_states)]
+
+    device_inputs = [
+        ireert.asdevicearray(config.device, sample),
+        ireert.asdevicearray(config.device, timestep),
+        ireert.asdevicearray(config.device, encoder_hidden_states),
+    ]
 
     # Turbine output
     ModuleCompiled = ctx.modules.compiled_unet
     turbine_output = ModuleCompiled["main"](*device_inputs)
-    print(turbine_output.to_host(), turbine_output.to_host().shape, turbine_output.to_host().dtype)
+    print(
+        turbine_output.to_host(),
+        turbine_output.to_host().shape,
+        turbine_output.to_host().dtype,
+    )
 
     # Torch output
     torch_output = unet_model.forward(sample, timestep, encoder_hidden_states)
@@ -204,8 +223,8 @@ def run_unet_vmfb_comparison(args):
     print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
 
     err = largest_error(np_torch_output, turbine_output)
-    print('LARGEST ERROR:', err)
-    assert(err < 9e-5)
+    print("LARGEST ERROR:", err)
+    assert err < 9e-5
 
 
 def largest_error(array1, array2):

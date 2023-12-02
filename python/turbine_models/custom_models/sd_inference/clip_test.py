@@ -61,7 +61,7 @@ def save_external_weights(
 
 
 def export_clip_model(args):
-    # Load the tokenizer and text encoder to tokenize and encode the text. 
+    # Load the tokenizer and text encoder to tokenize and encode the text.
     tokenizer = CLIPTokenizer.from_pretrained(
         args.hf_model_name,
         subfolder="tokenizer",
@@ -74,21 +74,23 @@ def export_clip_model(args):
     )
 
     mapper = {}
-    save_external_weights(mapper, text_encoder_model, args.external_weights, args.external_weight_file)
-
+    save_external_weights(
+        mapper, text_encoder_model, args.external_weights, args.external_weight_file
+    )
 
     class CompiledClip(CompiledModule):
         if args.external_weights:
             params = export_parameters(
-                text_encoder_model, external=True, external_scope="", name_mapper=mapper.get
+                text_encoder_model,
+                external=True,
+                external_scope="",
+                name_mapper=mapper.get,
             )
         else:
             params = export_parameters(text_encoder_model)
 
         def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
-            return jittable(text_encoder_model.forward)(
-                inp
-            )
+            return jittable(text_encoder_model.forward)(inp)
 
     import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
@@ -160,7 +162,7 @@ def run_clip_vmfb_comparison(args):
             config.vm_instance, index.create_provider(scope="model")
         )
         vm_modules.insert(0, param_module)
-    
+
     ctx = ireert.SystemContext(
         vm_modules=vm_modules,
         config=config,
@@ -170,7 +172,13 @@ def run_clip_vmfb_comparison(args):
         subfolder="tokenizer",
         token=args.hf_auth_token,
     )
-    text_input = tokenizer(prompt, padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
+    text_input = tokenizer(
+        prompt,
+        padding="max_length",
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+        return_tensors="pt",
+    )
     inp = text_input.input_ids
     device_inputs = [ireert.asdevicearray(config.device, inp)]
 
@@ -178,7 +186,11 @@ def run_clip_vmfb_comparison(args):
     ModuleCompiled = ctx.modules.compiled_clip
     turbine_outputs = ModuleCompiled["main"](*device_inputs)
     turbine_output = turbine_outputs[0]
-    print(turbine_output.to_host(), turbine_output.to_host().shape, turbine_output.to_host().dtype)
+    print(
+        turbine_output.to_host(),
+        turbine_output.to_host().shape,
+        turbine_output.to_host().dtype,
+    )
 
     # Torch output
     text_encoder_model = CLIPTextModel.from_pretrained(
@@ -191,8 +203,8 @@ def run_clip_vmfb_comparison(args):
     print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
 
     err = largest_error(np_torch_output, turbine_output)
-    print('LARGEST ERROR:', err)
-    assert(err < 9e-5)
+    print("LARGEST ERROR:", err)
+    assert err < 9e-5
 
 
 if __name__ == "__main__":

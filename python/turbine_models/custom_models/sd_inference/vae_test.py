@@ -41,6 +41,7 @@ parser.add_argument(
     help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
 )
 
+
 class VaeModel(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
@@ -74,15 +75,15 @@ def save_external_weights(
 
 def export_vae_model(args, vae_model):
     mapper = {}
-    save_external_weights(mapper, vae_model, args.external_weights, args.external_weight_file)
+    save_external_weights(
+        mapper, vae_model, args.external_weights, args.external_weight_file
+    )
 
     class CompiledVae(CompiledModule):
         params = export_parameters(vae_model)
 
         def main(self, inp=AbstractTensor(1, 4, 64, 64, dtype=torch.float32)):
-            return jittable(vae_model.forward)(
-                inp
-            )
+            return jittable(vae_model.forward)(inp)
 
     import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
     inst = CompiledVae(context=Context(), import_to=import_to)
@@ -154,7 +155,7 @@ def run_vae_vmfb_comparison(args, vae_model):
             config.vm_instance, index.create_provider(scope="model")
         )
         vm_modules.insert(0, param_module)
-    
+
     ctx = ireert.SystemContext(
         vm_modules=vm_modules,
         config=config,
@@ -165,7 +166,11 @@ def run_vae_vmfb_comparison(args, vae_model):
     # Turbine output
     ModuleCompiled = ctx.modules.compiled_vae
     turbine_output = ModuleCompiled["main"](*device_inputs)
-    print(turbine_output.to_host(), turbine_output.to_host().shape, turbine_output.to_host().dtype)
+    print(
+        turbine_output.to_host(),
+        turbine_output.to_host().shape,
+        turbine_output.to_host().dtype,
+    )
 
     # Torch output
     torch_output = vae_model.forward(inp)
@@ -173,8 +178,8 @@ def run_vae_vmfb_comparison(args, vae_model):
     print(torch_output, torch_output.shape, torch_output.dtype)
 
     err = largest_error(torch_output, turbine_output)
-    print('LARGEST ERROR:', err)
-    assert(err < 9e-5)
+    print("LARGEST ERROR:", err)
+    assert err < 9e-5
 
 
 if __name__ == "__main__":
