@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, TypeVar, Callable, assert_type, cast
+from typing import Optional, TypeVar, Callable, Type, assert_type, cast
 
 import functools
 import threading
@@ -9,7 +9,6 @@ import torch.fx as fx
 
 from ..lang.types import (
     KernelBuffer,
-    Grid,
 )
 
 _tls = threading.local()
@@ -34,6 +33,15 @@ def _kernel_buffer_setitem(kernel_buffer: KernelBuffer, key, item) -> None:
 class KernelBufferProxy(fx.Proxy):
     """Custom proxy for KernelBuffer so that we can override special methods."""
 
+    def __init__(
+        self, node: fx.Node, tracer: "KernelTracer", orig_type: Type[KernelBuffer]
+    ):
+        super().__init__(node, tracer)
+        self._orig_type = orig_type
+        # The shape and rank are statically available (not proxied).
+        self.symbolic_shape = orig_type.symbolic_shape
+        self.rank = orig_type.rank
+
     def __setitem__(self, key, item):
         _kernel_buffer_setitem(self, key, item)
 
@@ -42,8 +50,9 @@ class KernelTracer(fx.Tracer):
     """Custom Tracer for generating a trace of a kernel computation."""
 
     def proxy(self, node: fx.Node) -> fx.Proxy:
-        if node.type == KernelBuffer:
-            return KernelBufferProxy(node, self)
+        t = node.type
+        if t is not None and issubclass(t, KernelBuffer):
+            return KernelBufferProxy(node, self, t)
         return super().proxy(node)
 
 

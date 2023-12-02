@@ -1,6 +1,6 @@
-from typing import Generic, Optional, TypeVar, Callable, Union, assert_type, cast
+from typing import Generic, Optional, Type, TypeVar, Callable, Union, assert_type, cast
 
-import functools
+import inspect
 import math
 
 import torch.fx as fx
@@ -8,6 +8,7 @@ import torch.fx as fx
 from ..lang import (
     KernelBuffer,
     Grid,
+    SymbolDef,
 )
 
 from .._support.tracing import (
@@ -25,26 +26,39 @@ __all__ = [
 TCallable = TypeVar("TCallable", bound=Callable)
 
 
-def thread(f: TCallable) -> TCallable:
-    # Eagerly capture the trace and attach it to the wrapped function.
-    tracer = KernelTracer()
-    with CompiledContext(tracer) as context:
-        g = tracer.trace(f)
-        gm = fx.GraphModule(tracer.root, g, f.__name__)
+def thread(*symbolic_shape: SymbolDef):
+    GridType = Grid[symbolic_shape]
 
-    return UnconfiguredThread[TCallable](f.__name__, f, CapturedTrace(gm))
+    def decorator(f: Optional[TCallable] = None) -> TCallable:
+        # Eagerly capture the trace and attach it to the wrapped function.
+        tracer = KernelTracer()
+        with CompiledContext(tracer) as context:
+            g = tracer.trace(f)
+            gm = fx.GraphModule(tracer.root, g, f.__name__)
+
+        return UnconfiguredThread[TCallable](GridType, f.__name__, f, CapturedTrace(gm))
+
+    return decorator
 
 
 class UnconfiguredThread(Generic[TCallable]):
-    def __init__(self, name: str, wrapped_f: TCallable, trace: CapturedTrace):
+    def __init__(
+        self,
+        grid_type: Type[Grid],
+        name: str,
+        wrapped_f: TCallable,
+        trace: CapturedTrace,
+    ):
+        self._grid_type = grid_type
         self._name = name
         self._wrapped_f = wrapped_f
         self._trace = trace
 
-    def __getitem__(self, grid: Union[int, Grid]) -> TCallable:
-        if isinstance(grid, int):
+    def __getitem__(self, grid: Union[int, tuple[int]]) -> TCallable:
+        if not isinstance(grid, tuple):
             grid = (grid,)
         assert isinstance(grid, tuple) and all(isinstance(i, int) for i in grid)
+        grid = self._grid_type(*grid)
         return cast(
             TCallable, LaunchableThread(grid, self._name, self._wrapped_f, self._trace)
         )
@@ -61,16 +75,25 @@ class LaunchableThread(Launchable):
         self.grid = grid
         self._name = name
         self._trace = trace
+        self._sig = inspect.signature(eager_function)
 
     def eager_execute(self, args, kwargs):
         grid = self.grid
-        rank = len(grid)
+        rank = grid.rank
         with EagerContext(rank=rank) as context:
+            sig = self._sig
+            bound = sig.bind(*args, *kwargs)
+            bound.apply_defaults()
             # Transform args to KernelBuffers.
-            buffer_args = [
-                arg if isinstance(arg, KernelBuffer) else KernelBuffer(arg)
-                for arg in args
-            ]
+            for arg_name in list(bound.arguments.keys()):
+                arg_value = bound.arguments[arg_name]
+                param = sig.parameters[arg_name]
+                param_type = param.annotation
+                if isinstance(param_type, type) and issubclass(
+                    param_type, KernelBuffer
+                ):
+                    kernel_buffer = param_type(arg_value)
+                    bound.arguments[arg_name] = kernel_buffer
             volume = math.prod(grid)
             current_thread = context.current_thread
             for it in range(volume):
@@ -78,7 +101,7 @@ class LaunchableThread(Launchable):
                     current_thread[i] = it // grid[i]
                     it = it % grid[i]
                 current_thread[-1] = it
-                self._eager_function(*buffer_args, **kwargs)
+                self._eager_function(*bound.args, **bound.kwargs)
 
     def __repr__(self):
         return f"tk.gen.thread @{self._name}[{', '.join(str(i) for i in self.grid)}]"
