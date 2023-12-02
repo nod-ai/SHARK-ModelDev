@@ -11,24 +11,24 @@ import torch
 
 import shark_turbine.kernel as tk
 
+M = tk.lang.sym.M
+K = tk.lang.sym.K
+
 
 class Test(unittest.TestCase):
     def testIotaEager(self):
-        @tk.gen.thread
-        def iota_kernel(out: tk.lang.KernelBuffer):
+        @tk.gen.thread(M)
+        def iota_kernel(out: tk.lang.KernelBuffer[M]):
             i = tk.lang.program_id(0)
             out[i] = i
 
-        print("iota_kernel:", iota_kernel)
-        print("iota_kernel[8]:", iota_kernel[8])
-        print("iota_kernel[8, 1]:", iota_kernel[8, 1])
         out = torch.empty(8, dtype=torch.int32)
         iota_kernel[8](out)
         print(out)
 
     def testIotaFx(self):
-        @tk.gen.thread
-        def iota_kernel(out: tk.lang.KernelBuffer):
+        @tk.gen.thread(M)
+        def iota_kernel(out: tk.lang.KernelBuffer[M]):
             i = tk.lang.program_id(0)
             out[i] = i
 
@@ -41,8 +41,10 @@ class Test(unittest.TestCase):
         #     return None
 
     def testSoftmax(self):
-        @tk.gen.thread
-        def softmax_kernel(input: tk.lang.KernelBuffer, output: tk.lang.KernelBuffer):
+        @tk.gen.thread(M)
+        def softmax_kernel(
+            input: tk.lang.KernelBuffer[M, K], output: tk.lang.KernelBuffer[M, K]
+        ):
             row_index = tk.lang.program_id(0)
             input_row = input[row_index, :]
             numerator = torch.exp(input_row - torch.max(input_row))
