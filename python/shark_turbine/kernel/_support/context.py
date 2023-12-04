@@ -41,7 +41,10 @@ def current(context_type: Type[T]) -> T:
 
     Raises IndexError on failure.
     """
-    stack: list = getattr(_tls, context_type.__tk_context_idname__)
+    try:
+        stack: list = getattr(_tls, context_type.__tk_context_idname__)
+    except AttributeError:
+        raise IndexError(f"No current context for {context_type}")
     try:
         instance = stack[-1]
     except IndexError:

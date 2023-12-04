@@ -10,6 +10,11 @@ from .indexing import (
     KernelBuffer,
 )
 
+from .. import ops
+from ..ops.base import (
+    OpDispatcher,
+)
+
 from . import context
 
 TCallable = TypeVar("TCallable", bound=Callable)
@@ -68,7 +73,7 @@ class CapturedTrace:
 ###############################################################################
 
 
-class BaseContext:
+class BaseContext(OpDispatcher):
     __tk_context_idname__ = "ExecutionContext"
 
     def __init__(self, *, eager: bool):
@@ -79,9 +84,11 @@ class BaseContext:
         return context.current(BaseContext)
 
     def __enter__(self) -> "BaseContext":
+        context.push(OpDispatcher, self)
         return context.push(BaseContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        context.pop(OpDispatcher, self)
         context.pop(BaseContext, self)
 
 
@@ -91,11 +98,20 @@ class EagerContext(BaseContext):
         self.rank = rank
         self.current_thread: list[int] = rank * [0]
 
+    def handle_thread_program_id(self, op, axis: int):
+        assert axis >= 0 and axis < self.rank
+        return self.current_thread[axis]
+
 
 class CompiledContext(BaseContext):
     def __init__(self, tracer: KernelTracer):
         super().__init__(eager=False)
         self.tracer = tracer
+
+    def handle_thread_program_id(self, op, axis: int):
+        proxy = self.tracer.create_proxy("call_function", op, (axis,), {})
+        return proxy
+
 
 
 ###############################################################################
