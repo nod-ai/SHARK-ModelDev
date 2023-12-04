@@ -5,6 +5,8 @@ from enum import Enum
 
 import torch
 
+from .. import ops
+
 from . import context
 
 __all__ = [
@@ -328,10 +330,10 @@ class KernelBuffer(metaclass=_KernelBufferMeta):
         return f"{type(self)}({self._tensor})"
 
     def __setitem__(self, key, item):
-        self._tensor.__setitem__(key, item)
+        ops.kernel_buffer_setitem(self, key, item)
 
     def __getitem__(self, key):
-        return self._tensor.__getitem__(key)
+        return ops.kernel_buffer_getitem(self, key)
 
 
 class InputBuffer(KernelBuffer):

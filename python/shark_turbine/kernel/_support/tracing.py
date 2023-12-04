@@ -20,17 +20,6 @@ from . import context
 TCallable = TypeVar("TCallable", bound=Callable)
 
 ###############################################################################
-# Wrapped tracing trampolines for proxy objects.
-# These only get called during tracing of proxy objects.
-###############################################################################
-
-
-@fx.wrap
-def _kernel_buffer_setitem(kernel_buffer: KernelBuffer, key, item) -> None:
-    ...
-
-
-###############################################################################
 # Tracing machinery
 ###############################################################################
 
@@ -47,8 +36,11 @@ class KernelBufferProxy(fx.Proxy):
         self.symbolic_shape = orig_type.symbolic_shape
         self.rank = orig_type.rank
 
+    def __getitem__(self, key):
+        return ops.kernel_buffer_getitem(self, key)
+
     def __setitem__(self, key, item):
-        _kernel_buffer_setitem(self, key, item)
+        ops.kernel_buffer_setitem(self, key, item)
 
 
 class KernelTracer(fx.Tracer):
@@ -102,6 +94,12 @@ class EagerContext(BaseContext):
         assert axis >= 0 and axis < self.rank
         return self.current_thread[axis]
 
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+        return kernel_buffer._tensor.__getitem__(key)
+
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+        kernel_buffer._tensor.__setitem__(key, item)
+
 
 class CompiledContext(BaseContext):
     def __init__(self, tracer: KernelTracer):
@@ -109,9 +107,24 @@ class CompiledContext(BaseContext):
         self.tracer = tracer
 
     def handle_thread_program_id(self, op, axis: int):
-        proxy = self.tracer.create_proxy("call_function", op, (axis,), {})
+        proxy = self.tracer.create_proxy("call_function", op, args=(axis,), kwargs={})
         return proxy
 
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+        return self.tracer.create_proxy(
+            "call_function",
+            op,
+            args=(kernel_buffer, key),
+            kwargs={},
+        )
+
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+        self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(kernel_buffer, key, item),
+            kwargs={},
+        )
 
 
 ###############################################################################
@@ -139,6 +152,7 @@ class Launchable(ABC):
 
 class LaunchContext(ABC):
     __tk_context_idname__ = "ExecutionContext"
+
     @staticmethod
     def current() -> "LaunchContext":
         try:
