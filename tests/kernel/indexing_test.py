@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from shark_turbine.kernel.lang.types import *
+from shark_turbine.kernel._support.indexing import *
 
 M = sym.M
 N = sym.N

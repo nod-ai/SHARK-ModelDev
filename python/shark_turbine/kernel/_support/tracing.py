@@ -7,7 +7,7 @@ import warnings
 
 import torch.fx as fx
 
-from ..lang.types import (
+from .indexing import (
     KernelBuffer,
 )
 
