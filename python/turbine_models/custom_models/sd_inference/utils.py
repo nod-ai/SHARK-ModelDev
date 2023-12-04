@@ -1,6 +1,7 @@
 import numpy as np
 import safetensors
 
+
 def save_external_weights(
     mapper,
     model,
