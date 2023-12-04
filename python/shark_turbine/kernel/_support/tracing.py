@@ -10,6 +10,10 @@ from .indexing import (
     KernelBuffer,
 )
 
+from ..lang.types import (
+    Index,
+)
+
 from .. import ops
 from ..ops.base import (
     OpDispatcher,
@@ -90,9 +94,9 @@ class EagerContext(BaseContext):
         self.rank = rank
         self.current_thread: list[int] = rank * [0]
 
-    def handle_thread_program_id(self, op, axis: int):
+    def handle_thread_program_id(self, op, axis: int) -> int:
         assert axis >= 0 and axis < self.rank
-        return self.current_thread[axis]
+        return Index(self.current_thread[axis])
 
     def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
         return kernel_buffer._tensor.__getitem__(key)
@@ -106,8 +110,10 @@ class CompiledContext(BaseContext):
         super().__init__(eager=False)
         self.tracer = tracer
 
-    def handle_thread_program_id(self, op, axis: int):
-        proxy = self.tracer.create_proxy("call_function", op, args=(axis,), kwargs={})
+    def handle_thread_program_id(self, op, axis: int) -> Index:
+        proxy = self.tracer.create_proxy(
+            "call_function", op, args=(axis,), kwargs={}, type_expr=Index
+        )
         return proxy
 
     def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):

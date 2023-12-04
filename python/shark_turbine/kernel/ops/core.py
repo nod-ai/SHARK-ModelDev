@@ -1,6 +1,8 @@
 from typing import Any
 
-from torch import fx
+from ..lang.types import (
+    Index,
+)
 
 from .base import (
     define_op,
@@ -24,5 +26,5 @@ def kernel_buffer_setitem(kernel_buffer, key, item) -> None:
 
 
 @define_op
-def thread_program_id() -> int:
+def thread_program_id() -> Index:
     ...

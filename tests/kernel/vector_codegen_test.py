@@ -1,8 +1,6 @@
 import logging
 import unittest
 
-import torch
-
 import shark_turbine.kernel as tk
 
 from shark_turbine.kernel.compiler import (
@@ -24,7 +22,7 @@ class Test(unittest.TestCase):
         @tk.gen.thread(M)
         def iota_kernel(out: tk.lang.OutputBuffer[M]):
             i = tk.lang.program_id(0)
-            out[i] = i
+            out[i] = i + 1
 
         gm = iota_kernel._trace.gm
         print(gm.graph)
