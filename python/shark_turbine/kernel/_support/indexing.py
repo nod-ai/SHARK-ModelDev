@@ -1,15 +1,71 @@
-from typing import ClassVar, Optional, Type, TypeVar, Union, cast
+from typing import Any, ClassVar, Optional, Type, TypeVar, Union, cast
+
+from abc import ABC, abstractmethod
+from enum import Enum
+import threading
+
 import torch
 
 __all__ = [
     "KernelBuffer",
     "Grid",
+    "InputBuffer",
+    "OutputBuffer",
     "SymbolDef",
+    "TemporaryBuffer",
     "sym",
 ]
 
-Grid = tuple[int, ...]
+_tls = threading.local()
 
+
+class NotSetType:
+    ...
+
+
+NotSet = NotSetType()
+
+SubtypeT = TypeVar("SubtypeT")
+
+###############################################################################
+# ElementType
+###############################################################################
+
+
+class ElementType(ABC):
+    @staticmethod
+    def cast(something) -> "ElementType":
+        if isinstance(something, torch.dtyp):
+            return TorchElementType(something)
+        else:
+            raise TypeError(
+                f"Cannot convert {something} (of type {type(something)}) to an element type"
+            )
+
+    @abstractmethod
+    def ir_type_asm(self) -> str:
+        ...
+
+
+class TorchElementType(ElementType):
+    def __init__(self, dtype: torch.dtype):
+        self.dtype = dtype
+
+    def __repr__(self):
+        return repr(self.dtype)
+
+    def __eq__(self, other):
+        return isinstance(other, TorchElementType) and self.dtype == other.dtype
+
+    def ir_type_asm(self) -> str:
+        dtype = self.dtype
+        if dtype == torch.float32:
+            return "f32"
+        else:
+            raise ValueError(f"Torch dtype {dtype} cannot be mapped to MLIR type")
+
+
+DefaultElementType = TorchElementType(torch.float32)
 
 ###############################################################################
 # Dimension symbols
@@ -127,41 +183,114 @@ def _make_shaped_grid(cls: Type[Grid], symbolic_shape: tuple[SymbolDef]):
 ###############################################################################
 
 
+class KernelBufferUsage(Enum):
+    NONE = 0
+    INPUT = 1
+    OUTPUT = 2
+    TEMPORARY = 3
+
+    @staticmethod
+    def _type_name(v) -> str:
+        if v == KernelBufferUsage.NONE:
+            return "KernelBuffer"
+        elif v == KernelBufferUsage.INPUT:
+            return "InputBuffer"
+        elif v == KernelBufferUsage.OUTPUT:
+            return "OutputBuffer"
+        elif v == KernelBufferUsage.TEMPORARY:
+            return "TemporaryBuffer"
+        else:
+            raise AssertionError(f"uncovered KernelBufferUsage enum ({v})")
+
+
 class _KernelBufferMeta(type):
     """Meta-class for kernel buffers.
 
     This lets us specialize with symbolic shape information.
     """
 
+    element_type: ElementType
+    usage: KernelBufferUsage
+    symbolic_shape: Optional[tuple[SymbolDef]]
+    rank: Optional[int]
+
     def __new__(
         mcls,
         name: str,
         bases,
         dct,
-        *,
-        symbolic_shape: Optional[tuple[SymbolDef]],
     ):
+        element_type = dct.get("element_type") or DefaultElementType
+        dct["element_type"] = element_type
+        usage = dct.get("usage") or KernelBufferUsage.NONE
+        dct["usage"] = usage
+        if "usage" not in dct:
+            dct["usage"] = KernelBufferUsage.NONE
+        symbolic_shape = dct.get("symbolic_shape")
+        dct["symbolic_shape"] = symbolic_shape
+        dct["rank"] = len(symbolic_shape) if symbolic_shape is not None else None
+        dct["__qualname__"] = _kernel_buffer_type_repr(
+            element_type=element_type, usage=usage, symbolic_shape=symbolic_shape
+        )
         new_class = type.__new__(mcls, name, bases, dct)
-        new_class.symbolic_shape = symbolic_shape
-        new_class.rank = len(symbolic_shape) if symbolic_shape is not None else None
-        new_class.__qualname__ = repr(new_class)
         return new_class
 
-    def __class_getitem__(
-        cls, symbolic_shape: Union[SymbolDef, tuple[SymbolDef]]
-    ) -> Type["KernelBuffer"]:
-        if not isinstance(symbolic_shape, tuple):
-            symbolic_shape = (symbolic_shape,)
-        return cast(KernelBuffer, _make_shaped_kernel_buffer(cls, symbolic_shape))
+    def new_subtype(
+        cls: Type[SubtypeT],
+        *,
+        element_type: Union[NotSetType, ElementType] = NotSet,
+        symbolic_shape: Union[NotSetType, Optional[tuple[SymbolDef]]] = NotSet,
+        usage: Union[NotSetType, KernelBufferUsage] = NotSet,
+    ) -> Type[SubtypeT]:
+        init_element_type = (
+            element_type if element_type is not NotSet else cls.element_type
+        )
+        init_symbolic_shape = (
+            symbolic_shape if symbolic_shape is not NotSet else cls.symbolic_shape
+        )
+        init_usage = usage if usage is not NotSet else cls.usage
 
-    def __repr__(self):
-        if self.symbolic_shape:
-            return f"KernelBuffer[{', '.join(s.name for s in self.symbolic_shape)}]"
-        else:
-            return "KernelBuffer"
+        class Subtype(cls):
+            element_type = init_element_type
+            symbolic_shape = init_symbolic_shape
+            usage = init_usage
+
+        return Subtype
+
+    def of(
+        cls: Type[SubtypeT], element_type: Union[Any, ElementType, torch.dtype]
+    ) -> Type[SubtypeT]:
+        return cls.new_subtype(element_type=element_type)
+
+    def __repr__(cls):
+        return _kernel_buffer_type_repr(
+            element_type=cls.element_type,
+            usage=cls.usage,
+            symbolic_shape=cls.symbolic_shape,
+        )
 
 
-class KernelBuffer(metaclass=_KernelBufferMeta, symbolic_shape=None):
+def _is_kernel_buffer_meta_derived(t: type) -> bool:
+    return isinstance(t, _KernelBufferMeta)
+
+
+def _kernel_buffer_type_repr(
+    *,
+    element_type: ElementType,
+    usage: KernelBufferUsage,
+    symbolic_shape: Optional[tuple[SymbolDef]],
+) -> str:
+    root = KernelBufferUsage._type_name(usage)
+    if symbolic_shape:
+        stem = f"{root}[{', '.join(s.name for s in symbolic_shape)}]"
+    else:
+        stem = f"{root}"
+    if element_type != DefaultElementType:
+        stem += f".of({element_type})"
+    return stem
+
+
+class KernelBuffer(metaclass=_KernelBufferMeta):
     """Represents a buffer in global memory.
 
     Top level kernels always operate on global memory via these
@@ -174,8 +303,9 @@ class KernelBuffer(metaclass=_KernelBufferMeta, symbolic_shape=None):
     is used.
     """
 
+    usage: ClassVar[KernelBufferUsage]
     symbolic_shape: ClassVar[Optional[tuple[SymbolDef]]]
-    rank: int
+    rank: Optional[int]
 
     def __init__(self, tensor: torch.Tensor):
         assert isinstance(tensor, torch.Tensor), f"Expected Tensor but got {tensor}"
@@ -188,6 +318,13 @@ class KernelBuffer(metaclass=_KernelBufferMeta, symbolic_shape=None):
         self._tensor = tensor
         self.rank = tensor_rank
 
+    def __class_getitem__(
+        cls, symbolic_shape: Union[SymbolDef, tuple[SymbolDef]]
+    ) -> Type["KernelBuffer"]:
+        if not isinstance(symbolic_shape, tuple):
+            symbolic_shape = (symbolic_shape,)
+        return cast(cls, cls.new_subtype(symbolic_shape=symbolic_shape))
+
     def __repr__(self):
         return f"{type(self)}({self._tensor})"
 
@@ -198,10 +335,59 @@ class KernelBuffer(metaclass=_KernelBufferMeta, symbolic_shape=None):
         return self._tensor.__getitem__(key)
 
 
-def _make_shaped_kernel_buffer(
-    cls: Type[KernelBuffer], symbolic_shape: tuple[SymbolDef]
-):
-    class ShapedKernelBuffer(KernelBuffer, symbolic_shape=symbolic_shape):
-        ...
+class InputBuffer(KernelBuffer):
+    usage = KernelBufferUsage.INPUT
 
-    return ShapedKernelBuffer
+
+class OutputBuffer(KernelBuffer):
+    usage = KernelBufferUsage.OUTPUT
+
+
+class TemporaryBuffer(KernelBuffer):
+    usage = KernelBufferUsage.TEMPORARY
+
+
+###############################################################################
+# IndexingContext
+###############################################################################
+
+
+class IndexingContext:
+    """The indexing context is responsible handling the binding of indexed
+    symbols to concrete values.
+    """
+
+    def __init__(self):
+        self.constant_bindings: dict[SymbolDef, int] = {}
+
+    def bind_constant(self, sym: SymbolDef, value: int):
+        existing = self.constant_bindings.get(sym)
+        if existing is not None and existing != value:
+            raise ValueError(
+                f"Attempt to rebind symbol {sym} to different constant ({value} vs {existing})"
+            )
+        self.constant_bindings[sym] = value
+
+    def get_static_value(self, sym: SymbolDef) -> Optional[int]:
+        """If the symbol can be resolved to a static value, returns it."""
+        return self.constant_bindings.get(sym)
+
+    ##### Context management.
+    @staticmethod
+    def current() -> "IndexingContext":
+        try:
+            return _tls.indexing_stack[-1]
+        except (AttributeError, IndexError):
+            raise AssertionError("no IndexingContext is active")
+
+    def __enter__(self) -> "IndexingContext":
+        try:
+            stack = _tls.indexing_stack
+        except AttributeError:
+            stack = []
+            _tls.indexing_stack = stack
+        stack.append(self)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _tls.indexing_stack.pop()

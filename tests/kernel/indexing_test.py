@@ -61,6 +61,10 @@ class Test(unittest.TestCase):
         self.assertEqual(1, kb.rank)
         self.assertEqual((M,), kb.symbolic_shape)
 
+    def testUsageAndElementTypeInstance(self):
+        T = InputBuffer[M].of(torch.float16)
+        self.assertEqual("InputBuffer[M].of(torch.float16)", repr(T))
+
 
 if __name__ == "__main__":
     unittest.main()
