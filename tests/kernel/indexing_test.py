@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from shark_turbine.kernel.lang.types import *
+from shark_turbine.kernel._support.indexing import *
 
 M = sym.M
 N = sym.N
@@ -60,6 +60,10 @@ class Test(unittest.TestCase):
         kb = T1(torch.empty((3,)))
         self.assertEqual(1, kb.rank)
         self.assertEqual((M,), kb.symbolic_shape)
+
+    def testUsageAndElementTypeInstance(self):
+        T = InputBuffer[M].of(torch.float16)
+        self.assertEqual("InputBuffer[M].of(torch.float16)", repr(T))
 
 
 if __name__ == "__main__":

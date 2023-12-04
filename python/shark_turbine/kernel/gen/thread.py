@@ -29,7 +29,7 @@ TCallable = TypeVar("TCallable", bound=Callable)
 def thread(*symbolic_shape: SymbolDef):
     GridType = Grid[symbolic_shape]
 
-    def decorator(f: Optional[TCallable] = None) -> TCallable:
+    def decorator(f: Optional[TCallable] = None) -> "UnconfiguredThread[TCallable]":
         # Eagerly capture the trace and attach it to the wrapped function.
         tracer = KernelTracer()
         with CompiledContext(tracer) as context:
@@ -49,7 +49,7 @@ class UnconfiguredThread(Generic[TCallable]):
         wrapped_f: TCallable,
         trace: CapturedTrace,
     ):
-        self._grid_type = grid_type
+        self.grid_type = grid_type
         self._name = name
         self._wrapped_f = wrapped_f
         self._trace = trace
@@ -58,7 +58,7 @@ class UnconfiguredThread(Generic[TCallable]):
         if not isinstance(grid, tuple):
             grid = (grid,)
         assert isinstance(grid, tuple) and all(isinstance(i, int) for i in grid)
-        grid = self._grid_type(*grid)
+        grid = self.grid_type(*grid)
         return cast(
             TCallable, LaunchableThread(grid, self._name, self._wrapped_f, self._trace)
         )
@@ -73,6 +73,7 @@ class LaunchableThread(Launchable):
     ):
         super().__init__(eager_function)
         self.grid = grid
+        self.grid_type = type(grid)
         self._name = name
         self._trace = trace
         self._sig = inspect.signature(eager_function)
