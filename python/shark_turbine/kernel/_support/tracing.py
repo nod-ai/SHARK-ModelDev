@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Optional, TypeVar, Callable, Type, assert_type, cast
 
 import functools
-import threading
 import warnings
 
 import torch.fx as fx
@@ -11,7 +10,8 @@ from .indexing import (
     KernelBuffer,
 )
 
-_tls = threading.local()
+from . import context
+
 TCallable = TypeVar("TCallable", bound=Callable)
 
 ###############################################################################
@@ -69,27 +69,20 @@ class CapturedTrace:
 
 
 class BaseContext:
+    __tk_context_idname__ = "ExecutionContext"
+
     def __init__(self, *, eager: bool):
         self.eager = eager
 
     @staticmethod
     def current() -> "BaseContext":
-        try:
-            return _tls.context[-1]
-        except (AttributeError, IndexError):
-            raise RuntimeError("No context is on the stack")
+        return context.current(BaseContext)
 
     def __enter__(self) -> "BaseContext":
-        try:
-            stack = _tls.context
-        except AttributeError:
-            stack = []
-            _tls.context = stack
-        stack.append(self)
-        return self
+        return context.push(BaseContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _tls.context.pop()
+        context.pop(BaseContext, self)
 
 
 class EagerContext(BaseContext):
@@ -129,11 +122,12 @@ class Launchable(ABC):
 
 
 class LaunchContext(ABC):
+    __tk_context_idname__ = "ExecutionContext"
     @staticmethod
     def current() -> "LaunchContext":
         try:
-            return _tls.launch[-1]
-        except (AttributeError, IndexError):
+            return context.current(LaunchContext)
+        except IndexError:
             warnings.warn(
                 "defaulting to debug/eager execution of tk kernel launch "
                 "because no launch context has been established"
@@ -141,16 +135,10 @@ class LaunchContext(ABC):
             return DebugLaunchContext()
 
     def __enter__(self) -> "LaunchContext":
-        try:
-            stack = _tls.launch
-        except AttributeError:
-            stack = []
-            _tls.launch = stack
-        stack.append(self)
-        return self
+        return context.push(LaunchContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _tls.launch.pop()
+        context.pop(LaunchContext, self)
 
     @abstractmethod
     def launch(self, launchable: Launchable, args, kwargs):
