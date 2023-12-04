@@ -34,6 +34,7 @@ class Test(unittest.TestCase):
 
             sig = vector_codegen.Signature()
             sig.add_from_graph_placeholders(gm.graph)
+            sig.add_grid(iota_kernel.grid_type)
             print(sig)
             emitter = vector_codegen.ThreadEmitter(mb, iota_kernel.grid_type, sig)
             emitter.emit_graph(gm.graph)
