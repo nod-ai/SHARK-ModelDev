@@ -13,6 +13,7 @@ import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from utils import *
 import torch
 import torch._dynamo as dynamo
 from diffusers import UNet2DConditionModel
@@ -62,22 +63,6 @@ class UnetModel(torch.nn.Module):
             noise_pred_text - noise_pred_uncond
         )
         return noise_pred
-
-
-def save_external_weights(
-    mapper,
-    model,
-    external_weights=None,
-    external_weight_file=None,
-):
-    if external_weights is not None:
-        if external_weights == "safetensors":
-            mod_params = dict(model.named_parameters())
-            for name in mod_params:
-                mapper["params." + name] = name
-            if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
-                print("Saved params to", external_weight_file)
 
 
 def export_unet_model(args, unet_model):
@@ -225,12 +210,6 @@ def run_unet_vmfb_comparison(args):
     err = largest_error(np_torch_output, turbine_output)
     print("LARGEST ERROR:", err)
     assert err < 9e-5
-
-
-def largest_error(array1, array2):
-    absolute_diff = np.abs(array1 - array2)
-    max_error = np.max(absolute_diff)
-    return max_error
 
 
 if __name__ == "__main__":

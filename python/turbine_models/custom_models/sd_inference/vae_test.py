@@ -13,6 +13,7 @@ import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from utils import *
 import torch
 import torch._dynamo as dynamo
 from diffusers import AutoencoderKL
@@ -55,22 +56,6 @@ class VaeModel(torch.nn.Module):
         with torch.no_grad():
             x = self.vae.decode(inp, return_dict=False)[0]
             return x
-
-
-def save_external_weights(
-    mapper,
-    model,
-    external_weights=None,
-    external_weight_file=None,
-):
-    if external_weights is not None:
-        if external_weights == "safetensors":
-            mod_params = dict(model.named_parameters())
-            for name in mod_params:
-                mapper["params." + name] = name
-            if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
-                print("Saved params to", external_weight_file)
 
 
 def export_vae_model(args, vae_model):
@@ -122,12 +107,6 @@ def export_vae_model(args, vae_model):
             f.write(flatbuffer_blob)
         print("Saved to", safe_name + ".vmfb")
         exit()
-
-
-def largest_error(array1, array2):
-    absolute_diff = np.abs(array1 - array2)
-    max_error = np.max(absolute_diff)
-    return max_error
 
 
 def run_vae_vmfb_comparison(args, vae_model):
