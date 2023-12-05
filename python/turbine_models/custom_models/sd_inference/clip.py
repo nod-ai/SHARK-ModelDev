@@ -9,11 +9,10 @@ import sys
 import re
 
 from iree import runtime as ireert
-import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
-from utils import *
+from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from transformers import CLIPTextModel, CLIPTokenizer
@@ -44,26 +43,32 @@ parser.add_argument(
 prompt = ["a photograph of an astronaut riding a horse"]
 
 
-def export_clip_model(args):
+def export_clip_model(
+    hf_model_name,
+    hf_auth_token=None,
+    compile_to="torch",
+    external_weights=None,
+    external_weight_file=None,
+):
     # Load the tokenizer and text encoder to tokenize and encode the text.
     tokenizer = CLIPTokenizer.from_pretrained(
-        args.hf_model_name,
+        hf_model_name,
         subfolder="tokenizer",
-        token=args.hf_auth_token,
+        token=hf_auth_token,
     )
     text_encoder_model = CLIPTextModel.from_pretrained(
-        args.hf_model_name,
+        hf_model_name,
         subfolder="text_encoder",
-        token=args.hf_auth_token,
+        token=hf_auth_token,
     )
 
     mapper = {}
-    save_external_weights(
-        mapper, text_encoder_model, args.external_weights, args.external_weight_file
+    utils.save_external_weights(
+        mapper, text_encoder_model, external_weights, external_weight_file
     )
 
     class CompiledClip(CompiledModule):
-        if args.external_weights:
+        if external_weights:
             params = export_parameters(
                 text_encoder_model,
                 external=True,
@@ -76,43 +81,16 @@ def export_clip_model(args):
         def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
             return jittable(text_encoder_model.forward)(inp)
 
-    import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
-    if args.compile_to != "vmfb":
+    if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        flags = [
-            "--iree-input-type=torch",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-llvmcpu-enable-microkernels",
-            "--iree-llvmcpu-stack-allocation-limit=256000",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-            "--iree-vm-bytecode-module-strip-source-map=true",
-            "--iree-util-zero-fill-elided-attrs",
-            "--iree-vm-target-truncate-unsupported-floats",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--iree-opt-const-expr-hoisting=False",
-        ]
-
-        flatbuffer_blob = ireec.compile_str(
-            module_str,
-            target_backends=["llvm-cpu"],
-            extra_args=flags,
-        )
-        with open(f"{safe_name}.vmfb", "wb+") as f:
-            f.write(flatbuffer_blob)
-        print("Saved to", safe_name + ".vmfb")
-        exit()
+        utils.compile_to_vmfb(module_str, ["llvm-cpu"], safe_name)
 
 
 def run_clip_vmfb_comparison(args):
@@ -165,6 +143,7 @@ def run_clip_vmfb_comparison(args):
     turbine_outputs = ModuleCompiled["main"](*device_inputs)
     turbine_output = turbine_outputs[0]
     print(
+        "TURBINE OUTPUT:",
         turbine_output.to_host(),
         turbine_output.to_host().shape,
         turbine_output.to_host().dtype,
@@ -178,9 +157,11 @@ def run_clip_vmfb_comparison(args):
     )
     torch_output = text_encoder_model.forward(inp)[0]
     np_torch_output = torch_output.detach().cpu().numpy()
-    print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
+    print(
+        "TORCH OUTPUT:", np_torch_output, np_torch_output.shape, np_torch_output.dtype
+    )
 
-    err = largest_error(np_torch_output, turbine_output)
+    err = utils.largest_error(np_torch_output, turbine_output)
     print("LARGEST ERROR:", err)
     assert err < 9e-5
 
@@ -190,7 +171,13 @@ if __name__ == "__main__":
     if args.run_vmfb:
         run_clip_vmfb_comparison(args)
     else:
-        mod_str, _ = export_clip_model(args)
+        mod_str, _ = export_clip_model(
+            args.hf_model_name,
+            args.hf_auth_token,
+            args.compile_to,
+            args.external_weights,
+            args.external_weight_file,
+        )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
         with open(f"{safe_name}.mlir", "w+") as f:

@@ -9,11 +9,10 @@ import sys
 import re
 
 from iree import runtime as ireert
-import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
-from utils import *
+from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from diffusers import UNet2DConditionModel
@@ -44,12 +43,12 @@ parser.add_argument(
 
 
 class UnetModel(torch.nn.Module):
-    def __init__(self, args):
+    def __init__(self, hf_model_name, hf_auth_token):
         super().__init__()
         self.unet = UNet2DConditionModel.from_pretrained(
-            args.hf_model_name,
+            hf_model_name,
             subfolder="unet",
-            token=args.hf_auth_token,
+            token=hf_auth_token,
         )
         self.guidance_scale = 7.5
 
@@ -65,18 +64,24 @@ class UnetModel(torch.nn.Module):
         return noise_pred
 
 
-def export_unet_model(args, unet_model):
+def export_unet_model(
+    unet_model,
+    hf_model_name,
+    compile_to="torch",
+    external_weights=None,
+    external_weight_file=None,
+):
     mapper = {}
-    save_external_weights(
-        mapper, unet_model, args.external_weights, args.external_weight_file
+    utils.save_external_weights(
+        mapper, unet_model, external_weights, external_weight_file
     )
 
     encoder_hidden_states_sizes = (2, 77, 768)
-    if args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
+    if hf_model_name == "stabilityai/stable-diffusion-2-1-base":
         encoder_hidden_states_sizes = (2, 77, 1024)
 
     class CompiledUnet(CompiledModule):
-        if args.external_weights:
+        if external_weights:
             params = export_parameters(
                 unet_model, external=True, external_scope="", name_mapper=mapper.get
             )
@@ -88,51 +93,24 @@ def export_unet_model(args, unet_model):
             sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
             timestep=AbstractTensor(1, dtype=torch.float32),
             encoder_hidden_states=AbstractTensor(
-                *encoder_hidden_states_size, dtype=torch.float32
+                *encoder_hidden_states_sizes, dtype=torch.float32
             ),
         ):
             return jittable(unet_model.forward)(sample, timestep, encoder_hidden_states)
 
-    import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
-    if args.compile_to != "vmfb":
+    if compile_to != "vmfb":
         return module_str
     else:
-        flags = [
-            "--iree-input-type=torch",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-llvmcpu-enable-microkernels",
-            "--iree-llvmcpu-stack-allocation-limit=256000",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-            "--iree-vm-bytecode-module-strip-source-map=true",
-            "--iree-util-zero-fill-elided-attrs",
-            "--iree-vm-target-truncate-unsupported-floats",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--iree-opt-const-expr-hoisting=False",
-        ]
-
-        flatbuffer_blob = ireec.compile_str(
-            module_str,
-            target_backends=["llvm-cpu"],
-            extra_args=flags,
-        )
-        with open(f"{safe_name}.vmfb", "wb+") as f:
-            f.write(flatbuffer_blob)
-        print("Saved to", safe_name + ".vmfb")
-        exit()
+        utils.compile_to_vmfb(module_str, ["llvm-cpu"], safe_name)
 
 
-def run_unet_vmfb_comparison(args):
+def run_unet_vmfb_comparison(unet_model, args):
     config = ireert.Config("local-task")
 
     if args.external_weight_file:
@@ -179,6 +157,7 @@ def run_unet_vmfb_comparison(args):
     ModuleCompiled = ctx.modules.compiled_unet
     turbine_output = ModuleCompiled["main"](*device_inputs)
     print(
+        "TURBINE OUTPUT:",
         turbine_output.to_host(),
         turbine_output.to_host().shape,
         turbine_output.to_host().dtype,
@@ -187,20 +166,31 @@ def run_unet_vmfb_comparison(args):
     # Torch output
     torch_output = unet_model.forward(sample, timestep, encoder_hidden_states)
     np_torch_output = torch_output.detach().cpu().numpy()
-    print(np_torch_output, np_torch_output.shape, np_torch_output.dtype)
+    print(
+        "TORCH OUTPUT:", np_torch_output, np_torch_output.shape, np_torch_output.dtype
+    )
 
-    err = largest_error(np_torch_output, turbine_output)
+    err = utils.largest_error(np_torch_output, turbine_output)
     print("LARGEST ERROR:", err)
     assert err < 9e-5
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    unet_model = UnetModel(args)
+    unet_model = UnetModel(
+        args.hf_model_name,
+        args.hf_auth_token,
+    )
     if args.run_vmfb:
-        run_unet_vmfb_comparison(args)
+        run_unet_vmfb_comparison(unet_model, args)
     else:
-        mod_str = export_unet_model(args, unet_model)
+        mod_str = export_unet_model(
+            unet_model,
+            args.hf_model_name,
+            args.compile_to,
+            args.external_weights,
+            args.external_weight_file,
+        )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
         with open(f"{safe_name}.mlir", "w+") as f:
