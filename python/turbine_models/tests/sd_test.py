@@ -38,6 +38,22 @@ class StableDiffusionTest(unittest.TestCase):
         )
         os.remove("stable_diffusion_v1_4_unet.safetensors")
 
+    def testExportUnetModel_v2_1(self):
+        unet_model_v2_1 = unet.UnetModel(
+            # This is a public model, so no auth required
+            "stabilityai/stable-diffusion-2-1-base",
+            None,
+        )
+        unet.export_unet_model(
+            unet_model_v2_1,
+            # This is a public model, so no auth required
+            "stabilityai/stable-diffusion-2-1-base",
+            "torch",
+            "safetensors",
+            "stable_diffusion_v2_1_unet.safetensors",
+        )
+        os.remove("stable_diffusion_v2_1_unet.safetensors")
+
     def testExportVaeModel(self):
         vae_model = vae.VaeModel(
             # This is a public model, so no auth required
