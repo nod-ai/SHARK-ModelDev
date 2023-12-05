@@ -71,45 +71,27 @@ def export_unet_model(args, unet_model):
         mapper, unet_model, args.external_weights, args.external_weight_file
     )
 
-    if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
+    encoder_hidden_states_sizes = (2, 77, 768)
+    if args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
+        encoder_hidden_states_sizes = (2, 77, 1024)
 
-        class CompiledUnet(CompiledModule):
-            if args.external_weights:
-                params = export_parameters(
-                    unet_model, external=True, external_scope="", name_mapper=mapper.get
-                )
-            else:
-                params = export_parameters(unet_model)
+    class CompiledUnet(CompiledModule):
+        if args.external_weights:
+            params = export_parameters(
+                unet_model, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(unet_model)
 
-            def main(
-                self,
-                sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
-                timestep=AbstractTensor(1, dtype=torch.float32),
-                encoder_hidden_states=AbstractTensor(2, 77, 768, dtype=torch.float32),
-            ):
-                return jittable(unet_model.forward)(
-                    sample, timestep, encoder_hidden_states
-                )
-
-    elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-
-        class CompiledUnet(CompiledModule):
-            if args.external_weights:
-                params = export_parameters(
-                    unet_model, external=True, external_scope="", name_mapper=mapper.get
-                )
-            else:
-                params = export_parameters(unet_model)
-
-            def main(
-                self,
-                sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
-                timestep=AbstractTensor(1, dtype=torch.float32),
-                encoder_hidden_states=AbstractTensor(2, 77, 1024, dtype=torch.float32),
-            ):
-                return jittable(unet_model.forward)(
-                    sample, timestep, encoder_hidden_states
-                )
+        def main(
+            self,
+            sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
+            timestep=AbstractTensor(1, dtype=torch.float32),
+            encoder_hidden_states=AbstractTensor(
+                *encoder_hidden_states_size, dtype=torch.float32
+            ),
+        ):
+            return jittable(unet_model.forward)(sample, timestep, encoder_hidden_states)
 
     import_to = "INPUT" if args.compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
