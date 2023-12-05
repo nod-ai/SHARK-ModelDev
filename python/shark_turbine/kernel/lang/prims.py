@@ -19,4 +19,5 @@ def is_debug() -> bool:
     """Returns whether we are currently executing a kernel in eager debug mode."""
     return BaseContext.current().eager
 
+
 program_id = ops.thread_program_id

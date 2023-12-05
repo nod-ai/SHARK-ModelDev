@@ -1,17 +1,30 @@
 from iree.compiler.ir import (
+    AffineConstantExpr,
+    AffineExpr,
+    AffineMap,
+    AffineMapAttr,
+    Attribute,
     Context,
+    DenseElementsAttr,
     F32Type,
+    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,
+    IntegerAttr,
+    IntegerType,
     Location,
     Operation,
     MemRefType,
+    ShapedType,
     Type as IrType,
     Value,
+    VectorType,
 )
 
 from iree.compiler.dialects import (
+    arith as arith_d,
     builtin as builtin_d,
     func as func_d,
+    vector as vector_d,
 )

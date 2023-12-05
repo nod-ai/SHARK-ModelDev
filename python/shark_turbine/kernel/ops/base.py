@@ -31,6 +31,7 @@ class OpDispatcher:
 
 def define_op(f: T) -> T:
     idname = f.__name__
+
     @functools.wraps(f)
     def wrapped(*args, **kwargs):
         dispatcher = OpDispatcher.current()
@@ -44,4 +45,3 @@ def define_op(f: T) -> T:
 
     wrapped.__tk_op_idname__ = idname
     return wrapped
-

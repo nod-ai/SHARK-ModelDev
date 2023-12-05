@@ -22,7 +22,8 @@ class Test(unittest.TestCase):
         @tk.gen.thread(M)
         def iota_kernel(out: tk.lang.OutputBuffer[M]):
             i = tk.lang.program_id(0)
-            out[i] = i + 1
+            secret_value = ((i * (33 - i) + 4) % 8) // 2
+            out[i] = secret_value
 
         gm = iota_kernel._trace.gm
         print(gm.graph)
@@ -34,10 +35,12 @@ class Test(unittest.TestCase):
             sig.add_from_graph_placeholders(gm.graph)
             sig.add_grid(iota_kernel.grid_type)
             print(sig)
-            emitter = vector_codegen.ThreadEmitter(mb, iota_kernel.grid_type, sig)
-            emitter.emit_graph(gm.graph)
-            emitter.finish()
-            print(mb.module_op.get_asm())
+            try:
+                emitter = vector_codegen.ThreadEmitter(mb, iota_kernel.grid_type, sig)
+                emitter.emit_graph(gm.graph)
+                emitter.finish()
+            finally:
+                print(mb.module_op.get_asm())
             mb.module_op.verify()
 
 
