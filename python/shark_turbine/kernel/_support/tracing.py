@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Optional, TypeVar, Callable, Type, assert_type, cast
 
 import functools
-import threading
 import warnings
 
 import torch.fx as fx
@@ -11,19 +10,18 @@ from .indexing import (
     KernelBuffer,
 )
 
-_tls = threading.local()
+from ..lang.types import (
+    Index,
+)
+
+from .. import ops
+from ..ops.base import (
+    OpDispatcher,
+)
+
+from . import context
+
 TCallable = TypeVar("TCallable", bound=Callable)
-
-###############################################################################
-# Wrapped tracing trampolines for proxy objects.
-# These only get called during tracing of proxy objects.
-###############################################################################
-
-
-@fx.wrap
-def _kernel_buffer_setitem(kernel_buffer: KernelBuffer, key, item) -> None:
-    ...
-
 
 ###############################################################################
 # Tracing machinery
@@ -42,8 +40,11 @@ class KernelBufferProxy(fx.Proxy):
         self.symbolic_shape = orig_type.symbolic_shape
         self.rank = orig_type.rank
 
+    def __getitem__(self, key):
+        return ops.kernel_buffer_getitem(self, key)
+
     def __setitem__(self, key, item):
-        _kernel_buffer_setitem(self, key, item)
+        ops.kernel_buffer_setitem(self, key, item)
 
 
 class KernelTracer(fx.Tracer):
@@ -68,28 +69,23 @@ class CapturedTrace:
 ###############################################################################
 
 
-class BaseContext:
+class BaseContext(OpDispatcher):
+    __tk_context_idname__ = "ExecutionContext"
+
     def __init__(self, *, eager: bool):
         self.eager = eager
 
     @staticmethod
     def current() -> "BaseContext":
-        try:
-            return _tls.context[-1]
-        except (AttributeError, IndexError):
-            raise RuntimeError("No context is on the stack")
+        return context.current(BaseContext)
 
     def __enter__(self) -> "BaseContext":
-        try:
-            stack = _tls.context
-        except AttributeError:
-            stack = []
-            _tls.context = stack
-        stack.append(self)
-        return self
+        context.push(OpDispatcher, self)
+        return context.push(BaseContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _tls.context.pop()
+        context.pop(OpDispatcher, self)
+        context.pop(BaseContext, self)
 
 
 class EagerContext(BaseContext):
@@ -98,11 +94,43 @@ class EagerContext(BaseContext):
         self.rank = rank
         self.current_thread: list[int] = rank * [0]
 
+    def handle_thread_program_id(self, op, axis: int) -> int:
+        assert axis >= 0 and axis < self.rank
+        return Index(self.current_thread[axis])
+
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+        return kernel_buffer._tensor.__getitem__(key)
+
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+        kernel_buffer._tensor.__setitem__(key, item)
+
 
 class CompiledContext(BaseContext):
     def __init__(self, tracer: KernelTracer):
         super().__init__(eager=False)
         self.tracer = tracer
+
+    def handle_thread_program_id(self, op, axis: int) -> Index:
+        proxy = self.tracer.create_proxy(
+            "call_function", op, args=(axis,), kwargs={}, type_expr=Index
+        )
+        return proxy
+
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+        return self.tracer.create_proxy(
+            "call_function",
+            op,
+            args=(kernel_buffer, key),
+            kwargs={},
+        )
+
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+        self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(kernel_buffer, key, item),
+            kwargs={},
+        )
 
 
 ###############################################################################
@@ -129,11 +157,13 @@ class Launchable(ABC):
 
 
 class LaunchContext(ABC):
+    __tk_context_idname__ = "ExecutionContext"
+
     @staticmethod
     def current() -> "LaunchContext":
         try:
-            return _tls.launch[-1]
-        except (AttributeError, IndexError):
+            return context.current(LaunchContext)
+        except IndexError:
             warnings.warn(
                 "defaulting to debug/eager execution of tk kernel launch "
                 "because no launch context has been established"
@@ -141,16 +171,10 @@ class LaunchContext(ABC):
             return DebugLaunchContext()
 
     def __enter__(self) -> "LaunchContext":
-        try:
-            stack = _tls.launch
-        except AttributeError:
-            stack = []
-            _tls.launch = stack
-        stack.append(self)
-        return self
+        return context.push(LaunchContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _tls.launch.pop()
+        context.pop(LaunchContext, self)
 
     @abstractmethod
     def launch(self, launchable: Launchable, args, kwargs):

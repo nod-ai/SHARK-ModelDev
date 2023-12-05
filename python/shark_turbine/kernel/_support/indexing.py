@@ -2,9 +2,12 @@ from typing import Any, ClassVar, Optional, Type, TypeVar, Union, cast
 
 from abc import ABC, abstractmethod
 from enum import Enum
-import threading
 
 import torch
+
+from .. import ops
+
+from . import context
 
 __all__ = [
     "KernelBuffer",
@@ -15,8 +18,6 @@ __all__ = [
     "TemporaryBuffer",
     "sym",
 ]
-
-_tls = threading.local()
 
 
 class NotSetType:
@@ -329,10 +330,10 @@ class KernelBuffer(metaclass=_KernelBufferMeta):
         return f"{type(self)}({self._tensor})"
 
     def __setitem__(self, key, item):
-        self._tensor.__setitem__(key, item)
+        ops.kernel_buffer_setitem(self, key, item)
 
     def __getitem__(self, key):
-        return self._tensor.__getitem__(key)
+        return ops.kernel_buffer_getitem(self, key)
 
 
 class InputBuffer(KernelBuffer):
@@ -357,6 +358,8 @@ class IndexingContext:
     symbols to concrete values.
     """
 
+    __tk_context_idname__ = "IndexingContext"
+
     def __init__(self):
         self.constant_bindings: dict[SymbolDef, int] = {}
 
@@ -375,19 +378,10 @@ class IndexingContext:
     ##### Context management.
     @staticmethod
     def current() -> "IndexingContext":
-        try:
-            return _tls.indexing_stack[-1]
-        except (AttributeError, IndexError):
-            raise AssertionError("no IndexingContext is active")
+        return context.current(IndexingContext)
 
     def __enter__(self) -> "IndexingContext":
-        try:
-            stack = _tls.indexing_stack
-        except AttributeError:
-            stack = []
-            _tls.indexing_stack = stack
-        stack.append(self)
-        return self
+        return context.push(IndexingContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _tls.indexing_stack.pop()
+        context.pop(IndexingContext, self)
