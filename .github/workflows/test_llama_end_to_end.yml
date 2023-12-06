@@ -8,7 +8,7 @@ on:
       - refactor-stateless_llama.py
 
 jobs:
-  test:
+  test-llama:
     strategy:
       matrix:
         version: [3.11]
@@ -32,6 +32,10 @@ jobs:
           pip install --upgrade -r requirements.txt
           pip install -e  .[testing]
 
-      - name: Run tests
+      - name: Run vmfb comparison test
         run: |
-          pytest tests/custom_models/stateless_llama
+          pytest tests/custom_models/stateless_llama/vmfb_comparison_test.py
+
+      - name: Run chat init test
+        run: |
+          pytest tests/custom_models/stateless_llama/chat_init_test.py
