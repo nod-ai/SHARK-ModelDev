@@ -1,8 +1,10 @@
 from typing import Any, Callable, Type, Optional, Sequence, Union
 
 from dataclasses import dataclass
+import inspect
 import operator as py_operator
 
+import torch
 import torch.fx as fx
 
 from .._support.indexing import (
@@ -10,7 +12,7 @@ from .._support.indexing import (
     IndexingContext,
     KernelBuffer,
     SymbolDef,
-    _is_kernel_buffer_meta_derived,
+    is_kernel_buffer_meta_derived,
 )
 
 from ..lang import (
@@ -19,23 +21,26 @@ from ..lang import (
 
 from .. import ops
 
+from .analysis import (
+    SliceAnalysis,
+)
+
 from .builder import (
     ModuleBuilder,
+    ScalarBuilder,
+)
+
+from .base import (
+    CodegenError,
+    ValidationError,
 )
 
 from .ir import (
-    AffineConstantExpr,
-    AffineExpr,
     AffineMap,
     AffineMapAttr,
-    Attribute,
-    DenseElementsAttr,
-    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,
-    IntegerAttr,
-    IntegerType,
     IrType,
     Location,
     MemRefType,
@@ -44,19 +49,13 @@ from .ir import (
     VectorType,
     arith_d,
     func_d,
+    math_d,
     vector_d,
 )
 
+from . import op_matchers
 
 ArgTypeUnion = Union[SymbolDef, Type[KernelBuffer]]
-
-
-class CodegenError(Exception):
-    ...
-
-
-class ValidationError(CodegenError):
-    ...
 
 
 @dataclass
@@ -64,6 +63,22 @@ class ArgMeta:
     name: Optional[str] = None
     node: Optional[fx.Node] = None
     grid_index: Optional[int] = None
+
+
+@dataclass
+class NodeAttrs:
+    # By default, integers are assumed signed. We propagate unsigned as graph
+    # node attrs.
+    unsigned: bool = False
+
+    @staticmethod
+    def load(py_value) -> "NodeAttrs":
+        if isinstance(py_value, fx.Node):
+            return NodeAttrs(unsigned=bool(py_value.meta.get("unsigned")))
+        return NodeAttrs()
+
+    def store(self, node: fx.Node):
+        node.meta["unsigned"] = self.unsigned
 
 
 class Signature:
@@ -102,7 +117,7 @@ class Signature:
         def as_mlir_type(t: ArgTypeUnion) -> FunctionType:
             if isinstance(t, SymbolDef):
                 return IndexType.get()
-            elif _is_kernel_buffer_meta_derived(t):
+            elif is_kernel_buffer_meta_derived(t):
                 kb_t = t  # type: KernelBuffer
                 element_type_asm = kb_t.element_type.ir_type_asm()
                 symbolic_shape = kb_t.symbolic_shape
@@ -129,7 +144,7 @@ class Signature:
                 continue
             t = node.type
             meta = ArgMeta(name=node.target, node=node)
-            if _is_kernel_buffer_meta_derived(t):
+            if is_kernel_buffer_meta_derived(t):
                 self.add_kernel_buffer(t, meta=meta)
             elif issubclass(t, SymbolDef):
                 self.add_symbol(t, meta=meta)
@@ -150,7 +165,6 @@ class ThreadEmitter:
     OP_HANDLERS: dict[Any, Callable[["ThreadEmitter", fx.Node], None]] = {}
 
     def __init__(self, mb: ModuleBuilder, grid: Grid, sig: Signature):
-        self.scalar_builder = ScalarBuilder(self)
         self.nv_map: dict[fx.Node, Value] = {}
         self.grid_index_map: list[Optional[Value]] = [None] * grid.rank
 
@@ -182,18 +196,18 @@ class ThreadEmitter:
         self.ip = InsertionPoint(self.entry_block)
 
     def bind_node_result(
-        self, node: fx.Node, value: Value, type_expr: Optional[type] = None
+        self, node: fx.Node, value: Value, *, attrs: Optional[NodeAttrs] = None
     ):
         assert node not in self.nv_map, f"Cannot rebind node {node}: already bound"
-        if type_expr is not None:
-            node.type = type_expr
+        if attrs is not None:
+            attrs.store(node)
         self.nv_map[node] = value
 
     def emit_graph(self, graph: fx.Graph):
         context = self.context
         for node in graph.nodes:
             # TODO: Construct a location for the node.
-            with Location.unknown(context):
+            with self.ip, Location.unknown(context):
                 if node.op == "call_function":
                     self.emit_function_call_node(node)
 
@@ -228,7 +242,52 @@ BINARY_ARITHMETIC_OPS = [
     (py_operator.sub, "sub"),
     (py_operator.mod, "mod"),
     (py_operator.floordiv, "floordiv"),
+    (py_operator.truediv, "truediv"),
 ]
+
+
+def binary_broadcast(lhs: Value, rhs: Value) -> tuple[bool, Value, Value]:
+    lhs_type = lhs.type
+    rhs_type = rhs.type
+    lhs_is_vector = VectorType.isinstance(lhs_type)
+    rhs_is_vector = VectorType.isinstance(rhs_type)
+    if not lhs_is_vector and not rhs_is_vector:
+        # Not vectors: return as-is.
+        return False, lhs, rhs
+
+    # Promote to vector.
+    if not lhs_is_vector:
+        lhs = vector_d.splat(VectorType([], lhs_type), lhs)
+    if not rhs_is_vector:
+        rhs = vector_d.splat(VectorType([], rhs_type), rhs)
+    lhs_type = VectorType(lhs.type)
+    rhs_type = VectorType(rhs.type)
+
+    broadcast_shape = lhs_type.shape
+    rhs_shape = rhs_type.shape
+    rank = max(len(broadcast_shape), len(rhs_shape))
+    while len(broadcast_shape) < rank:
+        broadcast_shape.insert(0, 1)
+    while len(rhs_shape) < rank:
+        rhs_shape.insert(0, 1)
+
+    for i in range(rank):
+        a = broadcast_shape[i]
+        b = rhs_shape[i]
+        if a != b:
+            if a != 1 and b != 1:
+                raise CodegenError(
+                    f"Binary operands are not broadcast compatible: {lhs_type}, {rhs_type}"
+                )
+            broadcast_shape[i] = rhs_shape[i] = max(a, b)
+
+    lhs_type = VectorType.get(broadcast_shape, lhs_type.element_type)
+    rhs_type = VectorType.get(broadcast_shape, rhs_type.element_type)
+    if lhs_type != lhs.type:
+        lhs = vector_d.broadcast(lhs_type, lhs)
+    if rhs_type != rhs.type:
+        rhs = vector_d.broadcast(rhs_type, rhs)
+    return True, lhs, rhs
 
 
 def _define_arithmetic_handlers():
@@ -242,7 +301,11 @@ def _define_arithmetic_handlers():
 
             lhs = cast_py_value(emitter, lhs)
             rhs = cast_py_value(emitter, rhs)
-            result = emitter.scalar_builder.binary_arithmetic(mnemonic, lhs, rhs)
+            is_vector, lhs, rhs = binary_broadcast(lhs, rhs)
+            if is_vector:
+                result = ScalarBuilder.binary_vector_arithmetic(mnemonic, lhs, rhs)
+            else:
+                result = ScalarBuilder.binary_arithmetic(mnemonic, lhs, rhs)
             emitter.bind_node_result(node, result)
 
     for py_operator, mnemonic in BINARY_ARITHMETIC_OPS:
@@ -272,140 +335,141 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except IndexError as e:
         raise CodegenError("Grid axis out of bounds") from e
 
-    emitter.bind_node_result(node, value, Index)
+    emitter.bind_node_result(node, value)
 
 
 @handle_op(ops.kernel_buffer_getitem)
 def _(emitter: ThreadEmitter, node: fx.Node):
-    raise CodegenError("NYI: kernel_buffer_getitem")
+    try:
+        kb, slice_spec = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
+    sa.normalize_symbolic_ranges()
+    vector_shape = sa.symbolic_shape
+    element_type = kb_ir_type.element_type
+    vector_type = VectorType.get(vector_shape, element_type)
+    pad_attr = ScalarBuilder.zero_attr(element_type)
+    indices = cast_indices(emitter, [s.start for s in sa.slices])
+    pad_value = arith_d.constant(pad_attr)
+    result = vector_d.transfer_read(
+        vector_type, kb_src, indices, AffineMap.get_identity(len(indices)), pad_value
+    )
+    emitter.bind_node_result(node, result)
 
 
 @handle_op(ops.kernel_buffer_setitem)
 def _(emitter: ThreadEmitter, node: fx.Node):
     try:
-        kb, key, item = node.args
+        kb, slice_spec, item = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    kb_dest, kb_type = cast_kernel_buffer(emitter, kb)
-    dest_rank = kb_type.rank
-    indices = cast_indices(emitter, key)
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    dest_rank = kb_ir_type.rank
+    sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
+    sa.normalize_symbolic_ranges()
+    indices = cast_indices(emitter, [s.start for s in sa.slices])
     if dest_rank != len(indices):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
         )
-    insert_vector = cast_vector(emitter, item, element_type=kb_type.element_type)
+    insert_vector = cast_vector(emitter, item, element_type=kb_ir_type.element_type)
     insert_type = VectorType(insert_vector.type)
     insert_rank = insert_type.rank
 
-    # This form only supports 0d broadcast or same rank currently.
-    # TODO: This was specially crafted to make the iota demo work. Need to work
-    # it out in generality.
-    if insert_rank != 0 and insert_rank != dest_rank:
-        raise CodegenError(
-            f"The shorthand kernel_buffer[...]= assignment syntax only supports same rank assignment or restricted, 0d broadcast"
-        )
+    # Special case rank-0 broadcast.
+    if insert_rank == 0:
+        broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
+        insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
-    with emitter.ip:
-        if insert_rank == 0:
-            broadcast_type = VectorType.get(dest_rank * [1], kb_type.element_type)
-            insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
-        permutation_map = AffineMap.get_identity(dest_rank)
-        vector_d.transfer_write(
-            None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
+    permutation_map = AffineMap.get_identity(dest_rank)
+    vector_d.transfer_write(
+        None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
+    )
+
+
+###############################################################################
+# Torch and math ops
+###############################################################################
+
+
+@handle_op(torch.exp)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_exp(*node.args, **node.kwargs)
+    raw_input = args["input"]
+    input = cast_vector(emitter, raw_input)
+    result = math_d.exp(input)
+    emitter.bind_node_result(node, result)
+
+
+@handle_op(torch.max)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_max_unary(
+        *node.args, **node.kwargs
+    ) or op_matchers.torch_max(*node.args, **node.kwargs)
+
+    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+        if ScalarBuilder.is_floating_point_type(element_type):
+            # Non-NaN propagating.
+            # TODO: Carry a "fastmath" flag on the emitter and choose between this
+            # and MAXIMUMF?
+            return vector_d.CombiningKind.MAXF
+        elif ScalarBuilder.is_integer_type(element_type):
+            return (
+                vector_d.CombiningKind.MAXUI
+                if attrs.unsigned
+                else vector_d.CombiningKind.MAXSI
+            )
+
+    emit_reduction(emitter, node, args, combiner)
+
+
+@handle_op(torch.sum)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_sum_unary(
+        *node.args, **node.kwargs
+    ) or op_matchers.torch_sum(*node.args, **node.kwargs)
+
+    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+        return vector_d.CombiningKind.ADD
+
+    emit_reduction(emitter, node, args, combiner)
+
+
+def emit_reduction(
+    emitter: ThreadEmitter,
+    node: fx.Node,
+    args: dict,
+    combiner_callback: Callable[[IrType], vector_d.CombiningKind],
+):
+    # Setup.
+    raw_input = args["input"]
+    attrs = NodeAttrs.load(raw_input)
+    input = cast_vector(emitter, raw_input)
+    vector_type = VectorType(input.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+    zero = arith_d.constant(ScalarBuilder.zero_attr(element_type))
+    combiner = combiner_callback(element_type, attrs)
+
+    if len(args) == 1:
+        # Reduce to scalar.
+        scalar_result = vector_d.multi_reduction(
+            combiner, input, zero, list(range(rank))
         )
+        result = vector_d.splat(VectorType.get([], element_type), scalar_result)
+        emitter.bind_node_result(node, result, attrs=attrs)
+    else:
+        # Reduce to vector.
+        raise CodegenError("NYI: Reduce to vector")
 
 
 ###############################################################################
 # Conversion utilities
 ###############################################################################
-
-
-class ScalarBuilder:
-    def __init__(self, emitter: ThreadEmitter):
-        self.emitter = emitter
-
-    def promote(self, value: Value, to_type: IrType) -> Value:
-        value_type = value.type
-        # Short-circuit if already the right type.
-        if value_type == to_type:
-            return value
-
-        attr_name = f"promote_{value_type}_to_{to_type}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"No implemented path to implicitly promote scalar `{value_type}` to `{to_type}` (tried '{attr_name}')"
-            )
-        return handler(value, to_type)
-
-    def zero_attr(self, t: IrType) -> Attribute:
-        attr_name = f"zero_attr_{t}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"Cannot derive a zero value for type `{t}` (tried '{attr_name}')"
-            )
-        return handler(t)
-
-    def constant(self, py_value) -> Value:
-        attr_name = f"py_constant_{type(py_value).__name__}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"Cannot convert Python value to constant: {py_value} of type {type(py_value)} (tried '{attr_name}')"
-            )
-        return handler(py_value)
-
-    def binary_arithmetic(self, op: str, lhs: Value, rhs: Value) -> Value:
-        attr_name = f"binary_{op}_{lhs.type}_{rhs.type}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"Cannot perform binary arithmetic operation '{op}' between {lhs.type} and {rhs.type} (tried '{attr_name}')"
-            )
-        return handler(lhs, rhs)
-
-    def promote_index_to_f32(self, value: Value, to_type: IrType) -> Value:
-        with self.emitter.ip:
-            i32_type = IntegerType.get_signless(32)
-            i32 = arith_d.index_cast(i32_type, value)
-            return arith_d.sitofp(to_type, i32)
-
-    def zero_attr_f32(self, t: IrType) -> Attribute:
-        return FloatAttr.get(t, 0.0)
-
-    def py_constant_int(self, py_value) -> Value:
-        # If coming from a stock 'int' Python type with no idea how to convert it,
-        # there isn't much smart we can do. We conservatively treat 'index' as
-        # reasonable.
-        with self.emitter.ip:
-            attr = IntegerAttr.get(IndexType.get(), py_value)
-            return arith_d.constant(attr)
-
-    def binary_add_index_index(self, lhs: Value, rhs: Value) -> Value:
-        with self.emitter.ip:
-            return arith_d.addi(lhs, rhs)
-
-    def binary_mul_index_index(self, lhs: Value, rhs: Value) -> Value:
-        with self.emitter.ip:
-            return arith_d.muli(lhs, rhs)
-
-    def binary_sub_index_index(self, lhs: Value, rhs: Value) -> Value:
-        with self.emitter.ip:
-            return arith_d.subi(lhs, rhs)
-
-    def binary_mod_index_index(self, lhs: Value, rhs: Value) -> Value:
-        with self.emitter.ip:
-            return arith_d.remsi(lhs, rhs)
-
-    def binary_floordiv_index_index(self, lhs: Value, rhs: Value) -> Value:
-        with self.emitter.ip:
-            return arith_d.floordivsi(lhs, rhs)
 
 
 def cast_py_value(emitter: ThreadEmitter, value) -> Value:
@@ -415,20 +479,40 @@ def cast_py_value(emitter: ThreadEmitter, value) -> Value:
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")
 
-    return emitter.scalar_builder.constant(value)
+    return ScalarBuilder.constant(value)
 
 
-def cast_kernel_buffer(emitter: ThreadEmitter, kb) -> tuple[Value, MemRefType]:
+def cast_py_lvalue(emitter: ThreadEmitter, py_value) -> tuple[Value, fx.Node]:
+    if isinstance(py_value, fx.Node):
+        try:
+            return emitter.nv_map[py_value], py_value
+        except KeyError:
+            raise CodegenError(f"Producer node `{py_value}` has no IR Value")
+    else:
+        raise CodegenError(
+            f"Required a traced node in the graph. Got: {py_value} (type {type(py_value)})"
+        )
+
+
+def cast_kernel_buffer(
+    emitter: ThreadEmitter, kb
+) -> tuple[Value, MemRefType, Type[KernelBuffer]]:
     """Casts a Python value of type KernelBuffer, which lowers to a MemRefType'd value."""
-    value = cast_py_value(emitter, kb)
-    value_type = value.type
+    value, node = cast_py_lvalue(emitter, kb)
+    ir_type = value.type
+    py_type = node.type
 
-    if MemRefType.isinstance(value_type):
-        return value, MemRefType(value_type)
+    if not MemRefType.isinstance(ir_type):
+        raise CodegenError(
+            f"Expected a KernelBuffer (aka. `memref`) but got `{ir_type}`"
+        )
 
-    raise CodegenError(
-        f"Expected a KernelBuffer (aka. `memref`) but got `{value_type}`"
-    )
+    if not issubclass(py_type, KernelBuffer):
+        raise CodegenError(
+            f"Expected an lvalue of type KernelBuffer but got '{py_type}' for node {node}"
+        )
+
+    return value, MemRefType(ir_type), py_type
 
 
 def cast_indices(emitter: ThreadEmitter, slice) -> list[Value]:
@@ -444,10 +528,9 @@ def cast_vector(
     value = cast_py_value(emitter, value)
 
     # Promote scalar types correctly first.
-    if not ShapedType.isinstance(value.type):
-        if element_type is not None:
-            # Implicit scalar type promotion.
-            value = emitter.scalar_builder.promote(value, element_type)
+    if element_type and not ShapedType.isinstance(value.type):
+        # Implicit scalar type promotion.
+        value = ScalarBuilder.promote(value, element_type)
 
     # After scalar promotion, promote to vector.
     if VectorType.isinstance(value.type):
@@ -466,7 +549,4 @@ def cast_vector(
         # Scalar -> vector.
         element_type = value.type
         vector_type = VectorType.get([], element_type)
-        with emitter.ip:
-            return vector_d.splat(vector_type, value)
-
-    raise CodegenError(f"Unable to automatically cast type `{value.type}` to a vector")
+        return vector_d.splat(vector_type, value)

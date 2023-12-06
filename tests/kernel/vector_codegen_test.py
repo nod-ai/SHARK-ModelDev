@@ -1,6 +1,7 @@
 import logging
 import unittest
 
+import torch
 import shark_turbine.kernel as tk
 
 from shark_turbine.kernel.compiler import (
@@ -40,6 +41,38 @@ class Test(unittest.TestCase):
                 emitter.emit_graph(gm.graph)
                 emitter.finish()
             finally:
+                print(mb.module_op.get_asm())
+            mb.module_op.verify()
+
+    def testSoftmaxFx(self):
+        @tk.gen.thread(M)
+        def softmax_kernel(
+            input: tk.lang.KernelBuffer[M, K], output: tk.lang.KernelBuffer[M, K]
+        ):
+            row_index = tk.lang.program_id(0)
+            input_row = input[row_index, :]
+            numerator = torch.exp(input_row - torch.max(input_row))
+            output_row = numerator / torch.sum(numerator)
+            output[row_index, :] = output_row
+
+        gm = softmax_kernel._trace.gm
+        print(gm.graph)
+        mb = builder.ModuleBuilder()
+        with indexing.IndexingContext() as idxc:
+            idxc.bind_constant(M, 128)
+            idxc.bind_constant(K, 64)
+
+            sig = vector_codegen.Signature()
+            sig.add_from_graph_placeholders(gm.graph)
+            sig.add_grid(softmax_kernel.grid_type)
+            print(sig)
+            try:
+                emitter = vector_codegen.ThreadEmitter(
+                    mb, softmax_kernel.grid_type, sig
+                )
+                emitter.emit_graph(gm.graph)
+            finally:
+                emitter.finish()
                 print(mb.module_op.get_asm())
             mb.module_op.verify()
 
