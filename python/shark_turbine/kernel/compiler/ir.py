@@ -26,5 +26,6 @@ from iree.compiler.dialects import (
     arith as arith_d,
     builtin as builtin_d,
     func as func_d,
+    math as math_d,
     vector as vector_d,
 )

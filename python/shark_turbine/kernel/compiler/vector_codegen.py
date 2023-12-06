@@ -1,8 +1,10 @@
 from typing import Any, Callable, Type, Optional, Sequence, Union
 
 from dataclasses import dataclass
+import inspect
 import operator as py_operator
 
+import torch
 import torch.fx as fx
 
 from .._support.indexing import (
@@ -47,9 +49,11 @@ from .ir import (
     VectorType,
     arith_d,
     func_d,
+    math_d,
     vector_d,
 )
 
+from . import op_matchers
 
 ArgTypeUnion = Union[SymbolDef, Type[KernelBuffer]]
 
@@ -59,6 +63,22 @@ class ArgMeta:
     name: Optional[str] = None
     node: Optional[fx.Node] = None
     grid_index: Optional[int] = None
+
+
+@dataclass
+class NodeAttrs:
+    # By default, integers are assumed signed. We propagate unsigned as graph
+    # node attrs.
+    unsigned: bool = False
+
+    @staticmethod
+    def load(py_value) -> "NodeAttrs":
+        if isinstance(py_value, fx.Node):
+            return NodeAttrs(unsigned=bool(py_value.meta.get("unsigned")))
+        return NodeAttrs()
+
+    def store(self, node: fx.Node):
+        node.meta["unsigned"] = self.unsigned
 
 
 class Signature:
@@ -176,11 +196,11 @@ class ThreadEmitter:
         self.ip = InsertionPoint(self.entry_block)
 
     def bind_node_result(
-        self, node: fx.Node, value: Value, type_expr: Optional[type] = None
+        self, node: fx.Node, value: Value, *, attrs: Optional[NodeAttrs] = None
     ):
         assert node not in self.nv_map, f"Cannot rebind node {node}: already bound"
-        if type_expr is not None and node.type is None:
-            node.type = type_expr
+        if attrs is not None:
+            attrs.store(node)
         self.nv_map[node] = value
 
     def emit_graph(self, graph: fx.Graph):
@@ -222,7 +242,52 @@ BINARY_ARITHMETIC_OPS = [
     (py_operator.sub, "sub"),
     (py_operator.mod, "mod"),
     (py_operator.floordiv, "floordiv"),
+    (py_operator.truediv, "truediv"),
 ]
+
+
+def binary_broadcast(lhs: Value, rhs: Value) -> tuple[bool, Value, Value]:
+    lhs_type = lhs.type
+    rhs_type = rhs.type
+    lhs_is_vector = VectorType.isinstance(lhs_type)
+    rhs_is_vector = VectorType.isinstance(rhs_type)
+    if not lhs_is_vector and not rhs_is_vector:
+        # Not vectors: return as-is.
+        return False, lhs, rhs
+
+    # Promote to vector.
+    if not lhs_is_vector:
+        lhs = vector_d.splat(VectorType([], lhs_type), lhs)
+    if not rhs_is_vector:
+        rhs = vector_d.splat(VectorType([], rhs_type), rhs)
+    lhs_type = VectorType(lhs.type)
+    rhs_type = VectorType(rhs.type)
+
+    broadcast_shape = lhs_type.shape
+    rhs_shape = rhs_type.shape
+    rank = max(len(broadcast_shape), len(rhs_shape))
+    while len(broadcast_shape) < rank:
+        broadcast_shape.insert(0, 1)
+    while len(rhs_shape) < rank:
+        rhs_shape.insert(0, 1)
+
+    for i in range(rank):
+        a = broadcast_shape[i]
+        b = rhs_shape[i]
+        if a != b:
+            if a != 1 and b != 1:
+                raise CodegenError(
+                    f"Binary operands are not broadcast compatible: {lhs_type}, {rhs_type}"
+                )
+            broadcast_shape[i] = rhs_shape[i] = max(a, b)
+
+    lhs_type = VectorType.get(broadcast_shape, lhs_type.element_type)
+    rhs_type = VectorType.get(broadcast_shape, rhs_type.element_type)
+    if lhs_type != lhs.type:
+        lhs = vector_d.broadcast(lhs_type, lhs)
+    if rhs_type != rhs.type:
+        rhs = vector_d.broadcast(rhs_type, rhs)
+    return True, lhs, rhs
 
 
 def _define_arithmetic_handlers():
@@ -236,7 +301,11 @@ def _define_arithmetic_handlers():
 
             lhs = cast_py_value(emitter, lhs)
             rhs = cast_py_value(emitter, rhs)
-            result = ScalarBuilder.binary_arithmetic(mnemonic, lhs, rhs)
+            is_vector, lhs, rhs = binary_broadcast(lhs, rhs)
+            if is_vector:
+                result = ScalarBuilder.binary_vector_arithmetic(mnemonic, lhs, rhs)
+            else:
+                result = ScalarBuilder.binary_arithmetic(mnemonic, lhs, rhs)
             emitter.bind_node_result(node, result)
 
     for py_operator, mnemonic in BINARY_ARITHMETIC_OPS:
@@ -266,7 +335,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except IndexError as e:
         raise CodegenError("Grid axis out of bounds") from e
 
-    emitter.bind_node_result(node, value, Index)
+    emitter.bind_node_result(node, value)
 
 
 @handle_op(ops.kernel_buffer_getitem)
@@ -324,6 +393,82 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     vector_d.transfer_write(
         None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
     )
+
+
+###############################################################################
+# Torch and math ops
+###############################################################################
+
+
+@handle_op(torch.exp)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_exp(*node.args, **node.kwargs)
+    raw_input = args["input"]
+    input = cast_vector(emitter, raw_input)
+    result = math_d.exp(input)
+    emitter.bind_node_result(node, result)
+
+
+@handle_op(torch.max)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_max_unary(
+        *node.args, **node.kwargs
+    ) or op_matchers.torch_max(*node.args, **node.kwargs)
+
+    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+        if ScalarBuilder.is_floating_point_type(element_type):
+            # Non-NaN propagating.
+            # TODO: Carry a "fastmath" flag on the emitter and choose between this
+            # and MAXIMUMF?
+            return vector_d.CombiningKind.MAXF
+        elif ScalarBuilder.is_integer_type(element_type):
+            return (
+                vector_d.CombiningKind.MAXUI
+                if attrs.unsigned
+                else vector_d.CombiningKind.MAXSI
+            )
+
+    emit_reduction(emitter, node, args, combiner)
+
+
+@handle_op(torch.sum)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    args = op_matchers.torch_sum_unary(
+        *node.args, **node.kwargs
+    ) or op_matchers.torch_sum(*node.args, **node.kwargs)
+
+    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+        return vector_d.CombiningKind.ADD
+
+    emit_reduction(emitter, node, args, combiner)
+
+
+def emit_reduction(
+    emitter: ThreadEmitter,
+    node: fx.Node,
+    args: dict,
+    combiner_callback: Callable[[IrType], vector_d.CombiningKind],
+):
+    # Setup.
+    raw_input = args["input"]
+    attrs = NodeAttrs.load(raw_input)
+    input = cast_vector(emitter, raw_input)
+    vector_type = VectorType(input.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+    zero = arith_d.constant(ScalarBuilder.zero_attr(element_type))
+    combiner = combiner_callback(element_type, attrs)
+
+    if len(args) == 1:
+        # Reduce to scalar.
+        scalar_result = vector_d.multi_reduction(
+            combiner, input, zero, list(range(rank))
+        )
+        result = vector_d.splat(VectorType.get([], element_type), scalar_result)
+        emitter.bind_node_result(node, result, attrs=attrs)
+    else:
+        # Reduce to vector.
+        raise CodegenError("NYI: Reduce to vector")
 
 
 ###############################################################################
@@ -387,10 +532,9 @@ def cast_vector(
     value = cast_py_value(emitter, value)
 
     # Promote scalar types correctly first.
-    if not ShapedType.isinstance(value.type):
-        if element_type is not None:
-            # Implicit scalar type promotion.
-            value = ScalarBuilder.promote(value, element_type)
+    if element_type and not ShapedType.isinstance(value.type):
+        # Implicit scalar type promotion.
+        value = ScalarBuilder.promote(value, element_type)
 
     # After scalar promotion, promote to vector.
     if VectorType.isinstance(value.type):

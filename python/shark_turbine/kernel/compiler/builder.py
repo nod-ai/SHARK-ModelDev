@@ -15,9 +15,20 @@ from .ir import (
     Location,
     Operation,
     Value,
+    VectorType,
     arith_d,
     builtin_d,
 )
+
+
+# TODO: Have a way upstream to check if a floating point type.
+FLOAT_TYPES_ASM = {
+    "bf16",
+    "f16",
+    "f32",
+    "f64",
+    # TODO: FP8 types.
+}
 
 
 class ModuleBuilder:
@@ -39,6 +50,12 @@ class ModuleBuilder:
 
 
 class _ScalarBuilder:
+    def is_floating_point_type(self, t: IrType) -> bool:
+        return str(t) in FLOAT_TYPES_ASM
+
+    def is_integer_type(self, t: IrType) -> bool:
+        return IntegerType.isinstance(t)
+
     def promote(self, value: Value, to_type: IrType) -> Value:
         value_type = value.type
         # Short-circuit if already the right type.
@@ -84,6 +101,18 @@ class _ScalarBuilder:
             )
         return handler(lhs, rhs)
 
+    def binary_vector_arithmetic(self, op: str, lhs: Value, rhs: Value) -> Value:
+        lhs_element_type = VectorType(lhs.type).element_type
+        rhs_element_type = VectorType(rhs.type).element_type
+        attr_name = f"binary_{op}_{lhs_element_type}_{rhs_element_type}"
+        try:
+            handler = getattr(self, attr_name)
+        except AttributeError:
+            raise CodegenError(
+                f"Cannot perform binary arithmetic operation '{op}' between {lhs.type} and {rhs.type} (tried '{attr_name}')"
+            )
+        return handler(lhs, rhs)
+
     def promote_index_to_f32(self, value: Value, to_type: IrType) -> Value:
         i32_type = IntegerType.get_signless(32)
         i32 = arith_d.index_cast(i32_type, value)
@@ -99,6 +128,7 @@ class _ScalarBuilder:
         attr = IntegerAttr.get(IndexType.get(), py_value)
         return arith_d.constant(attr)
 
+    # Binary index arithmetic.
     def binary_add_index_index(self, lhs: Value, rhs: Value) -> Value:
         return arith_d.addi(lhs, rhs)
 
@@ -113,6 +143,22 @@ class _ScalarBuilder:
 
     def binary_floordiv_index_index(self, lhs: Value, rhs: Value) -> Value:
         return arith_d.floordivsi(lhs, rhs)
+
+    # Binary f32 arithmetic
+    def binary_add_f32_f32(self, lhs: Value, rhs: Value) -> Value:
+        return arith_d.addf(lhs, rhs)
+
+    def binary_mul_f32_f32(self, lhs: Value, rhs: Value) -> Value:
+        return arith_d.mulf(lhs, rhs)
+
+    def binary_sub_f32_f32(self, lhs: Value, rhs: Value) -> Value:
+        return arith_d.subf(lhs, rhs)
+
+    def binary_mod_f32_f32(self, lhs: Value, rhs: Value) -> Value:
+        return arith_d.remf(lhs, rhs)
+
+    def binary_truediv_f32_f32(self, lhs: Value, rhs: Value) -> Value:
+        return arith_d.divf(lhs, rhs)
 
 
 ScalarBuilder = _ScalarBuilder()
