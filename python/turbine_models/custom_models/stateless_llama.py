@@ -48,6 +48,16 @@ parser.add_argument(
     "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
 )
 
+parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
+# TODO: Bring in detection for target triple
+parser.add_argument(
+    "--iree_target_triple",
+    type=str,
+    default="",
+    help="Specify vulkan target triple or rocm/cuda target device.",
+)
+parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
+
 prompt = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
 """
@@ -79,6 +89,9 @@ def export_transformer_model(
     external_weight_file=None,
     quantization=None,
     precision=None,
+    device=None,
+    target_triple=None,
+    max_alloc=None,
 ):
     state_schema = pytree.treespec_loads(json_schema)
 
@@ -214,28 +227,54 @@ def export_transformer_model(
     else:
         flags = [
             "--iree-input-type=torch",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             "--mlir-print-debuginfo",
             "--mlir-print-op-on-diagnostic=false",
             "--iree-llvmcpu-target-cpu-features=host",
             "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-llvmcpu-enable-microkernels",
-            "--iree-llvmcpu-stack-allocation-limit=256000",
             "--iree-stream-resource-index-bits=64",
             "--iree-vm-target-index-bits=64",
-            "--iree-vm-bytecode-module-strip-source-map=true",
-            "--iree-util-zero-fill-elided-attrs",
-            "--iree-vm-target-truncate-unsupported-floats",
             "--iree-codegen-check-ir-before-llvm-conversion=false",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             "--iree-opt-const-expr-hoisting=False",
         ]
-
+        if device == "cpu":
+            flags.append("--iree-llvmcpu-enable-microkernels")
+            device = "llvm-cpu"
+        elif device == "vulkan":
+            flags.extend(
+                [
+                    "--iree-hal-target-backends=vulkan-spirv",
+                    "--iree-vulkan-target-triple=" + target_triple,
+                    "--iree-stream-resource-max-allocation-size=" + max_alloc,
+                ]
+            )
+        elif device == "rocm":
+            flags.extend(
+                [
+                    "--iree-hal-target-backends=rocm",
+                    "--iree-rocm-target-chip=" + target_triple,
+                    "--iree-rocm-link-bc=true",
+                    "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+                    "--iree-vm-bytecode-module-strip-source-map=true",
+                    "--iree-opt-strip-assertions=true",
+                    "--iree-vm-target-truncate-unsupported-floats",
+                ]
+            )
+        elif device == "cuda":
+            flags.extend(
+                [
+                    "--iree-hal-target-backends=cuda",
+                    "--iree-hal-cuda-llvm-target-arch=" + target_triple,
+                    "--iree-vm-bytecode-module-strip-source-map=true",
+                    "--iree-vm-target-truncate-unsupported-floats",
+                ]
+            )
+        else:
+            print("incorrect device: ", device)
         import iree.compiler as ireec
 
         flatbuffer_blob = ireec.compile_str(
             module_str,
-            target_backends=["llvm-cpu"],
+            target_backends=[device],
             extra_args=flags,
         )
         with open(f"{safe_name}.vmfb", "wb+") as f:
@@ -245,7 +284,7 @@ def export_transformer_model(
 
 
 def run_vmfb_comparison(args):
-    config = ireert.Config("local-task")
+    config = ireert.Config(args.device)
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()
@@ -277,7 +316,7 @@ def run_vmfb_comparison(args):
     tokenizer = AutoTokenizer.from_pretrained(
         args.hf_model_name,
         use_fast=False,
-        use_auth_token=args.hf_auth_token,
+        token=args.hf_auth_token,
     )
     initial_input = tokenizer(prompt, return_tensors="pt")
     example_input_id = initial_input.input_ids
@@ -338,6 +377,9 @@ if __name__ == "__main__":
             args.external_weight_file,
             args.quantization,
             args.precision,
+            args.device,
+            args.iree_target_triple,
+            args.vulkan_max_allocation,
         )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
