@@ -363,13 +363,15 @@ def _(emitter: ThreadEmitter, node: fx.Node):
 @handle_op(ops.kernel_buffer_setitem)
 def _(emitter: ThreadEmitter, node: fx.Node):
     try:
-        kb, key, item = node.args
+        kb, slice_spec, item = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
     kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
     dest_rank = kb_ir_type.rank
-    indices = cast_indices(emitter, key)
+    sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
+    sa.normalize_symbolic_ranges()
+    indices = cast_indices(emitter, [s.start for s in sa.slices])
     if dest_rank != len(indices):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
@@ -378,17 +380,11 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     insert_type = VectorType(insert_vector.type)
     insert_rank = insert_type.rank
 
-    # This form only supports 0d broadcast or same rank currently.
-    # TODO: This was specially crafted to make the iota demo work. Need to work
-    # it out in generality.
-    if insert_rank != 0 and insert_rank != dest_rank:
-        raise CodegenError(
-            f"The shorthand kernel_buffer[...]= assignment syntax only supports same rank assignment or restricted, 0d broadcast"
-        )
-
+    # Special case rank-0 broadcast.
     if insert_rank == 0:
         broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
+
     permutation_map = AffineMap.get_identity(dest_rank)
     vector_d.transfer_write(
         None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
