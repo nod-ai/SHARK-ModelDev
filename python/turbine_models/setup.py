@@ -63,5 +63,7 @@ setup(
         "protobuf",
         "sentencepiece",
         "transformers",
+        "accelerate",
+        "diffusers==0.10.2",
     ],
 )
