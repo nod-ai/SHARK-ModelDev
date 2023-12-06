@@ -26,9 +26,10 @@ def setup_and_teardown():
 @pytest.fixture
 def setup_environment():
     # Change to the SHARK-Turbine directory
-    os.chdir(os.path.expanduser('~/SHARK-Turbine'))
+    # os.chdir(os.path.expanduser('~/SHARK-Turbine'))
     # Ensure that any failure in the commands causes the test to stop
-    subprocess.run('set -e', shell=True, check=True)
+    # subprocess.run('set -e', shell=True, check=True)
+    pass
 
 def run_command(command):
     # Run the command and check for successful execution
