@@ -284,7 +284,9 @@ def export_transformer_model(
 
 
 def run_vmfb_comparison(args):
-    config = ireert.Config(args.device)
+    if args.device == "cpu":
+
+        config = ireert.Config("llvm-cpu")
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()
