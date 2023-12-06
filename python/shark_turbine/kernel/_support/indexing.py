@@ -73,7 +73,11 @@ DefaultElementType = TorchElementType(torch.float32)
 ###############################################################################
 
 
-class SymbolDef:
+class SymbolExpr:
+    ...
+
+
+class SymbolDef(SymbolExpr):
     """Represents a named symbol representing a dimension in a shape."""
 
     ALL_SYMBOLS: ClassVar[dict[str, "SymbolDef"]] = dict()
@@ -103,6 +107,19 @@ class SymbolDef:
 
 
 sym = SymbolDef.create_expando()
+
+ZERO = SymbolDef("(zero)")
+ONE = SymbolDef("(one)")
+NEG_ONE = SymbolDef("(neg_one)")
+
+
+###############################################################################
+# Bounded symbolic value.
+###############################################################################
+
+class BoundedSymbolicValue(SymbolExpr):
+    """Represents a symbolic value that is bounded to a range fixed for the type."""
+
 
 ###############################################################################
 # Grid
@@ -271,7 +288,7 @@ class _KernelBufferMeta(type):
         )
 
 
-def _is_kernel_buffer_meta_derived(t: type) -> bool:
+def is_kernel_buffer_meta_derived(t: type) -> bool:
     return isinstance(t, _KernelBufferMeta)
 
 
@@ -361,7 +378,11 @@ class IndexingContext:
     __tk_context_idname__ = "IndexingContext"
 
     def __init__(self):
-        self.constant_bindings: dict[SymbolDef, int] = {}
+        self.constant_bindings: dict[SymbolDef, int] = {
+            ZERO: 0,
+            ONE: 1,
+            NEG_ONE: -1,
+        }
 
     def bind_constant(self, sym: SymbolDef, value: int):
         existing = self.constant_bindings.get(sym)
@@ -371,9 +392,53 @@ class IndexingContext:
             )
         self.constant_bindings[sym] = value
 
-    def get_static_value(self, sym: SymbolDef) -> Optional[int]:
+    def get_static_value(self, sym: SymbolExpr) -> Optional[int]:
         """If the symbol can be resolved to a static value, returns it."""
         return self.constant_bindings.get(sym)
+
+    def is_one(self, sym: SymbolExpr) -> Optional[bool]:
+        """Returns True if the symbol is known to be 1.
+
+        Return False if known to be != 1 and None if not known.
+        """
+        assert isinstance(sym, SymbolDef)
+        value = self.get_static_value(sym)
+        if value is None:
+            return None
+        return value == 1
+
+    def is_non_negative(self, sym: SymbolExpr) -> Optional[bool]:
+        """Returns True is the symbol is known to be non-negative.
+
+        Returns False if known to be negative and None if not known.
+        """
+        assert isinstance(sym, SymbolDef)
+        value = self.get_static_value(sym)
+        if value is None:
+            return None
+        return value >= 0
+
+    def is_positive(self, sym: SymbolExpr) -> Optional[bool]:
+        """Returns True is the symbol is known to be greater than zero.
+
+        Returns False if known to be <= 0 and None if not known.
+        """
+        assert isinstance(sym, SymbolDef)
+        value = self.get_static_value(sym)
+        if value is None:
+            return None
+        return value > 0
+
+    def is_negative(self, sym: SymbolExpr) -> Optional[bool]:
+        """Returns True is the symbol is known to be greater than zero.
+
+        Returns False if known to be <= 0 and None if not known.
+        """
+        assert isinstance(sym, SymbolDef)
+        value = self.get_static_value(sym)
+        if value is None:
+            return None
+        return value < 0
 
     ##### Context management.
     @staticmethod

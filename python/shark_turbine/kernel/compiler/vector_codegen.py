@@ -10,7 +10,7 @@ from .._support.indexing import (
     IndexingContext,
     KernelBuffer,
     SymbolDef,
-    _is_kernel_buffer_meta_derived,
+    is_kernel_buffer_meta_derived,
 )
 
 from ..lang import (
@@ -18,6 +18,10 @@ from ..lang import (
 )
 
 from .. import ops
+
+from .analysis import (
+    SliceAnalysis,
+)
 
 from .builder import (
     ModuleBuilder,
@@ -92,7 +96,7 @@ class Signature:
         def as_mlir_type(t: ArgTypeUnion) -> FunctionType:
             if isinstance(t, SymbolDef):
                 return IndexType.get()
-            elif _is_kernel_buffer_meta_derived(t):
+            elif is_kernel_buffer_meta_derived(t):
                 kb_t = t  # type: KernelBuffer
                 element_type_asm = kb_t.element_type.ir_type_asm()
                 symbolic_shape = kb_t.symbolic_shape
@@ -119,7 +123,7 @@ class Signature:
                 continue
             t = node.type
             meta = ArgMeta(name=node.target, node=node)
-            if _is_kernel_buffer_meta_derived(t):
+            if is_kernel_buffer_meta_derived(t):
                 self.add_kernel_buffer(t, meta=meta)
             elif issubclass(t, SymbolDef):
                 self.add_symbol(t, meta=meta)
@@ -266,7 +270,15 @@ def _(emitter: ThreadEmitter, node: fx.Node):
 
 @handle_op(ops.kernel_buffer_getitem)
 def _(emitter: ThreadEmitter, node: fx.Node):
-    raise CodegenError("NYI: kernel_buffer_getitem")
+    try:
+        kb, slice_spec = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
+    sa.normalize_symbolic_ranges()
+    print(sa)
 
 
 @handle_op(ops.kernel_buffer_setitem)
@@ -276,14 +288,14 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    kb_dest, kb_type = cast_kernel_buffer(emitter, kb)
-    dest_rank = kb_type.rank
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    dest_rank = kb_ir_type.rank
     indices = cast_indices(emitter, key)
     if dest_rank != len(indices):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
         )
-    insert_vector = cast_vector(emitter, item, element_type=kb_type.element_type)
+    insert_vector = cast_vector(emitter, item, element_type=kb_ir_type.element_type)
     insert_type = VectorType(insert_vector.type)
     insert_rank = insert_type.rank
 
@@ -296,7 +308,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         )
 
     if insert_rank == 0:
-        broadcast_type = VectorType.get(dest_rank * [1], kb_type.element_type)
+        broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
     permutation_map = AffineMap.get_identity(dest_rank)
     vector_d.transfer_write(
@@ -319,17 +331,37 @@ def cast_py_value(emitter: ThreadEmitter, value) -> Value:
     return ScalarBuilder.constant(value)
 
 
-def cast_kernel_buffer(emitter: ThreadEmitter, kb) -> tuple[Value, MemRefType]:
+def cast_py_lvalue(emitter: ThreadEmitter, py_value) -> tuple[Value, fx.Node]:
+    if isinstance(py_value, fx.Node):
+        try:
+            return emitter.nv_map[py_value], py_value
+        except KeyError:
+            raise CodegenError(f"Producer node `{py_value}` has no IR Value")
+    else:
+        raise CodegenError(
+            f"Required a traced node in the graph. Got: {py_value} (type {type(py_value)})"
+        )
+
+
+def cast_kernel_buffer(
+    emitter: ThreadEmitter, kb
+) -> tuple[Value, MemRefType, Type[KernelBuffer]]:
     """Casts a Python value of type KernelBuffer, which lowers to a MemRefType'd value."""
-    value = cast_py_value(emitter, kb)
-    value_type = value.type
+    value, node = cast_py_lvalue(emitter, kb)
+    ir_type = value.type
+    py_type = node.type
 
-    if MemRefType.isinstance(value_type):
-        return value, MemRefType(value_type)
+    if not MemRefType.isinstance(ir_type):
+        raise CodegenError(
+            f"Expected a KernelBuffer (aka. `memref`) but got `{ir_type}`"
+        )
 
-    raise CodegenError(
-        f"Expected a KernelBuffer (aka. `memref`) but got `{value_type}`"
-    )
+    if not issubclass(py_type, KernelBuffer):
+        raise CodegenError(
+            f"Expected an lvalue of type KernelBuffer but got '{py_type}' for node {node}"
+        )
+
+    return value, MemRefType(ir_type), py_type
 
 
 def cast_indices(emitter: ThreadEmitter, slice) -> list[Value]:
