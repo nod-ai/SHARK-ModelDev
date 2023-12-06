@@ -10,6 +10,7 @@ from .. import ops
 from . import context
 
 __all__ = [
+    "BoundedSymbolicValue",
     "KernelBuffer",
     "Grid",
     "InputBuffer",
@@ -17,6 +18,10 @@ __all__ = [
     "SymbolDef",
     "TemporaryBuffer",
     "sym",
+    "sym_0",
+    "sym_1",
+    "sym_2",
+    "sym_n1",
 ]
 
 
@@ -74,7 +79,33 @@ DefaultElementType = TorchElementType(torch.float32)
 
 
 class SymbolExpr:
-    ...
+    def is_one(self) -> Optional[bool]:
+        """Returns True if the symbol is known to be 1.
+
+        Return False if known to be != 1 and None if not known.
+        """
+        raise NotImplementedError
+
+    def is_non_negative(self) -> Optional[bool]:
+        """Returns True is the symbol is known to be non-negative.
+
+        Returns False if known to be negative and None if not known.
+        """
+        raise NotImplementedError
+
+    def is_positive(self) -> Optional[bool]:
+        """Returns True is the symbol is known to be greater than zero.
+
+        Returns False if known to be <= 0 and None if not known.
+        """
+        raise NotImplementedError
+
+    def is_negative(self) -> Optional[bool]:
+        """Returns True is the symbol is known to be greater than zero.
+
+        Returns False if known to be <= 0 and None if not known.
+        """
+        raise NotImplementedError
 
 
 class SymbolDef(SymbolExpr):
@@ -105,20 +136,151 @@ class SymbolDef(SymbolExpr):
 
         return Expando()
 
+    def is_one(self) -> Optional[bool]:
+        value = IndexingContext.current().get_static_value(self)
+        if value is None:
+            return None
+        return value == 1
+
+    def is_non_negative(self) -> Optional[bool]:
+        value = IndexingContext.current().get_static_value(self)
+        if value is None:
+            return None
+        return value >= 0
+
+    def is_positive(self) -> Optional[bool]:
+        value = IndexingContext.current().get_static_value(self)
+        if value is None:
+            return None
+        return value > 0
+
+    def is_negative(self) -> Optional[bool]:
+        value = IndexingContext.current().get_static_value(self)
+        if value is None:
+            return None
+        return value < 0
+
 
 sym = SymbolDef.create_expando()
 
-ZERO = SymbolDef("(zero)")
-ONE = SymbolDef("(one)")
-NEG_ONE = SymbolDef("(neg_one)")
+sym_0 = SymbolDef("0")
+sym_1 = SymbolDef("1")
+sym_2 = SymbolDef("2")
+sym_n1 = SymbolDef("-1")
 
 
 ###############################################################################
 # Bounded symbolic value.
 ###############################################################################
 
-class BoundedSymbolicValue(SymbolExpr):
+BoundedRangeExprT = tuple[Optional[SymbolExpr], Optional[SymbolExpr]]
+
+
+class _BoundedSymbolicValueMeta(type):
+    """Meta-class for deriving new bounded symbolic values."""
+
+    range: BoundedRangeExprT
+
+    def __new__(mcls, name: str, bases, dct, *, range: BoundedRangeExprT):
+        dct["range"] = range
+        dct["__qualname__"] = _bounded_symbolic_value_repr(range=range)
+        new_class = type.__new__(mcls, name, bases, dct)
+        return new_class
+
+    def __repr__(cls):
+        return _bounded_symbolic_value_repr(range=cls.range)
+
+    @property
+    def min_bound(cls) -> Optional[SymbolExpr]:
+        return cls.range[0]
+
+    @property
+    def max_bound(cls) -> Optional[SymbolExpr]:
+        return cls.range[1]
+
+    def bound(
+        cls: Type[SubtypeT],
+        min_bound: Optional[SymbolExpr],
+        max_bound: Optional[SymbolExpr],
+    ) -> Type[SubtypeT]:
+        class Bounded(BoundedSymbolicValue, range=(min_bound, max_bound)):
+            ...
+
+        return Bounded
+
+    def narrow(
+        cls: Type[SubtypeT],
+        *,
+        min_bound: Optional[SymbolExpr] = None,
+        max_bound: Optional[SymbolExpr] = None,
+    ) -> Type[SubtypeT]:
+        class Bounded(
+            BoundedSymbolicValue,
+            range=(
+                min_bound if min_bound is not None else cls.min_bound,
+                max_bound if max_bound is not None else cls.max_bound,
+            ),
+        ):
+            ...
+
+        return Bounded
+
+
+def _bounded_symbolic_value_repr(*, range: BoundedRangeExprT) -> str:
+    min_expr, max_expr = range
+    min_s = repr(min_expr) if min_expr is not None else "*"
+    max_s = repr(max_expr) if max_expr is not None else "*"
+    return f"BoundedSymbolicValue({min_s} : {max_s})"
+
+
+class BoundedSymbolicValue(
+    SymbolExpr, metaclass=_BoundedSymbolicValueMeta, range=(None, None)
+):
     """Represents a symbolic value that is bounded to a range fixed for the type."""
+
+    def __init__(self, value: Optional[int] = None):
+        self.value = value
+
+    def __repr__(self):
+        return f"{type(self)}({'proxy' if self.value is None else self.value})"
+
+    @property
+    def static_range(self) -> Optional[tuple[int, int]]:
+        # TODO: This is a hack until shape derivation is in place.
+        ctx = IndexingContext.current()
+        mn, mx = type(self).range
+        if mn is not None:
+            mn = ctx.get_static_value(mn)
+        if mx is not None:
+            mx = ctx.get_static_value(mx)
+        if mn is not None and mx is not None:
+            return mn, mx
+        else:
+            return None
+
+    def is_one(self) -> Optional[bool]:
+        r = self.static_range
+        if r:
+            return r[0] == 1 and r[1] == 2
+        return None
+
+    def is_non_negative(self) -> Optional[bool]:
+        r = self.static_range
+        if r:
+            return r[0] >= 0
+        return None
+
+    def is_positive(self) -> Optional[bool]:
+        r = self.static_range
+        if r:
+            return r[0] > 0
+        return None
+
+    def is_negative(self) -> Optional[bool]:
+        r = self.static_range
+        if r:
+            return r[1] < 0
+        return None
 
 
 ###############################################################################
@@ -379,9 +541,10 @@ class IndexingContext:
 
     def __init__(self):
         self.constant_bindings: dict[SymbolDef, int] = {
-            ZERO: 0,
-            ONE: 1,
-            NEG_ONE: -1,
+            sym_0: 0,
+            sym_1: 1,
+            sym_2: 2,
+            sym_n1: -1,
         }
 
     def bind_constant(self, sym: SymbolDef, value: int):
@@ -395,50 +558,6 @@ class IndexingContext:
     def get_static_value(self, sym: SymbolExpr) -> Optional[int]:
         """If the symbol can be resolved to a static value, returns it."""
         return self.constant_bindings.get(sym)
-
-    def is_one(self, sym: SymbolExpr) -> Optional[bool]:
-        """Returns True if the symbol is known to be 1.
-
-        Return False if known to be != 1 and None if not known.
-        """
-        assert isinstance(sym, SymbolDef)
-        value = self.get_static_value(sym)
-        if value is None:
-            return None
-        return value == 1
-
-    def is_non_negative(self, sym: SymbolExpr) -> Optional[bool]:
-        """Returns True is the symbol is known to be non-negative.
-
-        Returns False if known to be negative and None if not known.
-        """
-        assert isinstance(sym, SymbolDef)
-        value = self.get_static_value(sym)
-        if value is None:
-            return None
-        return value >= 0
-
-    def is_positive(self, sym: SymbolExpr) -> Optional[bool]:
-        """Returns True is the symbol is known to be greater than zero.
-
-        Returns False if known to be <= 0 and None if not known.
-        """
-        assert isinstance(sym, SymbolDef)
-        value = self.get_static_value(sym)
-        if value is None:
-            return None
-        return value > 0
-
-    def is_negative(self, sym: SymbolExpr) -> Optional[bool]:
-        """Returns True is the symbol is known to be greater than zero.
-
-        Returns False if known to be <= 0 and None if not known.
-        """
-        assert isinstance(sym, SymbolDef)
-        value = self.get_static_value(sym)
-        if value is None:
-            return None
-        return value < 0
 
     ##### Context management.
     @staticmethod

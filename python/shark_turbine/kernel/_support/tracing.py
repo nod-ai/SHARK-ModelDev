@@ -7,7 +7,10 @@ import warnings
 import torch.fx as fx
 
 from .indexing import (
+    BoundedSymbolicValue,
+    Grid,
     KernelBuffer,
+    sym_0,
 )
 
 from ..lang.types import (
@@ -106,13 +109,23 @@ class EagerContext(BaseContext):
 
 
 class CompiledContext(BaseContext):
-    def __init__(self, tracer: KernelTracer):
+    def __init__(self, tracer: KernelTracer, *, grid_type: Type[Grid]):
         super().__init__(eager=False)
         self.tracer = tracer
+        self.grid_type = grid_type
 
     def handle_thread_program_id(self, op, axis: int) -> Index:
+        grid_shape = self.grid_type.symbolic_shape
+        if axis < 0 or axis >= len(grid_shape):
+            raise IndexError(
+                f"Illegal index into grid of rank {len(grid_shape)}: {axis}"
+            )
         proxy = self.tracer.create_proxy(
-            "call_function", op, args=(axis,), kwargs={}, type_expr=Index
+            "call_function",
+            op,
+            args=(axis,),
+            kwargs={},
+            type_expr=BoundedSymbolicValue.bound(sym_0, grid_shape[axis]),
         )
         return proxy
 

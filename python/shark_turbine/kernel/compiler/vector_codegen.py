@@ -45,6 +45,7 @@ from .ir import (
     ShapedType,
     Value,
     VectorType,
+    arith_d,
     func_d,
     vector_d,
 )
@@ -178,7 +179,7 @@ class ThreadEmitter:
         self, node: fx.Node, value: Value, type_expr: Optional[type] = None
     ):
         assert node not in self.nv_map, f"Cannot rebind node {node}: already bound"
-        if type_expr is not None:
+        if type_expr is not None and node.type is None:
             node.type = type_expr
         self.nv_map[node] = value
 
@@ -275,10 +276,19 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
     sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
     sa.normalize_symbolic_ranges()
-    print(sa)
+    vector_shape = sa.symbolic_shape
+    element_type = kb_ir_type.element_type
+    vector_type = VectorType.get(vector_shape, element_type)
+    pad_attr = ScalarBuilder.zero_attr(element_type)
+    indices = cast_indices(emitter, [s.start for s in sa.slices])
+    pad_value = arith_d.constant(pad_attr)
+    result = vector_d.transfer_read(
+        vector_type, kb_src, indices, AffineMap.get_identity(len(indices)), pad_value
+    )
+    emitter.bind_node_result(node, result)
 
 
 @handle_op(ops.kernel_buffer_setitem)

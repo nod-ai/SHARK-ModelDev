@@ -59,7 +59,8 @@ class Test(unittest.TestCase):
         print(gm.graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
-            idxc.bind_constant(M, 17)
+            idxc.bind_constant(M, 128)
+            idxc.bind_constant(K, 64)
 
             sig = vector_codegen.Signature()
             sig.add_from_graph_placeholders(gm.graph)
@@ -70,8 +71,8 @@ class Test(unittest.TestCase):
                     mb, softmax_kernel.grid_type, sig
                 )
                 emitter.emit_graph(gm.graph)
-                emitter.finish()
             finally:
+                emitter.finish()
                 print(mb.module_op.get_asm())
             mb.module_op.verify()
 

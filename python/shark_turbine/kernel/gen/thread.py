@@ -32,7 +32,7 @@ def thread(*symbolic_shape: SymbolDef):
     def decorator(f: Optional[TCallable] = None) -> "UnconfiguredThread[TCallable]":
         # Eagerly capture the trace and attach it to the wrapped function.
         tracer = KernelTracer()
-        with CompiledContext(tracer) as context:
+        with CompiledContext(tracer, grid_type=GridType) as context:
             g = tracer.trace(f)
             gm = fx.GraphModule(tracer.root, g, f.__name__)
 

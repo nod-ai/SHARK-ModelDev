@@ -1,8 +1,11 @@
 from typing import Any, Optional, Type, Union
 
+import torch.fx as fx
+
 from .base import CodegenError
 
 from .._support.indexing import (
+    BoundedSymbolicValue,
     IndexingContext,
     SymbolDef,
     SymbolExpr,
@@ -10,6 +13,17 @@ from .._support.indexing import (
 
 
 NormalizedSlice = list[Union[slice, None]]
+
+
+def _symbolize_slice_value(value):
+    # TODO: I don't like this and wish this happened more automatically somehow.
+    if isinstance(value, fx.Node):
+        sym_type = value.type
+        if sym_type and issubclass(sym_type, BoundedSymbolicValue):
+            return sym_type()
+        return value
+    else:
+        return value
 
 
 def _norm_slice_spec(rank: int, slice_spec) -> NormalizedSlice:
@@ -127,52 +141,63 @@ class SliceAnalysis:
             if step is None:
                 step = 1
 
+            # Symbolize for analysis.
+            start_sym = _symbolize_slice_value(start)
+            stop_sym = _symbolize_slice_value(stop)
+            step_sym = _symbolize_slice_value(step)
+
             # Evaluate facts for start.
-            if isinstance(start, SymbolExpr):
-                start_is_non_negative = ctx.is_non_negative(start)
-            elif isinstance(start, int):
-                start_is_non_negative = start >= 0
+            if isinstance(start_sym, SymbolExpr):
+                start_is_non_negative = start_sym.is_non_negative()
+            elif isinstance(start_sym, int):
+                start_is_non_negative = start_sym >= 0
             else:
                 raise IndexError(
-                    f"A symbolically evaluable start index is required (got: {start} (type {type(start)}))"
+                    f"A symbolically evaluable start index is required (got: {start_sym} (type {type(start_sym)}))"
                 )
 
             # Evaluate facts for stop.
-            if isinstance(stop, SymbolExpr):
-                stop_is_non_negative = ctx.is_non_negative(stop)
+            if isinstance(stop_sym, SymbolExpr):
+                stop_is_non_negative = stop_sym.is_non_negative()
                 stop_is_zero = False
-            elif isinstance(stop, int):
-                stop_is_non_negative = stop >= 0
-                stop_is_zero = stop == 0
+            elif isinstance(stop_sym, int):
+                stop_is_non_negative = stop_sym >= 0
+                stop_is_zero = stop_sym == 0
             else:
                 raise IndexError(
-                    f"A symbolically evaluable stop index is required (got: {stop} (type {type(stop)}))"
+                    f"A symbolically evaluable stop index is required (got: {stop_sym} (type {type(stop_sym)}))"
                 )
 
             # Evaluate facts for step.
-            if isinstance(step, SymbolExpr):
-                reverse_step = ctx.is_negative(step)
-                unit_step = ctx.is_one(step)
+            if isinstance(step_sym, SymbolExpr):
+                reverse_step = step_sym.is_negative()
+                unit_step = step_sym.is_one()
                 zero_step = False
-            elif isinstance(step, int):
-                reverse_step = step < 0
-                unit_step = step == 1
-                zero_step = step == 0
+            elif isinstance(step_sym, int):
+                reverse_step = step_sym < 0
+                unit_step = step_sym == 1
+                zero_step = step_sym == 0
             else:
                 raise IndexError(
-                    f"A symbolically evaluable step is required (got: {step} (type {type(step)}))"
+                    f"A symbolically evaluable step is required (got: {step_sym} (type {type(step_sym)}))"
                 )
 
             # Validate step constraints.
             if zero_step:
                 # This is our special marker for a unit (non-range extract).
-                assert stop_is_zero, "slices of non zero stop and zero step should have been filtered"
+                assert (
+                    stop_is_zero
+                ), "slices of non zero stop and zero step should have been filtered"
             else:
                 if not allow_non_unit_step and not unit_step:
-                    raise IndexError(f"Only unit steps are supported in this context (got slice({start}, {stop}, {step}))")
+                    raise IndexError(
+                        f"Only unit steps are supported in this context (got slice({start_sym}, {stop_sym}, {step_sym}))"
+                    )
 
                 if not allow_reverse_step and reverse_step:
-                    raise IndexError(f"Only forward steps are supported in this context (got slice({start}, {stop}, {step}))")
+                    raise IndexError(
+                        f"Only forward steps are supported in this context (got slice({start_sym}, {stop_sym}, {step_sym}))"
+                    )
 
             # Normalize negative start/stop.
             if not start_is_non_negative:
