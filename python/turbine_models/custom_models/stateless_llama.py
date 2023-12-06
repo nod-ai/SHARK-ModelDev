@@ -242,7 +242,6 @@ def export_transformer_model(
         elif device == "vulkan":
             flags.extend(
                 [
-                    "--iree-hal-target-backends=vulkan-spirv",
                     "--iree-vulkan-target-triple=" + target_triple,
                     "--iree-stream-resource-max-allocation-size=" + max_alloc,
                 ]
@@ -250,7 +249,6 @@ def export_transformer_model(
         elif device == "rocm":
             flags.extend(
                 [
-                    "--iree-hal-target-backends=rocm",
                     "--iree-rocm-target-chip=" + target_triple,
                     "--iree-rocm-link-bc=true",
                     "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
@@ -262,14 +260,13 @@ def export_transformer_model(
         elif device == "cuda":
             flags.extend(
                 [
-                    "--iree-hal-target-backends=cuda",
                     "--iree-hal-cuda-llvm-target-arch=" + target_triple,
                     "--iree-vm-bytecode-module-strip-source-map=true",
                     "--iree-vm-target-truncate-unsupported-floats",
                 ]
             )
         else:
-            print("incorrect device: ", device)
+            print("Unknown device kind: ", device)
         import iree.compiler as ireec
 
         flatbuffer_blob = ireec.compile_str(
