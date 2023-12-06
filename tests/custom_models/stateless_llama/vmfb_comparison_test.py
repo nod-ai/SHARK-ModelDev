@@ -36,7 +36,7 @@ def run_command(command):
     subprocess.run(command, shell=True, check=True)
 
 def test_generate_vmfb(setup_environment):
-    command = 'python python/turbine_models/custom_models/stateless_llama_export_old.py --compile_to=vmfb --hf_model_name="llSourcell/medllama2_7b" --precision=f16 --quantization=int4  --external_weights=safetensors'
+    command = 'python python/turbine_models/custom_models/stateless_llama.py --compile_to=vmfb --hf_model_name="llSourcell/medllama2_7b" --precision=f16 --quantization=int4  --external_weights=safetensors'
     run_command(command)
 
 def test_generate_quantized_safetensors(setup_environment):
