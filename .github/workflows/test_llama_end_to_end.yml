@@ -16,10 +16,6 @@ jobs:
 
     runs-on: [self-hosted]
     steps:
-      - name: "Setting up Python"
-        uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
-        with:
-          python-version: ${{matrix.version}}
 
       - name: "Checkout Code"
         uses: actions/checkout@v2
