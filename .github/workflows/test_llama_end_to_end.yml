@@ -14,7 +14,7 @@ jobs:
         version: [3.11]
         os: [xida-cpu-0]
 
-    runs-on: ${{matrix.os}}
+    runs-on: [self-hosted]
     steps:
       - name: "Setting up Python"
         uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
