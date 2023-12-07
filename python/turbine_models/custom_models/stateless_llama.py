@@ -48,7 +48,9 @@ parser.add_argument(
     "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
 )
 
-parser.add_argument("--device", type=str, default="llvm-cpu", help="llvm-cpu, cuda, vulkan, rocm")
+parser.add_argument(
+    "--device", type=str, default="llvm-cpu", help="llvm-cpu, cuda, vulkan, rocm"
+)
 # TODO: Bring in detection for target triple
 parser.add_argument(
     "--iree_target_triple",

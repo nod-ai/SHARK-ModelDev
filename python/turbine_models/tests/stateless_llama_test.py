@@ -12,8 +12,8 @@ import pytest
 
 from typing import Literal
 
+
 def test_export(quantization: Literal["int4", None], precision: Literal["f16", "f32"]):
-   
     llama.export_transformer_model(
         hf_model_name="llSourcell/medllama2_7b",
         hf_auth_token=None,
@@ -24,32 +24,34 @@ def test_export(quantization: Literal["int4", None], precision: Literal["f16", "
         precision=precision,
         device="llvm-cpu",
         target_triple="host",
-        max_alloc = "4294967296"
+        max_alloc="4294967296",
     )
 
-    from turbine_models.gen_external_params.gen_external_params import gen_external_params
+    from turbine_models.gen_external_params.gen_external_params import (
+        gen_external_params,
+    )
+
     gen_external_params(
         hf_model_name="llSourcell/medllama2_7b",
         quantization=quantization,
         weight_path="medllama2_7b_f16_int4.safetensors",
         hf_auth_token=None,
-        precision=precision
+        precision=precision,
     )
 
     from types import SimpleNamespace
+
     args = SimpleNamespace()
     args.hf_model_name = "llSourcell/medllama2_7b"
     args.hf_auth_token = None
     args.vmfb_path = "medllama2_7b.vmfb"
     args.external_weight_file = "medllama2_7b_f16_int4.safetensors"
     args.run_vmfb = True
-    args.device="llvm-cpu"
+    args.device = "llvm-cpu"
     args.precision = precision
     args.quantization = quantization
-    args.iree_target_triple="host"
+    args.iree_target_triple = "host"
     llama.run_vmfb_comparison(args)
-    
-    
 
 
 if __name__ == "__main__":
