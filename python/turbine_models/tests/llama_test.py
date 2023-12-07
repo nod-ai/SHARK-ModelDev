@@ -21,6 +21,7 @@ class LLamaTest(unittest.TestCase):
             "medllama2_f32.safetensors",
             None,
             "f32",
+            "cpu",
         )
         os.remove("medllama2_f32.safetensors")
 
