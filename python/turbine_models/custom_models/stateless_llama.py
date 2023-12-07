@@ -19,7 +19,6 @@ MAX_STEP_SEQ = 4095
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--run_vmfb", action="store_true")
 parser.add_argument(
     "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
 )
@@ -280,107 +279,25 @@ def export_transformer_model(
         print("saved to ", safe_name + ".vmfb")
         return module_str, tokenizer
 
-
-def run_vmfb_comparison(args):
-    config = ireert.Config("local-task")
-
-    if args.external_weight_file:
-        index = ireert.ParameterIndex()
-        index.load(args.external_weight_file)
-
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-    if args.vmfb_path:
-        mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
-    elif os.path.exists(f"{safe_name}.vmfb"):
-        mod = ireert.VmModule.mmap(config.vm_instance, f"{safe_name}.vmfb")
-    else:
-        sys.exit("no vmfb_path provided, required for run_vmfb")
-
-    vm_modules = [
-        mod,
-        ireert.create_hal_module(config.vm_instance, config.device),
-    ]
-    if args.external_weight_file:
-        param_module = ireert.create_io_parameters_module(
-            config.vm_instance, index.create_provider(scope="model")
-        )
-        vm_modules.insert(0, param_module)
-
-    ctx = ireert.SystemContext(
-        vm_modules=vm_modules,
-        config=config,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.hf_model_name,
-        use_fast=False,
-        token=args.hf_auth_token,
-    )
-    initial_input = tokenizer(prompt, return_tensors="pt")
-    example_input_id = initial_input.input_ids
-    device_inputs = [ireert.asdevicearray(config.device, example_input_id)]
-
-    ModuleCompiled = ctx.modules.state_update
-    results = ModuleCompiled["run_initialize"](*device_inputs)
-
-    def format_out(results):
-        return torch.tensor(results.to_host()[0][0])
-
-    model = AutoModelForCausalLM.from_pretrained(
-        args.hf_model_name,
-        torch_dtype=torch.float,
-        use_auth_token=args.hf_auth_token,
-    )
-
-    def get_token_from_logits(logits):
-        return torch.argmax(logits[:, -1, :], dim=1)
-
-    base_model_results = model.forward(example_input_id)
-    base_model_token = get_token_from_logits(base_model_results.logits)
-    bm_pkv = base_model_results.past_key_values
-    turbine_results = []
-    torch_results = []
-    turbine_results.append(format_out(results))
-    torch_results.append(int(base_model_token))
-    while base_model_token != 2:
-        results = ModuleCompiled["run_forward"](results)
-        base_model_results = model.forward(
-            torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
-        )
-        base_model_token = get_token_from_logits(base_model_results.logits)
-
-        bm_pkv = base_model_results.past_key_values
-        # uncomment to see tokens as they are emittd
-        # print(f"pytorch: {tokenizer.decode(base_model_token)}")
-        # print(f"turbine: {tokenizer.decode(format_out(results))}")
-        turbine_results.append(format_out(results))
-        torch_results.append(int(base_model_token[0]))
-
-    print("turbine output: ")
-    print(tokenizer.decode(turbine_results))
-    print("\ntorch output: ")
-    print(tokenizer.decode(torch_results))
-
+# if you're looking for run_vmfb_comparison, it's now in python/turbine_models/tests/vmfb_comparison.py
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    if args.run_vmfb:
-        run_vmfb_comparison(args)
-    else:
-        mod_str, _ = export_transformer_model(
-            args.hf_model_name,
-            args.hf_auth_token,
-            args.compile_to,
-            args.external_weights,
-            args.external_weight_file,
-            args.quantization,
-            args.precision,
-            args.device,
-            args.iree_target_triple,
-            args.vulkan_max_allocation,
-        )
-        safe_name = args.hf_model_name.split("/")[-1].strip()
-        safe_name = re.sub("-", "_", safe_name)
-        with open(f"{safe_name}.mlir", "w+") as f:
-            f.write(mod_str)
-        print("Saved to ", safe_name + ".mlir")
+
+    mod_str, _ = export_transformer_model(
+        args.hf_model_name,
+        args.hf_auth_token,
+        args.compile_to,
+        args.external_weights,
+        args.external_weight_file,
+        args.quantization,
+        args.precision,
+        args.device,
+        args.iree_target_triple,
+        args.vulkan_max_allocation,
+    )
+    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+    with open(f"{safe_name}.mlir", "w+") as f:
+        f.write(mod_str)
+    print("Saved to ", safe_name + ".mlir")
