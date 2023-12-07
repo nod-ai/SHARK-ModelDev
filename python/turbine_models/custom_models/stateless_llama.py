@@ -48,12 +48,12 @@ parser.add_argument(
     "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
 )
 
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
+parser.add_argument("--device", type=str, default="llvm-cpu", help="llvm-cpu, cuda, vulkan, rocm")
 # TODO: Bring in detection for target triple
 parser.add_argument(
     "--iree_target_triple",
     type=str,
-    default="",
+    default="host",
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
@@ -236,9 +236,8 @@ def export_transformer_model(
             "--iree-codegen-check-ir-before-llvm-conversion=false",
             "--iree-opt-const-expr-hoisting=False",
         ]
-        if device == "cpu":
-            flags.append("--iree-llvmcpu-enable-microkernels")
-            device = "llvm-cpu"
+        if device == "llvm-cpu":
+            flags.append("--iree-llvmcpu-enable-ukernels=all")
         elif device == "vulkan":
             flags.extend(
                 [
@@ -277,11 +276,11 @@ def export_transformer_model(
         with open(f"{safe_name}.vmfb", "wb+") as f:
             f.write(flatbuffer_blob)
         print("saved to ", safe_name + ".vmfb")
-        exit()
+        return module_str, tokenizer
 
 
 def run_vmfb_comparison(args):
-    config = ireert.Config(args.device)
+    config = ireert.Config("local-task")
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()

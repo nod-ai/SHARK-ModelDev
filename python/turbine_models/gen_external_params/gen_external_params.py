@@ -72,35 +72,52 @@ def quantize(model, quantization, dtype):
         all_weights.update(int_weights)
     return all_weights
 
+def gen_external_params(hf_model_name:str = "meta-llama/Llama-2-7b-chat-hf",
+         quantization:str = "int4",
+         weight_path:str = "",
+         hf_auth_token:str = None,
+         precision:str = "f16"):
+    """
+    Main function to run the model quantization and saving process.
 
-if __name__ == "__main__":
-    args = parser.parse_args()
+    :param hf_model_name: The Hugging Face model name ID.
+    :param quantization: Type of quantization to apply ('int4' or 'int8').
+    :param weight_path: Path to save the quantized model weights.
+    :param hf_auth_token: The Hugging Face auth token required for some models.
+    :param precision: Data type of model ('f16' or 'f32').
+    """
     model_builder = HFTransformerBuilder(
         example_input=None,
-        hf_id=args.hf_model_name,
+        hf_id=hf_model_name,
         auto_model=AutoModelForCausalLM,
-        hf_auth_token=args.hf_auth_token,
+        hf_auth_token=hf_auth_token,
     )
     model_builder.build_model()
-    if args.precision == "f16":
+
+    if precision == "f16":
         model = model_builder.model.half()
         dtype = torch.float16
-    elif args.precision == "f32":
+    elif precision == "f32":
         model = model_builder.model
         dtype = torch.float32
     else:
-        sys.exit("invalid precision, f16 or f32 supported")
-    quant_weights = quantize(model, args.quantization, dtype)
-    # TODO: Add more than just safetensor support
-    import safetensors
+        sys.exit("Invalid precision, f16 or f32 supported")
 
-    if args.weight_path == "":
-        save_path = args.hf_model_name.split("/")[-1].strip()
+    quant_weights = quantize(model, quantization, dtype)
+
+    if weight_path == "":
+        save_path = hf_model_name.split("/")[-1].strip()
         save_path = re.sub("-", "_", save_path)
         save_path = (
-            save_path + "_" + args.precision + "_" + args.quantization + ".safetensors"
+            save_path + "_" + precision + "_" + quantization + ".safetensors"
         )
     else:
-        save_path = args.weight_path
+        save_path = weight_path
+
+    import safetensors
     safetensors.torch.save_file(quant_weights, save_path)
     print("Saved safetensor output to ", save_path)
+
+if __name__ == "__main__":
+    import fire
+    fire.Fire(gen_external_params)
