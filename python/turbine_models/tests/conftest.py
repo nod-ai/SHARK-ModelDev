@@ -5,14 +5,14 @@ def pytest_addoption(parser):
 def pytest_generate_tests(metafunc):
     if "quantization" in metafunc.fixturenames:
         if metafunc.config.getoption("all"):
-            quantizations = ["int4", None]
+            quantizations = ["int4", "None"]
         else:
-            quantizations = ["int4"]
+            quantizations = ["None"]
         metafunc.parametrize("quantization", quantizations)
 
     if "precision" in metafunc.fixturenames:
         if metafunc.config.getoption("all"):
             precisions = ["f16", "f32"]
         else:
-            precisions = ["f16"]
+            precisions = ["f32"]
         metafunc.parametrize("precision", precisions)

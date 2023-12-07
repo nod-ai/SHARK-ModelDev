@@ -21,14 +21,32 @@ BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
 
 
+BATCH_SIZE = 1
+MAX_STEP_SEQ = 4095
+
+
 def torch_token_generator(
-    prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False
+    prompt, hf_model_name: str,
+    hf_auth_token: str,
+    break_on_eos=False,
+    precision="f32",
+    quantization="None",
 ):
+    if precision == "f16":
+        torch_dtype = torch.float16
+    elif precision == "f32":
+        torch_dtype = torch.float32
+    else:
+        raise ValueError("Invalid dtype, f16 or f32 supported")
+
+    if quantization is not None and quantization.lower() != "none":
+        raise NotImplementedError("Quantization not supported for torch")
+
     tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token, 
     )
     model = AutoModelForCausalLM.from_pretrained(
-        hf_model_name, torch_dtype=torch.float, use_auth_token=hf_auth_token
+        hf_model_name, torch_dtype=torch_dtype, use_auth_token=hf_auth_token
     )
 
     initial_input = tokenizer(prompt, return_tensors="pt")
@@ -131,30 +149,53 @@ def turbine_token_generator(
         if next_token_tensor.item() == tokenizer.eos_token_id and break_on_eos:
             break
 
-
-def run_vmfb_comparison(
+def get_torch_string(
     prompt,
     hf_auth_token,
     hf_model_name,
-    vmfb_path,
-    external_weight_file,
-    break_on_eos=True,
+    tokens_to_compare=50,
 ):
-    # Initialize generators with the prompt and specific arguments
+    
+
     print("Using prompt:")
     print(prompt)
+    print("To generate torch reference string...")
     torch_gen = torch_token_generator(
         prompt=prompt,
         hf_auth_token=hf_auth_token,
         hf_model_name=hf_model_name,
-        break_on_eos=break_on_eos,
+        break_on_eos=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
     )
 
     print(
         "Generating Torch tokens... The pipeline needs to be initialized first so the first few tokens may take a while."
     )
+    # read until stopiteration
     torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
-    del torch_gen
+    torch_str = tokenizer.decode(torch.tensor(torch_tokens).numpy())
+    
+    return torch_str
+
+
+def get_turbine_vmfb_string(
+    prompt,
+    hf_auth_token,
+    hf_model_name,
+    vmfb_path,
+    external_weight_file,
+    tokens_to_compare=50,
+):
+    # Initialize generators with the prompt and specific arguments
+    # check if torch string cache exists
+    # cache is at python/turbine_models/tests/vmfb_comparison_cached_torch_output.txt
+
+    # Decode and print the outputs
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
+    )
 
     # Run turbine until an equal number of tokens has been generated
     print(
@@ -166,18 +207,13 @@ def run_vmfb_comparison(
         vmfb_path=vmfb_path,
         external_weight_file=external_weight_file,
         hf_auth_token=hf_auth_token,
-        break_on_eos=break_on_eos,
+        break_on_eos=False,
     )
     turbine_tokens = []
-    for _ in tqdm(range(len(torch_tokens)), desc="Generating Turbine tokens"):
+    for _ in tqdm(range(tokens_to_compare), desc="Generating Turbine tokens"):
         token = next(turbine_gen)
         turbine_tokens.append(token)
     del turbine_gen
 
-    # Decode and print the outputs
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
-    )
     turbine_str = tokenizer.decode(torch.tensor(turbine_tokens).numpy())
-    torch_str = tokenizer.decode(torch.tensor(torch_tokens).numpy())
-    return turbine_str, torch_str
+    return turbine_str
