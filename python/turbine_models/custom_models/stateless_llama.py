@@ -237,7 +237,7 @@ def export_transformer_model(
             "--iree-opt-const-expr-hoisting=False",
         ]
         if device == "cpu":
-            flags.append("--iree-llvmcpu-enable-microkernels")
+            flags.append("--iree-llvmcpu-enable-ukernels=all")
             device = "llvm-cpu"
         elif device == "vulkan":
             flags.extend(

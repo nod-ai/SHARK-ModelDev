@@ -25,29 +25,56 @@ def largest_error(array1, array2):
     return max_error
 
 
-def compile_to_vmfb(module_str, target_backends, safe_name):
+def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
     flags = [
         "--iree-input-type=torch",
-        "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
         "--mlir-print-debuginfo",
         "--mlir-print-op-on-diagnostic=false",
         "--iree-llvmcpu-target-cpu-features=host",
         "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-        "--iree-llvmcpu-enable-microkernels",
-        "--iree-llvmcpu-stack-allocation-limit=256000",
         "--iree-stream-resource-index-bits=64",
         "--iree-vm-target-index-bits=64",
-        "--iree-vm-bytecode-module-strip-source-map=true",
-        "--iree-util-zero-fill-elided-attrs",
-        "--iree-vm-target-truncate-unsupported-floats",
         "--iree-codegen-check-ir-before-llvm-conversion=false",
-        "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
         "--iree-opt-const-expr-hoisting=False",
     ]
+    if device == "cpu":
+        flags.append("--iree-llvmcpu-enable-ukernels=all")
+        device = "llvm-cpu"
+    elif device == "vulkan":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=vulkan-spirv",
+                "--iree-vulkan-target-triple=" + target_triple,
+                "--iree-stream-resource-max-allocation-size=" + max_alloc,
+            ]
+        )
+    elif device == "rocm":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=rocm",
+                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-rocm-link-bc=true",
+                "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-opt-strip-assertions=true",
+                "--iree-vm-target-truncate-unsupported-floats",
+            ]
+        )
+    elif device == "cuda":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=cuda",
+                "--iree-hal-cuda-llvm-target-arch=" + target_triple,
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-vm-target-truncate-unsupsported-floats",
+            ]
+        )
+    else:
+        print("incorrect device: ", device)
 
     flatbuffer_blob = ireec.compile_str(
         module_str,
-        target_backends=target_backends,
+        target_backends=[device],
         extra_args=flags,
     )
     with open(f"{safe_name}.vmfb", "wb+") as f:

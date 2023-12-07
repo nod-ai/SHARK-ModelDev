@@ -9,6 +9,7 @@ import sys
 import re
 
 from iree import runtime as ireert
+import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
@@ -39,6 +40,15 @@ parser.add_argument(
     default=None,
     help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
 )
+parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
+# TODO: Bring in detection for target triple
+parser.add_argument(
+    "--iree_target_triple",
+    type=str,
+    default="",
+    help="Specify vulkan target triple or rocm/cuda target device.",
+)
+parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 prompt = ["a photograph of an astronaut riding a horse"]
 
@@ -49,6 +59,9 @@ def export_clip_model(
     compile_to="torch",
     external_weights=None,
     external_weight_file=None,
+    device=None,
+    target_triple=None,
+    max_alloc=None,
 ):
     # Load the tokenizer and text encoder to tokenize and encode the text.
     tokenizer = CLIPTokenizer.from_pretrained(
@@ -90,11 +103,11 @@ def export_clip_model(
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        utils.compile_to_vmfb(module_str, ["llvm-cpu"], safe_name)
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
 
 def run_clip_vmfb_comparison(args):
-    config = ireert.Config("local-task")
+    config = ireert.Config(args.device)
 
     if args.external_weight_file:
         index = ireert.ParameterIndex()
@@ -177,6 +190,9 @@ if __name__ == "__main__":
             args.compile_to,
             args.external_weights,
             args.external_weight_file,
+            args.device,
+            args.iree_target_triple,
+            args.vulkan_max_allocation,
         )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
