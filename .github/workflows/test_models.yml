@@ -1,4 +1,4 @@
-name: turbine_models test
+name: Test Turbine Models
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - main
 
 jobs:
-  test:
+  test-turbine-models:
     strategy:
       matrix:
         version: [3.11]
