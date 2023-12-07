@@ -1,4 +1,4 @@
-name: Test
+name: turbine_models test
 
 on:
   workflow_dispatch:
