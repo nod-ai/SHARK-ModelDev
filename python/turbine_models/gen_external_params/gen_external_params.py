@@ -54,11 +54,14 @@ def quantize(model, quantization, dtype):
         all_weights.update(int_weights)
     return all_weights
 
-def gen_external_params(hf_model_name:str = "meta-llama/Llama-2-7b-chat-hf",
-         quantization:str = "int4",
-         weight_path:str = "",
-         hf_auth_token:str = None,
-         precision:str = "f16"):
+
+def gen_external_params(
+    hf_model_name: str = "meta-llama/Llama-2-7b-chat-hf",
+    quantization: str = "int4",
+    weight_path: str = "",
+    hf_auth_token: str = None,
+    precision: str = "f16",
+):
     """
     Main function to run the model quantization and saving process.
 
@@ -90,13 +93,12 @@ def gen_external_params(hf_model_name:str = "meta-llama/Llama-2-7b-chat-hf",
     if weight_path == "":
         save_path = hf_model_name.split("/")[-1].strip()
         save_path = re.sub("-", "_", save_path)
-        save_path = (
-            save_path + "_" + precision + "_" + quantization + ".safetensors"
-        )
+        save_path = save_path + "_" + precision + "_" + quantization + ".safetensors"
     else:
         save_path = weight_path
 
     import safetensors
+
     safetensors.torch.save_file(quant_weights, save_path)
     print("Saved safetensor output to ", save_path)
 
@@ -104,18 +106,43 @@ def gen_external_params(hf_model_name:str = "meta-llama/Llama-2-7b-chat-hf",
 if __name__ == "__main__":
     import argparse
     import sys
-    parser = argparse.ArgumentParser(description="Quantize and save Hugging Face models.")
 
-    parser.add_argument("--hf_model_name", type=str, default="meta-llama/Llama-2-7b-chat-hf",
-                        help="The Hugging Face model name ID.")
-    parser.add_argument("--quantization", type=str, default="int4",
-                        choices=["int4", "int8"], help="Type of quantization to apply.")
-    parser.add_argument("--weight_path", type=str, default="",
-                        help="Path to save the quantized model weights.")
-    parser.add_argument("--hf_auth_token", type=str, default=None,
-                        help="The Hugging Face auth token required for some models.")
-    parser.add_argument("--precision", type=str, default="f16",
-                        choices=["f16", "f32"], help="Data type of model.")
+    parser = argparse.ArgumentParser(
+        description="Quantize and save Hugging Face models."
+    )
+
+    parser.add_argument(
+        "--hf_model_name",
+        type=str,
+        default="meta-llama/Llama-2-7b-chat-hf",
+        help="The Hugging Face model name ID.",
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default="int4",
+        choices=["int4", "int8"],
+        help="Type of quantization to apply.",
+    )
+    parser.add_argument(
+        "--weight_path",
+        type=str,
+        default="",
+        help="Path to save the quantized model weights.",
+    )
+    parser.add_argument(
+        "--hf_auth_token",
+        type=str,
+        default=None,
+        help="The Hugging Face auth token required for some models.",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="f16",
+        choices=["f16", "f32"],
+        help="Data type of model.",
+    )
 
     args = parser.parse_args()
 
@@ -125,7 +152,7 @@ if __name__ == "__main__":
             quantization=args.quantization,
             weight_path=args.weight_path,
             hf_auth_token=args.hf_auth_token,
-            precision=args.precision
+            precision=args.precision,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
