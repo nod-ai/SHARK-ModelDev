@@ -3,24 +3,6 @@ from turbine_models.model_builder import HFTransformerBuilder
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name ID",
-    default="meta-llama/Llama-2-7b-chat-hf",
-)
-parser.add_argument("--quantization", type=str, default="int4")
-parser.add_argument("--weight_path", type=str, default="")
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The HF auth token required for some models"
-)
-parser.add_argument(
-    "--precision", type=str, default="f16", help="Data type of model [f16, f32]"
-)
-
 
 def quantize(model, quantization, dtype):
     accumulates = dtype
@@ -118,6 +100,33 @@ def gen_external_params(hf_model_name:str = "meta-llama/Llama-2-7b-chat-hf",
     safetensors.torch.save_file(quant_weights, save_path)
     print("Saved safetensor output to ", save_path)
 
+
 if __name__ == "__main__":
-    import fire
-    fire.Fire(gen_external_params)
+    import argparse
+    import sys
+    parser = argparse.ArgumentParser(description="Quantize and save Hugging Face models.")
+
+    parser.add_argument("--hf_model_name", type=str, default="meta-llama/Llama-2-7b-chat-hf",
+                        help="The Hugging Face model name ID.")
+    parser.add_argument("--quantization", type=str, default="int4",
+                        choices=["int4", "int8"], help="Type of quantization to apply.")
+    parser.add_argument("--weight_path", type=str, default="",
+                        help="Path to save the quantized model weights.")
+    parser.add_argument("--hf_auth_token", type=str, default=None,
+                        help="The Hugging Face auth token required for some models.")
+    parser.add_argument("--precision", type=str, default="f16",
+                        choices=["f16", "f32"], help="Data type of model.")
+
+    args = parser.parse_args()
+
+    try:
+        gen_external_params(
+            hf_model_name=args.hf_model_name,
+            quantization=args.quantization,
+            weight_path=args.weight_path,
+            hf_auth_token=args.hf_auth_token,
+            precision=args.precision
+        )
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
