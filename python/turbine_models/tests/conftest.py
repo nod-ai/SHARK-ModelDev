@@ -9,7 +9,7 @@ def pytest_generate_tests(metafunc):
         else:
             quantizations = ["int4"]
         metafunc.parametrize("quantization", quantizations)
-    
+
     if "precision" in metafunc.fixturenames:
         if metafunc.config.getoption("all"):
             precisions = ["f16", "f32"]
