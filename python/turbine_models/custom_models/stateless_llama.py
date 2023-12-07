@@ -243,7 +243,8 @@ def export_transformer_model(
             flags.extend(
                 [
                     "--iree-vulkan-target-triple=" + target_triple,
-                    "--iree-stream-resource-max-allocation-size=" + vulkan_max_allocation,
+                    "--iree-stream-resource-max-allocation-size="
+                    + vulkan_max_allocation,
                 ]
             )
         elif device == "rocm":
@@ -278,6 +279,7 @@ def export_transformer_model(
             f.write(flatbuffer_blob)
         print("saved to ", safe_name + ".vmfb")
         return module_str, tokenizer
+
 
 # if you're looking for run_vmfb_comparison, it's now in python/turbine_models/tests/vmfb_comparison.py
 

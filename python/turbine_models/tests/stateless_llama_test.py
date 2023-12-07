@@ -38,13 +38,13 @@ def test_export(quantization: Literal["int4", None], precision: Literal["f16", "
         precision=precision,
     )
 
-
     # def run_vmfb_comparison(prompt, hf_auth_token, hf_model_name, vmfb_path, external_weight_file, break_on_eos=True):
     DEFAULT_PROMPT = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
 """
 
     from .vmfb_comparison import run_vmfb_comparison
+
     turbine_str, torch_str = run_vmfb_comparison(
         prompt=DEFAULT_PROMPT,
         hf_auth_token=None,
@@ -55,19 +55,17 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
     )
 
     import difflib
-        # Calculate and print diff
+
+    # Calculate and print diff
     diff = difflib.unified_diff(
         torch_str.splitlines(keepends=True),
         turbine_str.splitlines(keepends=True),
-        fromfile='torch_str',
-        tofile='turbine_str',
-        lineterm=''
+        fromfile="torch_str",
+        tofile="turbine_str",
+        lineterm="",
     )
-    
+
     assert torch_str == turbine_str, "".join(diff)
-
-    
-
 
 
 if __name__ == "__main__":

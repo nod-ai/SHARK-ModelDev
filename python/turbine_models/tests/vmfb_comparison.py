@@ -20,9 +20,16 @@ from tqdm import tqdm
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
 
-def torch_token_generator(prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False):
-    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
-    model = AutoModelForCausalLM.from_pretrained(hf_model_name, torch_dtype=torch.float, use_auth_token=hf_auth_token)
+
+def torch_token_generator(
+    prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False
+):
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        hf_model_name, torch_dtype=torch.float, use_auth_token=hf_auth_token
+    )
 
     initial_input = tokenizer(prompt, return_tensors="pt")
     input_ids = initial_input.input_ids
@@ -40,13 +47,14 @@ def torch_token_generator(prompt, hf_model_name: str, hf_auth_token: str, break_
         if next_token_id.item() == tokenizer.eos_token_id and break_on_eos:
             break
 
+
 def turbine_token_generator(
-    prompt: str, 
-    hf_model_name: str, 
-    vmfb_path: str = None, 
-    external_weight_file: str = None, 
-    hf_auth_token: str = None, 
-    break_on_eos: bool = False
+    prompt: str,
+    hf_model_name: str,
+    vmfb_path: str = None,
+    external_weight_file: str = None,
+    hf_auth_token: str = None,
+    break_on_eos: bool = False,
 ) -> torch.Tensor:
     """
     A generator function for turbine model inference.
@@ -81,10 +89,7 @@ def turbine_token_generator(
         raise FileNotFoundError("No vmfb_path provided, required for run_vmfb")
 
     # Prepare the modules for the IREE runtime context
-    vm_modules = [
-        mod,
-        ireert.create_hal_module(config.vm_instance, config.device)
-    ]
+    vm_modules = [mod, ireert.create_hal_module(config.vm_instance, config.device)]
 
     # Include parameter module if external weight file is used
     if external_weight_file:
@@ -97,7 +102,9 @@ def turbine_token_generator(
     ctx = ireert.SystemContext(vm_modules=vm_modules, config=config)
 
     # Initialize the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
+    )
 
     # Convert the prompt to input tensor
     initial_input = tokenizer(prompt, return_tensors="pt")
@@ -125,7 +132,14 @@ def turbine_token_generator(
             break
 
 
-def run_vmfb_comparison(prompt, hf_auth_token, hf_model_name, vmfb_path, external_weight_file, break_on_eos=True):
+def run_vmfb_comparison(
+    prompt,
+    hf_auth_token,
+    hf_model_name,
+    vmfb_path,
+    external_weight_file,
+    break_on_eos=True,
+):
     # Initialize generators with the prompt and specific arguments
     print("Using prompt:")
     print(prompt)
@@ -133,22 +147,26 @@ def run_vmfb_comparison(prompt, hf_auth_token, hf_model_name, vmfb_path, externa
         prompt=prompt,
         hf_auth_token=hf_auth_token,
         hf_model_name=hf_model_name,
-        break_on_eos=break_on_eos
+        break_on_eos=break_on_eos,
     )
 
-    print("Generating Torch tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
+    print(
+        "Generating Torch tokens... The pipeline needs to be initialized first so the first few tokens may take a while."
+    )
     torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
     del torch_gen
 
     # Run turbine until an equal number of tokens has been generated
-    print("Generating Turbine tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
+    print(
+        "Generating Turbine tokens... The pipeline needs to be initialized first so the first few tokens may take a while."
+    )
     turbine_gen = turbine_token_generator(
         prompt=prompt,
         hf_model_name=hf_model_name,
         vmfb_path=vmfb_path,
         external_weight_file=external_weight_file,
         hf_auth_token=hf_auth_token,
-        break_on_eos=break_on_eos
+        break_on_eos=break_on_eos,
     )
     turbine_tokens = []
     for _ in tqdm(range(len(torch_tokens)), desc="Generating Turbine tokens"):
@@ -157,7 +175,9 @@ def run_vmfb_comparison(prompt, hf_auth_token, hf_model_name, vmfb_path, externa
     del turbine_gen
 
     # Decode and print the outputs
-    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
-    turbine_str = (tokenizer.decode(torch.tensor(turbine_tokens).numpy()))
-    torch_str = (tokenizer.decode(torch.tensor(torch_tokens).numpy()))
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name, use_fast=False, use_auth_token=hf_auth_token
+    )
+    turbine_str = tokenizer.decode(torch.tensor(turbine_tokens).numpy())
+    torch_str = tokenizer.decode(torch.tensor(torch_tokens).numpy())
     return turbine_str, torch_str
