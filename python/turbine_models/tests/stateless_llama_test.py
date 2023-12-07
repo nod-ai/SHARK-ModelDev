@@ -24,7 +24,6 @@ def test_export(quantization: Literal["int4", None], precision: Literal["f16", "
         precision=precision,
         device="llvm-cpu",
         target_triple="host",
-        max_alloc="4294967296",
     )
 
     from turbine_models.gen_external_params.gen_external_params import (

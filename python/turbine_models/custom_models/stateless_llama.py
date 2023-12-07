@@ -92,7 +92,7 @@ def export_transformer_model(
     precision=None,
     device=None,
     target_triple=None,
-    max_alloc=None,
+    vulkan_max_allocation=None,
 ):
     state_schema = pytree.treespec_loads(json_schema)
 
@@ -243,7 +243,7 @@ def export_transformer_model(
             flags.extend(
                 [
                     "--iree-vulkan-target-triple=" + target_triple,
-                    "--iree-stream-resource-max-allocation-size=" + max_alloc,
+                    "--iree-stream-resource-max-allocation-size=" + vulkan_max_allocation,
                 ]
             )
         elif device == "rocm":
