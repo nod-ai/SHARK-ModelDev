@@ -16,6 +16,7 @@ from turbine_models.custom_models import remap_gguf
 import safetensors
 
 from tqdm import tqdm
+from typing import Literal
 
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
@@ -73,6 +74,7 @@ def torch_token_generator(
             break
 
 
+
 def turbine_token_generator(
     prompt: str,
     hf_model_name: str,
@@ -80,6 +82,7 @@ def turbine_token_generator(
     external_weight_file: str = None,
     hf_auth_token: str = None,
     break_on_eos: bool = False,
+    device: Literal["llvm-cpu", "cuda", "vulcan", "rocm"] = "llvm-cpu",
 ) -> torch.Tensor:
     """
     A generator function for turbine model inference.
@@ -94,7 +97,7 @@ def turbine_token_generator(
     """
 
     # Create the config for the IREE runtime environment
-    config = ireert.Config("local-task")
+    config = ireert.Config("local-task" if device == "llvm-cpu" else device)
 
     # Load the external weight file if provided
     if external_weight_file:
@@ -196,6 +199,7 @@ def get_turbine_vmfb_string(
     hf_model_name,
     vmfb_path,
     external_weight_file,
+    device,
     tokens_to_compare=50,
 ):
     # Initialize generators with the prompt and specific arguments
@@ -218,6 +222,7 @@ def get_turbine_vmfb_string(
         external_weight_file=external_weight_file,
         hf_auth_token=hf_auth_token,
         break_on_eos=False,
+        device=device,
     )
     turbine_tokens = []
     for _ in tqdm(range(tokens_to_compare), desc="Generating Turbine tokens"):

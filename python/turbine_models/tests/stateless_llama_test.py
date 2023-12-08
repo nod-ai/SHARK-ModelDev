@@ -98,6 +98,7 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
         vmfb_path="Llama_2_7b_chat_hf_function_calling_v2.vmfb",
         external_weight_file=f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
         tokens_to_compare=50,
+        device="llvm-cpu",
     )
 
     torch_str = torch_str[: len(turbine_str)]
