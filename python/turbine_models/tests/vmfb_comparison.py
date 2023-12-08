@@ -26,11 +26,12 @@ MAX_STEP_SEQ = 4095
 
 
 def torch_token_generator(
-    prompt, hf_model_name: str,
+    prompt,
+    hf_model_name: str,
     hf_auth_token: str,
     break_on_eos=False,
     precision="f32",
-    quantization="None",
+    quantization="unquantized",
 ):
     if precision == "f16":
         torch_dtype = torch.float16
@@ -39,11 +40,17 @@ def torch_token_generator(
     else:
         raise ValueError("Invalid dtype, f16 or f32 supported")
 
-    if quantization is not None and quantization.lower() != "none":
+    if (
+        quantization is not None
+        and quantization.lower() != "none"
+        and quantization.lower() != "unquantized"
+    ):
         raise NotImplementedError("Quantization not supported for torch")
 
     tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name, use_fast=False, use_auth_token=hf_auth_token, 
+        hf_model_name,
+        use_fast=False,
+        use_auth_token=hf_auth_token,
     )
     model = AutoModelForCausalLM.from_pretrained(
         hf_model_name, torch_dtype=torch_dtype, use_auth_token=hf_auth_token
@@ -149,14 +156,15 @@ def turbine_token_generator(
         if next_token_tensor.item() == tokenizer.eos_token_id and break_on_eos:
             break
 
+
 def get_torch_string(
     prompt,
     hf_auth_token,
     hf_model_name,
+    precision,
+    quantization,
     tokens_to_compare=50,
 ):
-    
-
     print("Using prompt:")
     print(prompt)
     print("To generate torch reference string...")
@@ -165,6 +173,8 @@ def get_torch_string(
         hf_auth_token=hf_auth_token,
         hf_model_name=hf_model_name,
         break_on_eos=True,
+        precision=precision,
+        quantization=quantization,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         hf_model_name, use_fast=False, use_auth_token=hf_auth_token
@@ -176,7 +186,7 @@ def get_torch_string(
     # read until stopiteration
     torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
     torch_str = tokenizer.decode(torch.tensor(torch_tokens).numpy())
-    
+
     return torch_str
 
 

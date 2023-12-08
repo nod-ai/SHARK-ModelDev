@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 from turbine_models.model_builder import HFTransformerBuilder
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -57,7 +58,7 @@ def quantize(model, quantization, dtype):
 
 def gen_external_params(
     hf_model_name: str = "meta-llama/Llama-2-7b-chat-hf",
-    quantization: str = "int4",
+    quantization: Literal["unquantized", "int4", "int8"] = "int4",
     weight_path: str = "",
     hf_auth_token: str = None,
     precision: str = "f16",
@@ -71,6 +72,17 @@ def gen_external_params(
     :param hf_auth_token: The Hugging Face auth token required for some models.
     :param precision: Data type of model ('f16' or 'f32').
     """
+    SUPPORTED_QUANTIZATIONS = ["unquantized", "int4", "int8"]
+    if quantization not in SUPPORTED_QUANTIZATIONS:
+        if (
+            quantization is None
+            or quantization.lower() == "none"
+            or quantization.lower() == "unquantized"
+        ):
+            quantization = "unquantized"
+        else:
+            raise ValueError(f"Invalid quantization, {quantization} not supported.")
+
     model_builder = HFTransformerBuilder(
         example_input=None,
         hf_id=hf_model_name,

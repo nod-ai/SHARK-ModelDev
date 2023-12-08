@@ -34,7 +34,7 @@ parser.add_argument(
     help="HF model name",
     default="meta-llama/Llama-2-7b-chat-hf",
 )
-parser.add_argument("--quantization", type=str, default="None")
+parser.add_argument("--quantization", type=str, default="unquantized")
 parser.add_argument("--external_weight_file", type=str, default="")
 parser.add_argument("--vmfb_path", type=str, default="")
 parser.add_argument(
