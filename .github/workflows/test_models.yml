@@ -37,6 +37,10 @@ jobs:
           pip install -e  .[testing]
           pip install -e python/turbine_models
 
-      - name: Run tests
+      - name: Run stateless_llama tests
         run: |
-          pytest python/turbine_models/tests
+          pytest python/turbine_models/tests/test_stateless_llama.py
+
+      - name: Run sd tests
+        run: |
+          pytest python/turbine_models/tests/sd_test.py
