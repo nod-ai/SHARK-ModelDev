@@ -45,20 +45,10 @@ class RN18(CompiledModule):
         const = [x.dynamic_dim(0) < 16]
         return jittable(forward)(x, constraints=const)
 
+# build an mlir module to compile with 1-shot exporter
+exported = export(RN18)
 
-# build an instance of our CompiledModule and get the corresponding mlir
-inst2 = RN18(context=Context(), import_to="IMPORT")
-
-# if you want to view the mlir output:
-# module_str2 = str(CompiledModule.get_mlir_module(inst2))
-# print(module_str2)
-# with open('resnet-18.mlir','w+') as f:
-#    f.write(module_str2)
-
-session = Session()
-ExportedModule = exporter.ExportOutput(session, inst2)
-compiled_binary = ExportedModule.compile(save_to=None)
-
+compiled_binary = exported.compile(save_to=None)
 
 # return type is rt.array_interop.DeviceArray
 # np.array of outputs can be accessed via to_host() method
