@@ -1,6 +1,3 @@
-protobuf
-sentencepiece
-shark_turbine
 transformers
-pillow
 datasets
+shark_turbine
