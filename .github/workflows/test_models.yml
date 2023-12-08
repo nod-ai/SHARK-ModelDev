@@ -39,7 +39,7 @@ jobs:
 
       - name: Run stateless_llama tests
         run: |
-          pytest python/turbine_models/tests/test_stateless_llama.py
+          pytest python/turbine_models/tests/stateless_llama_test.py
 
       - name: Run sd tests
         run: |
