@@ -13,7 +13,7 @@ import tempfile
 import numpy as np
 import torch
 
-from ...dynamo.importer import (
+from ...importers.fx_importer import (
     ContextCache,
     TORCH_DTYPE_TO_MLIR_TYPE_ASM,
 )
@@ -23,14 +23,17 @@ from ...dynamo.type_conversion import (
 )
 
 from .ir_imports import (
+    Attribute,
     Block,
     BlockArgument,
     BF16Type,
     ComplexType,
     DenseElementsAttr,
+    DenseResourceElementsAttr,
     F16Type,
     F32Type,
     F64Type,
+    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,
@@ -102,6 +105,59 @@ TORCH_DTYPE_TO_IREE_TYPE_ASM = {
 }
 
 ###############################################################################
+# Configuration
+###############################################################################
+
+# Maps a name to an altered name. If returns None, then the original
+# name is used (this lets Dict.get serve as a NameMapCallback).
+NameMapCallback = Callable[[str], Optional[str]]
+
+
+class GlobalAttributes:
+    """Settings for how to initialize the global."""
+
+    __slots__ = [
+        "mutable",
+        "external",
+        "external_scope",
+        "name_mapper",
+        "noinline",
+        "uninitialized",
+    ]
+
+    def __init__(
+        self,
+        mutable: bool = False,
+        external: Optional[bool] = None,
+        external_scope: Optional[str] = None,
+        name_mapper: Optional[NameMapCallback] = None,
+        noinline: bool = True,
+        uninitialized: Optional[bool] = None,
+    ):
+        if external and uninitialized:
+            raise ValueError(
+                f"Globals with external=True cannot also have uninitialized=True"
+            )
+        if uninitialized and not mutable:
+            raise ValueError(
+                f"Globals with uninitialized=True must also be mutable=True"
+            )
+        self.mutable = mutable
+        self.external = external
+        self.external_scope = external_scope
+        self.name_mapper = name_mapper
+        self.noinline = noinline
+        self.uninitialized = uninitialized
+
+    def map_name(self, name: str) -> str:
+        if self.name_mapper:
+            new_name = self.name_mapper(name)
+            if new_name is not None:
+                return new_name
+        return name
+
+
+###############################################################################
 # Builders
 ###############################################################################
 
@@ -135,6 +191,7 @@ class ModuleBuilder:
 
     def handle_mlir_error(self, op: Operation, e: MLIRError, message: str):
         # TODO: Replace with a real dumping facility.
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/136
         dump_path = Path(tempfile.gettempdir()) / "turbine_module_builder_error.mlir"
         logger.exception(f"{message} (dumping to {dump_path})")
         try:
@@ -186,32 +243,51 @@ class ModuleBuilder:
         symbol_name: str,
         t: torch.Tensor,
         *,
-        mutable: bool = False,
-        initialize: bool = True,
-        noinline: bool = True,
+        attrs: GlobalAttributes,
+        logical_name: Optional[str] = None,
     ) -> Tuple[str, Operation, IrType]:
         element_type = self.torch_dtype_to_iree_type(t.dtype)
         with self.global_ip, Location.unknown():
             tensor_type = RankedTensorType.get(list(t.shape), element_type)
-            attrs = {
+            ir_attrs = {
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(tensor_type),
             }
-            if noinline:
-                attrs["noinline"] = UnitAttr.get()
-            if mutable:
-                attrs["is_mutable"] = UnitAttr.get()
-            if initialize:
+            if attrs.noinline:
+                ir_attrs["noinline"] = UnitAttr.get()
+            if attrs.mutable:
+                ir_attrs["is_mutable"] = UnitAttr.get()
+            if attrs.external:
+                # Emit named external reference.
+                external_scope_attr = StringAttr.get(attrs.external_scope or "model")
+                external_name = attrs.map_name(
+                    logical_name if logical_name is not None else symbol_name
+                )
+                external_name_attr = StringAttr.get(external_name)
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#stream.parameter.named<{external_scope_attr}::{external_name_attr}> : {tensor_type}"
+                )
+            elif attrs.uninitialized:
+                # Emit unitialized initial_value to signal that the memory
+                # is valid but has undefined contents.
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#util.uninitialized : {tensor_type}"
+                )
+            else:
+                # Emit inline initialized.
                 detached_tensor = t.detach().contiguous().cpu()
                 array = np.array(detached_tensor)
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
-                # TODO: Add resource elements to Python API and use that.
-                elements_attr = DenseElementsAttr.get(contents, type=tensor_type)
-                attrs["initial_value"] = elements_attr
+                elements_attr = DenseResourceElementsAttr.get_from_buffer(
+                    contents, "from_py", tensor_type
+                )
+                ir_attrs["initial_value"] = elements_attr
 
-            global_op = Operation.create("util.global", attributes=attrs)
+            global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op, tensor_type
@@ -221,25 +297,58 @@ class ModuleBuilder:
         symbol_name: str,
         global_type: IrType,
         *,
-        mutable: bool = False,
-        initialize: bool = True,
-        noinline: bool = True,
+        attrs: GlobalAttributes,
+        logical_name: Optional[str] = None,
     ) -> Tuple[str, Operation]:
         with self.global_ip, Location.unknown():
-            attrs = {
+            ir_attrs = {
                 "sym_name": StringAttr.get(symbol_name),
                 "sym_visibility": StringAttr.get("private"),
                 "type": TypeAttr.get(global_type),
             }
-            if noinline:
-                attrs["noinline"] = UnitAttr.get()
-            if mutable:
-                attrs["is_mutable"] = UnitAttr.get()
-
-            global_op = Operation.create("util.global", attributes=attrs)
+            if attrs.noinline:
+                ir_attrs["noinline"] = UnitAttr.get()
+            if attrs.mutable:
+                ir_attrs["is_mutable"] = UnitAttr.get()
+            if attrs.uninitialized:
+                # Emit unitialized initial_value to signal that the memory
+                # is valid but has undefined contents.
+                # TODO: Have real Python builders for this.
+                ir_attrs["initial_value"] = Attribute.parse(
+                    f"#util.uninitialized : {global_type}"
+                )
+            else:
+                # Initialized by default.
+                ir_attrs["initial_value"] = self._create_initial_value_for_type(
+                    global_type
+                )
+            global_op = Operation.create("util.global", attributes=ir_attrs)
             self.symbol_table.insert(global_op)
             actual_symbol_name = StringAttr(global_op.attributes["sym_name"]).value
             return actual_symbol_name, global_op
+
+    def _create_initial_value_for_type(self, t: IrType) -> Attribute:
+        # TODO(#169): Implement something upstream for this (it exists in the C++ API)
+        # and use it.
+        if RankedTensorType.isinstance(t):
+            rtt = RankedTensorType(t)
+            if not rtt.has_static_shape:
+                raise ValueError(
+                    "Cannot create initialization value for dynamic shaped tensor"
+                )
+            element_attr = self._create_initial_value_for_type(rtt.element_type)
+            return DenseElementsAttr.get_splat(t, element_attr)
+        elif IntegerType.isinstance(t):
+            return IntegerAttr.get(t, 0)
+        elif F32Type.isinstance(t) or F64Type.isinstance(t) or F16Type.isinstance(t):
+            # TODO(#170): There should be a common way to check if a FloatType.
+            return FloatAttr.get(t, 0.0)
+        elif IndexType.isinstance(t):
+            return IntegerAttr.get(IndexType.get(), 0)
+        else:
+            raise ValueError(
+                f"Cannot create a default initialization value for type {t}"
+            )
 
 
 class FunctionBuilder:

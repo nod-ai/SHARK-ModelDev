@@ -1,0 +1,6 @@
+class CodegenError(Exception):
+    ...
+
+
+class ValidationError(CodegenError):
+    ...

@@ -4,12 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import argparse
 import json
 import os
 import distutils.command.build
 from pathlib import Path
-import sys
 
 from setuptools import find_namespace_packages, setup
 
@@ -110,7 +108,11 @@ setup(
     ],
     extras_require={
         "torch-cpu-nightly": [f"torch{get_version_spec('torch')}"],
+        "onnx": [
+            "onnx>=1.15.0",
+        ],
         "testing": [
+            "onnx==1.15.0",
             "pytest",
             "pytest-xdist",
         ],

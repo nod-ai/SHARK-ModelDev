@@ -22,13 +22,13 @@ from torch.fx import (
 )
 from torch.fx.passes.shape_prop import TensorMetadata
 
-from ...dynamo.importer import (
-    GraphNodeImporter,
-    FxImporter,
-)
-
 from ...dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
+)
+
+from ...importers.fx_importer import (
+    GraphNodeImporter,
+    FxImporter,
 )
 
 from ..passes import (

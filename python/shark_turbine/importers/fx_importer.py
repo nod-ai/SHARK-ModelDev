@@ -3,37 +3,12 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-import builtins
 import logging
 import operator
 import re
 from types import NoneType, BuiltinMethodType, BuiltinFunctionType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
-
-from iree.compiler.ir import (
-    Attribute as MlirAttribute,
-    Block,
-    Context,
-    FloatAttr,
-    FunctionType,
-    InsertionPoint,
-    IntegerAttr,
-    IntegerType,
-    Location,
-    Module,
-    Operation,
-    StringAttr,
-    Type as MlirType,
-    Value,
-    DenseElementsAttr,
-)
-
-import iree.compiler.dialects.func as func_dialect
-from iree.compiler.ir import SymbolTable
-
-# import iree.compiler.dialects.torch as torch_dialect
-
 
 import torch
 import torch.fx as torch_fx
@@ -59,6 +34,36 @@ from torch.fx import (
 
 from torch.fx.node import (
     Argument as NodeArgument,
+)
+
+from .ir import (
+    Attribute,
+    Block,
+    Context,
+    DenseResourceElementsAttr,
+    FloatAttr,
+    BF16Type,
+    ComplexType,
+    F16Type,
+    F32Type,
+    F64Type,
+    FunctionType,
+    InsertionPoint,
+    IntegerAttr,
+    IntegerType,
+    RankedTensorType,
+    Location,
+    Module,
+    Operation,
+    StringAttr,
+    SymbolTable,
+    IrType,
+    Value,
+    func_dialect,
+)
+
+from .utils import (
+    TypeSubclassMap,
 )
 
 __all__ = [
@@ -92,6 +97,24 @@ TORCH_DTYPE_TO_MLIR_TYPE_ASM = {
     torch.complex32: "complex<f16>",
     torch.complex64: "complex<f32>",
     torch.complex128: "complex<f64>",
+}
+
+TORCH_DTYPE_TO_MLIR_TYPE: Dict[torch.dtype, Callable[[], IrType]] = {
+    torch.float16: lambda: F16Type.get(),
+    torch.bfloat16: lambda: BF16Type.get(),
+    torch.float32: lambda: F32Type.get(),
+    torch.float64: lambda: F64Type.get(),
+    torch.uint8: lambda: IntegerType.get_unsigned(8),
+    torch.int8: lambda: IntegerType.get_signed(8),
+    torch.int16: lambda: IntegerType.get_signed(16),
+    torch.int32: lambda: IntegerType.get_signed(32),
+    torch.int64: lambda: IntegerType.get_signed(64),
+    torch.bool: lambda: IntegerType.get_signless(1),
+    torch.qint8: lambda: IntegerType.get_signed(8),
+    torch.quint8: lambda: IntegerType.get_unsigned(8),
+    torch.complex32: lambda: ComplexType.get(F16Type.get()),
+    torch.complex64: lambda: ComplexType.get(F32Type.get()),
+    torch.complex128: lambda: ComplexType.get(F64Type.get()),
 }
 
 TORCH_DTYPE_TO_NPY_TYPE = {
@@ -248,6 +271,7 @@ class FxImporter:
         ftype, loc = self._graph_to_function_meta(g)
         # TODO: The FuncOp constructor requires a context-manager context.
         # Fix upstream and then unnest.
+        # See: https://github.com/nod-ai/SHARK-Turbine/issues/138
         with loc:
             func = func_dialect.FuncOp(
                 func_name,
@@ -288,7 +312,7 @@ class FxImporter:
                 for result_node in node.args[0]:
                     if result_node is None:
                         result_types.append(
-                            MlirType.parse("!torch.none", context=self._c)
+                            IrType.parse("!torch.none", context=self._c)
                         )
                     else:
                         result_types.append(self._cc.node_val_to_type(result_node))
@@ -316,19 +340,19 @@ class ContextCache:
 
     def __init__(self, context: Context):
         self._c = context
-        self._dtype_to_type: Dict[TorchDtype, MlirType] = {}
-        self._tensor_metadata_cache: Dict[Tuple[torch.Size, torch.dtype], MlirType] = {}
+        self._dtype_to_type: Dict[TorchDtype, IrType] = {}
+        self._tensor_metadata_cache: Dict[Tuple[torch.Size, torch.dtype], IrType] = {}
 
         # Common types.
         with context:
-            self.torch_bool_type = MlirType.parse("!torch.bool")
-            self.torch_float_type = MlirType.parse("!torch.float")
-            self.torch_int_type = MlirType.parse("!torch.int")
-            self.torch_none_type = MlirType.parse("!torch.none")
-            self.torch_str_type = MlirType.parse("!torch.str")
-            self.torch_device_type = MlirType.parse("!torch.Device")
+            self.torch_bool_type = IrType.parse("!torch.bool")
+            self.torch_float_type = IrType.parse("!torch.float")
+            self.torch_int_type = IrType.parse("!torch.int")
+            self.torch_none_type = IrType.parse("!torch.none")
+            self.torch_str_type = IrType.parse("!torch.str")
+            self.torch_device_type = IrType.parse("!torch.Device")
 
-    def integer_attr(self, value: int, bits: int) -> MlirAttribute:
+    def integer_attr(self, value: int, bits: int) -> Attribute:
         c = self._c
         return IntegerAttr.get(IntegerType.get_signless(bits, c), value)
 
@@ -337,25 +361,29 @@ class ContextCache:
     def format_asm_shape(self, shape: torch.Size) -> str:
         return ",".join("?" if is_symbolic(d) else str(d) for d in list(shape))
 
-    """Return MlirType for !torch.vtensor with the given shape and dtype"""
+    """Return IrType for !torch.vtensor with the given shape and dtype"""
 
     def get_vtensor_type(self, shape: torch.Size, dtype: torch.dtype):
         shape_asm = self.format_asm_shape(shape)
         mlir_dtype = str(self.dtype_to_type(dtype))
-        return MlirType.parse(
+        return IrType.parse(
             f"!torch.vtensor<[{shape_asm}],{str(mlir_dtype)}>", context=self._c
         )
 
-    def node_val_to_type(self, node: torch_fx.Node) -> MlirType:
+    def node_val_to_type(self, node: torch_fx.Node) -> IrType:
         try:
             tensor_meta = node.meta.get("tensor_meta")
             val = node.meta.get("val")
             if tensor_meta is not None:
                 assert isinstance(tensor_meta, TensorMetadata)
-                # TODO: We should probably only be doing this if "vanilla".
-                # Specifically, there are strides/qparams/etc on there that
-                # should be annotated somewhere.
-                return self.tensor_metadata_to_type(tensor_meta)
+                # Quantized tensor meta data is not preserved in our lowering,
+                # so throw error instead of silently doing wrong thing.
+                if tensor_meta.is_quantized:
+                    raise NotImplementedError(
+                        f"Quantized tensor meta data is not supported."
+                    )
+                else:
+                    return self.tensor_metadata_to_type(tensor_meta)
             elif val is not None:
                 # some nodes with symbolic inputs pass a 'val' attribute rather than
                 # tensor_meta
@@ -364,7 +392,7 @@ class ContextCache:
 
                 t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(val))
                 if t is not None:
-                    return MlirType.parse(t, self._c)
+                    return IrType.parse(t, self._c)
 
             raise NotImplementedError(
                 f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
@@ -375,7 +403,7 @@ class ContextCache:
                 f"FIXME: Illegal access to torch.fx.Node.meta: {e} ({node.meta.keys()} : {node.meta})"
             )
 
-    def tensor_metadata_to_type(self, tm: TensorMetadata) -> MlirType:
+    def tensor_metadata_to_type(self, tm: TensorMetadata) -> IrType:
         tm_shape = tuple(
             item.node if is_symbolic(item) else item for item in list(tm.shape)
         )
@@ -387,20 +415,20 @@ class ContextCache:
             self._tensor_metadata_cache[key] = t
         return t
 
-    def dtype_to_type(self, dtype: TorchDtype) -> MlirType:
+    def dtype_to_type(self, dtype: TorchDtype) -> IrType:
         t = self._dtype_to_type.get(dtype)
         if t is None:
             try:
                 asm = TORCH_DTYPE_TO_MLIR_TYPE_ASM[dtype]
             except IndexError:
                 raise ValueError(f"Unknown conversion from {dtype} to IREE type")
-            t = MlirType.parse(asm, self._c)
+            t = IrType.parse(asm, self._c)
             self._dtype_to_type[dtype] = t
         return t
 
-    def tensor_to_vtensor_type(self, tensor: torch.Tensor) -> MlirType:
+    def tensor_to_vtensor_type(self, tensor: torch.Tensor) -> IrType:
         dtype_asm = str(self.dtype_to_type(tensor.dtype))
-        return MlirType.parse(f"!torch.vtensor<{list(tensor.size())},{dtype_asm}>")
+        return IrType.parse(f"!torch.vtensor<{list(tensor.size())},{dtype_asm}>")
 
     def get_node_location(self, node: torch_fx.Node) -> Optional[Location]:
         stack_trace = node.meta.get("stack_trace")
@@ -600,6 +628,16 @@ class GraphNodeImporter:
         elif target == torch.ops.aten.lift_fresh_copy.out:
             node.target = target = torch.ops.aten.clone.out
             node.args = (node.args[0], None, node.args[1])
+        # TODO: generalize empty.memory_format in the future
+        # Currently, the aten.baddbmm.default op for Unet includes multiplying an
+        # empty.memory_format input with a constant, which creates NaN values
+        # because empty.memory_format contains uninitialized data. Converting
+        # aten.baddbmm.default -> aten.zeros.default fixes the correctness issue
+        elif target == torch.ops.aten.empty.memory_format:
+            if len(node.users) == 1:
+                for key_node in node.users:
+                    if key_node.target == torch.ops.aten.baddbmm.default:
+                        node.target = target = torch.ops.aten.zeros.default
 
         schema = target._schema
         assert isinstance(schema, FunctionSchema)
@@ -628,22 +666,16 @@ class GraphNodeImporter:
                 op_overload = getattr(op_overload, op_attrs[i])
             schema = op_overload._schema
 
-        if not self._c.is_registered_operation(mlir_op_name):
-            # TODO: Implement a config setting to allow these to flow through.
-            raise NotImplementedError(
-                f"Unimplemented torch op in the IREE compiler: '{mlir_op_name}' "
-                f"(either implement this op/variant or configure the compiler to "
-                f"allow unknown operations and fallback to PyTorch)."
-            )
-
         return_count = len(schema.returns)
         if return_count == 1:
             # Unary return directly maps a single meta["val"] and cannot be subscripted.
             # if "tensor_meta" is None, this will throw unsupported placeholder node error
             result_types = [self._cc.node_val_to_type(node)]
         elif return_count == 0:
-            # TODO: Implement.
-            raise NotImplementedError("FIXME: Zero ATen results")
+            # Some torch ops do have 0 returns, and these are supported with ZeroResults
+            # op trait. Python bindings for IR creation allow us to pass empty result_types
+            # for such ops. Therefore, we pass an empty result types for these cases.
+            result_types = []
         else:
             # Multi-return will unpack the meta["val"] and trigger our getitem subscripting
             # short-circuit above. Note that if we ever choose to also fully reify Python
@@ -660,7 +692,6 @@ class GraphNodeImporter:
         operands = []
         for i, parameter in enumerate(schema.arguments):
             if parameter.kwarg_only and parameter.name in node.kwargs:
-                # TODO: Nice error if KeyError.
                 operands.append(
                     self._import_argument(
                         loc, node.kwargs[parameter.name], parameter.type
@@ -677,12 +708,23 @@ class GraphNodeImporter:
                     )
                 )
 
-        operation = Operation.create(
-            mlir_op_name,
-            results=result_types,
-            operands=operands,
-            loc=loc,
-        )
+        # Support unregistered torch ops using torch.operator.
+        # torch.operator is used to represent ops from registry
+        # which haven't been generated by torch_ods_gen.py.
+        if not self._c.is_registered_operation(mlir_op_name):
+            operation = Operation.create(
+                "torch.operator",
+                results=result_types,
+                operands=operands,
+                loc=loc,
+            )
+        else:
+            operation = Operation.create(
+                mlir_op_name,
+                results=result_types,
+                operands=operands,
+                loc=loc,
+            )
 
         # Record value mapping.
         for i, value in enumerate(operation.results):
@@ -811,7 +853,7 @@ class GraphNodeImporter:
         else:
             list_type = PY_TYPE_TO_TORCH_LIST_TYPE[element_type]
 
-        result_type = MlirType.parse(list_type, context=self._c)
+        result_type = IrType.parse(list_type, context=self._c)
         operation = Operation.create(
             "torch.prim.ListConstruct",
             results=[result_type],
@@ -826,56 +868,18 @@ class GraphNodeImporter:
         if isinstance(arg, list):
             return self._import_list_argument(loc, arg, expected_jit_type)
 
+        # The LITERAL_CONVERTER_MAP maps each arg to its respective constant
+        # of the expected jit IR type (types like torch.dtype will form a chain of
+        # maps to get to constant of expected_jit_type).
         cvt = LITERAL_CONVERTER_MAP.lookup(type(arg))
         if cvt is None:
             raise RuntimeError(f"Unhandled default value ({arg.__class__}): {arg})")
         with loc:
             return cvt(arg, self, self._cc)
 
-        # TODO: Support torch specific types which show up in function schemas.
-        # These all require an expected_jit_type to convert.
-        # torch.dtype, torch.device, torch.memory_format, torch.layout
-        # list
-
-
-class TypeSubclassMap:
-    """Mapping of super-types to values.
-
-    Maintains a cache of actual types seen and uses that instead of a linear
-    scan.
-    """
-
-    __slots__ = [
-        "_cache",
-        "_mapping",
-    ]
-
-    def __init__(self):
-        # The linear list of converters.
-        self._mapping: List[Tuple[type, Any]] = []
-        # When there is a hit on the linear mapping, memoize it here.
-        self._cache: Dict[type, Any] = {}
-
-    def map(self, t: type, value: Any):
-        self._mapping.append((t, value))
-        self._cache[t] = value
-
-    def lookup(self, t: type) -> Any:
-        try:
-            return self._cache[t]
-        except KeyError:
-            pass
-        for t_super, value in self._mapping:
-            if issubclass(t, t_super):
-                self._cache[t] = value
-                return value
-        else:
-            self._cache[t] = None
-            return None
-
 
 def _make_constant_op(
-    op_name: str, value_attr: MlirAttribute, result_type: Optional[MlirType] = None
+    op_name: str, value_attr: Attribute, result_type: Optional[IrType] = None
 ) -> Operation:
     return Operation.create(
         op_name,
@@ -884,7 +888,17 @@ def _make_constant_op(
     )
 
 
-def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Operation:
+def create_mlir_tensor_type(tensor: torch.Tensor) -> IrType:
+    try:
+        dtype = tensor.dtype
+        element_type = TORCH_DTYPE_TO_MLIR_TYPE[dtype]()
+        tensor_type = RankedTensorType.get(tuple(tensor.size()), element_type)
+        return tensor_type
+    except KeyError:
+        raise TypeError(f"Could not map Torch dtype {dtype} to an IREE type")
+
+
+def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: IrType) -> Operation:
     npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
     assert (
         npy_dtype is not None
@@ -897,7 +911,10 @@ def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: MlirType) -> Op
     # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
     np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
     bytes = memoryview(np_tensor)
-    elements_attr = DenseElementsAttr.get(bytes, signless=False)
+    tensor_type = create_mlir_tensor_type(tensor)
+    elements_attr = DenseResourceElementsAttr.get_from_buffer(
+        bytes, "from_py", tensor_type
+    )
     return Operation.create(
         name="torch.vtensor.literal",
         results=[vtensor_type],

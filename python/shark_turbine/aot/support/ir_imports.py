@@ -8,11 +8,14 @@
 """Unifies all imports of iree.compiler.ir into one place."""
 
 from iree.compiler.ir import (
+    Attribute,
     Block,
     BlockArgument,
     Context,
     DenseElementsAttr,
+    DenseResourceElementsAttr,
     FlatSymbolRefAttr,
+    FloatAttr,
     FunctionType,
     IndexType,
     InsertionPoint,

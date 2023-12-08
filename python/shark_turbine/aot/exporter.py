@@ -147,6 +147,7 @@ class ExportOutput:
 
 # Decorator which explicitly exports a function.
 # TODO: Make this a public API on CompiledModule.
+# See https://github.com/nod-ai/SHARK-Turbine/issues/126
 def export_proc(f=None, *, signature: Sequence[AbstractTypedef]) -> ExportProcDef:
     if f is None:
         return functools.partial(export_proc, signature=signature)

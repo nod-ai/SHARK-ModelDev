@@ -13,7 +13,7 @@ import torch._dynamo as dynamo
 from torch._export import dynamic_dim
 
 # from torch._export.constraints import constrain_as_size, constrain_as_value
-from shark_turbine.dynamo.importer import FxImporter
+from shark_turbine.importers.fx_importer import FxImporter
 from shark_turbine.dynamo.passes import turbine_cpu_pass_pipeline
 import torch
 import torch._dynamo as dynamo
@@ -97,19 +97,21 @@ class DynamicBuiltinOps(torch.nn.Module):
         g = x / 32
         return {"result": g}
 
+
 class DynamicShapeStridedModule(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
     def forward(self, a):
         dynamic_shape = [a.size(0), a.size(1), a.size(2)]
-        x = torch.ops.aten.empty_strided(dynamic_shape, stride=[12, 4, 1])  # Default stride = [12, 4, 1]
+        x = torch.ops.aten.empty_strided(
+            dynamic_shape, stride=[12, 4, 1]
+        )  # Default stride = [12, 4, 1]
         y = x.copy_(a)
         return y
 
 
 class ImportSmokeTests(unittest.TestCase):
-    @unittest.expectedFailure
     def testStaticExport(self):
         """
         'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
@@ -129,7 +131,6 @@ class ImportSmokeTests(unittest.TestCase):
         g, guards = f(inp=inp_example, bias=bias_example)
         g = import_compiler(g, [inp_example, bias_example])
 
-    @unittest.expectedFailure
     def testStaticExportSameSignatureTrue(self):
         """
         'tensor.collapse_shape' op expected dimension 0 of collapsed type to be static value of 1
@@ -175,7 +176,7 @@ class ImportSmokeTests(unittest.TestCase):
         """
         model = DynamicShapeStridedModule()
         # inp_example = torch.rand(5, 7, 9)
-        inp_example = torch.randn(2, 3, 4) # input for default stride
+        inp_example = torch.randn(2, 3, 4)  # input for default stride
         f = dynamo.export(
             model.forward,
             aten_graph=True,
@@ -187,6 +188,7 @@ class ImportSmokeTests(unittest.TestCase):
         )
         g, guards = f(a=inp_example)
         g = import_compiler(g, [inp_example])
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

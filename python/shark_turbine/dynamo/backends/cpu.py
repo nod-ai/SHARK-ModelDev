@@ -33,7 +33,7 @@ from iree.runtime import (
     VmModule,
 )
 
-from ..importer import FxImporter
+from ...importers.fx_importer import FxImporter
 
 import torch
 from torch._dynamo.backends.common import aot_autograd

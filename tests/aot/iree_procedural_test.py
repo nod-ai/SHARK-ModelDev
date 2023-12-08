@@ -69,7 +69,10 @@ class CompiledModuleAPI(unittest.TestCase):
         inst = BasicModule(context=Context(), import_to=None)
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn('flow.tensor.trace {key = "DEBUG"} %arg0, %arg1', module_str)
+        self.assertIn(
+            'flow.tensor.trace "DEBUG" = [%arg0 : tensor<?xf32>{%dim}, %arg1 : tensor<3xf32>]',
+            module_str,
+        )
 
     def testStoreDynamic(self):
         class BasicModule(CompiledModule):
@@ -79,15 +82,12 @@ class CompiledModuleAPI(unittest.TestCase):
                 splat = IREE.tensor_splat(x, 34, value=y, dtype=torch.float32)
                 self.x = splat
 
-        inst = BasicModule(context=Context(), import_to=None)
-        module_str = str(CompiledModule.get_mlir_module(inst))
-        print(module_str)
-        self.assertIn(
-            "util.global private mutable @_x.global {noinline} : tensor<?x34xf32>",
-            module_str,
-        )
-        self.assertIn("%0 = flow.tensor.splat", module_str)
-        self.assertIn("util.global.store %0, @_x.global : tensor<?x34xf32>", module_str)
+        # TODO(#171): It is not exactly clear how we want to support dynamic shaped
+        # globals at this level.
+        with self.assertRaisesRegex(
+            ValueError, "Cannot create initialization value for dynamic shaped tensor"
+        ):
+            inst = BasicModule(context=Context(), import_to=None)
 
     def testTensorSliceStatic(self):
         class BasicModule(CompiledModule):
