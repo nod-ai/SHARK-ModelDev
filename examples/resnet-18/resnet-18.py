@@ -45,10 +45,12 @@ class RN18(CompiledModule):
         const = [x.dynamic_dim(0) < 16]
         return jittable(forward)(x, constraints=const)
 
+
 # build an mlir module to compile with 1-shot exporter
 exported = export(RN18)
 
 compiled_binary = exported.compile(save_to=None)
+
 
 # return type is rt.array_interop.DeviceArray
 # np.array of outputs can be accessed via to_host() method
