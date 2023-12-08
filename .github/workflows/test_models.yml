@@ -36,6 +36,10 @@ jobs:
           pip install --upgrade -r requirements.txt
           pip install -e  .[testing]
           pip install -e python/turbine_models
+      
+      - name: Show current free memory
+        run: |
+          free -mh
 
       - name: Run stateless_llama tests
         run: |
