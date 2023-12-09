@@ -66,7 +66,7 @@ def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
                 "--iree-hal-target-backends=cuda",
                 "--iree-hal-cuda-llvm-target-arch=" + target_triple,
                 "--iree-vm-bytecode-module-strip-source-map=true",
-                "--iree-vm-target-truncate-unsupsported-floats",
+                "--iree-vm-target-truncate-unsupported-floats",
             ]
         )
     else:
