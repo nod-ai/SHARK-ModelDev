@@ -19,7 +19,6 @@ from tqdm import tqdm
 from typing import Literal
 
 
-
 def torch_token_generator(
     prompt,
     hf_model_name: str,
@@ -66,7 +65,6 @@ def torch_token_generator(
 
         if next_token_id.item() == tokenizer.eos_token_id and break_on_eos:
             break
-
 
 
 def turbine_token_generator(

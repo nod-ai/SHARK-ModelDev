@@ -7,9 +7,7 @@ import torch
 import argparse
 import sys
 
-parser = argparse.ArgumentParser(
-    description="Quantize and save Hugging Face models."
-)
+parser = argparse.ArgumentParser(description="Quantize and save Hugging Face models.")
 
 parser.add_argument(
     "--hf_model_name",
@@ -45,6 +43,7 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+
 
 def quantize(model, quantization, dtype):
     accumulates = dtype
@@ -157,8 +156,6 @@ def gen_external_params(
 
 
 if __name__ == "__main__":
-
-
     try:
         gen_external_params(
             hf_model_name=args.hf_model_name,
