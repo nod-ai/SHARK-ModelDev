@@ -1,6 +1,7 @@
 import iree.compiler as ireec
 import numpy as np
 import safetensors
+import re
 
 
 def save_external_weights(
@@ -81,3 +82,9 @@ def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
         f.write(flatbuffer_blob)
     print("Saved to", safe_name + ".vmfb")
     exit()
+
+
+def create_safe_name(hf_model_name, model_name_str):
+    safe_name = hf_model_name.split("/")[-1].strip() + model_name_str
+    safe_name = re.sub("-", "_", safe_name)
+    return safe_name

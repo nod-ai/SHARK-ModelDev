@@ -6,7 +6,6 @@
 
 import os
 import sys
-import re
 
 from iree import runtime as ireert
 import iree.compiler as ireec
@@ -98,8 +97,7 @@ def export_clip_model(
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    safe_name = utils.create_safe_name(hf_model_name, "-clip")
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
@@ -113,8 +111,7 @@ def run_clip_vmfb_comparison(args):
         index = ireert.ParameterIndex()
         index.load(args.external_weight_file)
 
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    safe_name = utils.create_safe_name(args.hf_model_name, "-clip")
     if args.vmfb_path:
         mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
     elif os.path.exists(f"{safe_name}.vmfb"):
@@ -194,8 +191,7 @@ if __name__ == "__main__":
             args.iree_target_triple,
             args.vulkan_max_allocation,
         )
-        safe_name = args.hf_model_name.split("/")[-1].strip()
-        safe_name = re.sub("-", "_", safe_name)
+        safe_name = utils.create_safe_name(args.hf_model_name, "-clip")
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")
