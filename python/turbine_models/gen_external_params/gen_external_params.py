@@ -42,7 +42,6 @@ parser.add_argument(
     help="Data type of model.",
 )
 
-args = parser.parse_args()
 
 
 def quantize(model, quantization, dtype):
@@ -156,6 +155,8 @@ def gen_external_params(
 
 
 if __name__ == "__main__":
+    
+    args = parser.parse_args()
     try:
         gen_external_params(
             hf_model_name=args.hf_model_name,
