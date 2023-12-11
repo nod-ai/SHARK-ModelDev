@@ -4,6 +4,47 @@ from turbine_models.model_builder import HFTransformerBuilder
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
+import argparse
+import sys
+
+parser = argparse.ArgumentParser(
+    description="Quantize and save Hugging Face models."
+)
+
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    default="meta-llama/Llama-2-7b-chat-hf",
+    help="The Hugging Face model name ID.",
+)
+parser.add_argument(
+    "--quantization",
+    type=str,
+    default="int4",
+    choices=["int4", "int8"],
+    help="Type of quantization to apply.",
+)
+parser.add_argument(
+    "--weight_path",
+    type=str,
+    default="",
+    help="Path to save the quantized model weights.",
+)
+parser.add_argument(
+    "--hf_auth_token",
+    type=str,
+    default=None,
+    help="The Hugging Face auth token required for some models.",
+)
+parser.add_argument(
+    "--precision",
+    type=str,
+    default="f16",
+    choices=["f16", "f32"],
+    help="Data type of model.",
+)
+
+args = parser.parse_args()
 
 def quantize(model, quantization, dtype):
     accumulates = dtype
@@ -116,47 +157,7 @@ def gen_external_params(
 
 
 if __name__ == "__main__":
-    import argparse
-    import sys
 
-    parser = argparse.ArgumentParser(
-        description="Quantize and save Hugging Face models."
-    )
-
-    parser.add_argument(
-        "--hf_model_name",
-        type=str,
-        default="meta-llama/Llama-2-7b-chat-hf",
-        help="The Hugging Face model name ID.",
-    )
-    parser.add_argument(
-        "--quantization",
-        type=str,
-        default="int4",
-        choices=["int4", "int8"],
-        help="Type of quantization to apply.",
-    )
-    parser.add_argument(
-        "--weight_path",
-        type=str,
-        default="",
-        help="Path to save the quantized model weights.",
-    )
-    parser.add_argument(
-        "--hf_auth_token",
-        type=str,
-        default=None,
-        help="The Hugging Face auth token required for some models.",
-    )
-    parser.add_argument(
-        "--precision",
-        type=str,
-        default="f16",
-        choices=["f16", "f32"],
-        help="Data type of model.",
-    )
-
-    args = parser.parse_args()
 
     try:
         gen_external_params(
