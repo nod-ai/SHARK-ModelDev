@@ -18,12 +18,6 @@ import safetensors
 from tqdm import tqdm
 from typing import Literal
 
-BATCH_SIZE = 1
-MAX_STEP_SEQ = 4095
-
-
-BATCH_SIZE = 1
-MAX_STEP_SEQ = 4095
 
 
 def torch_token_generator(
