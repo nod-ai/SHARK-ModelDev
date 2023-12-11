@@ -1,24 +1,45 @@
 import re
+from typing import Literal
 from turbine_models.model_builder import HFTransformerBuilder
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
 import argparse
+import sys
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Quantize and save Hugging Face models.")
+
 parser.add_argument(
     "--hf_model_name",
     type=str,
-    help="HF model name ID",
     default="meta-llama/Llama-2-7b-chat-hf",
-)
-parser.add_argument("--quantization", type=str, default="int4")
-parser.add_argument("--weight_path", type=str, default="")
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The HF auth token required for some models"
+    help="The Hugging Face model name ID.",
 )
 parser.add_argument(
-    "--precision", type=str, default="f16", help="Data type of model [f16, f32]"
+    "--quantization",
+    type=str,
+    default="int4",
+    choices=["int4", "int8"],
+    help="Type of quantization to apply.",
+)
+parser.add_argument(
+    "--weight_path",
+    type=str,
+    default="",
+    help="Path to save the quantized model weights.",
+)
+parser.add_argument(
+    "--hf_auth_token",
+    type=str,
+    default=None,
+    help="The Hugging Face auth token required for some models.",
+)
+parser.add_argument(
+    "--precision",
+    type=str,
+    default="f16",
+    choices=["f16", "f32"],
+    help="Data type of model.",
 )
 
 
@@ -73,34 +94,75 @@ def quantize(model, quantization, dtype):
     return all_weights
 
 
-if __name__ == "__main__":
-    args = parser.parse_args()
+def gen_external_params(
+    hf_model_name: str = "meta-llama/Llama-2-7b-chat-hf",
+    quantization: Literal["unquantized", "int4", "int8"] = "int4",
+    weight_path: str = "",
+    hf_auth_token: str = None,
+    precision: str = "f16",
+):
+    """
+    Main function to run the model quantization and saving process.
+
+    :param hf_model_name: The Hugging Face model name ID.
+    :param quantization: Type of quantization to apply ('int4' or 'int8').
+    :param weight_path: Path to save the quantized model weights.
+    :param hf_auth_token: The Hugging Face auth token required for some models.
+    :param precision: Data type of model ('f16' or 'f32').
+    """
+    SUPPORTED_QUANTIZATIONS = ["unquantized", "int4", "int8"]
+    if quantization not in SUPPORTED_QUANTIZATIONS:
+        if (
+            quantization is None
+            or quantization.lower() == "none"
+            or quantization.lower() == "unquantized"
+        ):
+            quantization = "unquantized"
+        else:
+            raise ValueError(f"Invalid quantization, {quantization} not supported.")
+
     model_builder = HFTransformerBuilder(
         example_input=None,
-        hf_id=args.hf_model_name,
+        hf_id=hf_model_name,
         auto_model=AutoModelForCausalLM,
-        hf_auth_token=args.hf_auth_token,
+        hf_auth_token=hf_auth_token,
     )
     model_builder.build_model()
-    if args.precision == "f16":
+
+    if precision == "f16":
         model = model_builder.model.half()
         dtype = torch.float16
-    elif args.precision == "f32":
+    elif precision == "f32":
         model = model_builder.model
         dtype = torch.float32
     else:
-        sys.exit("invalid precision, f16 or f32 supported")
-    quant_weights = quantize(model, args.quantization, dtype)
-    # TODO: Add more than just safetensor support
+        sys.exit("Invalid precision, f16 or f32 supported")
+
+    quant_weights = quantize(model, quantization, dtype)
+
+    if weight_path == "":
+        save_path = hf_model_name.split("/")[-1].strip()
+        save_path = re.sub("-", "_", save_path)
+        save_path = save_path + "_" + precision + "_" + quantization + ".safetensors"
+    else:
+        save_path = weight_path
+
     import safetensors
 
-    if args.weight_path == "":
-        save_path = args.hf_model_name.split("/")[-1].strip()
-        save_path = re.sub("-", "_", save_path)
-        save_path = (
-            save_path + "_" + args.precision + "_" + args.quantization + ".safetensors"
-        )
-    else:
-        save_path = args.weight_path
     safetensors.torch.save_file(quant_weights, save_path)
     print("Saved safetensor output to ", save_path)
+
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+    try:
+        gen_external_params(
+            hf_model_name=args.hf_model_name,
+            quantization=args.quantization,
+            weight_path=args.weight_path,
+            hf_auth_token=args.hf_auth_token,
+            precision=args.precision,
+        )
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

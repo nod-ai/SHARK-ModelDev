@@ -1,4 +1,4 @@
-name: Test
+name: Test Turbine Models
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - main
 
 jobs:
-  test:
+  test-turbine-models:
     strategy:
       matrix:
         version: [3.11]
@@ -36,7 +36,15 @@ jobs:
           pip install --upgrade -r requirements.txt
           pip install -e  .[testing]
           pip install -e python/turbine_models
-
-      - name: Run tests
+      
+      - name: Show current free memory
         run: |
-          pytest python/turbine_models/tests
+          free -mh
+
+      - name: Run stateless_llama tests
+        run: |
+          pytest python/turbine_models/tests/stateless_llama_test.py
+
+      - name: Run sd tests
+        run: |
+          pytest python/turbine_models/tests/sd_test.py
