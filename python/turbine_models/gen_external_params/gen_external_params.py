@@ -43,7 +43,6 @@ parser.add_argument(
 )
 
 
-
 def quantize(model, quantization, dtype):
     accumulates = dtype
     int_weights = {}
@@ -155,7 +154,6 @@ def gen_external_params(
 
 
 if __name__ == "__main__":
-    
     args = parser.parse_args()
     try:
         gen_external_params(
