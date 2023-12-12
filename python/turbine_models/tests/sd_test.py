@@ -14,6 +14,9 @@ import os
 arguments = {
     "hf_auth_token": None,
     "hf_model_name": "CompVis/stable-diffusion-v1-4",
+    "batch_size": 1,
+    "height": 512,
+    "width": 512,
     "run_vmfb": True,
     "compile_to": None,
     "external_weight_file": "",
@@ -55,7 +58,7 @@ class StableDiffusionTest(unittest.TestCase):
         namespace = argparse.Namespace(**arguments)
         clip.run_clip_vmfb_comparison(namespace)
         os.remove("stable_diffusion_v1_4_clip.safetensors")
-        os.remove("stable_diffusion_v1_4.vmfb")
+        os.remove("stable_diffusion_v1_4_clip.vmfb")
 
     def testExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
@@ -63,6 +66,9 @@ class StableDiffusionTest(unittest.TestCase):
                 unet_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
+                arguments["batch_size"],
+                arguments["height"],
+                arguments["width"],
                 None,
                 "vmfb",
                 "safetensors",
@@ -74,7 +80,7 @@ class StableDiffusionTest(unittest.TestCase):
         namespace = argparse.Namespace(**arguments)
         unet.run_unet_vmfb_comparison(unet_model, namespace)
         os.remove("stable_diffusion_v1_4_unet.safetensors")
-        os.remove("stable_diffusion_v1_4.vmfb")
+        os.remove("stable_diffusion_v1_4_unet.vmfb")
 
     def testExportVaeModel(self):
         with self.assertRaises(SystemExit) as cm:
@@ -82,6 +88,9 @@ class StableDiffusionTest(unittest.TestCase):
                 vae_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
+                arguments["batch_size"],
+                arguments["height"],
+                arguments["width"],
                 None,
                 "vmfb",
                 "safetensors",
@@ -93,7 +102,7 @@ class StableDiffusionTest(unittest.TestCase):
         namespace = argparse.Namespace(**arguments)
         vae.run_vae_vmfb_comparison(vae_model, namespace)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
-        os.remove("stable_diffusion_v1_4.vmfb")
+        os.remove("stable_diffusion_v1_4_vae.vmfb")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@
 
 import os
 import sys
-import re
 
 from iree import runtime as ireert
 from iree.compiler.ir import Context
@@ -30,6 +29,13 @@ parser.add_argument(
     help="HF model name",
     default="CompVis/stable-diffusion-v1-4",
 )
+parser.add_argument(
+    "--batch_size", type=int, default=1, help="Batch size for inference"
+)
+parser.add_argument(
+    "--height", type=int, default=512, help="Height of Stable Diffusion"
+)
+parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
 parser.add_argument("--run_vmfb", action="store_true")
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_file", type=str, default="")
@@ -76,6 +82,9 @@ class UnetModel(torch.nn.Module):
 def export_unet_model(
     unet_model,
     hf_model_name,
+    batch_size,
+    height,
+    width,
     hf_auth_token=None,
     compile_to="torch",
     external_weights=None,
@@ -93,6 +102,8 @@ def export_unet_model(
     if hf_model_name == "stabilityai/stable-diffusion-2-1-base":
         encoder_hidden_states_sizes = (2, 77, 1024)
 
+    sample = (batch_size, unet_model.unet.in_channels, height // 8, width // 8)
+
     class CompiledUnet(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -103,7 +114,7 @@ def export_unet_model(
 
         def main(
             self,
-            sample=AbstractTensor(1, 4, 64, 64, dtype=torch.float32),
+            sample=AbstractTensor(*sample, dtype=torch.float32),
             timestep=AbstractTensor(1, dtype=torch.float32),
             encoder_hidden_states=AbstractTensor(
                 *encoder_hidden_states_sizes, dtype=torch.float32
@@ -115,8 +126,7 @@ def export_unet_model(
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    safe_name = utils.create_safe_name(hf_model_name, "-unet")
     if compile_to != "vmfb":
         return module_str
     else:
@@ -130,8 +140,7 @@ def run_unet_vmfb_comparison(unet_model, args):
         index = ireert.ParameterIndex()
         index.load(args.external_weight_file)
 
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
     if args.vmfb_path:
         mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
     elif os.path.exists(f"{safe_name}.vmfb"):
@@ -153,7 +162,13 @@ def run_unet_vmfb_comparison(unet_model, args):
         vm_modules=vm_modules,
         config=config,
     )
-    sample = torch.rand(1, 4, 64, 64, dtype=torch.float32)
+    sample = torch.rand(
+        args.batch_size,
+        unet_model.unet.in_channels,
+        args.height // 8,
+        args.width // 8,
+        dtype=torch.float32,
+    )
     timestep = torch.zeros(1, dtype=torch.float32)
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
@@ -200,6 +215,9 @@ if __name__ == "__main__":
         mod_str = export_unet_model(
             unet_model,
             args.hf_model_name,
+            args.batch_size,
+            args.height,
+            args.width,
             args.hf_auth_token,
             args.compile_to,
             args.external_weights,
@@ -208,8 +226,7 @@ if __name__ == "__main__":
             args.iree_target_triple,
             args.vulkan_max_allocation,
         )
-        safe_name = args.hf_model_name.split("/")[-1].strip()
-        safe_name = re.sub("-", "_", safe_name)
+        safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")
