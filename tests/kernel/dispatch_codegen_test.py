@@ -8,7 +8,7 @@ from shark_turbine.kernel.compiler import (
 
 
 class Test(unittest.TestCase):
-    def testStreamExecutable(self):
+    def testEmptyStreamExecutable(self):
         mb = builder.ModuleBuilder()
         try:
             exe = dispatch_codegen.StreamExecutable(mb)

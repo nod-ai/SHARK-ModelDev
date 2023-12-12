@@ -59,16 +59,13 @@ from .ir import (
     vector_d,
 )
 
+from .kernel_codegen import (
+    BoundKernelSignature,
+)
+
 from . import op_matchers
 
 ArgTypeUnion = Union[SymbolDef, Type[KernelBuffer]]
-
-
-@dataclass
-class ArgMeta:
-    name: Optional[str] = None
-    node: Optional[fx.Node] = None
-    grid_index: Optional[int] = None
 
 
 @dataclass
@@ -87,133 +84,49 @@ class NodeAttrs:
         node.meta["unsigned"] = self.unsigned
 
 
-class Signature:
-    """Represents a function signature.
-
-    Signatures can carry:
-      - Input, output and temporary KernelBuffers
-      - SymbolDef
-
-    For now, if we enounter any of these, we emit them in declaration order.
-    We need a better convention than this (i.e. inputs, then outputs, them symbols, them temporaries).
-    """
-
-    def __init__(self):
-        self.args: list[tuple[ArgMeta, ArgTypeUnion]] = []
-
-    def add_kernel_buffer(
-        self, kb: Type[KernelBuffer], *, meta: Optional[ArgMeta] = None
-    ):
-        self.args.append((meta if meta is not None else ArgMeta(), kb))
-
-    def add_symbol(self, sym: SymbolDef, *, meta: Optional[ArgMeta] = None):
-        self.args.append((meta if meta is not None else ArgMeta(), sym))
-
-    @property
-    def arg_metas(self) -> Sequence[ArgMeta]:
-        return (meta for meta, _ in self.args)
-
-    def as_function_type(self) -> FunctionType:
-        idx_c = IndexingContext.current()
-
-        def sym_to_dim_asm(s: SymbolDef) -> str:
-            static_value = idx_c.get_static_value(s)
-            return "?" if static_value is None else str(static_value)
-
-        def as_mlir_type(t: ArgTypeUnion) -> FunctionType:
-            if isinstance(t, SymbolDef):
-                return IndexType.get()
-            elif is_kernel_buffer_meta_derived(t):
-                kb_t = t  # type: KernelBuffer
-                element_type_asm = kb_t.element_type.ir_type_asm()
-                symbolic_shape = kb_t.symbolic_shape
-                if symbolic_shape is not None:
-                    shape_asm = "x".join(sym_to_dim_asm(s) for s in kb_t.symbolic_shape)
-                    spec_asm = f"{shape_asm}x{element_type_asm}"
-                else:
-                    # Unranked. Not well supported, but for completeness.
-                    spec_asm = element_type_asm
-                memref_asm = f"memref<{spec_asm}>"
-                return IrType.parse(memref_asm)
-
-        inputs = [as_mlir_type(arg) for _, arg in self.args]
-        return FunctionType.get(inputs, [])
-
-    def add_grid(self, grid: Type[Grid]):
-        assert grid.symbolic_shape, "code emission requires a symbolically shaped grid"
-        for index, s in enumerate(grid.symbolic_shape):
-            self.add_symbol(s, meta=ArgMeta(grid_index=index, name=f"grid{index}"))
-
-    def add_from_graph_placeholders(self, graph: fx.Graph):
-        for node in graph.nodes:
-            if node.op != "placeholder":
-                continue
-            t = node.type
-            meta = ArgMeta(name=node.target, node=node)
-            if is_kernel_buffer_meta_derived(t):
-                self.add_kernel_buffer(t, meta=meta)
-            elif issubclass(t, SymbolDef):
-                self.add_symbol(t, meta=meta)
-
-    def __repr__(self):
-        parts = []
-        for meta, arg in self.args:
-            part = repr(arg)
-            if meta.name:
-                part = f"{meta.name}: {part}"
-            parts.append(part)
-        return f"Signature({', '.join(parts)})"
-
-
 class ThreadEmitter:
     """Emits a 'thread function' as a `func` with a signature derived from the gm."""
 
     OP_HANDLERS: dict[Any, Callable[["ThreadEmitter", fx.Node], None]] = {}
 
-    def __init__(self, mb: ModuleBuilder, grid: Grid, sig: Signature):
-        self.nv_map: dict[fx.Node, Value] = {}
-        self.grid_index_map: list[Optional[Value]] = [None] * grid.rank
+    def __init__(self, sig: BoundKernelSignature):
+        self._node_values: dict[fx.Node, Value] = {}
+        self._grid_axis_values: dict[int, Value] = {}
+        self._sig = sig
+        self.ip = InsertionPoint(sig.entry_block)
+        
 
-        # TODO: Infer a location from graph.
-        with InsertionPoint(mb.body_block), Location.unknown():
-            ftype = sig.as_function_type()
-            func_op = func_d.FuncOp("kernel", ftype)
-            self.func_op = func_op
-            arg_locs = [
-                (
-                    Location.name(meta.name)
-                    if meta.name is not None
-                    else Location.unknown()
-                )
-                for meta in sig.arg_metas
-            ]
-            self.entry_block = func_op.add_entry_block(arg_locs)
+    def lookup_node_value(self, node: fx.Node) -> Value:
+        value = self._node_values.get(node)
+        if value is None:
+            value = self._sig.resolve_by_reference(("node", node))
+            self._node_values[node] = value
+        return value
 
-            # Bind all inputs in the node-value map.
-            for block_arg, meta in zip(self.entry_block.arguments, sig.arg_metas):
-                assert (
-                    meta.node or meta.grid_index is not None
-                ), "expected all signature args to have an associated node or grid_index"
-                if meta.node:
-                    self.nv_map[meta.node] = block_arg
-                elif meta.grid_index is not None:
-                    self.grid_index_map[meta.grid_index] = block_arg
-        self.context = mb.context
-        self.ip = InsertionPoint(self.entry_block)
+    def lookup_grid_axis_value(self, grid_axis: int) -> Value:
+        value = self._grid_axis_values.get(grid_axis)
+        if value is None:
+            try:
+                value = self._sig.resolve_by_reference(("grid", grid_axis))
+            except KeyError:
+                raise CodegenError(f"Grid axis {grid_axis} out of bounds")
+            self._node_values[grid_axis] = value
+        return value
 
     def bind_node_result(
         self, node: fx.Node, value: Value, *, attrs: Optional[NodeAttrs] = None
     ):
-        assert node not in self.nv_map, f"Cannot rebind node {node}: already bound"
+        assert (
+            node not in self._node_values
+        ), f"Cannot rebind node {node}: already bound"
         if attrs is not None:
             attrs.store(node)
-        self.nv_map[node] = value
+        self._node_values[node] = value
 
     def emit_graph(self, graph: fx.Graph):
-        context = self.context
         for node in graph.nodes:
             # TODO: Construct a location for the node.
-            with self.ip, Location.unknown(context):
+            with self.ip, Location.unknown():
                 if node.op == "call_function":
                     self.emit_function_call_node(node)
 
@@ -335,12 +248,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    try:
-        value = emitter.grid_index_map[axis]
-        assert value is not None, "Grid axis unbound"
-    except IndexError as e:
-        raise CodegenError("Grid axis out of bounds") from e
-
+    value = emitter.lookup_grid_axis_value(axis)
     emitter.bind_node_result(node, value)
 
 
@@ -481,7 +389,7 @@ def emit_reduction(
 def cast_py_value(emitter: ThreadEmitter, value) -> Value:
     if isinstance(value, fx.Node):
         try:
-            return emitter.nv_map[value]
+            return emitter.lookup_node_value(value)
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")
 
@@ -491,7 +399,7 @@ def cast_py_value(emitter: ThreadEmitter, value) -> Value:
 def cast_py_lvalue(emitter: ThreadEmitter, py_value) -> tuple[Value, fx.Node]:
     if isinstance(py_value, fx.Node):
         try:
-            return emitter.nv_map[py_value], py_value
+            return emitter.lookup_node_value(py_value), py_value
         except KeyError:
             raise CodegenError(f"Producer node `{py_value}` has no IR Value")
     else:

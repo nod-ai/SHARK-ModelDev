@@ -135,6 +135,12 @@ class StreamExecutable:
 class WorkgroupCalcBuilder:
     """Builder for a workgroup calculation block."""
 
+    __slots__ = [
+        "entry_block",
+        "workload",
+        "_term_ctor",
+    ]
+
     def __init__(self, entry_block: Block, term_ctor: Callable[[list[Value]], None]):
         self.entry_block = entry_block
         self.workload = list(entry_block.arguments)
@@ -152,6 +158,13 @@ class WorkgroupCalcBuilder:
 
 class DispatchFuncBuilder:
     """Builder for dispatch functions."""
+
+    __slots__ = [
+        "entry_block",
+        "args",
+        "workload",
+        "results",
+    ]
 
     def __init__(
         self,
