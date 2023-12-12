@@ -30,7 +30,6 @@ from turbine_models.custom_models import remap_gguf
 import safetensors
 
 from tqdm import tqdm
-from .vmfb_comparison import get_turbine_vmfb_string
 
 
 def test_vmfb_comparison():
@@ -77,31 +76,25 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
         with open(torch_str_cache_path, "r") as f:
             torch_str = f.read()
     else:
-        from .vmfb_comparison import get_torch_string
+        from turbine_models.custom_models import llm_runner
 
-        torch_str = get_torch_string(
-            prompt=DEFAULT_PROMPT,
-            hf_auth_token=None,
-            hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-            tokens_to_compare=50,
-            precision=precision,
-            quantization=quantization,
+        torch_str = llm_runner.run_torch_llm(
+            "Trelis/Llama-2-7b-chat-hf-function-calling-v2", None, DEFAULT_PROMPT
         )
 
         with open(torch_str_cache_path, "w") as f:
             f.write(torch_str)
 
-    turbine_str = get_turbine_vmfb_string(
-        prompt=DEFAULT_PROMPT,
-        hf_auth_token=None,
-        hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-        vmfb_path="Llama_2_7b_chat_hf_function_calling_v2.vmfb",
-        external_weight_file=f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
-        tokens_to_compare=50,
-        device="llvm-cpu",
-    )
+    from turbine_models.custom_models import llm_runner
 
-    torch_str = torch_str[: len(turbine_str)]
+    turbine_str = llm_runner.run_llm(
+        "local-task",
+        DEFAULT_PROMPT,
+        "Llama_2_7b_chat_hf_function_calling_v2.vmfb",
+        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        None,
+        f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
+    )
 
     import difflib
 
@@ -113,5 +106,4 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
         tofile="turbine_str",
         lineterm="",
     )
-
     assert torch_str == turbine_str, "".join(diff)

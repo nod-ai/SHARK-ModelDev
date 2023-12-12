@@ -8,7 +8,6 @@ import torch
 from torch.utils import _pytree as pytree
 from shark_turbine.aot import *
 from iree.compiler.ir import Context
-from iree import runtime as ireert
 
 from turbine_models.custom_models import remap_gguf
 import safetensors
@@ -23,11 +22,6 @@ parser.add_argument(
     "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
 )
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument(
-    "--test",
-    action="store_true",
-    help="run stateless tests instead of exporting",
-)
 parser.add_argument(
     "--hf_model_name",
     type=str,
@@ -58,10 +52,6 @@ parser.add_argument(
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-
-prompt = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
-"""
 
 # TODO (Dan): replace this with a file once I figure out paths on windows exe
 json_schema = """
@@ -282,11 +272,8 @@ def export_transformer_model(
         return module_str, tokenizer
 
 
-# if you're looking for run_vmfb_comparison, it's now in python/turbine_models/tests/vmfb_comparison.py
-
 if __name__ == "__main__":
     args = parser.parse_args()
-
     mod_str, _ = export_transformer_model(
         args.hf_model_name,
         args.hf_auth_token,
