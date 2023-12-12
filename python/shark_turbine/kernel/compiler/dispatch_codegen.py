@@ -219,7 +219,7 @@ class DispatchEntrypoint(BoundKernelSignature):
     def resolve(self, binding: BindingDesc) -> Value:
         ref_type, ref_value = binding.reference
         if ref_type == "grid":
-            # TODO: Should we be using a stream
+            # TODO: Switch to stream op when #15889 is landed.
             return flow_d.dispatch_workgroup_id(
                 IntegerAttr.get(IndexType.get(), ref_value)
             )
