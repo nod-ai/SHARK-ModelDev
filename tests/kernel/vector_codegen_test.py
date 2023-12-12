@@ -6,6 +6,7 @@ import shark_turbine.kernel as tk
 
 from shark_turbine.kernel.compiler import (
     builder,
+    kernel_codegen,
     vector_codegen,
 )
 from shark_turbine.kernel._support import (
@@ -31,13 +32,15 @@ class Test(unittest.TestCase):
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
             idxc.bind_constant(M, 17)
-
-            sig = vector_codegen.Signature()
+            sig = kernel_codegen.KernelSignature()
             sig.add_from_graph_placeholders(gm.graph)
             sig.add_grid(iota_kernel.grid_type)
             print(sig)
+            bound_sig, func_op = kernel_codegen.FunctionalKernelSignature.create(
+                sig, mb
+            )
             try:
-                emitter = vector_codegen.ThreadEmitter(mb, iota_kernel.grid_type, sig)
+                emitter = vector_codegen.ThreadEmitter(bound_sig)
                 emitter.emit_graph(gm.graph)
                 emitter.finish()
             finally:
@@ -62,14 +65,15 @@ class Test(unittest.TestCase):
             idxc.bind_constant(M, 128)
             idxc.bind_constant(K, 64)
 
-            sig = vector_codegen.Signature()
+            sig = kernel_codegen.KernelSignature()
             sig.add_from_graph_placeholders(gm.graph)
             sig.add_grid(softmax_kernel.grid_type)
             print(sig)
+            bound_sig, func_op = kernel_codegen.FunctionalKernelSignature.create(
+                sig, mb
+            )
             try:
-                emitter = vector_codegen.ThreadEmitter(
-                    mb, softmax_kernel.grid_type, sig
-                )
+                emitter = vector_codegen.ThreadEmitter(bound_sig)
                 emitter.emit_graph(gm.graph)
             finally:
                 emitter.finish()

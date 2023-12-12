@@ -14,6 +14,7 @@ from .ir import (
     IrType,
     Location,
     Operation,
+    SymbolTable,
     Value,
     VectorType,
     arith_d,
@@ -47,6 +48,8 @@ class ModuleBuilder:
             self.module_op = builtin_d.ModuleOp(loc=Location.unknown(context))
             self.body_block = self.module_op.body
         self.context = self.module_op.context
+        self.unknown_loc = Location.unknown(self.context)
+        self.symbol_table = SymbolTable(self.module_op)
 
 
 class _ScalarBuilder:
