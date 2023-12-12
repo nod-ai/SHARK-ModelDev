@@ -1,25 +1,56 @@
 import logging
 import unittest
 
+import torch
+import shark_turbine.kernel as tk
+
 from shark_turbine.kernel.compiler import (
     builder,
     dispatch_codegen,
+    kernel_codegen,
+    vector_codegen,
 )
+from shark_turbine.kernel._support import (
+    indexing,
+)
+
+
+M = tk.lang.sym.M
+K = tk.lang.sym.K
 
 
 class Test(unittest.TestCase):
     def testEmptyStreamExecutable(self):
+        @tk.gen.thread(M)
+        def softmax_kernel(
+            input: tk.lang.InputBuffer[M, K], output: tk.lang.OutputBuffer[M, K]
+        ):
+            row_index = tk.lang.program_id(0)
+            input_row = input[row_index, :]
+            numerator = torch.exp(input_row - torch.max(input_row))
+            output_row = numerator / torch.sum(numerator)
+            output[row_index, :] = output_row
+
+        gm = softmax_kernel._trace.gm
+        print(gm.graph)
         mb = builder.ModuleBuilder()
-        try:
-            exe = dispatch_codegen.StreamExecutable(mb)
-            workgroup_builder, disp_builder = exe.define_entrypoint(
-                "dispatch", 2, 3, 1, 3
-            )
-            workgroup_builder.terminate(workgroup_builder.workload)
-            disp_builder.terminate()
-        finally:
-            print(mb.module_op.get_asm())
-        mb.module_op.verify()
+        with indexing.IndexingContext() as idxc:
+            idxc.bind_constant(M, 128)
+            idxc.bind_constant(K, 64)
+
+            sig = kernel_codegen.KernelSignature()
+            sig.add_from_graph_placeholders(gm.graph)
+            sig.add_grid(softmax_kernel.grid_type)
+
+            try:
+                exe = dispatch_codegen.StreamExecutable(mb)
+                dispatch_entrypoint = exe.define_entrypoint("dispatch", sig)
+                emitter = vector_codegen.ThreadEmitter(dispatch_entrypoint)
+                emitter.emit_graph(gm.graph)
+                emitter.finish()
+            finally:
+                print(mb.module_op.get_asm())
+            mb.module_op.verify()
 
 
 if __name__ == "__main__":

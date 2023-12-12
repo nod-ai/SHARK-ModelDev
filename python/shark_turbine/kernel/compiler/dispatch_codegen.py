@@ -5,7 +5,16 @@ This assumes that you have some form of code generation for the
 embedding and generating the calls/dispatches.
 """
 
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
+
+from .._support.indexing import (
+    IndexingContext,
+)
+
+from .base import (
+    CodegenError,
+    ValidationError,
+)
 
 from .builder import (
     ModuleBuilder,
@@ -16,13 +25,23 @@ from .ir import (
     FunctionType,
     IndexType,
     InsertionPoint,
+    IntegerAttr,
     IrType,
     Location,
     Operation,
     StringAttr,
     Value,
+    arith_d,
+    flow_d,
     func_d,
     stream_d,
+)
+
+from .kernel_codegen import (
+    BindingDesc,
+    BindingType,
+    BoundKernelSignature,
+    KernelSignature,
 )
 
 
@@ -47,7 +66,7 @@ class StreamExecutable:
         mb: ModuleBuilder,
         *,
         loc: Optional[Location] = None,
-        name: str = "__executable"
+        name: str = "__executable",
     ):
         self._mb = mb
         if not loc:
@@ -73,11 +92,8 @@ class StreamExecutable:
     def define_entrypoint(
         self,
         name: str,
-        arg_arity: int,
-        workload_arity: int,
-        result_arity: int,
-        grid_arity: int = 3,
-    ) -> tuple["WorkgroupCalcBuilder", "DispatchFuncBuilder"]:
+        sig: KernelSignature,
+    ) -> "DispatchEntrypoint":
         """Defines a dispatch function with a signature like:
 
         ```
@@ -96,17 +112,44 @@ class StreamExecutable:
 
         The given name is not uniqued (must be unique as given by the caller).
         """
+        kb_input_bindings = sig.kernel_buffer_input_bindings
+        kb_temp_bindings = sig.kernel_buffer_temporary_bindings
+        kb_output_bindings = sig.kernel_buffer_output_bindings
+        # TODO: The way we are doing grid bindings is wrong. The Grid type should be paramerized
+        # with special grid axis symbols which are algebraically related to concrete shape dim
+        # symbols. For now, we are just treating the grid symbol as the input and output to the
+        # workload function, when in reality, the workload needs to derive from its leaf inputs.
+        grid_axis_bindings = sig.grid_bindings
+
+        # Input bindings are always user specified.
+        # Grid/workgroup bindings are in the inputs section but are implied.
+        # Temp bindings are a special kind of output bindings.
+        # Output bindings are the real outputs.
+        linear_bindings = (
+            kb_input_bindings
+            + grid_axis_bindings
+            + kb_temp_bindings
+            + kb_output_bindings
+        )
+
+        # TODO: This is sloppy. This assert will hit on some user errors for unsupported
+        # type combinations and is just a last resort right now.
+        assert len(linear_bindings) == len(
+            sig.bindings
+        ), f"Not all bindings converted: {linear_bindings} vs {sig.bindings}"
+
         with self._loc:
             binding_type = IrType.parse("!stream.binding")
             index_type = IndexType.get()
 
             # Define the dispatch function.
+            def abi_type(binding: BindingDesc):
+                if binding.binding_type == BindingType.KERNEL_BUFFER:
+                    return binding_type
+                return binding.as_mlir_type()
+
             def_ftype = FunctionType.get(
-                (
-                    (arg_arity * [binding_type])
-                    + (workload_arity * [index_type])
-                    + (result_arity * [binding_type])
-                ),
+                [abi_type(b) for b in linear_bindings],
                 [],
             )
             with InsertionPoint(self.def_module.body_block):
@@ -118,21 +161,25 @@ class StreamExecutable:
             with InsertionPoint.at_block_begin(self._exe_block):
                 export_op = stream_d.ExecutableExportOp(name, name)
                 export_block = export_op.workgroup_count.blocks.append(
-                    *(workload_arity * [index_type])
+                    *([b.as_mlir_type() for b in grid_axis_bindings])
                 )
 
-        return (
-            WorkgroupCalcBuilder(export_block, lambda vs: stream_d.ReturnOp(vs)),
-            DispatchFuncBuilder(
-                def_func_block,
-                def_func_args[0:arg_arity],
-                def_func_args[arg_arity : (arg_arity + workload_arity)],
-                def_func_args[(arg_arity + workload_arity) :],
-            ),
-        )
+            # TODO: Reify actual workload calculation.
+            workgroup_builder = WorkgroupBuilder(
+                export_block, lambda vs: stream_d.ReturnOp(vs)
+            )
+            workgroup_values = list(workgroup_builder.workload)
+            while len(workgroup_values) < 3:
+                with InsertionPoint(workgroup_builder.entry_block):
+                    workgroup_values.append(
+                        arith_d.constant(IntegerAttr.get(IndexType.get(), 1))
+                    )
+            workgroup_builder.terminate(workgroup_values)
+
+        return DispatchEntrypoint(sig, def_func_block, linear_bindings)
 
 
-class WorkgroupCalcBuilder:
+class WorkgroupBuilder:
     """Builder for a workgroup calculation block."""
 
     __slots__ = [
@@ -156,33 +203,37 @@ class WorkgroupCalcBuilder:
             self._term_ctor(returns)
 
 
-class DispatchFuncBuilder:
-    """Builder for dispatch functions."""
-
-    __slots__ = [
-        "entry_block",
-        "args",
-        "workload",
-        "results",
-    ]
-
+class DispatchEntrypoint(BoundKernelSignature):
     def __init__(
         self,
+        sig: KernelSignature,
         entry_block: Block,
-        args: list[Value],
-        workload: list[Value],
-        results: list[Value],
+        linear_bindings: list[BindingDesc],
     ):
-        self.entry_block = entry_block
-        self.args = args
-        self.workload = workload
-        self.results = results
+        super().__init__(sig, entry_block)
+        self._abi_value_by_reference: dict[tuple[str, Any], Value] = {
+            b.reference: value
+            for value, b in zip(entry_block.arguments, linear_bindings)
+        }
 
-    @property
-    def location(self) -> Location:
-        return self.entry_block.owner.location
+    def resolve(self, binding: BindingDesc) -> Value:
+        ref_type, ref_value = binding.reference
+        if ref_type == "grid":
+            # TODO: Should we be using a stream
+            return flow_d.dispatch_workgroup_id(
+                IntegerAttr.get(IndexType.get(), ref_value)
+            )
 
-    def terminate(self):
-        entry_block = self.entry_block
-        with entry_block.owner.location, InsertionPoint(entry_block):
-            func_d.ReturnOp([])
+        if binding.binding_type == BindingType.KERNEL_BUFFER:
+            # Issue a subspan to get into the memref domain.
+            zero_value = arith_d.constant(IntegerAttr.get(IndexType.get(), 0))
+            linear_arg_value = self._abi_value_by_reference[binding.reference]
+            # TODO: Need to also look up dynamic symbol values.
+            return stream_d.binding_subspan(
+                binding.as_mlir_type(),
+                linear_arg_value,
+                byte_offset=zero_value,
+                dynamic_dims=[],
+            )
+
+        raise ValidationError(f"Unhandled binding type: {binding}")

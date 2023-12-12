@@ -25,6 +25,7 @@ from .._support.indexing import (
     Grid,
     IndexingContext,
     KernelBuffer,
+    KernelBufferUsage,
     SymbolDef,
     is_kernel_buffer_meta_derived,
 )
@@ -109,6 +110,42 @@ class KernelSignature:
     def __init__(self):
         self.bindings: list[BindingDesc] = []
 
+    @property
+    def grid_bindings(self) -> list[BindingDesc]:
+        """Gets all grid axis bindings."""
+        return [b for b in self.bindings if b.reference[0] == "grid"]
+
+    @property
+    def kernel_buffer_input_bindings(self) -> list[BindingDesc]:
+        """Gets all kernel buffer bindings with input usage."""
+        print("ALL=", self.bindings)
+        return [
+            b
+            for b in self.bindings
+            if b.binding_type == BindingType.KERNEL_BUFFER
+            and b.kernel_buffer_type.usage == KernelBufferUsage.INPUT
+        ]
+
+    @property
+    def kernel_buffer_output_bindings(self) -> list[BindingDesc]:
+        """Gets all kernel buffer bindings with input usage."""
+        return [
+            b
+            for b in self.bindings
+            if b.binding_type == BindingType.KERNEL_BUFFER
+            and b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT
+        ]
+
+    @property
+    def kernel_buffer_temporary_bindings(self) -> list[BindingDesc]:
+        """Gets all kernel buffer bindings with input usage."""
+        return [
+            b
+            for b in self.bindings
+            if b.binding_type == BindingType.KERNEL_BUFFER
+            and b.kernel_buffer_type.usage == KernelBufferUsage.TEMPORARY
+        ]
+
     def add_from_graph_placeholders(self, graph: fx.Graph):
         placeholder_nodes: list[fx.Node] = []
         for node in graph.nodes:
@@ -182,7 +219,6 @@ class BoundKernelSignature(ABC):
         is recommended to cache it.
         """
         ...
-
 
 
 class FunctionalKernelSignature(BoundKernelSignature):

@@ -94,7 +94,6 @@ class ThreadEmitter:
         self._grid_axis_values: dict[int, Value] = {}
         self._sig = sig
         self.ip = InsertionPoint(sig.entry_block)
-        
 
     def lookup_node_value(self, node: fx.Node) -> Value:
         value = self._node_values.get(node)
