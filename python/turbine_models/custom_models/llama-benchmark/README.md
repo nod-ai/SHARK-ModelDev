@@ -23,7 +23,7 @@ python python/turbine_models/custom_models/stateless_llama.py --compile_to=vmfb 
 ```
 By default the vmfb will be saved as `Llama_2_7b_chat_hf.vmfb`.
 
-To generate the vmfb for benchmark
+To compile to vmfb for benchmark
 ```
 python python/turbine_models/custom_models/llama-benchmark/benchmark_module.py --benchmark_mlir_path=./python/turbine_models/custom_models/llama-benchmark/benchmark.mlir
 ```
@@ -37,5 +37,5 @@ Set the number of times second vicuna is run (# of tokens to benchmark) using th
 To run the benchmark, use this command:
 
 ```
-python python/turbine_models/custom_models/llama-benchmark/stateless_llama_benchmark.py --hf_auth_token=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 --benchmark_vmfb_path=benchmark.vmfb --llama_vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors --steps=1
+python python/turbine_models/custom_models/llama-benchmark/stateless_llama_benchmark.py --hf_auth_token=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 --benchmark_vmfb_path=benchmark.vmfb --llama_vmfb_path=Llama_2_7b_chat_hf.vmfb --external_weight_file=Llama_2_7b_chat_hf_f16_int4.safetensors --steps=10
 ```
