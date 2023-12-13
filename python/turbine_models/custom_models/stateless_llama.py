@@ -183,46 +183,6 @@ def export_transformer_model(
             self.global_seq_step = self.global_seq_step + 1
             return token
 
-        def run_all(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
-            token, *state = self.initialize(x, constraints=init_const)
-            self.global_seq_step = IREE.tensor_dim(
-                state[0], 1
-            )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(HEADS * 2):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i], 1, 1, self.global_seq_step, HEADS, HIDDEN_DIM
-                )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, slice_of_state, i, 0, 0, 0, 0
-                )
-            x = token
-            for i in range(10):
-                state_arg = slice_up_to_step(
-                    self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
-                )
-                forw_const = (
-                    [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                    + [
-                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                        for x in state_arg[1:]
-                    ]
-                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
-                )
-                token, *state_update = self.forward(
-                    x, *state_arg, constraints=forw_const
-                )
-                for i in range(HEADS * 2):
-                    update = IREE.tensor_reshape(
-                        state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
-                    )
-                    self.global_state = IREE.tensor_update(
-                        self.global_state, update, i, 0, self.global_seq_step, 0, 0
-                    )
-
-                self.global_seq_step = self.global_seq_step + 1
-                x = token
-
         def get_global_state(self):
             return self.global_state
 
