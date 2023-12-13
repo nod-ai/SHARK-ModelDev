@@ -40,11 +40,11 @@ class HFTransformerBuilder:
         """
         # TODO: check cloud storage for existing ir
         self.model = self.auto_model.from_pretrained(
-            self.hf_id, use_auth_token=self.hf_auth_token, config=self.auto_config
+            self.hf_id, token=self.hf_auth_token, config=self.auto_config
         )
         if self.auto_tokenizer is not None:
             self.tokenizer = self.auto_tokenizer.from_pretrained(
-                self.hf_id, use_auth_token=self.hf_auth_token
+                self.hf_id, token=self.hf_auth_token
             )
         else:
             self.tokenizer = None
