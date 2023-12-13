@@ -19,7 +19,7 @@ parser.add_argument(
     "--quantization",
     type=str,
     default="int4",
-    choices=["int4", "int8"],
+    choices=["unquantized", "int4", "int8"],
     help="Type of quantization to apply.",
 )
 parser.add_argument(
