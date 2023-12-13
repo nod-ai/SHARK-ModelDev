@@ -32,7 +32,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="meta-llama/Llama-2-7b-chat-hf",
+    default="mistralai/Mixtral-8x7B-Instruct-v0.1",
 )
 parser.add_argument("--quantization", type=str, default="unquantized")
 parser.add_argument("--external_weight_file", type=str, default="")

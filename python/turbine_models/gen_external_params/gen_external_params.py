@@ -12,14 +12,14 @@ parser = argparse.ArgumentParser(description="Quantize and save Hugging Face mod
 parser.add_argument(
     "--hf_model_name",
     type=str,
-    default="meta-llama/Llama-2-7b-chat-hf",
+    default="mistralai/Mixtral-8x7B-Instruct-v0.1",
     help="The Hugging Face model name ID.",
 )
 parser.add_argument(
     "--quantization",
     type=str,
     default="int4",
-    choices=["int4", "int8"],
+    choices=["unquantized","int4", "int8"],
     help="Type of quantization to apply.",
 )
 parser.add_argument(
@@ -95,7 +95,7 @@ def quantize(model, quantization, dtype):
 
 
 def gen_external_params(
-    hf_model_name: str = "meta-llama/Llama-2-7b-chat-hf",
+    hf_model_name: str = "mistralai/Mixtral-8x7B-Instruct-v0.1",
     quantization: Literal["unquantized", "int4", "int8"] = "int4",
     weight_path: str = "",
     hf_auth_token: str = None,
