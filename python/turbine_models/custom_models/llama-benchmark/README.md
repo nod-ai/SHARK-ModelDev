@@ -15,7 +15,7 @@ Note: Make sure to replace "your_token" with your actual hf_auth_token for all t
 
 Now, you can generate the quantized weight file with
 ```
-python python/turbine_models/gen_external_params/gen_external_params.py
+python python/turbine_models/gen_external_params/gen_external_params.py --hf_auth_token=your_token
 ```
 The model weights will then be saved in the current directory as `Llama_2_7b_chat_hf_f16_int4.safetensors`.
 
