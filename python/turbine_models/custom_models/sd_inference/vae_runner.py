@@ -87,7 +87,7 @@ def run_torch_vae(hf_model_name, hf_auth_token, example_input):
 if __name__ == "__main__":
     args = parser.parse_args()
     example_input = torch.rand(
-        batch_size, 4, height // 8, width // 8, dtype=torch.float32
+        args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
     )
     print("generating turbine output:")
     turbine_results = run_vae(

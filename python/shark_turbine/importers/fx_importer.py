@@ -684,7 +684,13 @@ class GraphNodeImporter:
 
             result_types = []
             for v in node.meta["val"]:
-                result_types.append(self._cc.tensor_metadata_to_type(v))
+                if v is None:
+                    v = torch.SymInt(0)
+                    t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(v))
+                    if t is not None:
+                        result_types.append(IrType.parse(t, self._c))
+                else:
+                    result_types.append(self._cc.tensor_metadata_to_type(v))
             result_types = tuple(result_types)
 
             self._multi_result_nodes.add(node)
@@ -716,6 +722,7 @@ class GraphNodeImporter:
                 "torch.operator",
                 results=result_types,
                 operands=operands,
+                attributes={"name": StringAttr.get(mlir_op_name)},
                 loc=loc,
             )
         else:
