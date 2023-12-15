@@ -2,7 +2,8 @@ import torch
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch._decomp import get_decompositions, register_decomposition
 from torch.func import functionalize
-from typing import Dict, List
+from torch import Tensor
+from typing import Dict, List, Tuple
 
 # default decompositions pulled from SHARK / torch._decomp
 DEFAULT_DECOMPOSITIONS = [
@@ -47,19 +48,21 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._log_softmax_backward_data,
     torch.ops.aten.lift_fresh_copy.default,
     torch.ops.aten._unsafe_index.Tensor,
+    # decompositions added manually in this file
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
-@register_decomposition(aten._scaled_dot_product_flash_attention.default)
+
+@register_decomposition(torch.ops.aten._scaled_dot_product_flash_attention.default)
 def scaled_dot_product_flash_attention(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query,
+    key,
+    value,
     dropout_p: float = 0.0,
     is_causal: bool = False,
     return_debug_mask: bool = False,
     *,
-    scale: Optional[float] = None,
+    scale: float = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor, int, int, Tensor, Tensor, Tensor]:
     dtype = query.dtype
     batchSize, num_head, qSize, headSize = (
@@ -99,6 +102,7 @@ def scaled_dot_product_flash_attention(
         debug_attn_mask,
     )
 
+
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
@@ -107,7 +111,6 @@ def apply_decompositions(
     if decompose_ops is None:
         return gm
 
-    
     decompositions = get_decompositions(decompose_ops)
     gm = make_fx(
         functionalize(gm),
