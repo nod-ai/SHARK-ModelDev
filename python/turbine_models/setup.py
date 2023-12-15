@@ -64,6 +64,6 @@ setup(
         "sentencepiece",
         "transformers",
         "accelerate",
-        "diffusers==0.10.2",
+        "diffusers==0.24.0",
     ],
 )
