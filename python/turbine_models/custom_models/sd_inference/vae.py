@@ -37,7 +37,7 @@ parser.add_argument(
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument("--external_weight_file", type=str, default="")
+parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
     "--external_weights",
     type=str,
@@ -79,14 +79,14 @@ def export_vae_model(
     hf_auth_token=None,
     compile_to="torch",
     external_weights=None,
-    external_weight_file=None,
+    external_weight_path=None,
     device=None,
     target_triple=None,
     max_alloc=None,
 ):
     mapper = {}
     utils.save_external_weights(
-        mapper, vae_model, external_weights, external_weight_file
+        mapper, vae_model, external_weights, external_weight_path
     )
 
     sample = (batch_size, 4, height // 8, width // 8)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         args.hf_auth_token,
         args.compile_to,
         args.external_weights,
-        args.external_weight_file,
+        args.external_weight_path,
         args.device,
         args.iree_target_triple,
         args.vulkan_max_allocation,

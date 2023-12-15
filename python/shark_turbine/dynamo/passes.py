@@ -86,7 +86,7 @@ def scaled_dot_product_flash_attention(
         device="cpu",
         requires_grad=query.requires_grad,
     )
-    output, _ = aten._scaled_dot_product_attention_math.default(
+    output, _ = torch.ops.aten._scaled_dot_product_attention_math.default(
         query, key, value, None, dropout_p, is_causal, None, scale=scale
     )
     output = output.transpose(1, 2).contiguous(memory_format=torch.contiguous_format)
