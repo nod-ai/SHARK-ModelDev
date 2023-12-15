@@ -1,6 +1,6 @@
 import torch
 from torch.fx.experimental.proxy_tensor import make_fx
-from torch._decomp import get_decompositions
+from torch._decomp import get_decompositions, register_decomposition
 from torch.func import functionalize
 from typing import Dict, List
 
@@ -47,8 +47,57 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._log_softmax_backward_data,
     torch.ops.aten.lift_fresh_copy.default,
     torch.ops.aten._unsafe_index.Tensor,
+    torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
+@register_decomposition(aten._scaled_dot_product_flash_attention.default)
+def scaled_dot_product_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    return_debug_mask: bool = False,
+    *,
+    scale: Optional[float] = None,
+) -> Tuple[Tensor, Tensor, Tensor, Tensor, int, int, Tensor, Tensor, Tensor]:
+    dtype = query.dtype
+    batchSize, num_head, qSize, headSize = (
+        query.shape[0],
+        query.shape[1],
+        query.shape[2],
+        query.shape[3],
+    )
+
+    logsumexp = torch.empty([batchSize, qSize, num_head, headSize], dtype=torch.float)
+    cum_seq_q, cum_seq_k = torch.empty([], dtype=torch.long), torch.empty(
+        [], dtype=torch.long
+    )
+    max_q, max_k = 0, 0
+    philox_seed, philox_offset = torch.empty([], dtype=torch.long), torch.empty(
+        [], dtype=torch.long
+    )
+    debug_attn_mask = torch.empty(
+        [],
+        dtype=query.dtype,
+        device="cpu",
+        requires_grad=query.requires_grad,
+    )
+    output, _ = aten._scaled_dot_product_attention_math.default(
+        query, key, value, None, dropout_p, is_causal, None, scale=scale
+    )
+    output = output.transpose(1, 2).contiguous(memory_format=torch.contiguous_format)
+    return (
+        output.transpose(1, 2),
+        logsumexp,
+        cum_seq_q,
+        cum_seq_k,
+        max_q,
+        max_k,
+        philox_seed,
+        philox_offset,
+        debug_attn_mask,
+    )
 
 def apply_decompositions(
     gm: torch.fx.GraphModule,
@@ -58,7 +107,8 @@ def apply_decompositions(
     if decompose_ops is None:
         return gm
 
-    decompositions = get_decompositions(decompose_ops)
+    
+    decompositions = get_all_decompositions(decompose_ops)
     gm = make_fx(
         functionalize(gm),
         decomposition_table=decompositions,
