@@ -108,7 +108,7 @@ def apply_decompositions(
         return gm
 
     
-    decompositions = get_all_decompositions(decompose_ops)
+    decompositions = get_decompositions(decompose_ops)
     gm = make_fx(
         functionalize(gm),
         decomposition_table=decompositions,
