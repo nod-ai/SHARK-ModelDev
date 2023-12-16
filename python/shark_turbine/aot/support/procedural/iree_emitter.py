@@ -14,9 +14,12 @@ import torch
 
 from ..ir_imports import (
     IndexType,
+    IntegerType,
+    IrType,
     RankedTensorType,
     StringAttr,
     Value,
+    arith_d,
     flow_d,
 )
 
@@ -103,6 +106,16 @@ def cast_tensor_dim_decl(
     return dim_decls, dynamic_dim_values
 
 
+def cast_scalar_to_element_type(scalar: Value, element_type: IrType) -> Value:
+    scalar_type = scalar.type
+    # Support cast from Index -> Integer.
+    if scalar_type == IndexType.get() and IntegerType.isinstance(element_type):
+        return arith_d.IndexCastUIOp(element_type, scalar).result
+    raise ValueError(
+        f"Provided splat value ({type(value)}) does not match dtype {dtype} (and cannot be cast)"
+    )
+
+
 def assert_value_is_index(x: Value):
     t = x.type
     if not IndexType.isinstance(t):
@@ -131,11 +144,24 @@ def emitter(f):
 
 class IREEEmitter:
     @emitter
-    def tensor_dim(self, source: BuildableTensorType, index: int) -> "IrScalar":
+    def tensor_dim(
+        self,
+        source: BuildableTensorType,
+        index: int,
+        *,
+        dtype: Optional[torch.dtype] = None,
+    ) -> "IrScalar":
         """Gets the dimension size of a tensor at a static position."""
         source = cast_tensor_value(source)
         index = cast_static_bounded_index(index, 0, source.rank - 1)
-        return IrImmediateScalar(source.get_dim_value(index))
+        dim_value = source.get_dim_value(index)
+        if dtype is not None:
+            try:
+                cast_type = TORCH_DTYPE_TO_IREE_TYPE[dtype]()
+            except KeyError:
+                raise ValueError(f"Could not map Torch dtype {dtype} to an IREE type")
+            dim_value = arith_d.IndexCastUIOp(cast_type, dim_value).result
+        return IrImmediateScalar(dim_value)
 
     @emitter
     def tensor_empty(
@@ -304,9 +330,7 @@ class IREEEmitter:
             raise ValueError(f"Could not map Torch dtype {dtype} to an IREE type")
         value = cast_scalar_value(value)
         if value.type != element_type:
-            raise ValueError(
-                f"Provided splat value ({type(value)}) does not match dtype {dtype}"
-            )
+            value = cast_scalar_to_element_type(value, element_type)
         tensor_type = RankedTensorType.get(dim_decls, element_type)
         raw_tensor = flow_d.TensorSplatOp(tensor_type, value, dyn_dim_values).result
         result = IrImmediateTensor(raw_tensor, dtype=dtype)

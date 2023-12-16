@@ -482,17 +482,19 @@ class CompiledModule(metaclass=CompiledModuleMeta):
             try:
                 context = Context.current
             except ValueError:
-                raise ValueError(
-                    "Neither an implicit context context handler not "
-                    "context= or module= arguments specified"
+                pass
+
+        if not context:
+            context = Context()
+
+        if not module_op:
+            with context:
+                loc = Location.unknown(context=context)
+                module = Module.create(loc)
+                module_op = module.operation
+                module_op.attributes["sym_name"] = StringAttr.get(
+                    class_info.ir_module_name, context=context
                 )
-        if context:
-            loc = Location.unknown(context=context)
-            module = Module.create(loc)
-            module_op = module.operation
-            module_op.attributes["sym_name"] = StringAttr.get(
-                class_info.ir_module_name, context=context
-            )
         module_builder = ModuleBuilder(module_op)
         info = CompiledModuleInstanceInfo(class_info, module_builder=module_builder)
         _all_compiled_module_instance_infos[self] = info

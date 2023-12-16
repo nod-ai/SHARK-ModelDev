@@ -18,6 +18,10 @@ from ...importers.fx_importer import (
     TORCH_DTYPE_TO_MLIR_TYPE_ASM,
 )
 
+from ...importers.utils import (
+    RefTracker as FxRefTracker,
+)
+
 from ...dynamo.type_conversion import (
     NativeTypeConverter,
 )
@@ -169,6 +173,7 @@ class ModuleBuilder:
         "body",
         "cache",
         "context",
+        "fx_py_attr_tracker",
         "global_ip",
         "ip",
         "module_op",
@@ -187,6 +192,10 @@ class ModuleBuilder:
         self.cache = ContextCache(self.context)
         # Tracks global references to a MaterializedGlobal.
         self.global_ref_tracker = RefTracker()
+        # Usually the FxImporter makes a new ref tracker for each invocation,
+        # but we want to preserve it across individual JIT evaluations so
+        # as to better intern tensors to attributes.
+        self.fx_py_attr_tracker = FxRefTracker()
         self.native_type_converter = NativeTypeConverter(self.context)
 
     def handle_mlir_error(self, op: Operation, e: MLIRError, message: str):
