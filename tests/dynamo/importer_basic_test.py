@@ -83,7 +83,6 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo(torch.randn(10), torch.randn(10))
 
-    @unittest.expectedFailure
     def testImportOptionalListArgs(self):
         """
         Upsample triggers aten.index.Tensor with an 'indices' argument of the form List[Optional[Tensor]], this case tests
