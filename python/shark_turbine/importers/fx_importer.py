@@ -726,7 +726,6 @@ class GraphNodeImporter:
                 attributes={"name": StringAttr.get(mlir_op_name)},
                 results=result_types,
                 operands=operands,
-                attributes={"name": StringAttr.get(mlir_op_name)},
                 loc=loc,
             )
         else:
