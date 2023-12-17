@@ -151,7 +151,6 @@ class ImportTests(unittest.TestCase):
         opt_foo = torch.compile(foo, backend=create_backend())
         opt_foo()
 
-    @unittest.expectedFailure
     def testLiftFreshCopyComplex(self):
         def foo():
             x = torch.tensor([[1, 2], [3, 4]], dtype=torch.complex64)
