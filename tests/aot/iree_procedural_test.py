@@ -29,6 +29,19 @@ class CompiledModuleAPI(unittest.TestCase):
         self.assertIn("%dim = tensor.dim %arg0, %c0", module_str)
         self.assertIn("return %dim", module_str)
 
+    def testTensorDimAsDtype(self):
+        class BasicModule(CompiledModule):
+            def foobar(self, a=AbstractTensor(None, 3)):
+                return IREE.tensor_dim(a, 0, dtype=torch.int32)
+
+        inst = BasicModule(context=Context(), import_to=None)
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("%c0 = arith.constant 0", module_str)
+        self.assertIn("%dim = tensor.dim %arg0, %c0", module_str)
+        self.assertIn("%0 = arith.index_castui %dim : index to i32", module_str)
+        self.assertIn("return %0", module_str)
+
     def testTensorEmpty(self):
         class BasicModule(CompiledModule):
             def foobar(self, x=AbstractIndex):
@@ -60,6 +73,19 @@ class CompiledModuleAPI(unittest.TestCase):
         # NOTE: We are testing below that the dynamic dimension is associated
         # and used from the input vs being recalculated.
         self.assertIn("return %0, %arg0 : tensor<?x34xf32>, index", module_str)
+
+    def testTensorSplatCasting(self):
+        class BasicModule(CompiledModule):
+            def foobar(self, x=AbstractIndex, y=AbstractIndex):
+                empty = IREE.tensor_splat(x, 34, value=y, dtype=torch.int32)
+                dim0 = IREE.tensor_dim(empty, 0)
+                return empty, dim0
+
+        inst = BasicModule(context=Context(), import_to=None)
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("%0 = arith.index_castui %arg1 : index to i32", module_str)
+        self.assertIn("%1 = flow.tensor.splat %0 : tensor<?x34xi32>{%arg0}", module_str)
 
     def testTensorTrace(self):
         class BasicModule(CompiledModule):

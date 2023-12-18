@@ -8,6 +8,7 @@ import operator
 import re
 from types import NoneType, BuiltinMethodType, BuiltinFunctionType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+
 import numpy as np
 
 import torch
@@ -63,6 +64,7 @@ from .ir import (
 )
 
 from .utils import (
+    RefTracker,
     TypeSubclassMap,
 )
 
@@ -131,8 +133,8 @@ TORCH_DTYPE_TO_NPY_TYPE = {
     torch.float64: np.float64,
     torch.bool: np.bool_,
     # torch.complex32: None, # no equivalent precision for numpy
-    # torch.complex64: np.complex64, # complex dtypes can't be parsed by DenseElementsAttr in the numpy buffer format
-    # torch.complex128: np.complex128,
+    torch.complex64: np.complex64,
+    torch.complex128: np.complex128,
 }
 
 # https://github.com/llvm/torch-mlir/blob/4c24472dea1c9102b898768b0b11e31487e50207/python/torch_mlir/_dynamo_fx_importer.py#L189
@@ -220,6 +222,7 @@ class FxImporter:
         "_literal_resolver_callback",
         "_m",
         "_m_ip",
+        "_py_attr_tracker",
         "symbol_table",
     ]
 
@@ -230,6 +233,7 @@ class FxImporter:
         context: Optional[Context] = None,
         config_check: bool = True,
         literal_resolver_callback: Optional[LiteralResolverCallback] = None,
+        py_attr_tracker: Optional[RefTracker] = None,
     ):
         if module is not None:
             assert context is None, "If configuring with a Module, context must be None"
@@ -241,7 +245,8 @@ class FxImporter:
         if config_check:
             # Production code can disable this for a bit of a boost.
             self._config_check()
-        self._cc = ContextCache(self._c)
+        self._py_attr_tracker = py_attr_tracker or RefTracker()
+        self._cc = ContextCache(self._c, py_attr_tracker=self._py_attr_tracker)
         self._m_ip = InsertionPoint(self._m.body)
         self._literal_resolver_callback = literal_resolver_callback
         self.symbol_table = SymbolTable(self._m.operation)
@@ -329,6 +334,7 @@ class ContextCache:
         "_c",
         "_dtype_to_type",
         "_tensor_metadata_cache",
+        "_py_attr_tracker",
         # Types.
         "torch_bool_type",
         "torch_float_type",
@@ -338,10 +344,13 @@ class ContextCache:
         "torch_device_type",
     ]
 
-    def __init__(self, context: Context):
+    def __init__(
+        self, context: Context, *, py_attr_tracker: Optional[RefTracker] = None
+    ):
         self._c = context
         self._dtype_to_type: Dict[TorchDtype, IrType] = {}
         self._tensor_metadata_cache: Dict[Tuple[torch.Size, torch.dtype], IrType] = {}
+        self._py_attr_tracker = py_attr_tracker or RefTracker()
 
         # Common types.
         with context:
@@ -714,9 +723,9 @@ class GraphNodeImporter:
         if not self._c.is_registered_operation(mlir_op_name):
             operation = Operation.create(
                 "torch.operator",
+                attributes={"name": StringAttr.get(mlir_op_name)},
                 results=result_types,
                 operands=operands,
-                attributes={"name": StringAttr.get(mlir_op_name)},
                 loc=loc,
             )
         else:
@@ -899,23 +908,35 @@ def create_mlir_tensor_type(tensor: torch.Tensor) -> IrType:
         raise TypeError(f"Could not map Torch dtype {dtype} to an IREE type")
 
 
-def _make_vtensor_literal_op(tensor: torch.Tensor, vtensor_type: IrType) -> Operation:
-    npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
-    assert (
-        npy_dtype is not None
-    ), f"Can not create literal tensor for unsupported datatype: {tensor.dtype}"
-    # We need a raw buffer of data in order to create an ElementsAttr for the invocation of torch.vtensor.literal,
-    # but torch.Tensor does not fulfill the python buffer/array interface hence we must convert to a numpy array to get
-    # a raw buffer of our data. We can't call torch.Tensor.numpy() directly because this internally forces a call to
-    # detach() which throws an error as we are operating in a FakeTensorMode, hence the simplest way to get this raw
-    # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
-    # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
-    np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
-    bytes = memoryview(np_tensor)
-    tensor_type = create_mlir_tensor_type(tensor)
-    elements_attr = DenseResourceElementsAttr.get_from_buffer(
-        bytes, "from_py", tensor_type
-    )
+def _make_vtensor_literal_op(
+    tensor: torch.Tensor, vtensor_type: IrType, py_attr_tracker: RefTracker
+) -> Operation:
+    mapping = py_attr_tracker.track(tensor)
+    if mapping.is_empty:
+        # Resolve the attribute.
+        npy_dtype = TORCH_DTYPE_TO_NPY_TYPE.get(tensor.dtype)
+        assert (
+            npy_dtype is not None
+        ), f"Can not create literal tensor for unsupported datatype: {tensor.dtype}"
+        # We need a raw buffer of data in order to create an ElementsAttr for the invocation of torch.vtensor.literal,
+        # but torch.Tensor does not fulfill the python buffer/array interface hence we must convert to a numpy array to get
+        # a raw buffer of our data. We can't call torch.Tensor.numpy() directly because this internally forces a call to
+        # detach() which throws an error as we are operating in a FakeTensorMode, hence the simplest way to get this raw
+        # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
+        # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
+        np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
+        bytes_view = memoryview(np_tensor)
+        tensor_type = create_mlir_tensor_type(tensor)
+        shape_desc = "_".join([str(d) for d in tensor.shape])
+        blob_name = f"torch_tensor_{shape_desc}_{str(tensor.dtype)}"
+        elements_attr = DenseResourceElementsAttr.get_from_buffer(
+            bytes_view,
+            blob_name,
+            tensor_type,
+        )
+        mapping.value = elements_attr
+    else:
+        elements_attr = mapping.value
     return Operation.create(
         name="torch.vtensor.literal",
         results=[vtensor_type],
@@ -957,7 +978,7 @@ LITERAL_CONVERTER_MAP.map(
 LITERAL_CONVERTER_MAP.map(
     torch.Tensor,
     lambda arg, gni, cc: _make_vtensor_literal_op(
-        arg, cc.tensor_to_vtensor_type(arg)
+        arg, cc.tensor_to_vtensor_type(arg), cc._py_attr_tracker
     ).result,
 )
 LITERAL_CONVERTER_MAP.map(
