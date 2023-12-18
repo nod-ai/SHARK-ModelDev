@@ -125,6 +125,37 @@ class JittableTests(unittest.TestCase):
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
 
+    def testImplicitTensorsImportedAndDeduped(self):
+        implicit = torch.tensor([1, 2, 3], dtype=torch.int32)
+
+        class ProcArgsModule(CompiledModule):
+            def implicit(
+                self,
+                a=AbstractTensor(3, dtype=torch.int32),
+            ):
+                return self.compute(a), self.compute(a)
+
+            @jittable
+            def compute(a):
+                return a * implicit
+
+        inst = ProcArgsModule(context=Context(), import_to=None)
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        # This is testing machinery which ensures that not only are
+        # implicit captured tensors emitted as resources, but that
+        # multiple subsequent references to the same tensor is
+        # only captured once.
+        resource_string = (
+            r'''toch_tensor_3_torch.int32: "0x04000000010000000200000003000000"'''
+        )
+        self.assertIn(resource_string, module_str)
+        self.assertEqual(
+            1,
+            module_str.count(resource_string),
+            f"Expected to find exactly one of '{resource_string}' in '{module_str}'",
+        )
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
