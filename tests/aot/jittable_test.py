@@ -147,7 +147,7 @@ class JittableTests(unittest.TestCase):
         # multiple subsequent references to the same tensor is
         # only captured once.
         resource_string = (
-            r'''toch_tensor_3_torch.int32: "0x04000000010000000200000003000000"'''
+            r'''torch_tensor_3_torch.int32: "0x04000000010000000200000003000000"'''
         )
         self.assertIn(resource_string, module_str)
         self.assertEqual(

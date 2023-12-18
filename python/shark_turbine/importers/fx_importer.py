@@ -928,7 +928,7 @@ def _make_vtensor_literal_op(
         bytes_view = memoryview(np_tensor)
         tensor_type = create_mlir_tensor_type(tensor)
         shape_desc = "_".join([str(d) for d in tensor.shape])
-        blob_name = f"toch_tensor_{shape_desc}_{str(tensor.dtype)}"
+        blob_name = f"torch_tensor_{shape_desc}_{str(tensor.dtype)}"
         elements_attr = DenseResourceElementsAttr.get_from_buffer(
             bytes_view,
             blob_name,
