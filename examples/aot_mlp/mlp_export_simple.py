@@ -35,14 +35,14 @@ model = MLP()
 example_x = torch.empty(97, 8, dtype=torch.float32)
 exported = aot.export(model, example_x)
 exported.print_readable()
-compiled_binary = exported.compile(save_to=None)
+compiled_binary = exported.compile(save_to=None, target_backends=("rocm"))
 
 
 def infer():
     import numpy as np
     import iree.runtime as rt
 
-    config = rt.Config("local-task")
+    config = rt.Config("rocm")
     vmm = rt.load_vm_module(
         rt.VmModule.wrap_buffer(config.vm_instance, compiled_binary.map_memory()),
         config,

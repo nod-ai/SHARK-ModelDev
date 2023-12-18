@@ -97,6 +97,7 @@ setup(
     entry_points={
         "torch_dynamo_backends": [
             "turbine_cpu = shark_turbine.dynamo.backends.cpu:backend",
+            "turbine_rocm = shark_turbine.dynamo.backends.rocm:backend",
         ],
     },
     install_requires=[

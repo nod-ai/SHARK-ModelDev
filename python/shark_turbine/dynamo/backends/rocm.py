@@ -16,6 +16,7 @@ from ..executor import (
 )
 
 from iree.compiler.api import (
+    _initializeGlobalCL,
     Invocation,
     Session,
     Source,
@@ -33,11 +34,13 @@ from iree.runtime import (
     VmModule,
 )
 
-from ...importers.fx_importer import FxImporter
+from ..importer import FxImporter
 
 import torch
 from torch._dynamo.backends.common import aot_autograd
 from ..passes import turbine_cpu_pass_pipeline
+
+_initializeGlobalCL("dynamo", "--iree-rocm-target-chip=gfx1100", "--iree-rocm-link-bc")    
 
 DEFAULT_COMPILER_FLAGS = (
     # Enable asynchronous calling convention.
@@ -57,7 +60,7 @@ def _base_backend(gm: torch.fx.GraphModule, example_inputs):
     #  4. Output to an mmap buffer.
     session = Session()
     session.set_flags(*DEFAULT_COMPILER_FLAGS)
-    session.set_flags("--iree-hal-target-backends=llvm-cpu")
+    session.set_flags("--iree-hal-target-backends=rocm")
     context = session.context
     importer = FxImporter(context=context)
     module = importer.module
@@ -102,4 +105,4 @@ backend = aot_autograd(fw_compiler=_base_backend)
 # so it is easy.
 @functools.lru_cache(maxsize=None)
 def _get_device_state() -> DeviceState:
-    return DeviceState(driver="local-task")
+    return DeviceState(driver="rocm")
