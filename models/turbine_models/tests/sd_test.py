@@ -28,12 +28,16 @@ from turbine_models.turbine_tank import turbine_tank
 
 default_arguments = {
     "hf_auth_token": None,
-    "hf_model_name": "CompVis/stable-diffusion-v1-4",
+    "hf_model_name": "stabilityai/stable-diffusion-2-1",
+    "safe_model_name": "stable_diffusion_2_1",
     "scheduler_id": "PNDM",
     "num_inference_steps": 5,
     "batch_size": 1,
     "height": 512,
     "width": 512,
+    "precision": "fp16",
+    "max_length": 77,
+    "guidance_scale": 7.5,
     "run_vmfb": True,
     "compile_to": None,
     "external_weight_path": "",
@@ -50,14 +54,13 @@ UPLOAD_IR = os.environ.get("TURBINE_TANK_ACTION", "not_upload") == "upload"
 
 unet_model = unet.UnetModel(
     # This is a public model, so no auth required
-    "CompVis/stable-diffusion-v1-4",
-    None,
+    arguments["hf_model_name"],
 )
 
 vae_model = vae.VaeModel(
     # This is a public model, so no auth required
-    "CompVis/stable-diffusion-v1-4",
-    None,
+    arguments["hf_model_name"],
+    custom_vae=None,
 )
 
 schedulers_dict = utils.get_schedulers(
@@ -213,8 +216,9 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["width"] // 8,
             dtype=torch.float32,
         )
-        timestep = torch.zeros(1, dtype=torch.float32)
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
+        timestep = torch.zeros(1, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
             current_args["device"],
@@ -232,6 +236,7 @@ class StableDiffusionTest(unittest.TestCase):
             sample,
             timestep,
             encoder_hidden_states,
+            guidance_scale,
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
