@@ -16,6 +16,7 @@ def save_external_weights(
             for name in mod_params:
                 mapper["params." + name] = name
             if external_weight_file:
+                print("Saving params to", external_weight_file)
                 safetensors.torch.save_file(mod_params, external_weight_file)
                 print("Saved params to", external_weight_file)
 

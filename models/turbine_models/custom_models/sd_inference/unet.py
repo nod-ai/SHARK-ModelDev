@@ -36,6 +36,12 @@ parser.add_argument(
     "--height", type=int, default=512, help="Height of Stable Diffusion"
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
+parser.add_argument(
+    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
+)
+parser.add_argument(
+    "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
+)
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
@@ -56,22 +62,20 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
 class UnetModel(torch.nn.Module):
-    def __init__(self, hf_model_name, hf_auth_token):
+    def __init__(self, hf_model_name):
         super().__init__()
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
             subfolder="unet",
-            token=hf_auth_token,
         )
-        self.guidance_scale = 7.5
 
-    def forward(self, sample, timestep, encoder_hidden_states):
+    def forward(self, sample, timestep, encoder_hidden_states, guidance_scale):
         samples = torch.cat([sample] * 2)
         unet_out = self.unet.forward(
             samples, timestep, encoder_hidden_states, return_dict=False
         )[0]
         noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
-        noise_pred = noise_pred_uncond + self.guidance_scale * (
+        noise_pred = noise_pred_uncond + guidance_scale * (
             noise_pred_text - noise_pred_uncond
         )
         return noise_pred
@@ -83,6 +87,8 @@ def export_unet_model(
     batch_size,
     height,
     width,
+    precision="fp32",
+    max_length=77,
     hf_auth_token=None,
     compile_to="torch",
     external_weights=None,
@@ -92,13 +98,16 @@ def export_unet_model(
     max_alloc=None,
 ):
     mapper = {}
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    unet_model = unet_model.to(dtype)
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
-
-    encoder_hidden_states_sizes = (2, 77, 768)
-    if hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-        encoder_hidden_states_sizes = (2, 77, 1024)
+    encoder_hidden_states_sizes = (
+        unet_model.unet.config.layers_per_block,
+        max_length,
+        unet_model.unet.config.cross_attention_dim,
+    )
 
     sample = (batch_size, unet_model.unet.config.in_channels, height // 8, width // 8)
 
@@ -112,13 +121,16 @@ def export_unet_model(
 
         def main(
             self,
-            sample=AbstractTensor(*sample, dtype=torch.float32),
-            timestep=AbstractTensor(1, dtype=torch.float32),
+            sample=AbstractTensor(*sample, dtype=dtype),
+            timestep=AbstractTensor(1, dtype=dtype),
             encoder_hidden_states=AbstractTensor(
-                *encoder_hidden_states_sizes, dtype=torch.float32
+                *encoder_hidden_states_sizes, dtype=dtype
             ),
+            guidance_scale=AbstractTensor(1, dtype=dtype),
         ):
-            return jittable(unet_model.forward)(sample, timestep, encoder_hidden_states)
+            return jittable(unet_model.forward)(
+                sample, timestep, encoder_hidden_states, guidance_scale
+            )
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
@@ -143,6 +155,8 @@ if __name__ == "__main__":
         args.batch_size,
         args.height,
         args.width,
+        args.precision,
+        args.max_length,
         args.hf_auth_token,
         args.compile_to,
         args.external_weights,
