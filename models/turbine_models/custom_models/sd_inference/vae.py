@@ -15,15 +15,10 @@ from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from diffusers import AutoencoderKL
-
-import safetensors
 import argparse
 from turbine_models.turbine_tank import turbine_tank
 
 parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-)
 parser.add_argument(
     "--hf_model_name",
     type=str,
@@ -37,6 +32,9 @@ parser.add_argument(
     "--height", type=int, default=512, help="Height of Stable Diffusion"
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
+parser.add_argument(
+    "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
+)
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
@@ -58,23 +56,49 @@ parser.add_argument("--variant", type=str, default="decode")
 
 
 class VaeModel(torch.nn.Module):
-    def __init__(self, hf_model_name, hf_auth_token):
+    def __init__(
+        self,
+        hf_model_name,
+        custom_vae="",
+    ):
         super().__init__()
-        self.vae = AutoencoderKL.from_pretrained(
-            hf_model_name,
-            subfolder="vae",
-            token=hf_auth_token,
-        )
+        self.vae = None
+        self.base_vae = False
+        if custom_vae in ["", None]:
+            self.vae = AutoencoderKL.from_pretrained(
+                hf_model_name,
+                subfolder="vae",
+            )
+        elif not isinstance(custom_vae, dict):
+            try:
+                # custom HF repo with no vae subfolder
+                self.vae = AutoencoderKL.from_pretrained(
+                    custom_vae,
+                )
+            except:
+                # some larger repo with vae subfolder
+                self.vae = AutoencoderKL.from_pretrained(
+                    custom_vae,
+                    subfolder="vae",
+                )
+        else:
+            # custom vae as a HF state dict
+            self.vae = AutoencoderKL.from_pretrained(
+                hf_model_name,
+                subfolder="vae",
+            )
+            self.vae.load_state_dict(custom_vae)
 
     def decode_inp(self, inp):
-        with torch.no_grad():
-            x = self.vae.decode(inp, return_dict=False)[0]
-            return x
+        if not self.base_vae:
+            inp = 1 / 0.18215 * inp
+        x = self.vae.decode(inp, return_dict=False)[0]
+        x = (x / 2 + 0.5).clamp(0, 1)
+        return x
 
     def encode_inp(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
         return 0.18215 * latents
-
 
 def export_vae_model(
     vae_model,
@@ -82,7 +106,7 @@ def export_vae_model(
     batch_size,
     height,
     width,
-    hf_auth_token=None,
+    precision,
     compile_to="torch",
     external_weights=None,
     external_weight_path=None,
@@ -93,6 +117,8 @@ def export_vae_model(
     upload_ir=False,
 ):
     mapper = {}
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    vae_model = vae_model.to(dtype)
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
     )
@@ -104,7 +130,7 @@ def export_vae_model(
     class CompiledVae(CompiledModule):
         params = export_parameters(vae_model)
 
-        def main(self, inp=AbstractTensor(*sample, dtype=torch.float32)):
+        def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
             if variant == "decode":
                 return jittable(vae_model.decode_inp)(inp)
             elif variant == "encode":
@@ -134,7 +160,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     vae_model = VaeModel(
         args.hf_model_name,
-        args.hf_auth_token,
     )
     mod_str = export_vae_model(
         vae_model,
@@ -142,7 +167,7 @@ if __name__ == "__main__":
         args.batch_size,
         args.height,
         args.width,
-        args.hf_auth_token,
+        args.precision,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,
