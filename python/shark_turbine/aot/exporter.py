@@ -19,15 +19,16 @@ from iree.compiler.api import (
     Output,
 )
 
+from ..support.ir_imports import (
+    Context,
+    Operation,
+)
+
 from .builtins import *
 from .compiled_module import (
     CompiledModule,
     CompiledModuleMeta,
     ExportProcDef,
-)
-from .support.ir_imports import (
-    Context,
-    Operation,
 )
 from .support.procedural import (
     AbstractTypedef,

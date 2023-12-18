@@ -14,7 +14,7 @@ from typing import (
     Sequence,
 )
 
-from ..ir_imports import (
+from ....support.ir_imports import (
     Location,
     StringAttr,
     Value,

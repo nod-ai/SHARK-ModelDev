@@ -12,7 +12,7 @@ import functools
 
 import torch
 
-from ..ir_imports import (
+from ....support.ir_imports import (
     IndexType,
     IntegerType,
     IrType,
@@ -23,8 +23,11 @@ from ..ir_imports import (
     flow_d,
 )
 
-from ..ir_utils import (
+from ....support.conversions import (
     TORCH_DTYPE_TO_IREE_TYPE,
+)
+
+from ..ir_utils import (
     build_index_value,
 )
 

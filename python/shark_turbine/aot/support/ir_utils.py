@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Generator, List, Optional, Sequence, Tuple
 
 from pathlib import Path
 import tempfile
@@ -15,7 +15,6 @@ import torch
 
 from ...importers.fx_importer import (
     ContextCache,
-    TORCH_DTYPE_TO_MLIR_TYPE_ASM,
 )
 
 from ...importers.utils import (
@@ -26,12 +25,9 @@ from ...dynamo.type_conversion import (
     NativeTypeConverter,
 )
 
-from .ir_imports import (
+from ...support.ir_imports import (
     Attribute,
-    Block,
-    BlockArgument,
     BF16Type,
-    ComplexType,
     DenseElementsAttr,
     DenseResourceElementsAttr,
     F16Type,
@@ -46,7 +42,6 @@ from .ir_imports import (
     IrType,
     Location,
     MLIRError,
-    OpResult,
     Operation,
     RankedTensorType,
     StringAttr,
@@ -59,61 +54,21 @@ from .ir_imports import (
     tensor_d,
 )
 
+from ...support.conversions import (
+    TORCH_DTYPE_TO_IREE_TYPE,
+)
+
 from .utils import (
     RefTracker,
     logger,
 )
 
 ###############################################################################
-# Lookup tables
-###############################################################################
-
-# We need the inverse of the TORCH_DTYPE_TO_MLIR_TYPE_ASM table.
-MLIR_TYPE_ASM_TO_TORCH_DTYPE = {v: k for k, v in TORCH_DTYPE_TO_MLIR_TYPE_ASM.items()}
-
-# When emitting constants, we have to create native IREE types.
-TORCH_DTYPE_TO_IREE_TYPE: Dict[torch.dtype, Callable[[], IrType]] = {
-    torch.float16: lambda: F16Type.get(),
-    torch.bfloat16: lambda: BF16Type.get(),
-    torch.float32: lambda: F32Type.get(),
-    torch.float64: lambda: F64Type.get(),
-    torch.uint8: lambda: IntegerType.get_signless(8),
-    torch.int8: lambda: IntegerType.get_signless(8),
-    torch.int16: lambda: IntegerType.get_signless(16),
-    torch.int32: lambda: IntegerType.get_signless(32),
-    torch.int64: lambda: IntegerType.get_signless(64),
-    torch.bool: lambda: IntegerType.get_signless(1),
-    torch.qint8: lambda: IntegerType.get_signless(8),
-    torch.quint8: lambda: IntegerType.get_signless(8),
-    torch.complex32: lambda: ComplexType.get(F16Type.get()),
-    torch.complex64: lambda: ComplexType.get(F32Type.get()),
-    torch.complex128: lambda: ComplexType.get(F64Type.get()),
-}
-
-TORCH_DTYPE_TO_IREE_TYPE_ASM = {
-    torch.float16: "f16",
-    torch.bfloat16: "bf16",
-    torch.float32: "f32",
-    torch.float64: "f64",
-    torch.uint8: "i8",
-    torch.int8: "i8",
-    torch.int16: "i16",
-    torch.int32: "i32",
-    torch.int64: "i64",
-    torch.bool: "i1",
-    torch.qint8: "i8",
-    torch.quint8: "i8",
-    torch.complex32: "complex<f16>",
-    torch.complex64: "complex<f32>",
-    torch.complex128: "complex<f64>",
-}
-
-###############################################################################
 # Configuration
 ###############################################################################
 
 # Maps a name to an altered name. If returns None, then the original
-# name is used (this lets Dict.get serve as a NameMapCallback).
+# name is used (this lets dict.get serve as a NameMapCallback).
 NameMapCallback = Callable[[str], Optional[str]]
 
 
@@ -420,7 +375,7 @@ def build_index_attribute(value: int) -> IntegerAttr:
 
 
 def build_index_value(
-    value: int, constant_cache: Optional[Dict[int, Value]] = None
+    value: int, constant_cache: Optional[dict[int, Value]] = None
 ) -> Value:
     if constant_cache is not None and value in constant_cache:
         return constant_cache[value]
@@ -431,7 +386,7 @@ def build_index_value(
 
 
 def build_tensor_dim_value(
-    t: Value, dim: int, constant_cache: Optional[Dict[int, Value]] = None
+    t: Value, dim: int, constant_cache: Optional[dict[int, Value]] = None
 ) -> Value:
     dim_value = build_index_value(dim, constant_cache=constant_cache)
     return tensor_d.DimOp(t, dim_value).result

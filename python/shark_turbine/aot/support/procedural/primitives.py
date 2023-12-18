@@ -24,7 +24,7 @@ from torch.export import (
     dynamic_dim,
 )
 
-from ..ir_imports import (
+from ....support.ir_imports import (
     F32Type,
     IrType,
     RankedTensorType,

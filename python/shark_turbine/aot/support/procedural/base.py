@@ -17,7 +17,7 @@ from contextlib import contextmanager
 
 import torch
 
-from ..ir_imports import (
+from ....support.ir_imports import (
     F32Type,
     F64Type,
     IndexType,

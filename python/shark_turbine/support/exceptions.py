@@ -23,6 +23,18 @@ class NoCurrentDeviceError(Exception):
         )
 
 
+class UnsupportedTorchDeviceError(Exception):
+    def __init__(self, torch_device):
+        super().__init__(
+            f"Attempt to use turbine with a torch.device that is not supported by this build: {torch_device}"
+        )
+
+
+class UnsupportedTypeError(Exception):
+    def __init__(self, t: type, usage: str):
+        super().__init__(f"Python type {t} is not supported for {usage}")
+
+
 class ApiSequencingError(Exception):
     ...
 

@@ -46,7 +46,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/
+          pytest -n 4 tests/
 
   black:
     strategy:
