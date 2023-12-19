@@ -7,7 +7,7 @@
 import functools
 import sys
 
-from ..device import (
+from ...runtime.device import (
     DeviceState,
 )
 

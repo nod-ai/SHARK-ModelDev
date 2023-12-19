@@ -12,7 +12,8 @@ import numpy as np
 import torch
 
 # Public API imports.
-from shark_turbine.dynamo import Device, TurbineMode, DeviceTensor
+from shark_turbine.runtime import Device
+from shark_turbine.dynamo import TurbineMode, DeviceTensor
 
 
 class TensorTest(unittest.TestCase):

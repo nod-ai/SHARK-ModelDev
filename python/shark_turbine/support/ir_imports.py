@@ -48,6 +48,7 @@ from iree.compiler.passmanager import (
 )
 
 from iree.compiler.dialects import (
+    builtin as builtin_d,
     flow as flow_d,
     func as func_d,
     util as util_d,

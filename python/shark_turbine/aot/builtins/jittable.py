@@ -31,6 +31,18 @@ from ...importers.fx_importer import (
     FxImporter,
 )
 
+from ...support.ir_imports import (
+    FlatSymbolRefAttr,
+    FunctionType,
+    Operation,
+    StringAttr,
+    SymbolTable,
+    TypeAttr,
+    Value,
+    func_d,
+    util_d,
+)
+
 from ..passes import (
     functorch_functionalize,
 )
@@ -51,18 +63,6 @@ from ..support.procedural import (
     IrTensor,
     IrTrace,
     MaterializedGlobal,
-)
-
-from ..support.ir_imports import (
-    FlatSymbolRefAttr,
-    FunctionType,
-    Operation,
-    StringAttr,
-    SymbolTable,
-    TypeAttr,
-    Value,
-    func_d,
-    util_d,
 )
 
 StringAttrOrStr = Union[StringAttr, str]

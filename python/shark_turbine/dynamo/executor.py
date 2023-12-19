@@ -30,7 +30,7 @@ from torch import (
     from_numpy as torch_from_numpy,
 )
 
-from .device import Device, DeviceState
+from ..runtime.device import Device, DeviceState
 
 
 @functools.lru_cache(maxsize=None)

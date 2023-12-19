@@ -8,14 +8,19 @@ import logging
 import unittest
 import threading
 
+import torch
+
+from iree.runtime import HalElementType
+
 # Public API imports.
-from shark_turbine.dynamo import (
+from shark_turbine.runtime import (
     Device,
 )
 
 # Internals.
-from shark_turbine.dynamo.device import (
+from shark_turbine.runtime.device import (
     _CURRENT_THREAD,
+    get_device_from_torch,
 )
 
 from shark_turbine.support.exceptions import *
@@ -84,6 +89,37 @@ class DeviceTest(unittest.TestCase):
         self.assertIsNotNone(devices[0])
         self.assertIsNotNone(devices[1])
         self.assertIsNot(devices[0], devices[1])
+
+
+# CPU is always available so we can enable this unconditionally.
+class TorchCPUInterop(unittest.TestCase):
+    def testFromTorchDevice(self):
+        torch_device = torch.device("cpu")
+        device1 = get_device_from_torch(torch_device)
+        print(device1)
+        self.assertIsNotNone(device1)
+        device2 = get_device_from_torch(torch_device)
+        self.assertIs(device1, device2)
+
+    def testCpuDeviceCacheKey(self):
+        d = get_device_from_torch(torch.device("cpu"))
+        self.assertEqual(d.instance_cache_key, "local-task")
+        self.assertEqual(d.type_cache_key, "local-task")
+
+    def testImportExportTorchTensor(self):
+        d = get_device_from_torch(torch.device("cpu"))
+        cpu_tensor = torch.tensor([1, 2, 3], dtype=torch.int32, device="cpu")
+        bv = d.import_torch_tensor(cpu_tensor)
+        print(bv)
+        self.assertEqual(bv.shape, [3])
+        self.assertEqual(bv.element_type, HalElementType.SINT_32)
+        meta_tensor = cpu_tensor.to(device="meta")
+        readback_tensor = d.export_torch_tensor(bv, meta_tensor)
+        torch.testing.assert_close(cpu_tensor, readback_tensor)
+
+    def testCompilerFlags(self):
+        d = get_device_from_torch(torch.device("cpu"))
+        self.assertIn("--iree-hal-target-backends=llvm-cpu", d.compile_target_flags)
 
 
 if __name__ == "__main__":

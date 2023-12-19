@@ -17,13 +17,7 @@ import sys
 
 from . import builtins
 
-from .support.procedural import (
-    GlobalsDef,
-    ProcedureTrace,
-    current_ir_trace,
-)
-
-from .support.ir_imports import (
+from ..support.ir_imports import (
     Context,
     Location,
     MLIRError,
@@ -31,6 +25,12 @@ from .support.ir_imports import (
     Operation,
     PassManager,
     StringAttr,
+)
+
+from .support.procedural import (
+    GlobalsDef,
+    ProcedureTrace,
+    current_ir_trace,
 )
 
 from .support.ir_utils import (

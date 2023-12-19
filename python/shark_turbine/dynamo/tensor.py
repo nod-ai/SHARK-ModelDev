@@ -10,11 +10,10 @@ This implementation is adapted from a variety of sources, most notably the subcl
 zoo: https://github.com/albanD/subclass_zoo/blob/main/new_device.py
 """
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence
 
 import functools
 import atexit
-from array import array
 import numpy as np
 from types import BuiltinFunctionType
 
@@ -22,10 +21,17 @@ import torch
 import torch._dynamo as dynamo
 from torch.overrides import TorchFunctionMode
 
-from .device import (
+from ..runtime.device import (
     Device,
     DeviceState,
 )
+
+from ..support.conversions import (
+    DTYPE_TO_ELEMENT_TYPE,
+    dtype_to_element_type,
+    torch_dtype_to_numpy,
+)
+
 from .executor import EagerSpecializedExecutable
 
 from ..support import (
@@ -267,7 +273,7 @@ class DeviceTensor(torch.Tensor):
             self._bv = HalBufferView(
                 self._storage.buffer,
                 shape=self.size(),
-                element_type=_dtype_to_element_type(self.dtype),
+                element_type=dtype_to_element_type(self.dtype),
             )
         return self._bv
 
@@ -453,7 +459,7 @@ def cpu_tensor_constructor(cpu_func):
 @cpu_tensor_constructor
 def _arange(*args, dtype=None):
     if dtype is not None:
-        dtype = _torch_dtype_to_numpy(dtype)
+        dtype = torch_dtype_to_numpy(dtype)
     return torch.from_numpy(np.arange(*args, dtype=dtype))
 
 
@@ -589,53 +595,6 @@ def compute_method(super_fn, *args, **kwargs):
 # Conversions
 ###############################################################################
 
-_DTYPE_TO_ELEMENT_TYPE: Dict[torch.dtype, HalElementType] = {
-    torch.float16: HalElementType.FLOAT_16,
-    torch.bfloat16: HalElementType.BFLOAT_16,
-    torch.float32: HalElementType.FLOAT_32,
-    torch.float64: HalElementType.FLOAT_64,
-    torch.uint8: HalElementType.UINT_8,
-    torch.int8: HalElementType.SINT_8,
-    torch.int16: HalElementType.SINT_16,
-    torch.int32: HalElementType.SINT_32,
-    torch.int64: HalElementType.SINT_64,
-    torch.bool: HalElementType.BOOL_8,
-    torch.qint8: HalElementType.OPAQUE_8,
-    torch.quint8: HalElementType.OPAQUE_8,
-    torch.complex64: HalElementType.COMPLEX_64,
-    torch.complex128: HalElementType.COMPLEX_128,
-}
-
-
-def _dtype_to_element_type(dtype) -> HalElementType:
-    try:
-        return _DTYPE_TO_ELEMENT_TYPE[dtype]
-    except KeyError:
-        raise UnknownDTypeError(dtype)
-
-
-_TORCH_DTYPE_TO_NUMPY = {
-    torch.float16: np.float16,
-    torch.float32: np.float32,
-    torch.float64: np.float64,
-    torch.uint8: np.uint8,
-    torch.int8: np.int8,
-    torch.int16: np.int16,
-    torch.int32: np.int32,
-    torch.int64: np.int64,
-    torch.bool: np.bool_,
-    torch.complex64: np.complex64,
-    torch.complex128: np.complex128,
-}
-
-
-def _torch_dtype_to_numpy(torch_dtype: torch.dtype) -> Any:
-    try:
-        return _TORCH_DTYPE_TO_NUMPY[torch_dtype]
-    except KeyError:
-        raise UnknownDTypeError(torch_dtype)
-
-
 _ELEMENT_TYPE_TO_NUMPY_DTYPE = {
     HalElementType.FLOAT_16: np.float16,
     HalElementType.FLOAT_32: np.float32,
@@ -653,7 +612,7 @@ _ELEMENT_TYPE_TO_NUMPY_DTYPE = {
 
 def _element_type_to_numpy_dtype(element_type: HalElementType) -> Any:
     try:
-        return _DTYPE_TO_ELEMENT_TYPE[element_type]
+        return DTYPE_TO_ELEMENT_TYPE[element_type]
     except KeyError:
         raise UnknownDTypeError(element_type)
 

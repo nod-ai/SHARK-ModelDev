@@ -19,7 +19,7 @@ from typing import (
 
 import torch
 
-from ..ir_imports import (
+from ....support.ir_imports import (
     IrType,
     Operation,
     Value,
