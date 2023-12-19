@@ -148,6 +148,7 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 "stable_diffusion_v1_4_vae.safetensors",
                 "cpu",
+                "decode",
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
@@ -168,7 +169,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
-            arguments["hf_model_name"], arguments["hf_auth_token"], example_input
+            arguments["hf_model_name"], arguments["hf_auth_token"], "decode", example_input
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5

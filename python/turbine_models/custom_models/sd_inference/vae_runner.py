@@ -45,6 +45,7 @@ parser.add_argument(
     "--height", type=int, default=512, help="Height of Stable Diffusion"
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
+parser.add_argument("--variant", type=str, default="decode")
 
 
 def run_vae(
@@ -57,7 +58,7 @@ def run_vae(
     return results
 
 
-def run_torch_vae(hf_model_name, hf_auth_token, example_input):
+def run_torch_vae(hf_model_name, hf_auth_token, variant, example_input):
     from diffusers import AutoencoderKL
 
     class VaeModel(torch.nn.Module):
@@ -73,22 +74,34 @@ def run_torch_vae(hf_model_name, hf_auth_token, example_input):
             with torch.no_grad():
                 x = self.vae.decode(inp, return_dict=False)[0]
                 return x
+        
+        def encode_inp(self, inp):
+            latents = self.vae.encode(inp).latent_dist.sample()
+            return 0.18215 * latents
 
     vae_model = VaeModel(
         hf_model_name,
         hf_auth_token,
     )
 
-    results = vae_model.forward(example_input)
+    if variant == "decode":
+        results = vae_model.forward(example_input)
+    elif variant == "encode":
+        results = vae_model.encode_inp(example_input)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    example_input = torch.rand(
-        args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
-    )
+    if args.variant == "decode":
+        example_input = torch.rand(
+            args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
+        )
+    elif args.variant == "encode":
+        example_input = torch.rand(
+            args.batch_size, 3, args.height, args.width, dtype=torch.float32
+        )
     print("generating turbine output:")
     turbine_results = run_vae(
         args.device,
@@ -109,7 +122,7 @@ if __name__ == "__main__":
         from turbine_models.custom_models.sd_inference import utils
 
         torch_output = run_torch_vae(
-            args.hf_model_name, args.hf_auth_token, example_input
+            args.hf_model_name, args.hf_auth_token, args.variant, example_input
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_results)

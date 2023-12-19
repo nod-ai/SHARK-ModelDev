@@ -47,7 +47,7 @@ def functorch_functionalize(gm: GraphModule, *args) -> GraphModule:
         new_gm = proxy_tensor.make_fx(
             functionalized_callable,
             decomposition_table={},
-            tracing_mode="symbolic",
+            #tracing_mode="symbolic",
             _allow_non_fake_inputs=True,
             _allow_fake_constant=False,
         )(*args)
