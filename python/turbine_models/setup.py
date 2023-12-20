@@ -65,5 +65,6 @@ setup(
         "transformers",
         "accelerate",
         "diffusers==0.24.0",
+        "scipy",
     ],
 )
