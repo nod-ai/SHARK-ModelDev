@@ -4,7 +4,7 @@ from shark_turbine.aot import *
 import iree.runtime as rt
 
 # Loading feature extractor and pretrained model from huggingface
-extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
+#extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
 model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-18")
 
 
