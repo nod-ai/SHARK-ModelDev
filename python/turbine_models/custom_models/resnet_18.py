@@ -31,26 +31,26 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
-#TODO: Add other resnet models
+# TODO: Add other resnet models
+
 
 class Resnet18Model(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-18")
-        #self.extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
-    
+        self.model = AutoModelForImageClassification.from_pretrained(
+            "microsoft/resnet-18"
+        )
+        # self.extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
+
     def forward(self, pixel_values_tensor: torch.Tensor):
         with torch.no_grad():
             logits = self.model.forward(pixel_values_tensor).logits
         predicted_id = torch.argmax(logits, -1)
         return predicted_id
 
+
 def export_resnet_18_model(
-    resnet_model,
-    compile_to="torch",
-    device=None,
-    target_triple=None,
-    max_alloc=None
+    resnet_model, compile_to="torch", device=None, target_triple=None, max_alloc=None
 ):
     class CompiledResnet18Model(CompiledModule):
         params = export_parameters(resnet_model.model)
@@ -67,6 +67,7 @@ def export_resnet_18_model(
         return module_str
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
+
 
 def run_resnet_18_vmfb_comparison(resnet_model, args):
     config = rt.Config(args.device)
@@ -90,7 +91,7 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
     device_inputs = [rt.asdevicearray(config.device, inp)]
 
     # Turbine output
-    CompModule = ctx.modules.compiled_resnet_18
+    CompModule = ctx.modules.compiled_resnet18_model
     turbine_output = CompModule["main"](*device_inputs)
     print(
         "TURBINE OUTPUT:",
@@ -108,6 +109,7 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
     print("LARGEST ERROR:", err)
     assert err < 9e-5
 
+
 if __name__ == "__main__":
     args = parser.parse_args()
     resnet_model = Resnet18Model()
@@ -121,7 +123,7 @@ if __name__ == "__main__":
             args.iree_target_triple,
             args.vulkan_max_allocation,
         )
-        safe_name = "resnet_18" 
+        safe_name = "resnet_18"
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")

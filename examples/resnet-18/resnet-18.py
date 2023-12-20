@@ -4,7 +4,7 @@ from shark_turbine.aot import *
 import iree.runtime as rt
 
 # Loading feature extractor and pretrained model from huggingface
-#extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
+# extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
 model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-18")
 
 
@@ -61,7 +61,7 @@ def compare_labels(id0, id1):
 # load some examples and check for discrepancies between
 # compiled module and standard inference (forward function)
 
-x = torch.randn(10,3,224,224)
+x = torch.randn(10, 3, 224, 224)
 y0 = shark_infer(x)
 y1 = forward(x)
 print_labels(y0)
