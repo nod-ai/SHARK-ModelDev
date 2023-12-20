@@ -61,27 +61,7 @@ def compare_labels(id0, id1):
 # load some examples and check for discrepancies between
 # compiled module and standard inference (forward function)
 
-from datasets import load_dataset
-import random
-
-# BATCH_SIZE <= 23442
-BATCH_SIZE = 100
-dataset = load_dataset("cats_vs_dogs")
-# extract a window of examples.
-start_index = random.randint(0, 23443 - BATCH_SIZE)
-end_index = start_index + BATCH_SIZE
-image = dataset["train"][start_index:end_index]["image"]
-# convert images to a torch.Tensor(BATCH_SIZE,3,224,224)
-inputs = extractor(image, return_tensors="pt")
-pixel_tensor = inputs.pixel_values
-
-# perform inferene and compare results
-print(f"\nRunning inference on {BATCH_SIZE} pet pictures...")
-y1 = shark_infer(pixel_tensor)
-y2 = forward(pixel_tensor)
-print("Inference completed. Here are a few sample labels. \n")
-print_labels(y1.to_host()[0:5])
-diff = compare_labels(y1, y2)
-print(
-    f"\nDiscrepancies between SharkTurbine and Standard inference results: {diff[0].size()[0]}"
-)
+x = torch.randn(10,3,224,224)
+y0 = shark_infer(x)
+y1 = forward(x)
+print_labels(y0)
