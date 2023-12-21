@@ -134,7 +134,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_unet.safetensors")
         os.remove("stable_diffusion_v1_4_unet.vmfb")
 
-    def testExportVaeModel(self):
+    def testExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -148,7 +148,7 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 "stable_diffusion_v1_4_vae.safetensors",
                 "cpu",
-                "decode",
+                variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
@@ -173,6 +173,48 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
+        os.remove("stable_diffusion_v1_4_vae.safetensors")
+        os.remove("stable_diffusion_v1_4_vae.vmfb")
+
+    def testExportVaeModelEncode(self):
+        with self.assertRaises(SystemExit) as cm:
+            vae.export_vae_model(
+                vae_model,
+                # This is a public model, so no auth required
+                "CompVis/stable-diffusion-v1-4",
+                arguments["batch_size"],
+                arguments["height"],
+                arguments["width"],
+                None,
+                "vmfb",
+                "safetensors",
+                "stable_diffusion_v1_4_vae.safetensors",
+                "cpu",
+                variant="encode",
+            )
+        self.assertEqual(cm.exception.code, None)
+        arguments["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
+        arguments["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
+        example_input = torch.rand(
+            arguments["batch_size"],
+            3,
+            arguments["height"],
+            arguments["width"],
+            dtype=torch.float32,
+        )
+        turbine = vae_runner.run_vae(
+            arguments["device"],
+            example_input,
+            arguments["vmfb_path"],
+            arguments["hf_model_name"],
+            arguments["hf_auth_token"],
+            arguments["external_weight_path"],
+        )
+        torch_output = vae_runner.run_torch_vae(
+            arguments["hf_model_name"], arguments["hf_auth_token"], "encode", example_input
+        )
+        err = utils.largest_error(torch_output, turbine)
+        assert err < 2e-3
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 

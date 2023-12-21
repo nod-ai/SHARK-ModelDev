@@ -65,7 +65,7 @@ class VaeModel(torch.nn.Module):
             token=hf_auth_token,
         )
 
-    def forward(self, inp):
+    def decode_inp(self, inp):
         with torch.no_grad():
             x = self.vae.decode(inp, return_dict=False)[0]
             return x
@@ -97,14 +97,14 @@ def export_vae_model(
 
     sample = (batch_size, 4, height // 8, width // 8)
     if variant == "encode":
-        sample = (1, 3, 512, 512)
+        sample = (batch_size, 3, height, width)
 
     class CompiledVae(CompiledModule):
         params = export_parameters(vae_model)
 
         def main(self, inp=AbstractTensor(*sample, dtype=torch.float32)):
             if variant == "decode":
-                return jittable(vae_model.forward)(inp)
+                return jittable(vae_model.decode_inp)(inp)
             elif variant == "encode":
                 return jittable(vae_model.encode_inp)(inp)
 

@@ -70,7 +70,7 @@ def run_torch_vae(hf_model_name, hf_auth_token, variant, example_input):
                 token=hf_auth_token,
             )
 
-        def forward(self, inp):
+        def decode_inp(self, inp):
             with torch.no_grad():
                 x = self.vae.decode(inp, return_dict=False)[0]
                 return x
@@ -85,7 +85,7 @@ def run_torch_vae(hf_model_name, hf_auth_token, variant, example_input):
     )
 
     if variant == "decode":
-        results = vae_model.forward(example_input)
+        results = vae_model.decode_inp(example_input)
     elif variant == "encode":
         results = vae_model.encode_inp(example_input)
     np_torch_output = results.detach().cpu().numpy()
