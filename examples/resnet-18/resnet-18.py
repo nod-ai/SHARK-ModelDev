@@ -65,3 +65,6 @@ x = torch.randn(10, 3, 224, 224)
 y0 = shark_infer(x)
 y1 = forward(x)
 print_labels(y0)
+print(
+    f"Found {compare_labels(y0,y1)[0].size()[0]} discrepancies between turbine and standard result"
+)
