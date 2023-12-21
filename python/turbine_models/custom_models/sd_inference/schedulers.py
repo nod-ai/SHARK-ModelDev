@@ -40,7 +40,7 @@ hf_model_name = "CompVis/stable-diffusion-v1-4"
 class Scheduler(torch.nn.Module):
     def __init__(self, hf_model_name, num_inference_steps):
         super().__init__()
-        self.scheduler = LMSDiscreteScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
+        self.scheduler = PNDMScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
         self.scheduler.set_timesteps(num_inference_steps)
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
@@ -60,11 +60,11 @@ class Scheduler(torch.nn.Module):
             noise_pred = noise_pred_uncond + self.guidance_scale * (
                 noise_pred_text - noise_pred_uncond
             )
-            latents = scheduler.step(noise_pred, t, latents).prev_sample
+            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
         return latents
 
 scheduler = Scheduler(hf_model_name, 10)
-inputs = (torch.randn(1, 4, 64, 64), torch.randn(1, 77, 768))
+inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768))
 
 fx_g = make_fx(
     scheduler,
