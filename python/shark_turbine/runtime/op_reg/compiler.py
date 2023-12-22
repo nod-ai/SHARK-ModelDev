@@ -24,6 +24,10 @@ from ...support.exceptions import (
     GeneralError,
 )
 
+from ...support.ir_imports import (
+    Location,
+)
+
 from ...support.logging import (
     runtime_logger as logger,
 )
@@ -87,10 +91,11 @@ def compile_standalone_kernel(
     start = default_timer()
     config = KernelCompileConfig(cache_key, list(device.compile_target_flags))
     kb = FreeFuncKernelBuilder.create_module(ksel, func_name=func_name)
-    ksel.op.generate(ksel, kb)
+    with kb.ip, Location.unknown():
+        ksel.op.generate(ksel, kb)
     kb.module_op.verify()
     module_asm = kb.module_op.get_asm(
-        binary=True, enable_debug_info=True, assume_verified=True
+        binary=True, enable_debug_info=True, print_generic_op_form=True
     )
     generation_time = default_timer() - start
 

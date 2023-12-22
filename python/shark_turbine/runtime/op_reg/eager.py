@@ -50,15 +50,27 @@ def eager_dispatch(ksel: KernelSelection):
     device: Optional[Device] = None
     torch_device: Optional[torch.device] = None
     for arg_desc in ksel.arg_descs:
-        if not arg_desc.is_ir_arg:
-            continue
-        tensor_arg = arg_desc.maybe_tensor_value
-        if tensor_arg is None:
-            continue
-        torch_device = tensor_arg.device
-        device = lookup_device_from_torch(torch_device)
-        if device is not None:
-            break
+        if not arg_desc.is_list:
+            if arg_desc.ir_arity:
+                # One arg has maybe_tensor_value as a single element (common case).
+                tensor_arg = arg_desc.maybe_tensor_value
+                if tensor_arg is None:
+                    continue
+                torch_device = tensor_arg.device
+                device = lookup_device_from_torch(torch_device)
+                if device is not None:
+                    break
+            else:
+                continue
+        else:
+            # List. maybe_tensor_value is a list. Uncommon case.
+            for tensor_arg in arg_desc.maybe_tensor_value:
+                if tensor_arg is None:
+                    continue
+                torch_device = tensor_arg.device
+                device = lookup_device_from_torch(torch_device)
+                if device is not None:
+                    break
 
     # Default to CPU.
     if device is None:
@@ -72,21 +84,16 @@ def eager_dispatch(ksel: KernelSelection):
 
     # Build the concrete args, issuing device movement as necessary.
     arg_list = VmVariantList(len(ksel.arg_descs))
-    for arg_desc in ksel.arg_descs:
-        if not arg_desc.is_ir_arg:
-            continue
-        tensor_arg = arg_desc.maybe_tensor_value
-        # Handle non-tensor args.
-        if tensor_arg is None:
-            scalar_value = arg_desc.v
-            if isinstance(scalar_value, int):
-                arg_list.push_int(scalar_value)
-            elif isinstance(scalar_value, float):
-                arg_list.push_float(scalar_value)
-            else:
-                raise UnsupportedTypeError(type(scalar_value))
-            continue
-        # Tensor arg.
+
+    def push_scalar(scalar_value):
+        if isinstance(scalar_value, int):
+            arg_list.push_int(scalar_value)
+        elif isinstance(scalar_value, float):
+            arg_list.push_float(scalar_value)
+        else:
+            raise UnsupportedTypeError(type(scalar_value))
+
+    def push_tensor(tensor_arg):
         if tensor_arg.device != torch_device:
             # TODO: If the source and target device are both known to us,
             # we can do this "in house" vs asking torch to do it.
@@ -101,6 +108,28 @@ def eager_dispatch(ksel: KernelSelection):
         # import_torch_tensor.
         arg_list.push_ref(device.import_torch_tensor(tensor_arg))
 
+    for arg_desc in ksel.arg_descs:
+        arity = arg_desc.ir_arity
+        if not arg_desc.is_list:
+            # Non-list.
+            if arity == 1:
+                tensor_arg = arg_desc.maybe_tensor_value
+                if tensor_arg is not None:
+                    push_tensor(tensor_arg)
+                else:
+                    push_scalar(arg_desc.v)
+            else:
+                continue
+        else:
+            # List. Uncommon case.
+            tensor_arg = arg_desc.maybe_tensor_value
+            if tensor_arg is not None:
+                for i in range(arity):
+                    push_tensor(tensor_arg[i])
+            else:
+                for i in range(arity):
+                    push_scalar(arg_desc.v[i])
+
     if config.async_invocations:
         raise NotImplementedError("Async execution not yet implemented")
 
@@ -113,8 +142,9 @@ def eager_dispatch(ksel: KernelSelection):
 
     # Unpack results.
     results = []
-
     for i, result_desc in enumerate(ksel.result_descs):
+        arity = result_desc.ir_arity
+        assert arity == 1, "NYI: Optional and result lists"
         meta_tensor_value = result_desc.maybe_tensor_value
         if meta_tensor_value is None:
             # Scalar return.
@@ -128,5 +158,7 @@ def eager_dispatch(ksel: KernelSelection):
 
     if len(results) == 1:
         return results[0]
+    elif len(results) == 0:
+        return None
     else:
         return tuple(results)

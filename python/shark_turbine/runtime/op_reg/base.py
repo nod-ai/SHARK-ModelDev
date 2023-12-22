@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional, Type, Union
 from abc import ABC, abstractmethod, abstractproperty
 import functools
 import logging
+import textwrap
 
 import torch
 from torch import Tensor
@@ -21,12 +22,15 @@ from ...support.ir_imports import (
     Block,
     Context,
     FunctionType,
+    IndexType,
     InsertionPoint,
+    IntegerAttr,
     Location,
     StringAttr,
     SymbolTable,
     IrType,
     Value,
+    arith_d,
     builtin_d,
     func_d,
 )
@@ -43,6 +47,7 @@ __all__ = [
     "KernelBuilder",
     "KernelSelection",
     "TensorArg",
+    "def_library",
 ]
 
 logger = logging.getLogger("turbine.runtime.op_reg")
@@ -51,10 +56,21 @@ logger = logging.getLogger("turbine.runtime.op_reg")
 # Op library management
 ###############################################################################
 
+
+def def_library(ns) -> torch.library.Library:
+    """Creates a new 'DEF' library which contains custom ops.
+
+    It is necessary to create such custom op libraries in this way since
+    the library is registered with the compiler in such a way that it can
+    operate over all known custom ops.
+    """
+    return torch.library.Library(ns, "DEF")
+
+
 # All such custom kernels are registered in the 'turbine' library/namespace.
 # We also allow extending existing libraries outside of this, but that is
 # the non default case.
-TURBINE_LIBRARY = torch.library.Library("turbine", "DEF")
+TURBINE_LIBRARY = def_library("turbine")
 
 
 class CustomOp(ABC):
@@ -62,7 +78,7 @@ class CustomOp(ABC):
 
     @staticmethod
     def register(
-        op_class: Optional[Type["CustomOp"]],
+        op_class: Optional[Type["CustomOp"]] = None,
         *,
         library: torch.library.Library = TURBINE_LIBRARY,
         dispatch_key: str = "",
@@ -165,7 +181,7 @@ class CustomOp(ABC):
         This method should generate IR into the given `KernelBuilder`. It
         can do so by consulting any state set on the `KernelSelection`.
         Each `KernelSelection.args` corresponds to `KernelBuilder.args`.
-        Unless if the argument was set as `is_ir_arg=False`, the argument
+        Unless if the argument was set as `ir_arity=0`, the argument
         will be a `Value`. Otherwise, it will be `None`. It is recommended
         to use `KernelBuilder.arg(n)` to access.
 
@@ -202,6 +218,23 @@ class KernelSelection:
         self.result_descs: list[ArgDescriptor] = []
         self.variant: str = "default"
 
+    def __repr__(self):
+        lines = [
+            "KernelSelection<",
+            f"  op = '{self.op.name}',",
+            f"  variant = '{self.variant}',",
+            "  arg_descs = [",
+        ]
+        for arg_desc in self.arg_descs:
+            lines.append(f"    {arg_desc},")
+        lines.append("  ],")
+        lines.append("  result_descs = [")
+        for result_desc in self.result_descs:
+            lines.append(f"    {result_desc},")
+        lines.append("  ]")
+        lines.append(">")
+        return "\n".join(lines)
+
     def generate_meta_returns(self) -> Any:
         results = [d.generate_meta() for d in self.result_descs]
         if len(results) == 1:
@@ -211,9 +244,16 @@ class KernelSelection:
 
     @property
     def spec_key(self) -> str:
-        arg_keys = ",".join(d.spec_key for d in self.arg_descs)
-        return_keys = ",".join(d.spec_key for d in self.result_descs)
-        return f"{self.op.cache_key_base}::{self.variant}({arg_keys})->({return_keys})"
+        try:
+            arg_keys = ",".join(d.spec_key for d in self.arg_descs)
+            return_keys = ",".join(d.spec_key for d in self.result_descs)
+            return (
+                f"{self.op.cache_key_base}::{self.variant}({arg_keys})->({return_keys})"
+            )
+        except Exception as e:
+            raise AssertionError(
+                f"Error generating spec_key from:\n{textwrap.indent(repr(self), '  ')}"
+            ) from e
 
     def arg_tensor(self, arg: int) -> "TensorArg":
         """Declares an argument to allow any ranked tensor and to specialize for each rank
@@ -231,6 +271,22 @@ class KernelSelection:
         arg_descs[arg] = desc = TensorArg(arg_value)
         return desc
 
+    def arg_tensor_list(self, arg: int) -> "TensorListArg":
+        """Declares an argument to accept a list of tensors which will be specialized
+        for the list size and each rank/dtype.
+
+        Returns the argument descriptor, which can be used to further inspect or constrain
+        the selection. It will default to allowing all dimensions to be dynamic.
+        """
+        arg_descs = self.arg_descs
+        arg_value = self.args[arg]
+        assert arg_descs[arg] is None, f"Already constrained argument {arg}"
+        assert isinstance(
+            arg_value, list
+        ), f"Argument type mismatch from Torch for {arg}: Expected tensor, got {type(arg_value)}"
+        arg_descs[arg] = desc = TensorListArg(arg_value)
+        return desc
+
     def arg_int(self, arg: int) -> "IntArg":
         """Declares an argument to be an integer value that can take any value.
 
@@ -246,6 +302,21 @@ class KernelSelection:
         arg_descs[arg] = desc = IntArg(arg_value)
         return desc
 
+    def attr_str(self, arg: int) -> "AttrArg":
+        """Declares an argument to be a string attribute.
+
+        Such arguments are not materialized in the IR as Values but may be used to
+        generate the IR. In AOT contexts, they must be derived from static values.
+        """
+        arg_descs = self.arg_descs
+        arg_value = self.args[arg]
+        assert arg_descs[arg] is None, f"Already constrained argument {arg}"
+        assert isinstance(
+            arg_value, str
+        ), f"Argument type mismatch from Torch for {arg}: Expected int, got {type(arg_value)}"
+        arg_descs[arg] = desc = AttrArg(arg_value)
+        return desc
+
     def return_tensor(self, t: Tensor) -> "TensorArg":
         """Marks the next return value as a Tensor.
 
@@ -258,24 +329,99 @@ class KernelSelection:
         return desc
 
 
+class AttrArg:
+    ir_arity: int = 0
+    maybe_tensor_value: Optional[Tensor] = None
+    is_list: bool = False
+
+    __slots__ = [
+        "v",
+        "spec_value",
+    ]
+
+    def __init__(self, v: object):
+        self.v = v
+        # We specialize on every distinct value.
+        self.spec_value: Optional[Any] = v
+
+    def __repr__(self):
+        return f"AttrArg(<{self.spec_value}>)"
+
+    def generate_meta(self) -> object:
+        return self.v
+
+    @property
+    def spec_key(self) -> str:
+        """Generates a key that will be the same for all specializations."""
+        return f"attr<{self.spec_value}>"
+
+    @property
+    def mlir_type_asm(self) -> str:
+        raise AssertionError("Cannot resolve `mlir_type_asm` for an AttrArg")
+
+
+class IntArg:
+    __slots__ = [
+        "ir_arity",
+        "spec_value",
+        "v",
+    ]
+
+    # All descriptors have an attribute to indicate their value
+    # as a tensor, and those that aren't are fixated to None.
+    # This is to enable fast lookup in the hot path of determining
+    # how to dispatch.
+    maybe_tensor_value: Optional[Tensor] = None
+    is_list: bool = False
+
+    def __init__(self, v: int):
+        self.v = v
+        self.spec_value: Optional[Any] = None
+        self.ir_arity: int = 1
+
+    def __repr__(self):
+        return f"IntArg({self.v}, spec_value={self.spec_value}, is_ir_arg={self.is_ir_arg})"
+
+    def generate_meta(self) -> int:
+        return self.v
+
+    @property
+    def spec_key(self) -> str:
+        """Generates a key that will be the same for all specializations."""
+        return f"int<{self.spec_value}>"
+
+    @property
+    def mlir_type_asm(self) -> str:
+        # TODO: We can have individual kernels constrain this to a narrower
+        # type.
+        return "i64"
+
+
 class TensorArg:
     __slots__ = [
         "t",
         "spec_dims",
-        "is_ir_arg",
         "maybe_tensor_value",
     ]
+
+    ir_arity: int = 1
+    is_list: bool = False
 
     def __init__(self, t: Tensor):
         self.t = t
         # Any static dims that we are specializing. Defaults to all dynamic.
         self.spec_dims: list[Optional[int]] = len(t.shape) * [None]
-        self.is_ir_arg = True
         # All descriptors have an attribute to indicate their value
         # as a tensor, and those that aren't are fixated to None.
         # This is to enable fast lookup in the hot path of determining
         # how to dispatch.
         self.maybe_tensor_value: Tensor = t
+
+    def __repr__(self):
+        return (
+            f"TensorArg(shape={self.t.shape}, dtype={self.t.dtype}, "
+            f"spec_dims={self.spec_dims})"
+        )
 
     def generate_meta(self) -> Tensor:
         t = self.t
@@ -305,40 +451,69 @@ class TensorArg:
         return f"tensor<{spec}>"
 
 
-class IntArg:
+class TensorListArg:
     __slots__ = [
-        "is_ir_arg",
-        "v",
-        "spec_value",
+        "ts",
+        "spec_dims",
+        "ir_arity",
         "maybe_tensor_value",
     ]
 
-    def __init__(self, v: int):
-        self.v = v
-        self.spec_value: Optional[Any] = None
-        self.is_ir_arg = True
+    is_list: bool = True
+
+    def __init__(self, ts: Tensor):
+        self.ts = ts
+        self.ir_arity = len(ts)
+        # Any static dims that we are specializing. Defaults to all dynamic.
+        self.spec_dims: list[list[Optional[int]]] = [len(t.shape) * [None] for t in ts]
         # All descriptors have an attribute to indicate their value
         # as a tensor, and those that aren't are fixated to None.
         # This is to enable fast lookup in the hot path of determining
         # how to dispatch.
-        self.maybe_tensor_value: Optional[Tensor] = None
+        self.maybe_tensor_value: Tensor = ts
 
-    def generate_meta(self) -> int:
-        return self.v
+    def __repr__(self):
+        return (
+            f"TensorListArg(shape={[t.shape for t in self.ts]}, "
+            f"dtype={[t.dtype for t in self.ts]}, "
+            f"spec_dims={self.spec_dims}, ir_arity={self.ir_arity})"
+        )
+
+    def generate_meta(self) -> list[Tensor]:
+        metas = []
+        for t in self.ts:
+            if t.device == "meta":
+                metas.append(t)
+            else:
+                metas.append(t.clone().detach().to("meta"))
+        return metas
 
     @property
     def spec_key(self) -> str:
         """Generates a key that will be the same for all specializations."""
-        return f"int<{self.spec_value}>"
+        return (
+            f"tensor[{[len(t.shape) for t in self.ts]}"
+            f":{[str(t.dtype) for t in self.ts]}]<{self.spec_dims}>"
+        )
 
     @property
-    def mlir_type_asm(self) -> str:
-        # TODO: We can have individual kernels constrain this to a narrower
-        # type.
-        return "i64"
+    def mlir_type_asm(self) -> list[str]:
+        asms = []
+        for t, spec_dims in zip(self.ts, self.spec_dims):
+            try:
+                dtype_asm = TORCH_DTYPE_TO_IREE_TYPE_ASM[t.dtype]
+            except KeyError as e:
+                raise KeyError(
+                    f"Unknown mapping of torch dtype {t.dtype} to MLIR "
+                    f"(possibly missing in TORCH_DTYPE_TO_IREE_TYPE_ASM table)"
+                ) from e
+            dim_asm = "x".join(["?" if d is None else str(d) for d in spec_dims])
+            spec = f"{dim_asm}x{dtype_asm}" if dim_asm else dtype_asm
+            asms.append(f"tensor<{spec}>")
+        return asms
 
 
-ArgDescriptor = Union[TensorArg, IntArg]
+ArgDescriptor = Union[AttrArg, IntArg, TensorArg, TensorListArg]
 
 ###############################################################################
 # KernelBuilder
@@ -352,7 +527,7 @@ class KernelBuilder(ABC):
     def __init__(
         self,
         ksel: KernelSelection,
-        arg_bindings: list[Value],
+        arg_bindings: list[Union[Value, list[Value]]],
         *,
         ip: InsertionPoint,
         module_body: Block,
@@ -364,10 +539,10 @@ class KernelBuilder(ABC):
         self.module_body = module_body
         self.symbol_table = symbol_table
 
-    def arg_value(self, index: int) -> Value:
+    def arg_value(self, index: int) -> Union[list[Value], Value]:
         """Gets the concrete IR `Value` for the argument at `index`.
 
-        This will assert if the corresponding argument was set as `is_ir_arg=False`
+        This will assert if the corresponding argument was set as `ir_arity=0`
         during kernel selection.
         """
         try:
@@ -385,6 +560,10 @@ class KernelBuilder(ABC):
     def yield_results(self, *results: Value):
         """Yields results of the kernel computation."""
         ...
+
+    def constant_index(self, i: int) -> Value:
+        """Builds a constant index value."""
+        return arith_d.constant(IntegerAttr.get(IndexType.get(), i))
 
 
 class FreeFuncKernelBuilder(KernelBuilder):
@@ -409,10 +588,33 @@ class FreeFuncKernelBuilder(KernelBuilder):
         if func_name is None:
             func_name = ksel.op.name
         with context, Location.unknown(), InsertionPoint(module_body):
-            arg_types = [
-                IrType.parse(d.mlir_type_asm) for d in ksel.arg_descs if d.is_ir_arg
-            ]
-            result_types = [IrType.parse(d.mlir_type_asm) for d in ksel.result_descs]
+            # Assemble arg types.
+            arg_types = []
+            for d in ksel.arg_descs:
+                arity = d.ir_arity
+                if not d.is_list:
+                    if arity == 1:
+                        arg_types.append(IrType.parse(d.mlir_type_asm))
+                    else:
+                        continue
+                else:
+                    for i in range(arity):
+                        arg_types.append(IrType.parse(d.mlir_type_asm[i]))
+
+            # Assemble result types.
+            result_types = []
+            for d in ksel.result_descs:
+                if not d.is_list:
+                    if d.ir_arity == 1:
+                        result_types.append(IrType.parse(d.mlir_type_asm))
+                    else:
+                        continue
+                else:
+                    # for i in range(arity):
+                    #     result_types.append(IrType.parse(d.mlir_type_asm[i]))
+                    raise AssertionError("NYI: arity > 1 results")
+
+            # Create the func.
             ftype = FunctionType.get(arg_types, result_types)
             func_op = func_d.FuncOp(func_name, ftype)
             if not is_public:
@@ -422,13 +624,21 @@ class FreeFuncKernelBuilder(KernelBuilder):
 
         # Map inputs to arg bindings, lining up with arguments that are elided.
         block_arguments = list(entry_block.arguments)
-        block_arguments.reverse()
+        block_arg_index = 0
         arg_bindings: list[Optional[Value]] = []
         for desc in ksel.arg_descs:
-            if desc.is_ir_arg:
-                arg_bindings.append(block_arguments.pop())
+            arity = desc.ir_arity
+            if not desc.is_list:
+                if desc.ir_arity == 1:
+                    arg_bindings.append(block_arguments[block_arg_index])
+                    block_arg_index += 1
+                else:
+                    arg_bindings.append(None)
             else:
-                arg_bindings.append(None)
+                arg_bindings.append(
+                    block_arguments[block_arg_index : block_arg_index + arity]
+                )
+                block_arg_index += arity
 
         super().__init__(
             ksel,
