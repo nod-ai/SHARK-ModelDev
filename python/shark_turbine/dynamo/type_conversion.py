@@ -46,7 +46,7 @@ class NativeTypeConverter:
             self.torch_type_to_native
         )
 
-    def torch_type_to_native(self, torch_type: IrType) -> IrType:
+    def torch_type_to_native(self, torch_type: IrType, signless: bool = True) -> IrType:
         """Converts a presumed torch type to a corresponding native type.
 
         This mirrors the type conversion in torch-mlir's BackendTypeConversion.cpp.
@@ -56,6 +56,8 @@ class NativeTypeConverter:
           !torch.float -> f64
           !torch.bool -> i1
           !torch.vtensor -> tensor
+
+        If `signless=False`, then integer types will retain their signs.
         """
         # We don't presently have API support for introspecting torch type,
         # and even if we did, it is likely that this is more efficient.
@@ -66,7 +68,11 @@ class NativeTypeConverter:
                 if name == "bool":
                     return IntegerType.get_signless(1)
                 if name == "int":
-                    return IntegerType.get_signless(64)
+                    return (
+                        IntegerType.get_signless(64)
+                        if signless
+                        else IntegerType.get_signed(64)
+                    )
                 elif name == "float":
                     return F64Type.get()
                 elif name == "vtensor":
@@ -75,7 +81,7 @@ class NativeTypeConverter:
                     dim_list_str, dtype_str = tm.groups()
                     dim_list = parse_tensor_dim_list(dim_list_str)
                     dtype = self.convert_torch_element_type_to_native(
-                        IrType.parse(dtype_str)
+                        IrType.parse(dtype_str), signless=signless
                     )
                     # TODO: Eliminate RankedTensorType dependence on Location.
                     # See: https://github.com/nod-ai/SHARK-Turbine/issues/145
@@ -83,14 +89,17 @@ class NativeTypeConverter:
                         return RankedTensorType.get(dim_list, dtype)
         raise TypeError(f"Unsupported torch type conversion for {torch_type}")
 
-    def convert_torch_element_type_to_native(self, torch_type: IrType) -> IrType:
+    def convert_torch_element_type_to_native(
+        self, torch_type: IrType, signless: bool = True
+    ) -> IrType:
         # Torch uses the builtin type hierarchy of IntegerType and FloatType
         # to represent dtypes. These are mostly the same, but it always uses
         # signed IntegerTypes which we must convert to signless for the native
         # type system.
-        if IntegerType.isinstance(torch_type):
-            signed_int_type = IntegerType(torch_type)
-            return IntegerType.get_signless(signed_int_type.width)
+        if signless:
+            if IntegerType.isinstance(torch_type):
+                signed_int_type = IntegerType(torch_type)
+                return IntegerType.get_signless(signed_int_type.width)
         return torch_type
 
     def materialize_native_to_torch(

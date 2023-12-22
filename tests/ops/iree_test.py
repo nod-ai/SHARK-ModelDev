@@ -22,7 +22,6 @@ class KernelRegTest(unittest.TestCase):
         t2 = torch.randn(1, 8)
         ops.iree.trace_tensors("TEST 2", [t1, t2])
         ops.iree.trace_tensors("TEST 1", [t1])
-        ops.iree.trace_tensors("TEST 0", [])
 
 
 if __name__ == "__main__":

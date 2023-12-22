@@ -8,7 +8,7 @@
 dispatcher.
 """
 
-from typing import Any, Callable, Optional, Type, Union
+from typing import Any, Callable, Optional, Sequence, Type, Union
 
 from abc import ABC, abstractmethod, abstractproperty
 import functools
@@ -67,6 +67,14 @@ def def_library(ns) -> torch.library.Library:
     return torch.library.Library(ns, "DEF")
 
 
+def default_dispatch_keys() -> list[str]:
+    # TODO: Dynamically determine what devices to register against.
+    # Note that we have to register against specific keys instead of the
+    # fallback, as fallback is too broad and breaks certain elements of
+    # fx tracing.
+    return ["CPU"]
+
+
 # All such custom kernels are registered in the 'turbine' library/namespace.
 # We also allow extending existing libraries outside of this, but that is
 # the non default case.
@@ -81,7 +89,7 @@ class CustomOp(ABC):
         op_class: Optional[Type["CustomOp"]] = None,
         *,
         library: torch.library.Library = TURBINE_LIBRARY,
-        dispatch_key: str = "",
+        dispatch_key: Union[str, Sequence[str], None] = None,
         register_meta: bool = True,
         register_impl: bool = True,
     ) -> Callable:
@@ -120,7 +128,7 @@ class CustomOp(ABC):
         self,
         *,
         library: torch.library.Library,
-        dispatch_key: str,
+        dispatch_key: Union[str, Sequence[str], None],
         register_meta: bool,
         register_impl: bool,
     ):
@@ -138,7 +146,15 @@ class CustomOp(ABC):
             library.impl(name, _get_meta_impl(self), "Meta")
 
         if register_impl:
-            library.impl(name, _create_impl_trampoline(self), dispatch_key)
+            if dispatch_key is None:
+                dispatch_key = default_dispatch_keys()
+            elif isinstance(dispatch_key, str):
+                dispatch_key = [dispatch_key]
+            for k in dispatch_key:
+                library.impl(name, _create_impl_trampoline(self), k)
+
+        fq_name = f"{library.ns}.{name}"
+        ALL_CUSTOM_OP_REGS[fq_name] = self
 
     @abstractproperty
     def name(self) -> str:
@@ -190,7 +206,12 @@ class CustomOp(ABC):
         ...
 
 
-class KernelSelection:
+# All instantiated CustomOp instances, keyed by fully qualified name. This is
+# used by the AOT compiler to expand custom ops that were captured in a trace.
+ALL_CUSTOM_OP_REGS: dict[str, CustomOp] = {}
+
+
+class KernelSelection(ABC):
     """Represents a selected kernel based on a concrete signature.
 
     The `CustomOp.select` method must yield an instance of this, and
@@ -204,17 +225,15 @@ class KernelSelection:
     """
 
     __slots__ = [
-        "args",
         "arg_descs",
         "op",
         "result_descs",
         "variant",
     ]
 
-    def __init__(self, op: CustomOp, args: list[Any]):
+    def __init__(self, op: CustomOp, arg_arity: int):
         self.op = op
-        self.args = args
-        self.arg_descs: list[Optional[ArgDescriptor]] = len(args) * [None]
+        self.arg_descs: list[Optional[ArgDescriptor]] = arg_arity * [None]
         self.result_descs: list[ArgDescriptor] = []
         self.variant: str = "default"
 
@@ -237,8 +256,11 @@ class KernelSelection:
 
     def generate_meta_returns(self) -> Any:
         results = [d.generate_meta() for d in self.result_descs]
-        if len(results) == 1:
+        arity = len(results)
+        if arity == 1:
             return results[0]
+        elif arity == 0:
+            return None
         else:
             return tuple(results)
 
@@ -255,6 +277,7 @@ class KernelSelection:
                 f"Error generating spec_key from:\n{textwrap.indent(repr(self), '  ')}"
             ) from e
 
+    @abstractmethod
     def arg_tensor(self, arg: int) -> "TensorArg":
         """Declares an argument to allow any ranked tensor and to specialize for each rank
         and dtype.
@@ -262,6 +285,59 @@ class KernelSelection:
         Returns the argument descriptor, which can be used to further inspect or constrain
         the selection. It will default to allowing all dimensions to be dynamic.
         """
+        ...
+
+    @abstractmethod
+    def arg_tensor_list(self, arg: int) -> "TensorListArg":
+        """Declares an argument to accept a list of tensors which will be specialized
+        for the list size and each rank/dtype.
+
+        Returns the argument descriptor, which can be used to further inspect or constrain
+        the selection. It will default to allowing all dimensions to be dynamic.
+        """
+        ...
+
+    @abstractmethod
+    def arg_int(self, arg: int) -> "IntArg":
+        """Declares an argument to be an integer value that can take any value.
+
+        Returns the argument descriptor, which can be used to further inspect or constrain
+        the selection.
+        """
+        ...
+
+    @abstractmethod
+    def attr_str(self, arg: int) -> "AttrArg":
+        """Declares an argument to be a string attribute.
+
+        Such arguments are not materialized in the IR as Values but may be used to
+        generate the IR. In AOT contexts, they must be derived from static values.
+        """
+        ...
+
+    @abstractmethod
+    def return_tensor(self, t: Tensor) -> "TensorArg":
+        """Marks the next return value as a Tensor.
+
+        By default, it will be rank and dtype specialized but have completely dynamic
+        dimensions. Dimensions can be further constrained by modifying the returned
+        descriptor.
+        """
+        ...
+
+
+class EagerKernelSelection(KernelSelection):
+    """Kernel selection specialized for eager arguments."""
+
+    __slots__ = [
+        "args",
+    ]
+
+    def __init__(self, op: CustomOp, args: list[Any]):
+        super().__init__(op, len(args))
+        self.args = args
+
+    def arg_tensor(self, arg: int) -> "TensorArg":
         arg_descs = self.arg_descs
         arg_value = self.args[arg]
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
@@ -272,12 +348,6 @@ class KernelSelection:
         return desc
 
     def arg_tensor_list(self, arg: int) -> "TensorListArg":
-        """Declares an argument to accept a list of tensors which will be specialized
-        for the list size and each rank/dtype.
-
-        Returns the argument descriptor, which can be used to further inspect or constrain
-        the selection. It will default to allowing all dimensions to be dynamic.
-        """
         arg_descs = self.arg_descs
         arg_value = self.args[arg]
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
@@ -288,11 +358,6 @@ class KernelSelection:
         return desc
 
     def arg_int(self, arg: int) -> "IntArg":
-        """Declares an argument to be an integer value that can take any value.
-
-        Returns the argument descriptor, which can be used to further inspect or constrain
-        the selection.
-        """
         arg_descs = self.arg_descs
         arg_value = self.args[arg]
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
@@ -303,11 +368,6 @@ class KernelSelection:
         return desc
 
     def attr_str(self, arg: int) -> "AttrArg":
-        """Declares an argument to be a string attribute.
-
-        Such arguments are not materialized in the IR as Values but may be used to
-        generate the IR. In AOT contexts, they must be derived from static values.
-        """
         arg_descs = self.arg_descs
         arg_value = self.args[arg]
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
@@ -318,12 +378,6 @@ class KernelSelection:
         return desc
 
     def return_tensor(self, t: Tensor) -> "TensorArg":
-        """Marks the next return value as a Tensor.
-
-        By default, it will be rank and dtype specialized but have completely dynamic
-        dimensions. Dimensions can be further constrained by modifying the returned
-        descriptor.
-        """
         desc = TensorArg(t)
         self.result_descs.append(desc)
         return desc
@@ -538,6 +592,7 @@ class KernelBuilder(ABC):
         self.ip = ip
         self.module_body = module_body
         self.symbol_table = symbol_table
+        self.yielded = False
 
     def arg_value(self, index: int) -> Union[list[Value], Value]:
         """Gets the concrete IR `Value` for the argument at `index`.
@@ -629,7 +684,7 @@ class FreeFuncKernelBuilder(KernelBuilder):
         for desc in ksel.arg_descs:
             arity = desc.ir_arity
             if not desc.is_list:
-                if desc.ir_arity == 1:
+                if arity == 1:
                     arg_bindings.append(block_arguments[block_arg_index])
                     block_arg_index += 1
                 else:
@@ -671,8 +726,10 @@ class FreeFuncKernelBuilder(KernelBuilder):
 
     def yield_results(self, *results: Value):
         """Yields results of the kernel computation."""
+        assert not self.yielded, "yield_results has already been called"
         with self.ip, Location.unknown():
             func_d.ReturnOp(results)
+        self.yielded = True
 
 
 ###############################################################################
@@ -687,7 +744,7 @@ def _get_library_op(library: torch.library.Library, name: str) -> Any:
 
 def _get_meta_impl(op: CustomOp):
     def meta(*args):
-        sel = KernelSelection(op, args)
+        sel = EagerKernelSelection(op, args)
         op.select(sel)
         if logger.isEnabledFor(logging.DEBUG):
             logging.debug(
@@ -706,7 +763,7 @@ def _create_impl_trampoline(op: CustomOp):
     )
 
     def handler(*args):
-        ksel = KernelSelection(op, args)
+        ksel = EagerKernelSelection(op, args)
         op.select(ksel)
         if logger.isEnabledFor(logging.DEBUG):
             logging.debug(
