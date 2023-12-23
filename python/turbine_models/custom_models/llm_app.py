@@ -92,7 +92,7 @@ class SharkLLM(object):
         # Because we have stored the res in KV-cache.
         token_len = input_ids.shape[-1]
         if self.init_cache:
-            input_ids = input_ids[:, self.prev_token_len:]
+            input_ids = input_ids[:, self.prev_token_len :]
         inputs = [ireert.asdevicearray(self.runner.config.device, input_ids)]
         if self.first_input or not self.init_cache:
             s = time.time()
