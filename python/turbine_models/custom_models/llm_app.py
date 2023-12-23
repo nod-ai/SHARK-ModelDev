@@ -4,6 +4,7 @@ from transformers import AutoTokenizer
 from iree import runtime as ireert
 import torch
 import time
+
 parser = argparse.ArgumentParser()
 
 # TODO move common runner flags to generic flag file
@@ -55,20 +56,26 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
 
 B_INST, E_INST = "[INST]", "[/INST]"
 B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+
+
 def append_user_prompt(history, input_prompt):
     user_prompt = f"{B_INST} {input_prompt} {E_INST}"
     history += user_prompt
     return history
+
 
 def append_bot_prompt(history, input_prompt):
     user_prompt = f"{B_SYS} {input_prompt} {E_SYS}"
     history += user_prompt
     return history
 
+
 class SharkLLM(object):
     def __init__(self, device, vmfb_path, external_weight_path, init_cache=False):
         self.runner = vmfbRunner(
-            device=device, vmfb_path=vmfb_path, external_weight_path=external_weight_path
+            device=device,
+            vmfb_path=vmfb_path,
+            external_weight_path=external_weight_path,
         )
         self.first_input = True
         self.num_tokens = 0
@@ -87,13 +94,15 @@ class SharkLLM(object):
         if self.init_cache:
             input_ids = input_ids[:, self.prev_token_len:]
         inputs = [ireert.asdevicearray(self.runner.config.device, input_ids)]
-        if (self.first_input or not self.init_cache):
+        if self.first_input or not self.init_cache:
             s = time.time()
             results = self.runner.ctx.modules.state_update["run_initialize"](
                 *inputs
             )  # example_input_id
             e = time.time()
-            print(f"num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}")
+            print(
+                f"num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}"
+            )
             token_len += 1
             self.first_input = False
         else:
@@ -103,7 +112,9 @@ class SharkLLM(object):
             )  # example_input_id
             e = time.time()
             token_len += 1
-            print(f"Cached num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}")
+            print(
+                f"Cached num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}"
+            )
         s = time.time()
         predecode_tokens = token_len
         while self.format_out(results) != 2:
@@ -114,12 +125,21 @@ class SharkLLM(object):
             token_len += 1
         e = time.time()
         decoded_tokens = token_len - predecode_tokens
-        print(f"Decode num_tokens: {decoded_tokens}, time_taken={e-s}, tok/second:{decoded_tokens/(e-s)}")
+        print(
+            f"Decode num_tokens: {decoded_tokens}, time_taken={e-s}, tok/second:{decoded_tokens/(e-s)}"
+        )
         self.prev_token_len = token_len
         return turbine_results
 
+
 def run_llm(
-    device, system_prompt, vmfb_path, hf_model_name, hf_auth_token, external_weight_path, init_cache
+    device,
+    system_prompt,
+    vmfb_path,
+    hf_model_name,
+    hf_auth_token,
+    external_weight_path,
+    init_cache,
 ):
     runner = vmfbRunner(
         device=device, vmfb_path=vmfb_path, external_weight_path=external_weight_path
@@ -129,7 +149,12 @@ def run_llm(
         use_fast=False,
         token=hf_auth_token,
     )
-    llm = SharkLLM(device=device, vmfb_path=vmfb_path, external_weight_path=external_weight_path, init_cache=init_cache)
+    llm = SharkLLM(
+        device=device,
+        vmfb_path=vmfb_path,
+        external_weight_path=external_weight_path,
+        init_cache=init_cache,
+    )
     prompt = system_prompt
     while True:
         user_prompt = input("User prompt: ")
@@ -140,6 +165,7 @@ def run_llm(
         bot_response = tokenizer.decode(result)
         print(f"\nBOT: {bot_response}\n")
         prompt = append_bot_prompt(prompt, bot_response)
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
