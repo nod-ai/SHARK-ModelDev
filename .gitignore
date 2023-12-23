@@ -22,3 +22,8 @@ dist/
 wheelhouse
 *.egg-info
 *.whl
+
+#Model weights
+*.pt
+*.safetensors
+*.gguf

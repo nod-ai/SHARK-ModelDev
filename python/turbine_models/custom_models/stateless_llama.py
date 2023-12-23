@@ -62,6 +62,8 @@ json_schema = """
 def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
     all_pkv_tensors = []
     for i in range(heads * 2):
+        # Numpy semantic: sliced = global_pkv[i, 0, 0:seq_step, 0:heads, 0:hidden_dim]
+        # Generates tensor<1 x 1 x seq_step x heads x hidden_dim>
         sliced = IREE.tensor_slice(
             global_pkv, i, 0, (0, seq_step), (0, heads), (0, hidden_dim)
         )  # sequence context dim
@@ -149,6 +151,33 @@ def export_transformer_model(
                 )
             return token
 
+        def run_cached_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
+            state_arg = slice_up_to_step(
+                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
+            )
+            forw_const = (
+                [x.dynamic_dim(1) < MAX_STEP_SEQ]
+                + [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                + [
+                    x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
+                    for x in state_arg[1:]
+                ]
+                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+            )
+            token, *state = self.cached_initialize(x, *state_arg, constraints=forw_const)
+            len_of_new_tokens = IREE.tensor_dim(
+                state[0], 1
+            )  # ? dimension of arbitrarily 0th kv tensor
+            for i in range(HEADS * 2):
+                slice_of_state = IREE.tensor_reshape(
+                    state[i], 1, 1, len_of_new_tokens, HEADS, HIDDEN_DIM
+                )
+                self.global_state = IREE.tensor_update(
+                    self.global_state, slice_of_state, i, 0, self.global_seq_step, 0, 0
+                )
+            self.global_seq_step = self.global_seq_step + len_of_new_tokens
+            return token
+
         def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
             state_arg = slice_up_to_step(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
@@ -186,6 +215,19 @@ def export_transformer_model(
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
             state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
+            return token1, *state1_flat
+
+        @jittable
+        def cached_initialize(input_ids, *state0_flat):
+            # Unpad the states.
+            cur_token_len = state0_flat[0].size(1)
+            state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
+            state0 = pytree.tree_unflatten(state0_flat, state_schema)
+            result = mod.forward(input_ids, past_key_values=state0)
+            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
+            state1_flat = [torch.transpose(x[:, :, cur_token_len:, :], 1, 2) for x in state1_flat]
+            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
+            token1 = token1[None, :]
             return token1, *state1_flat
 
         @jittable
