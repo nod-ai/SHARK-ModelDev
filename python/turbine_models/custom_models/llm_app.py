@@ -55,7 +55,7 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
 )
 
 B_INST, E_INST = "[INST]", "[/INST]"
-B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+B_SYS, E_SYS = "<s>", "</s>"
 
 
 def append_user_prompt(history, input_prompt):
@@ -92,7 +92,8 @@ class SharkLLM(object):
         # Because we have stored the res in KV-cache.
         token_len = input_ids.shape[-1]
         if self.init_cache:
-            input_ids = input_ids[:, self.prev_token_len :]
+            token_slice = max(self.prev_token_len - 1, 0)
+            input_ids = input_ids[:, token_slice:]
         inputs = [ireert.asdevicearray(self.runner.config.device, input_ids)]
         if self.first_input or not self.init_cache:
             s = time.time()
@@ -111,24 +112,22 @@ class SharkLLM(object):
                 *inputs
             )  # example_input_id
             e = time.time()
-            token_len += 1
             print(
                 f"Cached num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}"
             )
+            token_len += 1
         s = time.time()
-        predecode_tokens = token_len
         while self.format_out(results) != 2:
             results = self.runner.ctx.modules.state_update["run_forward"](results)
             # uncomment to see tokens as they are emitted
             # print(f"turbine: {tokenizer.decode(self.format_out(results))}")
             turbine_results.append(self.format_out(results))
-            token_len += 1
         e = time.time()
-        decoded_tokens = token_len - predecode_tokens
+        decoded_tokens = len(turbine_results)
         print(
             f"Decode num_tokens: {decoded_tokens}, time_taken={e-s}, tok/second:{decoded_tokens/(e-s)}"
         )
-        self.prev_token_len = token_len
+        self.prev_token_len = token_len + decoded_tokens
         return turbine_results
 
 
@@ -165,6 +164,7 @@ def run_llm(
         bot_response = tokenizer.decode(result)
         print(f"\nBOT: {bot_response}\n")
         prompt = append_bot_prompt(prompt, bot_response)
+        # print("total prompt:",prompt)
 
 
 if __name__ == "__main__":
