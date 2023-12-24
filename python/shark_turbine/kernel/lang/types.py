@@ -1,8 +1,11 @@
 from typing import Type
 
+from ..ops.math import vector_add, vector_sub, vector_mul, vector_div
+
 
 __all__ = [
     "Index",
+    "Vector",
 ]
 
 ###############################################################################
@@ -34,3 +37,17 @@ class Index(int):
     """
 
     ...
+
+
+class Vector:
+    def __add__(self, other: "Vector") -> "Vector":
+        return vector_add(self, other)
+
+    def __sub__(self, other: "Vector") -> "Vector":
+        return vector_sub(self, other)
+
+    def __mul__(self, other: "Vector") -> "Vector":
+        return vector_mul(self, other)
+
+    def __truediv__(self, other: "Vector") -> "Vector":
+        return vector_div(self, other)

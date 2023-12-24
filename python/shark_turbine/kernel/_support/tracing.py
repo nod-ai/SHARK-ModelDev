@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, TypeVar, Callable, Type, assert_type, cast
+from typing import Optional, TypeVar, Callable, Type, assert_type, cast, List
 
 import functools
 import warnings
@@ -15,6 +15,7 @@ from .indexing import (
 
 from ..lang.types import (
     Index,
+    Vector,
 )
 
 from .. import ops
@@ -114,6 +115,10 @@ class CompiledContext(BaseContext):
         self.tracer = tracer
         self.grid_type = grid_type
 
+    ### ========================================================================
+    ### Core Operations
+    ### ========================================================================
+
     def handle_thread_program_id(self, op, axis: int) -> Index:
         grid_shape = self.grid_type.symbolic_shape
         if axis < 0 or axis >= len(grid_shape):
@@ -142,6 +147,70 @@ class CompiledContext(BaseContext):
             "call_function",
             target=op,
             args=(kernel_buffer, key, item),
+            kwargs={},
+        )
+
+    ### ========================================================================
+    ### Math Operations
+    ### ========================================================================
+
+    def handle_vector_add(self, op, lhs: Vector, rhs: Vector):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs),
+            kwargs={},
+        )
+
+    def handle_vector_sub(self, op, lhs: Vector, rhs: Vector):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs),
+            kwargs={},
+        )
+
+    def handle_vector_mul(self, op, lhs: Vector, rhs: Vector):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs),
+            kwargs={},
+        )
+
+    def handle_vector_div(self, op, lhs: Vector, rhs: Vector):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs),
+            kwargs={},
+        )
+
+    def handle_vector_exp(self, op, source: Vector):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(source,),
+            kwargs={},
+        )
+
+    ### ========================================================================
+    ### Reduction Operations
+    ### ========================================================================
+
+    def handle_vector_max(self, op, source: Vector, dims: List[int]):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(source, dims),
+            kwargs={},
+        )
+
+    def handle_vector_sum(self, op, source: Vector, dims: List[int]):
+        return self.tracer.create_proxy(
+            "call_function",
+            target=op,
+            args=(source, dims),
             kwargs={},
         )
 
