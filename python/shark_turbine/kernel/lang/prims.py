@@ -19,6 +19,7 @@ __all__ = [
     "exp",
     "max",
     "sum",
+    "for_loop",
 ]
 
 
@@ -37,3 +38,5 @@ exp = ops.vector_exp
 
 max = ops.vector_max
 sum = ops.vector_sum
+
+for_loop = ops.for_loop

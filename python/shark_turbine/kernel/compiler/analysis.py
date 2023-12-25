@@ -146,6 +146,8 @@ class SliceAnalysis:
             stop_sym = _symbolize_slice_value(stop)
             step_sym = _symbolize_slice_value(step)
 
+            return slice(start, stop, step)
+
             # Evaluate facts for start.
             if isinstance(start_sym, SymbolExpr):
                 start_is_non_negative = start_sym.is_non_negative()

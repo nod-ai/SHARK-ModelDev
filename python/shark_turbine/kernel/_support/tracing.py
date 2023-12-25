@@ -1,8 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Optional, TypeVar, Callable, Type, assert_type, cast, List
+from typing import Optional, TypeVar, Callable, Type, assert_type, cast, List, Dict, Tuple, Any
 
 import functools
 import warnings
+import contextlib
+import torch.utils._pytree as pytree
+import random
 
 import torch.fx as fx
 
@@ -18,6 +21,9 @@ from ..lang.types import (
     Vector,
 )
 
+from .regions import RegionGraph, SubgraphTracer
+
+
 from .. import ops
 from ..ops.base import (
     OpDispatcher,
@@ -26,6 +32,14 @@ from ..ops.base import (
 from . import context
 
 TCallable = TypeVar("TCallable", bound=Callable)
+
+###############################################################################
+# Kernel Region Graph
+###############################################################################
+
+class KernelRegionGraph(RegionGraph):
+    def new_subtracer(self, region_graph: "RegionGraph", parent : Optional["SubgraphTracer"] = None) -> "KernelTracer":
+        return KernelTracer(region_graph, parent=parent)
 
 ###############################################################################
 # Tracing machinery
@@ -51,19 +65,26 @@ class KernelBufferProxy(fx.Proxy):
         ops.kernel_buffer_setitem(self, key, item)
 
 
-class KernelTracer(fx.Tracer):
+class KernelTracer(SubgraphTracer):
     """Custom Tracer for generating a trace of a kernel computation."""
 
+    # Register our custom proxies.
     def proxy(self, node: fx.Node) -> fx.Proxy:
         t = node.type
         if t is not None and issubclass(t, KernelBuffer):
             return KernelBufferProxy(node, self, t)
         return super().proxy(node)
 
-
 class CapturedTrace:
-    def __init__(self, gm: fx.GraphModule):
-        self.gm = gm
+    def __init__(self, region_graph: RegionGraph, root_graph: str):
+        self.region_graph = region_graph
+        self.root_graph = root_graph
+
+    def get_subgraph(self, name: str) -> fx.Graph:
+        return self.region_graph.subgraphs[name]
+
+    def get_root_graph(self) -> fx.Graph:
+        return self.get_subgraph(self.root_graph)
 
 
 ###############################################################################
@@ -110,9 +131,9 @@ class EagerContext(BaseContext):
 
 
 class CompiledContext(BaseContext):
-    def __init__(self, tracer: KernelTracer, *, grid_type: Type[Grid]):
+    def __init__(self, region_graph: RegionGraph, *, grid_type: Type[Grid]):
         super().__init__(eager=False)
-        self.tracer = tracer
+        self.region_graph = region_graph
         self.grid_type = grid_type
 
     ### ========================================================================
@@ -125,7 +146,7 @@ class CompiledContext(BaseContext):
             raise IndexError(
                 f"Illegal index into grid of rank {len(grid_shape)}: {axis}"
             )
-        proxy = self.tracer.create_proxy(
+        proxy = self.region_graph.create_proxy(
             "call_function",
             op,
             args=(axis,),
@@ -135,7 +156,7 @@ class CompiledContext(BaseContext):
         return proxy
 
     def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             op,
             args=(kernel_buffer, key),
@@ -143,7 +164,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
-        self.tracer.create_proxy(
+        self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(kernel_buffer, key, item),
@@ -151,11 +172,38 @@ class CompiledContext(BaseContext):
         )
 
     ### ========================================================================
+    ### Control Flow Operations
+    ### ========================================================================
+    def handle_for_loop(self, op, start, stop = None, step = None, init_args = []):
+        if stop is None:
+            stop = start
+            start = 0
+        if step is None:
+            step = 1
+
+        def wrapper(f):
+            with self.region_graph.subtracer() as subtracer:
+                subgraph_name, implicit_capture = subtracer.trace(f)
+            # Create a call to this subgraph
+            ret = self.region_graph.create_proxy(
+                "call_function",
+                target=op,
+                name="for_loop",
+                args=(start, stop, step, init_args),
+                kwargs={
+                    'subgraph': subgraph_name,
+                    'implicit_capture': implicit_capture,
+                },
+            )
+            return ret
+        return wrapper
+
+    ### ========================================================================
     ### Math Operations
     ### ========================================================================
 
     def handle_vector_add(self, op, lhs: Vector, rhs: Vector):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(lhs, rhs),
@@ -163,7 +211,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_sub(self, op, lhs: Vector, rhs: Vector):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(lhs, rhs),
@@ -171,7 +219,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_mul(self, op, lhs: Vector, rhs: Vector):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(lhs, rhs),
@@ -179,7 +227,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_div(self, op, lhs: Vector, rhs: Vector):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(lhs, rhs),
@@ -187,7 +235,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_exp(self, op, source: Vector):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(source,),
@@ -199,7 +247,7 @@ class CompiledContext(BaseContext):
     ### ========================================================================
 
     def handle_vector_max(self, op, source: Vector, dims: List[int]):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(source, dims),
@@ -207,7 +255,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_sum(self, op, source: Vector, dims: List[int]):
-        return self.tracer.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(source, dims),
