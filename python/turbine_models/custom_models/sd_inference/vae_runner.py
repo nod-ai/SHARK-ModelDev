@@ -74,7 +74,7 @@ def run_torch_vae(hf_model_name, hf_auth_token, variant, example_input):
             with torch.no_grad():
                 x = self.vae.decode(inp, return_dict=False)[0]
                 return x
-        
+
         def encode_inp(self, inp):
             latents = self.vae.encode(inp).latent_dist.sample()
             return 0.18215 * latents

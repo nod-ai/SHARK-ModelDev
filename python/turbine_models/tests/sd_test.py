@@ -169,7 +169,10 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
-            arguments["hf_model_name"], arguments["hf_auth_token"], "decode", example_input
+            arguments["hf_model_name"],
+            arguments["hf_auth_token"],
+            "decode",
+            example_input,
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
@@ -211,7 +214,10 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
-            arguments["hf_model_name"], arguments["hf_auth_token"], "encode", example_input
+            arguments["hf_model_name"],
+            arguments["hf_auth_token"],
+            "encode",
+            example_input,
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 2e-3
