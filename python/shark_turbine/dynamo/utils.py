@@ -63,8 +63,9 @@ def scaled_dot_product_flash_attention(
 # manually add decomposition to bypass the error that comes
 # from VAE encode(inp).latent_dist.sample() failing to symbolically
 # trace from torch fx.
+# Expected Torch stable version: > 2.1.0
 # diffusers side issue: https://github.com/huggingface/diffusers/issues/6239
-# temporary torch fix: https://github.com/pytorch/pytorch/issues/107170
+# temporary Torch fix: https://github.com/pytorch/pytorch/issues/107170
 @register_decomposition(torch.ops.aten.randn.generator)
 @out_wrapper()
 def randn_generator(
