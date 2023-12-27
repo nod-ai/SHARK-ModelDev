@@ -53,6 +53,7 @@ parser.add_argument(
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
+parser.add_argument("--variant", type=str, default="decode")
 
 
 class VaeModel(torch.nn.Module):
@@ -64,10 +65,14 @@ class VaeModel(torch.nn.Module):
             token=hf_auth_token,
         )
 
-    def forward(self, inp):
+    def decode_inp(self, inp):
         with torch.no_grad():
             x = self.vae.decode(inp, return_dict=False)[0]
             return x
+
+    def encode_inp(self, inp):
+        latents = self.vae.encode(inp).latent_dist.sample()
+        return 0.18215 * latents
 
 
 def export_vae_model(
@@ -83,6 +88,7 @@ def export_vae_model(
     device=None,
     target_triple=None,
     max_alloc=None,
+    variant="decode",
 ):
     mapper = {}
     utils.save_external_weights(
@@ -90,12 +96,17 @@ def export_vae_model(
     )
 
     sample = (batch_size, 4, height // 8, width // 8)
+    if variant == "encode":
+        sample = (batch_size, 3, height, width)
 
     class CompiledVae(CompiledModule):
         params = export_parameters(vae_model)
 
         def main(self, inp=AbstractTensor(*sample, dtype=torch.float32)):
-            return jittable(vae_model.forward)(inp)
+            if variant == "decode":
+                return jittable(vae_model.decode_inp)(inp)
+            elif variant == "encode":
+                return jittable(vae_model.encode_inp)(inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledVae(context=Context(), import_to=import_to)
@@ -127,6 +138,7 @@ if __name__ == "__main__":
         args.device,
         args.iree_target_triple,
         args.vulkan_max_allocation,
+        args.variant,
     )
     safe_name = utils.create_safe_name(args.hf_model_name, "-vae")
     with open(f"{safe_name}.mlir", "w+") as f:
