@@ -8,6 +8,7 @@ import torch
 from torch.utils import _pytree as pytree
 from shark_turbine.aot import *
 from iree.compiler.ir import Context
+from llm_optimizations.streaming_llm.modify_llama import enable_llama_pos_shift_attention
 
 from turbine_models.custom_models import remap_gguf
 import safetensors
@@ -93,6 +94,7 @@ def export_transformer_model(
         torch_dtype=torch.float,
         token=hf_auth_token,
     )
+    enable_llama_pos_shift_attention(mod)
     dtype = torch.float32
     if precision == "f16":
         mod = mod.half()
@@ -177,6 +179,30 @@ def export_transformer_model(
                 )
             self.global_seq_step = self.global_seq_step + len_of_new_tokens
             return token
+
+        # Streaming-LLM KVCache evict algorithm:
+        # slice1 = KVCache[0 : sink]
+        # slice2 = KVCache[seq_len - window_size : seq_len]
+        # KVCache = torch.cat([slice1, slice2])
+        # TODO: There is actual overlap of data.
+        # For e.g at token length 600, sink size 4, and window size 508
+        # Then KVCache[4:512] going to be replaced by KVCache[600-508: (600-508)+508]
+        # => KVCache[4:512] = KVCache[92:600] => Much overlap of data(i.e 92->512)
+        # => We'd need to do a copy and then replace. Or we can make the gap at least 2X.
+        def evict_kvcache_space(self):
+            # TODO: Replace hardcoded with global variable.
+            sink_size = 4
+            window_size = 252
+            most_recent_window = self.global_seq_step + (-window_size)
+            for i in range(HEADS * 2):
+                update_window_state = IREE.tensor_slice(
+                    self.global_state, i, 0, (most_recent_window, window_size), (0, HEADS), (0, HIDDEN_DIM)
+                )  # sequence context dim
+                self.global_state = IREE.tensor_update(
+                    self.global_state, update_window_state, i, 0, sink_size, 0, 0
+                )
+            self.global_seq_step = self.global_seq_step.set(window_size + sink_size)
+            return self.global_seq_step
 
         def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
             state_arg = slice_up_to_step(

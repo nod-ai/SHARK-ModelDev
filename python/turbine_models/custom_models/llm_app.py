@@ -86,7 +86,14 @@ class SharkLLM(object):
     def format_out(self, results):
         return torch.tensor(results.to_host()[0][0])
 
+    def evict_kvcache_space(self):
+        self.runner.ctx.modules.state_update["evict_kvcache_space"]()
+
     def generate(self, input_ids):
+        # TODO: Replace with args.
+        if self.init_cache and self.runner.ctx.modules.state_update["get_seq_step"]() > 600:
+            print("Evicting cache space!")
+            self.runner.ctx.modules.state_update["evict_kvcache_space"]()
         turbine_results = []
         # Only need not seen token for init cache
         # Because we have stored the res in KV-cache.
@@ -118,6 +125,9 @@ class SharkLLM(object):
             token_len += 1
         s = time.time()
         while self.format_out(results) != 2:
+            if self.init_cache and self.runner.ctx.modules.state_update["get_seq_step"]() > 600:
+                print("Evicting cache space!")
+                self.runner.ctx.modules.state_update["evict_kvcache_space"]()
             results = self.runner.ctx.modules.state_update["run_forward"](results)
             # uncomment to see tokens as they are emitted
             # print(f"turbine: {tokenizer.decode(self.format_out(results))}")
@@ -164,7 +174,6 @@ def run_llm(
         bot_response = tokenizer.decode(result)
         print(f"\nBOT: {bot_response}\n")
         prompt = append_bot_prompt(prompt, bot_response)
-        # print("total prompt:",prompt)
 
 
 if __name__ == "__main__":

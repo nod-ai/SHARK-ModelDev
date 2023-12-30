@@ -68,6 +68,28 @@ class IrScalar(Intrinsic):
     def __init__(self, ir_type: IrType):
         self.ir_type = ir_type
 
+    def set(self, other):
+        t = current_ir_trace()
+        with t.ip, t.loc:
+            # Type check and promotion.
+            # TODO: Add more comprehensive type promotion hiearchy as seen in
+            # https://jax.readthedocs.io/en/latest/jep/9407-type-promotion.html
+            # See: https://github.com/nod-ai/SHARK-Turbine/issues/132
+            lhs = self.ir_value
+            rhs = None
+            if isinstance(other, IrScalar):
+                # Assumes when both are Value, they have same type.
+                rhs = other.ir_value
+            elif isinstance(other, (int, bool)) and _is_integer_like_type(self.ir_type):
+                rhs = arith_d.ConstantOp(lhs.type, other).result
+            elif isinstance(other, (float)) and _is_float_type(self.ir_type):
+                rhs = arith_d.ConstantOp(lhs.type, other).result
+            if rhs is None or lhs.type != rhs.type:
+                raise ValueError(
+                    f"Cannot handle src type of {self.ir_type} to dst python type of {type(other)}."
+                )
+            return IrImmediateScalar(rhs)
+
     def __add__(self, other):
         t = current_ir_trace()
         with t.ip, t.loc:
