@@ -142,7 +142,7 @@ def export_transformer_model(
         else:
             params = export_parameters(mod)
         global_state = export_global(
-            abstractify(global_pkv), uninitialized=False, mutable=True
+            abstractify(global_pkv), uninitialized=True, mutable=True
         )
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
@@ -281,7 +281,7 @@ def export_transformer_model(
                 self.global_state = IREE.tensor_update(
                     self.global_state, update_window_state, i, 0, sink_size, 0, 0
                 )
-            self.global_seq_step = self.global_seq_step.set(window_size + sink_size)
+            self.global_seq_step.set(window_size + sink_size)
             return self.global_seq_step
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"

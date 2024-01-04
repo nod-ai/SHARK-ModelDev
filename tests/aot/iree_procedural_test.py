@@ -251,6 +251,22 @@ class CompiledModuleAPI(unittest.TestCase):
         self.assertIn("%cst = arith.constant 3.230000e+00 : f32", module_str)
         self.assertIn("arith.addf %0, %cst : f32", module_str)
 
+    def testSetScalarState(self):
+        class ArithModule(CompiledModule):
+            state_index = export_global(AbstractIndex, mutable=True)
+            state_f32 = export_global(AbstractF32, mutable=True)
+
+            def foobar(self):
+                self.state_index.set(5)
+                self.state_f32.set(5.5)
+
+        inst = ArithModule(context=Context(), import_to=None)
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global.store %c5, @_state_index.global : index", module_str)
+        self.assertIn("%cst = arith.constant 5.500000e+00 : f32", module_str)
+        self.assertIn("util.global.store %cst, @_state_f32.global", module_str)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

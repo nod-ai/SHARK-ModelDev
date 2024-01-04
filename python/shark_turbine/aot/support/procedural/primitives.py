@@ -72,9 +72,7 @@ class IrScalar(Intrinsic):
         t = current_ir_trace()
         with t.ip, t.loc:
             # Type check and promotion.
-            # TODO: Add more comprehensive type promotion hiearchy as seen in
-            # https://jax.readthedocs.io/en/latest/jep/9407-type-promotion.html
-            # See: https://github.com/nod-ai/SHARK-Turbine/issues/132
+            # TODO: Add more comprehensive type promotion hiearchy.
             lhs = self.ir_value
             rhs = None
             if isinstance(other, IrScalar):

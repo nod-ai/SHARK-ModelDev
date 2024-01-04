@@ -344,7 +344,7 @@ class CompiledModuleMeta(type):
             if key not in dct:
                 dct[key] = _blackhole_instance_attribute
 
-        # Inheritting methods, globals, and export from parent class.
+        # Inheriting methods, globals, and export from parent class.
         # Use case such as building a child-class to StatelessLlama.
         for base in bases:
             if base is CompiledModule:
