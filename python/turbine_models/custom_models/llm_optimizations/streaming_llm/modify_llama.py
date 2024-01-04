@@ -91,7 +91,9 @@ def llama_pos_shift_attention_forward(
 
     if past_key_value is not None:
         cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        key_states, value_states = past_key_value.update(
+            key_states, value_states, self.layer_idx, cache_kwargs
+        )
 
     ### Shift Pos: key pos is the pos in cache
     key_position_ids = torch.arange(kv_seq_len, device=position_ids.device).unsqueeze(0)

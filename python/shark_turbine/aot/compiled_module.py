@@ -334,6 +334,7 @@ class CompiledModuleMeta(type):
                 continue
             del_attr_keys.add(key)
             info.def_attribute(key, value)
+
         for key in del_attr_keys:
             del dct[key]
 
@@ -342,6 +343,17 @@ class CompiledModuleMeta(type):
         for key in _COMPILED_MODULE_API_ATTRIBUTES:
             if key not in dct:
                 dct[key] = _blackhole_instance_attribute
+
+        # Inheritting methods, globals, and export from parent class.
+        # Use case such as building a child-class to StatelessLlama.
+        for base in bases:
+            if base is CompiledModule:
+                continue
+            base_exports = _all_compiled_module_class_infos[base].all_exports
+            for export_name in base_exports:
+                if export_name in info.all_exports:
+                    continue
+                info.all_exports[export_name] = base_exports[export_name]
 
         # Finish construction.
         new_class = type.__new__(mcls, name, bases, dct)
