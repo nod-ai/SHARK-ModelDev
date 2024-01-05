@@ -23,7 +23,8 @@ wheelhouse
 *.egg-info
 *.whl
 
-#Model weights
+#Model artifacts
 *.pt
 *.safetensors
 *.gguf
+*.vmfb
