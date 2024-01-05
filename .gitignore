@@ -22,3 +22,9 @@ dist/
 wheelhouse
 *.egg-info
 *.whl
+
+#Model artifacts
+*.pt
+*.safetensors
+*.gguf
+*.vmfb

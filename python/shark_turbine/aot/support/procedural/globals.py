@@ -241,6 +241,10 @@ class IrGlobalScalar(IrScalar, MaterializedGlobal):
         with proc_trace.loc, proc_trace.ip:
             util_d.GlobalStoreOp(ir_values[0], self.symbol_name)
 
+    def set(self, other):
+        t = current_ir_trace()
+        self.resolve_assignment(t, super().set(other).ir_values)
+
     def __repr__(self):
         return (
             f"<IrGlobalScalar {self.export_name} = {self.symbol_name}:{self.ir_type}>"

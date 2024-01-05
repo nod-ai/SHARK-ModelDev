@@ -194,6 +194,67 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("@_state_i64.global {noinline} = 0 : i64", module_str)
         self.assertIn("@_state_bool.global {noinline} = false", module_str)
 
+    def testInheritExportScalars(self):
+        class BaseState(CompiledModule):
+            state_index = export_global(AbstractIndex, mutable=True)
+            state_f32 = export_global(AbstractF32, mutable=True)
+
+            def read(self):
+                return (self.state_index, self.state_f32)
+
+        class DerivedState(BaseState):
+            pass
+
+        inst = DerivedState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("@_state_index.global {noinline} = 0 : index", module_str)
+        self.assertIn("@_state_f32.global {noinline} = 0.000000e+00 : f32", module_str)
+        self.assertIn(
+            "return %_state_index.global, %_state_f32.global : index, f32", module_str
+        )
+
+    def testInheritOverrideBase(self):
+        class BaseState(CompiledModule):
+            state_index = export_global(AbstractIndex, mutable=True)
+            state_f32 = export_global(AbstractF32, mutable=True)
+
+            def read(self):
+                return (self.state_index, self.state_f32)
+
+        class DerivedState(BaseState):
+            def read(self):
+                return self.state_index
+
+        inst = DerivedState(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("@_state_index.global {noinline} = 0 : index", module_str)
+        self.assertNotIn(
+            "@_state_f32.global {noinline} = 0.000000e+00 : f32", module_str
+        )
+        self.assertIn("return %_state_index.global : index", module_str)
+
+    def testInheritExportModules(self):
+        m = SimpleParams()
+
+        class BaseModule(CompiledModule):
+            params = export_parameters(m, mutable=True)
+
+            def update_params(me, updates=abstractify(params)):
+                self.assertIn("classifier.weight", updates)
+                self.assertIn("classifier.bias", updates)
+                me.params = updates
+
+        class DerivedModule(BaseModule):
+            pass
+
+        inst = DerivedModule(context=Context())
+        module_str = str(CompiledModule.get_mlir_module(inst))
+        print(module_str)
+        self.assertIn("util.global.store %arg0, @_params.classifier.weight", module_str)
+        self.assertIn("util.global.store %arg1, @_params.classifier.bias", module_str)
+
     def testUpdateGlobalStateTree(self):
         state_example = {
             "data": torch.randn(3, 11),
