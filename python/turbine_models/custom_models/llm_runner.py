@@ -58,7 +58,7 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
 parser.add_argument(
     "--chat_mode",
     action="store_true",
-    help="Runs both turbine vmfb and a torch model to compare results",
+    help="Runs an interactive CLI chat mode.",
 )
 parser.add_argument(
     "--chat_sys_prompt",
