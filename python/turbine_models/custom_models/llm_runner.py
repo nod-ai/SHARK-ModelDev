@@ -4,6 +4,9 @@ from transformers import AutoTokenizer
 from iree import runtime as ireert
 import torch
 import time
+from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
+    enable_llama_pos_shift_attention,
+)
 
 parser = argparse.ArgumentParser()
 
@@ -196,7 +199,7 @@ def run_llm(
         prompt = append_bot_prompt(prompt, bot_response)
 
 
-def run_torch_llm(hf_model_name, hf_auth_token, prompt):
+def run_torch_llm(hf_model_name, hf_auth_token, prompt, streaming_llm=False):
     from turbine_models.model_builder import HFTransformerBuilder
     from transformers import AutoModelForCausalLM
 
@@ -208,6 +211,8 @@ def run_torch_llm(hf_model_name, hf_auth_token, prompt):
         auto_tokenizer=AutoTokenizer,
     )
     model_builder.build_model()
+    if streaming_llm is True:
+        enable_llama_pos_shift_attention(model_builder.model)
 
     def get_token_from_logits(logits):
         return torch.argmax(logits[:, -1, :], dim=1)

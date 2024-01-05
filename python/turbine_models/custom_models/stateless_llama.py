@@ -33,7 +33,9 @@ parser.add_argument(
 )
 parser.add_argument("--quantization", type=str, default="unquantized")
 parser.add_argument("--external_weight_file", type=str, default="")
-parser.add_argument("--vmfb_path", type=str, default="")
+parser.add_argument(
+    "--vmfb_path", type=str, default=None, help="Path/name to store compiled vmfb."
+)
 parser.add_argument(
     "--external_weights",
     type=str,
@@ -56,8 +58,7 @@ parser.add_argument(
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument(
     "--streaming_llm",
-    type=bool,
-    default=False,
+    action="store_true",
     help="Compile LLM with StreamingLLM optimizations",
 )
 
@@ -94,6 +95,7 @@ def export_transformer_model(
     target_triple=None,
     vulkan_max_allocation=None,
     streaming_llm=False,
+    vmfb_path=None,
 ):
     state_schema = pytree.treespec_loads(json_schema)
 
@@ -102,7 +104,8 @@ def export_transformer_model(
         torch_dtype=torch.float,
         token=hf_auth_token,
     )
-    enable_llama_pos_shift_attention(mod)
+    if streaming_llm:
+        enable_llama_pos_shift_attention(mod)
     dtype = torch.float32
     if precision == "f16":
         mod = mod.half()
@@ -354,7 +357,9 @@ def export_transformer_model(
             target_backends=[device],
             extra_args=flags,
         )
-        with open(f"{safe_name}.vmfb", "wb+") as f:
+        if vmfb_path is None:
+            vmfb_path = f"{safe_name}.vmfb"
+        with open(vmfb_path, "wb+") as f:
             f.write(flatbuffer_blob)
         print("saved to ", safe_name + ".vmfb")
         return module_str, tokenizer
@@ -374,6 +379,7 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
         args.streaming_llm,
+        args.vmfb_path,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
