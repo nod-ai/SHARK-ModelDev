@@ -7,34 +7,19 @@
 import os
 import sys
 
+import torch
+from torch.fx.experimental.proxy_tensor import make_fx
+from shark_turbine.aot import *
 from iree import runtime as ireert
 import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
-from shark_turbine.aot import *
-from turbine_models.custom_models.sd_inference import utils, unet
-import torch
-import torch._dynamo as dynamo
+
+from turbine_models.custom_models.sd_inference import utils
 from diffusers import (
-    LCMScheduler,
-    LMSDiscreteScheduler,
     PNDMScheduler,
-    DDPMScheduler,
-    DDIMScheduler,
-    DPMSolverMultistepScheduler,
-    KDPM2DiscreteScheduler,
-    EulerDiscreteScheduler,
-    EulerAncestralDiscreteScheduler,
-    DEISMultistepScheduler,
-    DPMSolverSinglestepScheduler,
-    KDPM2AncestralDiscreteScheduler,
-    HeunDiscreteScheduler,
     UNet2DConditionModel,
 )
-from torch.fx.experimental.proxy_tensor import make_fx
-
-
-hf_model_name = "CompVis/stable-diffusion-v1-4"
 
 
 class Scheduler(torch.nn.Module):
@@ -48,7 +33,7 @@ class Scheduler(torch.nn.Module):
         )
         self.guidance_scale = 7.5
 
-    def forward(self, latents, encoder_hidden_states):
+    def forward(self, latents, encoder_hidden_states) -> torch.FloatTensor:
         latents = latents * self.scheduler.init_noise_sigma
         for t in self.scheduler.timesteps:
             latent_model_input = torch.cat([latents] * 2)
@@ -61,17 +46,98 @@ class Scheduler(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        return latents
+        return noise_pred
 
-scheduler = Scheduler(hf_model_name, 10)
-inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768))
 
-fx_g = make_fx(
+'''def export_scheduler(
     scheduler,
-    decomposition_table={},
-    tracing_mode="symbolic",
-    _allow_non_fake_inputs=True,
-    _allow_fake_constant=False,
-)(*inputs)
+    hf_model_name,
+    batch_size,
+    height,
+    width,
+    hf_auth_token=None,
+    compile_to="torch",
+    external_weights=None,
+    external_weight_path=None,
+    device=None,
+    target_triple=None,
+    max_alloc=None,
+):
+    mapper = {}
+    utils.save_external_weights(
+        mapper, scheduler, external_weights, external_weight_path
+    )
 
-print(fx_g)
+    encoder_hidden_states_sizes = (2, 77, 768)
+    if hf_model_name == "stabilityai/stable-diffusion-2-1-base":
+        encoder_hidden_states_sizes = (2, 77, 1024)
+
+    sample = (batch_size, 4, height // 8, width // 8)
+    print('SAMPLE:', sample)
+    print('ENCODER HIDDEN STATES:', encoder_hidden_states_sizes)
+
+    class CompiledScheduler(CompiledModule):
+        if external_weights:
+            params = export_parameters(
+                scheduler, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(scheduler)
+
+        def main(
+            self,
+            sample=AbstractTensor(*sample, dtype=torch.float32),
+            encoder_hidden_states=AbstractTensor(
+                *encoder_hidden_states_sizes, dtype=torch.float32
+            ),
+        ):
+            return jittable(scheduler.forward)(sample, encoder_hidden_states)
+
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+    inst = CompiledScheduler(context=Context(), import_to=import_to)
+
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    safe_name = utils.create_safe_name(hf_model_name, "-vae")
+    if compile_to != "vmfb":
+        return module_str
+    else:
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)'''
+
+
+if __name__ == '__main__':
+    hf_model_name = "CompVis/stable-diffusion-v1-4"
+    scheduler = Scheduler(hf_model_name, 5)
+    inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
+    '''batch_size = 1
+    height = 512
+    width = 512
+    hf_auth_token = None
+    compile_to = "vmfb"
+    external_weights = None
+    external_weight_path = "stable_diffusion_v1_4_clip.safetensors"
+    device = "cpu"
+    iree_target_triple = None
+    vulkan_max_allocation = None
+
+    mod_str = export_scheduler(
+        scheduler,
+        hf_model_name,
+        batch_size,
+        height,
+        width,
+        hf_auth_token,
+        compile_to,
+        external_weights,
+        external_weight_path,
+        device,
+        iree_target_triple,
+        vulkan_max_allocation,
+    )
+    safe_name = utils.create_safe_name(hf_model_name, "-vae")
+    with open(f"{safe_name}.mlir", "w+") as f:
+        f.write(mod_str)
+    print("Saved to", safe_name + ".mlir")'''
+
+    exported = export(scheduler, *inputs)
+    exported.print_readable()
+    compiled_binary = exported.compile(save_to=None)
