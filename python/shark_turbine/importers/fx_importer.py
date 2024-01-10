@@ -402,7 +402,7 @@ class ContextCache:
                 t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(val))
                 if t is not None:
                     return IrType.parse(t, self._c)
-
+            import pdb; pdb.set_trace()
             raise NotImplementedError(
                 f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
                 f"fx preprocessing pass was not run): {node.meta}"

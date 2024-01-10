@@ -46,7 +46,7 @@ class Scheduler(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        return noise_pred
+        return latents
 
 
 '''def export_scheduler(
@@ -106,7 +106,7 @@ class Scheduler(torch.nn.Module):
 
 if __name__ == '__main__':
     hf_model_name = "CompVis/stable-diffusion-v1-4"
-    scheduler = Scheduler(hf_model_name, 5)
+    scheduler = Scheduler(hf_model_name, 4)
     inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
     '''batch_size = 1
     height = 512
