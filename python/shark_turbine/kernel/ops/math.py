@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Tuple
 import typing
 
 if typing.TYPE_CHECKING:
@@ -13,7 +13,8 @@ __all__ = [
     "vector_sub",
     "vector_mul",
     "vector_div",
-    "vector_exp"
+    "vector_exp",
+    "vector_zeros"
 ]
 
 
@@ -38,4 +39,8 @@ def vector_div(lhs: "Vector", rhs: "Vector") -> "Vector":
 
 @define_op
 def vector_exp(source: "Vector") -> "Vector":
+    ...
+
+@define_op
+def vector_zeros(shape: Tuple[int, ...]) -> "Vector":
     ...

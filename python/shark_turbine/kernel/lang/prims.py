@@ -17,9 +17,13 @@ __all__ = [
     "mul",
     "div",
     "exp",
+    "zeros",
     "max",
     "sum",
+    "dot",
     "for_loop",
+    "load",
+    "store"
 ]
 
 
@@ -35,8 +39,13 @@ sub = ops.vector_sub
 mul = ops.vector_mul
 div = ops.vector_div
 exp = ops.vector_exp
+zeros = ops.vector_zeros
 
 max = ops.vector_max
 sum = ops.vector_sum
+dot = ops.vector_dot
 
 for_loop = ops.for_loop
+
+load = ops.kernel_buffer_load
+store = ops.kernel_buffer_store

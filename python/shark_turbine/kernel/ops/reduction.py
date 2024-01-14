@@ -11,6 +11,7 @@ from .base import (
 __all__ = [
     "vector_max",
     "vector_sum",
+    "vector_dot",
 ]
 
 
@@ -21,4 +22,8 @@ def vector_max(source: "Vector", dims: List[int]) -> "Vector":
 
 @define_op
 def vector_sum(source: "Vector", dims: List[int]) -> "Vector":
+    ...
+
+@define_op
+def vector_dot(lhs: "Vector", rhs: "Vector") -> "Vector":
     ...

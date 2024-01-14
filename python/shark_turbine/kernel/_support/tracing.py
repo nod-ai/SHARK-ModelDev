@@ -172,6 +172,25 @@ class CompiledContext(BaseContext):
         )
 
     ### ========================================================================
+    ### Memory Operations
+    ### ========================================================================
+    def handle_kernel_buffer_load(self, kernel_buffer, multi_index, shape):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=ops.kernel_buffer_load,
+            args=(kernel_buffer, multi_index, shape),
+            kwargs={},
+        )
+
+    def handle_kernel_buffer_store(self, kernel_buffer, multi_index, item):
+        self.region_graph.create_proxy(
+            "call_function",
+            target=ops.kernel_buffer_store,
+            args=(kernel_buffer, multi_index, item),
+            kwargs={},
+        )
+
+    ### ========================================================================
     ### Control Flow Operations
     ### ========================================================================
     def handle_for_loop(self, op, start, stop = None, step = None, init_args = []):
@@ -242,6 +261,14 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
+    def handle_vector_zeros(self, op, shape: Tuple[int, ...]):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(shape,),
+            kwargs={},
+        )
+
     ### ========================================================================
     ### Reduction Operations
     ### ========================================================================
@@ -259,6 +286,14 @@ class CompiledContext(BaseContext):
             "call_function",
             target=op,
             args=(source, dims),
+            kwargs={},
+        )
+
+    def handle_vector_dot(self, op, lhs, rhs):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs),
             kwargs={},
         )
 
