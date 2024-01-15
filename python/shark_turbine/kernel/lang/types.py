@@ -38,7 +38,6 @@ class Index(int):
 
     ...
 
-
 class Vector:
     def __add__(self, other: "Vector") -> "Vector":
         return vector_add(self, other)

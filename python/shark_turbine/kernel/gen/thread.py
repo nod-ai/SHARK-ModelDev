@@ -1,4 +1,4 @@
-from typing import Generic, Optional, Type, TypeVar, Callable, Union, assert_type, cast
+from typing import Generic, Optional, Type, TypeVar, Callable, Union, assert_type, cast, Any
 
 import inspect
 import math
@@ -23,10 +23,17 @@ from .._support.tracing import (
 
 __all__ = [
     "thread",
+    "parameterize",
 ]
 
 TCallable = TypeVar("TCallable", bound=Callable)
 
+def parameterize(parameters: dict[str, Any]):
+    def decorator(f: Optional[TCallable]) -> Optional[TCallable]:
+        if f is not None:
+            f.parameters = parameters
+        return f
+    return decorator
 
 def thread(*symbolic_shape: SymbolDef):
     GridType = Grid[symbolic_shape]

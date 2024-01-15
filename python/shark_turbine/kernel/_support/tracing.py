@@ -1,5 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Optional, TypeVar, Callable, Type, assert_type, cast, List, Dict, Tuple, Any
+from typing import (
+    Optional,
+    TypeVar,
+    Callable,
+    Type,
+    assert_type,
+    cast,
+    List,
+    Dict,
+    Tuple,
+    Any,
+)
 
 import functools
 import warnings
@@ -37,9 +48,15 @@ TCallable = TypeVar("TCallable", bound=Callable)
 # Kernel Region Graph
 ###############################################################################
 
+
 class KernelRegionGraph(RegionGraph):
-    def new_subtracer(self, region_graph: "RegionGraph", parent : Optional["SubgraphTracer"] = None) -> "KernelTracer":
+    def new_subtracer(
+        self,
+        region_graph: "RegionGraph",
+        parent: Optional["SubgraphTracer"] = None,
+    ) -> "KernelTracer":
         return KernelTracer(region_graph, parent=parent)
+
 
 ###############################################################################
 # Tracing machinery
@@ -50,7 +67,10 @@ class KernelBufferProxy(fx.Proxy):
     """Custom proxy for KernelBuffer so that we can override special methods."""
 
     def __init__(
-        self, node: fx.Node, tracer: "KernelTracer", orig_type: Type[KernelBuffer]
+        self,
+        node: fx.Node,
+        tracer: "KernelTracer",
+        orig_type: Type[KernelBuffer],
     ):
         super().__init__(node, tracer)
         self._orig_type = orig_type
@@ -74,6 +94,7 @@ class KernelTracer(SubgraphTracer):
         if t is not None and issubclass(t, KernelBuffer):
             return KernelBufferProxy(node, self, t)
         return super().proxy(node)
+
 
 class CapturedTrace:
     def __init__(self, region_graph: RegionGraph, root_graph: str):
@@ -123,10 +144,14 @@ class EagerContext(BaseContext):
         assert axis >= 0 and axis < self.rank
         return Index(self.current_thread[axis])
 
-    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+    def handle_kernel_buffer_getitem(
+        self, op, kernel_buffer: KernelBuffer, key
+    ):
         return kernel_buffer._tensor.__getitem__(key)
 
-    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+    def handle_kernel_buffer_setitem(
+        self, op, kernel_buffer: KernelBuffer, key, item
+    ):
         kernel_buffer._tensor.__setitem__(key, item)
 
 
@@ -155,7 +180,9 @@ class CompiledContext(BaseContext):
         )
         return proxy
 
-    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
+    def handle_kernel_buffer_getitem(
+        self, op, kernel_buffer: KernelBuffer, key
+    ):
         return self.region_graph.create_proxy(
             "call_function",
             op,
@@ -163,7 +190,9 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
+    def handle_kernel_buffer_setitem(
+        self, op, kernel_buffer: KernelBuffer, key, item
+    ):
         self.region_graph.create_proxy(
             "call_function",
             target=op,
@@ -174,18 +203,18 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Memory Operations
     ### ========================================================================
-    def handle_kernel_buffer_load(self, kernel_buffer, multi_index, shape):
+    def handle_kernel_buffer_load(self, op, kernel_buffer, multi_index, shape):
         return self.region_graph.create_proxy(
             "call_function",
-            target=ops.kernel_buffer_load,
+            target=op,
             args=(kernel_buffer, multi_index, shape),
             kwargs={},
         )
 
-    def handle_kernel_buffer_store(self, kernel_buffer, multi_index, item):
+    def handle_kernel_buffer_store(self, op, kernel_buffer, multi_index, item):
         self.region_graph.create_proxy(
             "call_function",
-            target=ops.kernel_buffer_store,
+            target=op,
             args=(kernel_buffer, multi_index, item),
             kwargs={},
         )
@@ -193,7 +222,7 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Control Flow Operations
     ### ========================================================================
-    def handle_for_loop(self, op, start, stop = None, step = None, init_args = []):
+    def handle_for_loop(self, op, start, stop=None, step=None, init_args=[]):
         if stop is None:
             stop = start
             start = 0
@@ -210,11 +239,12 @@ class CompiledContext(BaseContext):
                 name="for_loop",
                 args=(start, stop, step, init_args),
                 kwargs={
-                    'subgraph': subgraph_name,
-                    'implicit_capture': implicit_capture,
+                    "subgraph": subgraph_name,
+                    "implicit_capture": implicit_capture,
                 },
             )
             return ret
+
         return wrapper
 
     ### ========================================================================
@@ -261,11 +291,13 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_vector_zeros(self, op, shape: Tuple[int, ...]):
+    def handle_vector_constant(
+        self, op, shape: Tuple[int, ...], dtype, value: int | float
+    ):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(shape,),
+            args=(shape, dtype, value),
             kwargs={},
         )
 
@@ -289,11 +321,11 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_vector_dot(self, op, lhs, rhs):
+    def handle_vector_dot(self, op, lhs, rhs, acc):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(lhs, rhs),
+            args=(lhs, rhs, acc),
             kwargs={},
         )
 

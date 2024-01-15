@@ -4,6 +4,7 @@ from iree.compiler.ir import (
     AffineMap,
     AffineMapAttr,
     Attribute,
+    ArrayAttr,
     Block,
     Context,
     DenseElementsAttr,

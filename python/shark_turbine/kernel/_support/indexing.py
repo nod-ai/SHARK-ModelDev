@@ -41,7 +41,7 @@ SubtypeT = TypeVar("SubtypeT")
 class ElementType(ABC):
     @staticmethod
     def cast(something) -> "ElementType":
-        if isinstance(something, torch.dtyp):
+        if isinstance(something, torch.dtype):
             return TorchElementType(something)
         else:
             raise TypeError(

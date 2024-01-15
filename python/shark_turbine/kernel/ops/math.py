@@ -8,13 +8,15 @@ from .base import (
     define_op,
 )
 
+from .._support.indexing import ElementType
+
 __all__ = [
     "vector_add",
     "vector_sub",
     "vector_mul",
     "vector_div",
     "vector_exp",
-    "vector_zeros"
+    "vector_constant",
 ]
 
 
@@ -37,10 +39,14 @@ def vector_mul(lhs: "Vector", rhs: "Vector") -> "Vector":
 def vector_div(lhs: "Vector", rhs: "Vector") -> "Vector":
     ...
 
+
 @define_op
 def vector_exp(source: "Vector") -> "Vector":
     ...
 
+
 @define_op
-def vector_zeros(shape: Tuple[int, ...]) -> "Vector":
+def vector_constant(
+    shape: Tuple[int, ...], dtype, value: int | float
+) -> "Vector":
     ...

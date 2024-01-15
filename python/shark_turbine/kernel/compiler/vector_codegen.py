@@ -48,9 +48,15 @@ from .base import (
 
 from .ir import (
     AffineMap,
+    Attribute,
+    AffineExpr,
     AffineMapAttr,
+    ArrayAttr,
     FunctionType,
-    IndexType,
+    VectorType,
+    DenseElementsAttr,
+    F32Type,
+    FloatAttr,
     InsertionPoint,
     IrType,
     Location,
@@ -130,7 +136,11 @@ class ThreadEmitter:
         self._node_values[node] = [value]
 
     def bind_node_results(
-        self, node: fx.Node, values: List[Value], *, attrs: Optional[NodeAttrs] = None
+        self,
+        node: fx.Node,
+        values: List[Value],
+        *,
+        attrs: Optional[NodeAttrs] = None,
     ):
         assert (
             node not in self._node_values
@@ -160,10 +170,14 @@ class ThreadEmitter:
             if node.op == "output":
                 return node.args
 
-    def emit_subgraph(self, subgraph: fx.Graph, implicit_capture: list[fx.Node]):
+    def emit_subgraph(
+        self, subgraph: fx.Graph, implicit_capture: list[fx.Node]
+    ):
         # Map subgraph freevars -> implicit_capture
         freevars = self.trace.region_graph.inner_freevars[subgraph]
-        assert len(freevars) == len(implicit_capture), f"Expected {len(freevars)} implicit capture args, got {len(implicit_capture)}"
+        assert len(freevars) == len(
+            implicit_capture
+        ), f"Expected {len(freevars)} implicit capture args, got {len(implicit_capture)}"
         for freevar, arg in zip(freevars, implicit_capture):
             self._node_values[freevar.node] = self.lookup_node_values(arg)
 
@@ -187,6 +201,7 @@ def handle_op(op):
 # Python/scalar ops
 ###############################################################################
 
+
 @handle_op(py_operator.getitem)
 def _(emitter: ThreadEmitter, node: fx.Node):
     try:
@@ -197,8 +212,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     if not isinstance(proxy, fx.Node):
         raise CodegenError(f"Expected fx.Node")
     node_values = emitter.lookup_node_values(proxy)
-    
+
     emitter.bind_node_result(node, node_values[index])
+
 
 BINARY_ARITHMETIC_OPS = [
     (py_operator.add, "add"),
@@ -267,7 +283,9 @@ def _define_arithmetic_handlers():
             rhs = cast_py_value(emitter, rhs)
             is_vector, lhs, rhs = binary_broadcast(lhs, rhs)
             if is_vector:
-                result = ScalarBuilder.binary_vector_arithmetic(mnemonic, lhs, rhs)
+                result = ScalarBuilder.binary_vector_arithmetic(
+                    mnemonic, lhs, rhs
+                )
             else:
                 result = ScalarBuilder.binary_arithmetic(mnemonic, lhs, rhs)
             emitter.bind_node_result(node, result)
@@ -314,7 +332,11 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     indices = cast_indices(emitter, [s.start for s in sa.slices])
     pad_value = arith_d.constant(pad_attr)
     result = vector_d.transfer_read(
-        vector_type, kb_src, indices, AffineMap.get_identity(len(indices)), pad_value
+        vector_type,
+        kb_src,
+        indices,
+        AffineMap.get_identity(len(indices)),
+        pad_value,
     )
     emitter.bind_node_result(node, result)
 
@@ -335,23 +357,163 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
         )
-    insert_vector = cast_vector(emitter, item, element_type=kb_ir_type.element_type)
+    insert_vector = cast_vector(
+        emitter, item, element_type=kb_ir_type.element_type
+    )
     insert_type = VectorType(insert_vector.type)
     insert_rank = insert_type.rank
 
     # Special case rank-0 broadcast.
     if insert_rank == 0:
-        broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
+        broadcast_type = VectorType.get(
+            dest_rank * [1], kb_ir_type.element_type
+        )
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
     permutation_map = AffineMap.get_identity(dest_rank)
     vector_d.transfer_write(
-        None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
+        None,
+        insert_vector,
+        kb_dest,
+        indices,
+        AffineMapAttr.get(permutation_map),
     )
+
+
+###############################################################################
+# Memory Ops
+###############################################################################
+
+
+@handle_op(tkl.load)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        kb, multi_index, vector_shape = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    element_type = kb_ir_type.element_type
+    vector_type = VectorType.get(vector_shape, element_type)
+    pad_attr = ScalarBuilder.zero_attr(element_type)
+    indices = cast_indices(emitter, multi_index)
+    pad_value = arith_d.constant(pad_attr)
+    result = vector_d.transfer_read(
+        vector_type,
+        kb_src,
+        indices,
+        AffineMap.get_identity(len(indices)),
+        pad_value,
+    )
+    emitter.bind_node_result(node, result)
+
+@handle_op(tkl.store)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        kb, multi_index, item = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    dest_rank = kb_ir_type.rank
+    indices = cast_indices(emitter, multi_index)
+    if dest_rank != len(indices):
+        raise CodegenError(
+            f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
+        )
+    insert_vector = cast_vector(
+        emitter, item, element_type=kb_ir_type.element_type
+    )
+    insert_type = VectorType(insert_vector.type)
+    insert_rank = insert_type.rank
+
+    # Special case rank-0 broadcast.
+    if insert_rank == 0:
+        broadcast_type = VectorType.get(
+            dest_rank * [1], kb_ir_type.element_type
+        )
+        insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
+
+    permutation_map = AffineMap.get_identity(dest_rank)
+    vector_d.transfer_write(
+        None,
+        insert_vector,
+        kb_dest,
+        indices,
+        AffineMapAttr.get(permutation_map),
+    )
+
+###############################################################################
+# Math Ops
+###############################################################################
+
+
+@handle_op(tkl.constant)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        shape, dtype, value = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    # TODO: Have better way to get the dtype.
+    if dtype == torch.float32:
+        element_type = F32Type.get()
+        vector_type = VectorType.get(shape, element_type)
+        dense_value = DenseElementsAttr.get_splat(
+            vector_type, FloatAttr.get_f32(value)
+        )
+        result = arith_d.ConstantOp(vector_type, dense_value)
+        emitter.bind_node_result(node, result)
+    else:
+        raise CodegenError(f"NYI: Constant type {dtype}")
+
+
+###############################################################################
+# Reduction Ops
+###############################################################################
+
+
+@handle_op(tkl.dot)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        lhs, rhs, acc = node.args
+        lhs = cast_vector(emitter, lhs)
+        rhs = cast_vector(emitter, rhs)
+        acc = cast_vector(emitter, acc)
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    vector_type = VectorType(lhs.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+
+    n, m, k = (
+        AffineExpr.get_dim(0),
+        AffineExpr.get_dim(1),
+        AffineExpr.get_dim(2),
+    )
+    indexing_maps = [
+        AffineMap.get(3, 0, [n, k]),
+        AffineMap.get(3, 0, [k, m]),
+        AffineMap.get(3, 0, [n, m]),
+    ]
+    indexing_maps_attr = [AffineMapAttr.get(map) for map in indexing_maps]
+    # TODO: Bad hack, please fix.
+    iterator_types = ArrayAttr.get([
+        Attribute.parse('#vector.iterator_type<parallel>'),
+        Attribute.parse('#vector.iterator_type<parallel>'),
+        Attribute.parse('#vector.iterator_type<reduction>'),
+    ])
+    result = vector_d.ContractionOp(
+        acc.type, lhs, rhs, acc, indexing_maps_attr, iterator_types,
+    )
+    emitter.bind_node_result(node, result)
+
 
 ###############################################################################
 # Control Flow ops
 ###############################################################################
+
 
 @handle_op(tkl.for_loop)
 def _(emitter: ThreadEmitter, node: fx.Node):
@@ -385,7 +547,11 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     # Enter body of for loop.
     with InsertionPoint(forOp.body):
         # TODO: Flatten subgraph args here.
-        subgraph_args = [node for node in subgraph.nodes if node.op == "placeholder" and "lifted" not in node.meta]
+        subgraph_args = [
+            node
+            for node in subgraph.nodes
+            if node.op == "placeholder" and "lifted" not in node.meta
+        ]
         # Add mapping for induction variable argument.
         emitter.bind_node_result(subgraph_args[0], forOp.induction_variable)
         # Add mapping for iter_args.
@@ -395,7 +561,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         # Use ret in terminatory of body
         # TODO: Flatten return values here.
         flat_ret_values, ret_spec = pytree.tree_flatten((ret))
-        flat_ret_values = [cast_py_value(emitter, value) for value in flat_ret_values]
+        flat_ret_values = [
+            cast_py_value(emitter, value) for value in flat_ret_values
+        ]
         scf_d.YieldOp(flat_ret_values)
 
     results = forOp.results_
@@ -422,7 +590,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         *node.args, **node.kwargs
     ) or op_matchers.torch_max(*node.args, **node.kwargs)
 
-    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+    def combiner(
+        element_type: IrType, attrs: NodeAttrs
+    ) -> vector_d.CombiningKind:
         if ScalarBuilder.is_floating_point_type(element_type):
             # Non-NaN propagating.
             # TODO: Carry a "fastmath" flag on the emitter and choose between this
@@ -444,7 +614,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         *node.args, **node.kwargs
     ) or op_matchers.torch_sum(*node.args, **node.kwargs)
 
-    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+    def combiner(
+        element_type: IrType, attrs: NodeAttrs
+    ) -> vector_d.CombiningKind:
         return vector_d.CombiningKind.ADD
 
     emit_reduction(emitter, node, args, combiner)
@@ -482,6 +654,7 @@ def emit_reduction(
 # Conversion utilities
 ###############################################################################
 
+
 def cast_py_value(emitter: ThreadEmitter, value) -> Value:
     """
     Converts the given value to an IR Value.
@@ -492,7 +665,9 @@ def cast_py_value(emitter: ThreadEmitter, value) -> Value:
     if isinstance(value, fx.Node):
         try:
             node_values = emitter.lookup_node_values(value)
-            assert len(node_values) == 1, f"Expected exactly one value for node {value}"
+            assert (
+                len(node_values) == 1
+            ), f"Expected exactly one value for node {value}"
             return node_values[0]
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")
@@ -500,11 +675,15 @@ def cast_py_value(emitter: ThreadEmitter, value) -> Value:
     return ScalarBuilder.constant(value)
 
 
-def cast_py_lvalue(emitter: ThreadEmitter, py_value : fx.Node) -> tuple[Value, fx.Node]:
+def cast_py_lvalue(
+    emitter: ThreadEmitter, py_value: fx.Node
+) -> tuple[Value, fx.Node]:
     if isinstance(py_value, fx.Node):
         try:
             node_values = emitter.lookup_node_values(py_value)
-            assert len(node_values) == 1, f"Expected exactly one value for node {py_value}"
+            assert (
+                len(node_values) == 1
+            ), f"Expected exactly one value for node {py_value}"
             return node_values[0], py_value
         except KeyError:
             raise CodegenError(f"Producer node `{py_value}` has no IR Value")

@@ -17,7 +17,7 @@ __all__ = [
     "mul",
     "div",
     "exp",
-    "zeros",
+    "constant",
     "max",
     "sum",
     "dot",
@@ -39,7 +39,7 @@ sub = ops.vector_sub
 mul = ops.vector_mul
 div = ops.vector_div
 exp = ops.vector_exp
-zeros = ops.vector_zeros
+constant = ops.vector_constant
 
 max = ops.vector_max
 sum = ops.vector_sum

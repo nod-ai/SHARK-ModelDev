@@ -2,10 +2,7 @@ from typing import Any
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..lang.types import (
-        Index,
-        Vector
-    )
+    from ..lang.types import Index, Vector
 
 from .base import (
     define_op,
