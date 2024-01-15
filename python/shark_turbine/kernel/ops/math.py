@@ -46,7 +46,5 @@ def vector_exp(source: "Vector") -> "Vector":
 
 
 @define_op
-def vector_constant(
-    shape: Tuple[int, ...], dtype, value: int | float
-) -> "Vector":
+def vector_constant(shape: Tuple[int, ...], dtype, value: int | float) -> "Vector":
     ...

@@ -144,14 +144,10 @@ class EagerContext(BaseContext):
         assert axis >= 0 and axis < self.rank
         return Index(self.current_thread[axis])
 
-    def handle_kernel_buffer_getitem(
-        self, op, kernel_buffer: KernelBuffer, key
-    ):
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
         return kernel_buffer._tensor.__getitem__(key)
 
-    def handle_kernel_buffer_setitem(
-        self, op, kernel_buffer: KernelBuffer, key, item
-    ):
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
         kernel_buffer._tensor.__setitem__(key, item)
 
 
@@ -180,9 +176,7 @@ class CompiledContext(BaseContext):
         )
         return proxy
 
-    def handle_kernel_buffer_getitem(
-        self, op, kernel_buffer: KernelBuffer, key
-    ):
+    def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
         return self.region_graph.create_proxy(
             "call_function",
             op,
@@ -190,9 +184,7 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_kernel_buffer_setitem(
-        self, op, kernel_buffer: KernelBuffer, key, item
-    ):
+    def handle_kernel_buffer_setitem(self, op, kernel_buffer: KernelBuffer, key, item):
         self.region_graph.create_proxy(
             "call_function",
             target=op,

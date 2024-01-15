@@ -1,15 +1,26 @@
-from typing import Optional, TypeVar, Callable, Type, assert_type, cast, List, Dict, Tuple
+from typing import (
+    Optional,
+    TypeVar,
+    Callable,
+    Type,
+    assert_type,
+    cast,
+    List,
+    Dict,
+    Tuple,
+)
 import random
 import contextlib
 
 import torch.fx as fx
 import torch.utils._pytree as pytree
 
+
 class RegionGraph:
     def __init__(self):
-        self.tracers : List["SubgraphTracer"] = []
-        self.subgraphs : Dict[str, fx.Graph] = dict()
-        self.inner_freevars : Dict[fx.Graph, List[fx.Proxy]] = dict()
+        self.tracers: List["SubgraphTracer"] = []
+        self.subgraphs: Dict[str, fx.Graph] = dict()
+        self.inner_freevars: Dict[fx.Graph, List[fx.Proxy]] = dict()
 
     @property
     def root_tracer(self) -> "SubgraphTracer":
@@ -28,13 +39,17 @@ class RegionGraph:
     def create_arg(self, *args, **kwargs):
         return self.current_tracer.create_arg(*args, **kwargs)
 
-    def new_subtracer(self, region_graph: "RegionGraph", parent : Optional["SubgraphTracer"] = None) -> "SubgraphTracer":
+    def new_subtracer(
+        self, region_graph: "RegionGraph", parent: Optional["SubgraphTracer"] = None
+    ) -> "SubgraphTracer":
         ...
 
     ### ========================================================================
     ### Subgraph Tracing
     ### ========================================================================
-    def add_subgraph(self, name : str, graph: fx.Graph, inner_freevars : List[fx.Proxy]) -> str:
+    def add_subgraph(
+        self, name: str, graph: fx.Graph, inner_freevars: List[fx.Proxy]
+    ) -> str:
         i = 0
         while True:
             candidate_name = f"{name}_{i}"
@@ -62,8 +77,11 @@ class RegionGraph:
             out += "\n"
         return out
 
+
 class SubgraphTracer(fx.Tracer):
-    def __init__(self, region_graph: RegionGraph, parent : Optional["SubgraphTracer"] = None):
+    def __init__(
+        self, region_graph: RegionGraph, parent: Optional["SubgraphTracer"] = None
+    ):
         super().__init__()
         self.graph = fx.Graph()
         self.region_graph = region_graph
@@ -83,9 +101,9 @@ class SubgraphTracer(fx.Tracer):
         proxy.node.meta["lifted"] = None
         return proxy
 
-    def _lift_tracked_freevar_to_input(self, proxy : fx.Proxy):
+    def _lift_tracked_freevar_to_input(self, proxy: fx.Proxy):
         # It makes no sense for the root graph to have free variables
-        assert(self.parent is not None), "Cannot lift freevars to input in root tracer"
+        assert self.parent is not None, "Cannot lift freevars to input in root tracer"
 
         # If the freevar has already been lifted, return the lifted version.
         if proxy in self.lifted_freevars:
@@ -113,14 +131,14 @@ class SubgraphTracer(fx.Tracer):
             return self._lift_tracked_freevar_to_input(arg)
 
     def create_proxy(
-            self,
-            kind,
-            target,
-            args,
-            kwargs,
-            name=None,
-            type_expr=None,
-            proxy_factor_fn=None,
+        self,
+        kind,
+        target,
+        args,
+        kwargs,
+        name=None,
+        type_expr=None,
+        proxy_factor_fn=None,
     ):
         if self.parent is not None:
             flat_args, tree_spec = pytree.tree_flatten((args, kwargs))

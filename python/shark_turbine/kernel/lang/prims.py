@@ -23,7 +23,7 @@ __all__ = [
     "dot",
     "for_loop",
     "load",
-    "store"
+    "store",
 ]
 
 

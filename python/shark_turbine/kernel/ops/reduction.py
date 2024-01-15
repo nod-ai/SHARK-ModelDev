@@ -16,14 +16,12 @@ __all__ = [
 
 
 @define_op
-def vector_max(
-    source: "Vector", dims: List[int], acc) -> "Vector":
+def vector_max(source: "Vector", dims: List[int], acc) -> "Vector":
     ...
 
 
 @define_op
-def vector_sum(
-    source: "Vector", dims: List[int], acc) -> "Vector":
+def vector_sum(source: "Vector", dims: List[int], acc) -> "Vector":
     ...
 
 
