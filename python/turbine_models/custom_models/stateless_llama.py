@@ -121,8 +121,6 @@ def export_transformer_model(
         token=hf_auth_token,
     )
     # TODO: generate these values instead of magic numbers
-    breakpoint()
-    print(mod)
     HEADS = mod.config.num_attention_heads
     HIDDEN_DIM = int(mod.config.hidden_size / HEADS)
     BATCH_SIZE = 1
