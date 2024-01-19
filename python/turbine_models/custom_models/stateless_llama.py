@@ -104,6 +104,7 @@ def export_transformer_model(
         hf_model_name,
         torch_dtype=torch.float,
         token=hf_auth_token,
+        trust_remote_code=True,
     )
     if mod.config.num_attention_heads == 8:
         state_schema = pytree.treespec_loads(json_schema_16)
@@ -119,6 +120,7 @@ def export_transformer_model(
         hf_model_name,
         use_fast=False,
         token=hf_auth_token,
+        trust_remote_code=True,
     )
     # TODO: generate these values instead of magic numbers
     HEADS = mod.config.num_attention_heads

@@ -188,17 +188,17 @@ PY_BUILTIN_TO_TORCH_OP = {
 }
 
 SYMBOLIC_TORCH_OPS = {
-    torch.ops.aten.sym_size,
-    torch.ops.aten.sym_stride,
-    torch.ops.aten.sym_numel,
+    torch.ops.aten.sym_size.int,
+    torch.ops.aten.sym_stride.int,
+    torch.ops.aten.sym_numel.default,
 }
 
 SYMBOLIC_OP_TO_TORCH_OP = {
-    (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
-    (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
-    (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
-    (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
-    (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
+    torch.ops.aten.sym_size.default: torch.ops.aten.size.default,
+    torch.ops.aten.sym_size.int : torch.ops.aten.size.int,
+    torch.ops.aten.sym_stride.default : torch.ops.aten.stride.default,
+    torch.ops.aten.sym_stride.int : torch.ops.aten.stride.int,
+    torch.ops.aten.sym_numel.default : torch.ops.aten.numel.default,
 }
 
 
@@ -528,14 +528,14 @@ class GraphNodeImporter:
                             raise NotImplementedError(
                                 f"General getitem access to non-multi-result ops"
                             )
-                    elif isinstance(target, TorchOpOverload):
-                        # Dispatch to an ATen op.
-                        self._import_torch_op_overload(loc, node, target)
                     elif target in SYMBOLIC_TORCH_OPS or (
                         is_symbolic(node.meta.get("val"))
                         and is_builtin_function_or_method(target)
                     ):
                         self._import_symbolic_torch_op(loc, node, target)
+                    elif isinstance(target, TorchOpOverload):
+                        # Dispatch to an ATen op.
+                        self._import_torch_op_overload(loc, node, target)
                     else:
                         raise NotImplementedError(
                             f"FIX ME: Unimplemented call_function: target={node.target}, {node.meta}"
@@ -620,7 +620,7 @@ class GraphNodeImporter:
             ), f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
             concrete_target = getattr(torch_op, op_overload)
         else:
-            concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get((target, len(node.args)))
+            concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get(target)
 
         assert (
             concrete_target is not None
