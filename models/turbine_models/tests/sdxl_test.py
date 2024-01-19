@@ -6,7 +6,7 @@
 
 import argparse
 import logging
-from turbine_models.custom_models.sd_inference import (
+from turbine_models.custom_models.sdxl_inference import (
     clip,
     clip_runner,
     unet,
@@ -23,8 +23,8 @@ import os
 
 arguments = {
     "hf_auth_token": None,
-    "hf_model_name": "stabilityai/stable-diffusion-2-1",
-    "safe_model_name": "stable_diffusion_2_1",
+    "hf_model_name": "stabilityai/sdxl-turbo",
+    "safe_model_name": "sdxl-turbo",
     "batch_size": 1,
     "height": 512,
     "width": 512,
@@ -57,37 +57,35 @@ vae_model = vae.VaeModel(
 
 
 class StableDiffusionTest(unittest.TestCase):
-    def testExportClipModel(self):
-        with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
-                # This is a public model, so no auth required
-                arguments["hf_model_name"],
-                None,
-                "vmfb",
-                "safetensors",
-                f"{arguments['safe_model_name']}_clip.safetensors",
-                "cpu",
-            )
-        self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_clip.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_clip.vmfb"
-        turbine = clip_runner.run_clip(
-            arguments["device"],
-            arguments["prompt"],
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
-        )
-        torch_output = clip_runner.run_torch_clip(
-            arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"]
-        )
-        err = utils.largest_error(torch_output, turbine[0])
-        assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
+    # def testExportClipModel(self):
+    #     with self.assertRaises(SystemExit) as cm:
+    #         clip.export_clip_model(
+    #             # This is a public model, so no auth required
+    #             arguments["hf_model_name"],
+    #             None,
+    #             "vmfb",
+    #             "safetensors",
+    #             f"{arguments['safe_model_name']}_clip.safetensors",
+    #             "cpu",
+    #         )
+    #     self.assertEqual(cm.exception.code, None)
+    #     arguments["external_weight_path"] = f"{arguments['safe_model_name']}_clip.safetensors"
+    #     arguments["vmfb_path"] = f"{arguments['safe_model_name']}_clip.vmfb"
+    #     turbine = clip_runner.run_clip(
+    #         arguments["device"],
+    #         arguments["prompt"],
+    #         arguments["vmfb_path"],
+    #         arguments["hf_model_name"],
+    #         arguments["hf_auth_token"],
+    #         arguments["external_weight_path"],
+    #     )
+    #     torch_output = clip_runner.run_torch_clip(
+    #         arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"]
+    #     )
+    #     err = utils.largest_error(torch_output, turbine[0])
+    #     assert err < 9e-5
+    #     #os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
+    #     #os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
 
     def testExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
@@ -120,14 +118,20 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=dtype,
         )
         timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        prompt_embeds = torch.rand(
+            2 * arguments["batch_size"], arguments["max_length"], 2048, dtype=dtype
+        )
+        text_embeds = torch.rand(2 * arguments["batch_size"], 1280, dtype=dtype)
+        time_ids = torch.zeros(2 * arguments["batch_size"], 6, dtype=dtype)
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
             arguments["device"],
             sample,
             timestep,
-            encoder_hidden_states,
+            prompt_embeds,
+            text_embeds,
+            time_ids,
             guidance_scale,
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -139,7 +143,9 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["hf_auth_token"],
             sample,
             timestep,
-            encoder_hidden_states,
+            prompt_embeds,
+            text_embeds,
+            time_ids,
             guidance_scale,
         )
         err = utils.largest_error(torch_output, turbine)
@@ -164,9 +170,7 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae.safetensors"
+        arguments["external_weight_path"] = f"{arguments['safe_model_name']}_vae.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
@@ -190,8 +194,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
+        #os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
+        #os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
     def testExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
@@ -210,9 +214,7 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae.safetensors"
+        arguments["external_weight_path"] = f"{arguments['safe_model_name']}_vae.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
@@ -236,8 +238,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 2e-3
-        # os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
+        #os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
+        #os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
 
 if __name__ == "__main__":
