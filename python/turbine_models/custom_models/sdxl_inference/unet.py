@@ -18,7 +18,6 @@ from diffusers import UNet2DConditionModel
 
 import safetensors
 import argparse
-from turbine_models.turbine_tank import turbine_tank
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -65,17 +64,39 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name, hf_auth_token=None):
         super().__init__()
-        self.unet = UNet2DConditionModel.from_pretrained(
-            hf_model_name,
-            subfolder="unet",
-        )
+        try:
+            self.unet = UNet2DConditionModel.from_pretrained(
+                hf_model_name,
+                subfolder="unet",
+                auth_token=hf_auth_token,
+                low_cpu_mem_usage=False,
+                variant="fp16",
+            )
+        except:
+            self.unet = UNet2DConditionModel.from_pretrained(
+                hf_model_name,
+                subfolder="unet",
+                auth_token=hf_auth_token,
+                low_cpu_mem_usage=False,
+            )
 
-    def forward(self, sample, timestep, encoder_hidden_states, guidance_scale):
+    def forward(
+        self, sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
+    ):
+        added_cond_kwargs = {
+            "text_embeds": text_embeds,
+            "time_ids": time_ids,
+        }
         samples = torch.cat([sample] * 2)
-        unet_out = self.unet.forward(
-            samples, timestep, encoder_hidden_states, return_dict=False
+        noise_pred = self.unet.forward(
+            samples,
+            timestep,
+            encoder_hidden_states=prompt_embeds,
+            cross_attention_kwargs=None,
+            added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
         )[0]
-        noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
+        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred = noise_pred_uncond + guidance_scale * (
             noise_pred_text - noise_pred_uncond
         )
@@ -97,7 +118,6 @@ def export_unet_model(
     device=None,
     target_triple=None,
     max_alloc=None,
-    upload_ir=False,
 ):
     mapper = {}
     dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -105,13 +125,10 @@ def export_unet_model(
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
-    encoder_hidden_states_sizes = (
-        unet_model.unet.config.layers_per_block,
-        max_length,
-        unet_model.unet.config.cross_attention_dim,
-    )
-
     sample = (batch_size, unet_model.unet.config.in_channels, height // 8, width // 8)
+    time_ids_shape = (2 * batch_size, 6)
+    prompt_embeds_shape = (2 * batch_size, max_length, 2048)
+    text_embeds_shape = (2 * batch_size, 1280)
 
     class CompiledUnet(CompiledModule):
         if external_weights:
@@ -125,13 +142,13 @@ def export_unet_model(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
             timestep=AbstractTensor(1, dtype=dtype),
-            encoder_hidden_states=AbstractTensor(
-                *encoder_hidden_states_sizes, dtype=dtype
-            ),
+            prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
+            text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
+            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
             guidance_scale=AbstractTensor(1, dtype=dtype),
         ):
             return jittable(unet_model.forward)(
-                sample, timestep, encoder_hidden_states, guidance_scale
+                sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
             )
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
@@ -139,21 +156,10 @@ def export_unet_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = utils.create_safe_name(hf_model_name, "-unet")
-    if upload_ir:
-        with open(f"{safe_name}.mlir", "w+") as f:
-            f.write(module_str)
-        model_name_upload = hf_model_name.replace("/", "-")
-        model_name_upload += "_unet"
-        blob_name = turbine_tank.uploadToBlobStorage(
-            str(os.path.abspath(f"{safe_name}.mlir")),
-            f"{model_name_upload}/{model_name_upload}.mlir",
-        )
     if compile_to != "vmfb":
         return module_str
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
-        if upload_ir:
-            return blob_name
 
 
 if __name__ == "__main__":
