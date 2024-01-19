@@ -32,7 +32,7 @@ class Test(unittest.TestCase):
             i = tk.lang.program_id(0)
             out[i] = i
 
-        print(iota_kernel._trace.gm.graph)
+        print(iota_kernel._trace.region_graph)
         # Prints:
         # .graph():
         #     %out : shark_turbine.kernel.lang.types.KernelBuffer [num_users=1] = placeholder[target=out]
@@ -70,7 +70,7 @@ class Test(unittest.TestCase):
         generated = softmax(input)
         actual = torch.softmax(input, -1)
         torch.testing.assert_close(generated, actual)
-        print(softmax_kernel._trace.gm.graph)
+        print(softmax_kernel._trace.region_graph)
         # Prints:
         # graph():
         #     %input_1 : shark_turbine.kernel.lang.types.KernelBuffer [num_users=1] = placeholder[target=input]

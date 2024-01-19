@@ -27,21 +27,21 @@ class Test(unittest.TestCase):
             secret_value = ((i * (33 - i) + 4) % 8) // 2
             out[i] = secret_value
 
-        gm = iota_kernel._trace.gm
-        print(gm.graph)
+        trace = iota_kernel._trace
+        print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
             idxc.bind_constant(M, 17)
             sig = kernel_codegen.KernelSignature()
-            sig.add_from_graph_placeholders(gm.graph)
+            sig.add_from_graph_placeholders(trace.get_root_graph())
             sig.add_grid(iota_kernel.grid_type)
             print(sig)
             bound_sig, func_op = kernel_codegen.FunctionalKernelSignature.create(
                 sig, mb
             )
             try:
-                emitter = vector_codegen.ThreadEmitter(bound_sig)
-                emitter.emit_graph(gm.graph)
+                emitter = vector_codegen.ThreadEmitter(bound_sig, trace)
+                emitter.emit()
                 emitter.finish()
             finally:
                 print(mb.module_op.get_asm())
@@ -58,23 +58,23 @@ class Test(unittest.TestCase):
             output_row = numerator / torch.sum(numerator)
             output[row_index, :] = output_row
 
-        gm = softmax_kernel._trace.gm
-        print(gm.graph)
+        trace = softmax_kernel._trace
+        print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
             idxc.bind_constant(M, 128)
             idxc.bind_constant(K, 64)
 
             sig = kernel_codegen.KernelSignature()
-            sig.add_from_graph_placeholders(gm.graph)
+            sig.add_from_graph_placeholders(trace.get_root_graph())
             sig.add_grid(softmax_kernel.grid_type)
             print(sig)
             bound_sig, func_op = kernel_codegen.FunctionalKernelSignature.create(
                 sig, mb
             )
+            emitter = vector_codegen.ThreadEmitter(bound_sig, trace)
             try:
-                emitter = vector_codegen.ThreadEmitter(bound_sig)
-                emitter.emit_graph(gm.graph)
+                emitter.emit()
             finally:
                 emitter.finish()
                 print(mb.module_op.get_asm())
