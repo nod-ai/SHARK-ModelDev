@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Tuple
 import typing
 
 if typing.TYPE_CHECKING:
@@ -8,41 +8,9 @@ from .base import (
     define_op,
 )
 
-from .._support.indexing import ElementType
-
 __all__ = [
-    "vector_add",
-    "vector_sub",
-    "vector_mul",
-    "vector_div",
-    "vector_exp",
     "vector_constant",
 ]
-
-
-@define_op
-def vector_add(lhs: "Vector", rhs: "Vector") -> "Vector":
-    ...
-
-
-@define_op
-def vector_sub(lhs: "Vector", rhs: "Vector") -> "Vector":
-    ...
-
-
-@define_op
-def vector_mul(lhs: "Vector", rhs: "Vector") -> "Vector":
-    ...
-
-
-@define_op
-def vector_div(lhs: "Vector", rhs: "Vector") -> "Vector":
-    ...
-
-
-@define_op
-def vector_exp(source: "Vector") -> "Vector":
-    ...
 
 
 @define_op

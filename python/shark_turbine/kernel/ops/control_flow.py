@@ -30,4 +30,6 @@ def for_loop(
     step: Optional["Index"] = None,
     init_args: List[Any] = [],
 ) -> Callable[[Callable[["Index", List[Any]], Optional[Tuple]]], List[Any]]:
+    # TODO: The output type signature should also allow a single element return
+    # instead of a List for better programming experience.
     ...

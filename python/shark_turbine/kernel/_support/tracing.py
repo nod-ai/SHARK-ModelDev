@@ -214,6 +214,7 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Control Flow Operations
     ### ========================================================================
+
     def handle_for_loop(self, op, start, stop=None, step=None, init_args=[]):
         if stop is None:
             stop = start
@@ -243,46 +244,6 @@ class CompiledContext(BaseContext):
     ### Math Operations
     ### ========================================================================
 
-    def handle_vector_add(self, op, lhs: Vector, rhs: Vector):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(lhs, rhs),
-            kwargs={},
-        )
-
-    def handle_vector_sub(self, op, lhs: Vector, rhs: Vector):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(lhs, rhs),
-            kwargs={},
-        )
-
-    def handle_vector_mul(self, op, lhs: Vector, rhs: Vector):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(lhs, rhs),
-            kwargs={},
-        )
-
-    def handle_vector_div(self, op, lhs: Vector, rhs: Vector):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(lhs, rhs),
-            kwargs={},
-        )
-
-    def handle_vector_exp(self, op, source: Vector):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(source,),
-            kwargs={},
-        )
-
     def handle_vector_constant(
         self, op, shape: Tuple[int, ...], dtype, value: int | float
     ):
@@ -296,22 +257,6 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Reduction Operations
     ### ========================================================================
-
-    def handle_vector_max(self, op, source: Vector, dims: List[int]):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(source, dims),
-            kwargs={},
-        )
-
-    def handle_vector_sum(self, op, source: Vector, dims: List[int]):
-        return self.region_graph.create_proxy(
-            "call_function",
-            target=op,
-            args=(source, dims),
-            kwargs={},
-        )
 
     def handle_vector_dot(self, op, lhs, rhs, acc):
         return self.region_graph.create_proxy(

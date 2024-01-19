@@ -1,7 +1,5 @@
 from typing import Type
 
-from ..ops.math import vector_add, vector_sub, vector_mul, vector_div
-
 
 __all__ = [
     "Index",
@@ -40,14 +38,10 @@ class Index(int):
 
 
 class Vector:
-    def __add__(self, other: "Vector") -> "Vector":
-        return vector_add(self, other)
+    """A tensor like type that is isomorphic to MLIR `vector`.
 
-    def __sub__(self, other: "Vector") -> "Vector":
-        return vector_sub(self, other)
+    A vector has value semantics and allows computation over it.
+    """
 
-    def __mul__(self, other: "Vector") -> "Vector":
-        return vector_mul(self, other)
-
-    def __truediv__(self, other: "Vector") -> "Vector":
-        return vector_div(self, other)
+    # TODO: Implement operator overloading once math ops are added.
+    ...

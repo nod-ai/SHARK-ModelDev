@@ -12,14 +12,7 @@ from .._support.tracing import (
 __all__ = [
     "is_debug",
     "program_id",
-    "add",
-    "sub",
-    "mul",
-    "div",
-    "exp",
     "constant",
-    "max",
-    "sum",
     "dot",
     "for_loop",
     "load",
@@ -32,20 +25,18 @@ def is_debug() -> bool:
     return BaseContext.current().eager
 
 
+# Core language operations
 program_id = ops.thread_program_id
 
-add = ops.vector_add
-sub = ops.vector_sub
-mul = ops.vector_mul
-div = ops.vector_div
-exp = ops.vector_exp
+# Math Operations
 constant = ops.vector_constant
 
-max = ops.vector_max
-sum = ops.vector_sum
+# Reduction Operations
 dot = ops.vector_dot
 
+# Control Flow Operations
 for_loop = ops.for_loop
 
+# Memory Operations
 load = ops.kernel_buffer_load
 store = ops.kernel_buffer_store
