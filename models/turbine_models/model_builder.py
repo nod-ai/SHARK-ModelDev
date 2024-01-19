@@ -1,9 +1,15 @@
-from transformers import AutoModel, AutoTokenizer, AutoConfig
+from transformers import AutoModel, AutoTokenizer, AutoConfig, AutoModelForCausalLM
+import safetensors
+from iree.compiler.ir import Context
 import torch
 import shark_turbine.aot as aot
+<<<<<<< HEAD
 from turbine_models.turbine_tank import turbine_tank
 import os
 import re
+=======
+from shark_turbine.aot import *
+>>>>>>> f47990f (vllm check)
 
 
 class HFTransformerBuilder:
@@ -21,6 +27,7 @@ class HFTransformerBuilder:
     def __init__(
         self,
         example_input: torch.Tensor,
+<<<<<<< HEAD
         hf_id: str = None,
         auto_model: AutoModel = AutoModel,
         auto_tokenizer: AutoTokenizer = None,
@@ -31,6 +38,13 @@ class HFTransformerBuilder:
         model_type: str = None,
         compile_to_vmfb: bool = None,
         tokenizer=None,
+=======
+        hf_id: str,
+        auto_model: AutoModel = AutoModelForCausalLM,
+        auto_tokenizer: AutoTokenizer = AutoTokenizer,
+        auto_config: AutoConfig = None,
+        hf_auth_token="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",
+>>>>>>> f47990f (vllm check)
     ) -> None:
         self.example_input = example_input
         self.hf_id = hf_id
@@ -51,6 +65,7 @@ class HFTransformerBuilder:
         Builds a PyTorch model using Hugging Face's transformers library.
         """
         # TODO: check cloud storage for existing ir
+<<<<<<< HEAD
         if self.hf_id:
             self.model = self.auto_model.from_pretrained(
                 self.hf_id, token=self.hf_auth_token, config=self.auto_config
@@ -61,6 +76,17 @@ class HFTransformerBuilder:
                 )
             else:
                 self.tokenizer = None
+=======
+        self.model = self.auto_model.from_pretrained(
+            self.hf_id, token=self.hf_auth_token, torch_dtype=torch.float, trust_remote_code=True
+        )
+        #if self.auto_tokenizer is not None:
+        #    self.tokenizer = self.auto_tokenizer.from_pretrained(
+        #        self.hf_id, token=self.hf_auth_token, use_fast=False
+        #    )
+        #else:
+        self.tokenizer = None
+>>>>>>> f47990f (vllm check)
 
     def get_compiled_module(self, save_to: str = None) -> aot.CompiledModule:
         """
@@ -72,6 +98,7 @@ class HFTransformerBuilder:
         Returns:
             aot.CompiledModule: The compiled module binary.
         """
+<<<<<<< HEAD
         if self.model_type and self.model_type == "hf_seq2seq":
             module = aot.export(self.model, *self.example_input)
         else:
@@ -93,3 +120,38 @@ class HFTransformerBuilder:
                 return
             compiled_binary = module.compile(save_to=save_to)
             return compiled_binary
+=======
+        module = aot.export(self.model, self.example_input)
+        compiled_binary = module.compile(save_to=save_to)
+        return compiled_binary
+
+
+if __name__ == "__main__":
+    import sys
+    hf_id = sys.argv[-1]
+    safe_name = hf_id.replace("/", "_").replace("-", "_")
+    inp = torch.zeros(1, 1, dtype=torch.int64)
+    model = HFTransformerBuilder(inp, hf_id)
+    mapper=dict()
+    mod_params = dict(model.model.named_parameters())
+    for name in mod_params:
+        mapper["params." + name] = name
+#        safetensors.torch.save_file(mod_params, safe_name+".safetensors")
+    class GlobalModule(CompiledModule):
+        params = export_parameters(model.model, external=True, external_scope="",)
+        compute = jittable(model.model.forward)
+
+        def run(self, x=abstractify(inp)):
+            return self.compute(x)
+
+    print("module defined")
+    inst = GlobalModule(context=Context())
+    print("module inst")
+    module = CompiledModule.get_mlir_module(inst)
+#    compiled = module.compile()
+    print("got mlir module")
+    with open(safe_name+".mlir", "w+") as f:
+        f.write(str(module))
+
+    print("done")
+>>>>>>> f47990f (vllm check)
