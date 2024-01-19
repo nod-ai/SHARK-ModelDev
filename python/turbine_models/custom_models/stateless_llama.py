@@ -321,7 +321,6 @@ def export_transformer_model(
             "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
             "--iree-stream-resource-index-bits=64",
             "--iree-vm-target-index-bits=64",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
             "--iree-opt-const-expr-hoisting=False",
         ]
         if device == "cpu" or device == "llvm-cpu":
