@@ -10,18 +10,6 @@ from torch.utils import _pytree as pytree
 import operator as py_operator
 
 
-class Test(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        unrolled = torch.unbind(x, 1)
-        return unrolled[0], unrolled[1], unrolled[2], unrolled[3]
-
-
-trace: GraphModule = torch.fx.symbolic_trace(Test())
-
-
 def remove_unbind(gm: GraphModule) -> GraphModule:
     # Find all unbind nodes
     unbind_nodes = []
