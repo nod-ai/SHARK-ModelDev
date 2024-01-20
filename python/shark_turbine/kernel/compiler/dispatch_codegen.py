@@ -171,8 +171,9 @@ class StreamExecutable:
             workgroup_values = list(workgroup_builder.workload)
             while len(workgroup_values) < 3:
                 with InsertionPoint(workgroup_builder.entry_block):
+                    result_type = IndexType.get()
                     workgroup_values.append(
-                        arith_d.constant(IntegerAttr.get(IndexType.get(), 1))
+                        arith_d.constant(result_type, IntegerAttr.get(result_type, 1))
                     )
             workgroup_builder.terminate(workgroup_values)
 
@@ -226,7 +227,8 @@ class DispatchEntrypoint(BoundKernelSignature):
 
         if binding.binding_type == BindingType.KERNEL_BUFFER:
             # Issue a subspan to get into the memref domain.
-            zero_value = arith_d.constant(IntegerAttr.get(IndexType.get(), 0))
+            result_type = IndexType.get()
+            zero_value = arith_d.constant(result_type, IntegerAttr.get(result_type, 0))
             linear_arg_value = self._abi_value_by_reference[binding.reference]
             # TODO: Need to also look up dynamic symbol values.
             return stream_d.binding_subspan(

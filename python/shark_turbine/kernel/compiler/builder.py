@@ -128,8 +128,8 @@ class _ScalarBuilder:
         # If coming from a stock 'int' Python type with no idea how to convert it,
         # there isn't much smart we can do. We conservatively treat 'index' as
         # reasonable.
-        attr = IntegerAttr.get(IndexType.get(), py_value)
-        return arith_d.constant(attr)
+        result_type = IndexType.get()
+        return arith_d.constant(result_type, IntegerAttr.get(result_type, py_value))
 
     # Binary index arithmetic.
     def binary_add_index_index(self, lhs: Value, rhs: Value) -> Value:

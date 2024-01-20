@@ -35,7 +35,6 @@ def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
         "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
         "--iree-stream-resource-index-bits=64",
         "--iree-vm-target-index-bits=64",
-        "--iree-codegen-check-ir-before-llvm-conversion=false",
         "--iree-opt-const-expr-hoisting=False",
     ]
     if device == "cpu":

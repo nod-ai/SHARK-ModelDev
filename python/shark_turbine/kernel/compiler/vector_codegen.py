@@ -326,7 +326,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     vector_type = VectorType.get(vector_shape, element_type)
     pad_attr = ScalarBuilder.zero_attr(element_type)
     indices = cast_indices(emitter, [s.start for s in sa.slices])
-    pad_value = arith_d.constant(pad_attr)
+    pad_value = arith_d.constant(element_type, pad_attr)
     result = vector_d.transfer_read(
         vector_type,
         kb_src,
@@ -588,7 +588,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
             # Non-NaN propagating.
             # TODO: Carry a "fastmath" flag on the emitter and choose between this
             # and MAXIMUMF?
-            return vector_d.CombiningKind.MAXF
+            return vector_d.CombiningKind.MAXNUMF
         elif ScalarBuilder.is_integer_type(element_type):
             return (
                 vector_d.CombiningKind.MAXUI
@@ -624,7 +624,7 @@ def emit_reduction(
     vector_type = VectorType(input.type)
     element_type = vector_type.element_type
     rank = vector_type.rank
-    zero = arith_d.constant(ScalarBuilder.zero_attr(element_type))
+    zero = arith_d.constant(element_type, ScalarBuilder.zero_attr(element_type))
     combiner = combiner_callback(element_type, attrs)
 
     if len(args) == 1:
