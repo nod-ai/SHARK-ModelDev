@@ -389,7 +389,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     vector_type = VectorType.get(vector_shape, element_type)
     pad_attr = ScalarBuilder.zero_attr(element_type)
     indices = cast_indices(emitter, multi_index)
-    pad_value = arith_d.constant(pad_attr)
+    pad_value = arith_d.constant(element_type, pad_attr)
     result = vector_d.transfer_read(
         vector_type,
         kb_src,
