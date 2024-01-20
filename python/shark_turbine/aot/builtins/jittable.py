@@ -45,6 +45,7 @@ from ...support.ir_imports import (
 
 from ..passes import (
     functorch_functionalize,
+    remove_alias
 )
 
 from ..support.utils import (
@@ -115,8 +116,8 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
     return resolver
 
 
-ALL_PASSES: Set[str] = set(["functorch_functionalize"])
-DEFAULT_PASSES: Tuple[str, ...] = ("functorch_functionalize",)
+ALL_PASSES: Set[str] = set(["functorch_functionalize", "remove_alias"])
+DEFAULT_PASSES: Tuple[str, ...] = ("functorch_functionalize", "remove_alias")
 
 
 class jittable(CallableIntrinsic):
@@ -203,6 +204,10 @@ class jittable(CallableIntrinsic):
 
         # Run pre-processing passes.
         transformed_f = flat_wrapped_f
+        if "functorch_functionalize" in self._passes:
+            transformed_f = functorch_functionalize(transformed_f, *flat_pytorch_args)
+        if "remove_alias" in self._passes:
+            transformed_f = remove_alias(transformed_f, *flat_pytorch_args)
         if "functorch_functionalize" in self._passes:
             transformed_f = functorch_functionalize(transformed_f, *flat_pytorch_args)
 
