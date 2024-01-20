@@ -3,6 +3,7 @@ from typing import Type
 
 __all__ = [
     "Index",
+    "Vector",
 ]
 
 ###############################################################################
@@ -33,4 +34,14 @@ class Index(int):
     At the Python level, this is just an int.
     """
 
+    ...
+
+
+class Vector:
+    """A tensor like type that is isomorphic to MLIR `vector`.
+
+    A vector has value semantics and allows computation over it.
+    """
+
+    # TODO: Implement operator overloading once math ops are added.
     ...

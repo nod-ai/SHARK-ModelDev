@@ -1,9 +1,20 @@
-from typing import Generic, Optional, Type, TypeVar, Callable, Union, assert_type, cast
+from typing import (
+    Generic,
+    Optional,
+    Type,
+    TypeVar,
+    Callable,
+    Union,
+    assert_type,
+    cast,
+    Any,
+)
 
 import inspect
 import math
 
 import torch.fx as fx
+from torch.export import export
 
 from ..lang import (
     KernelBuffer,
@@ -17,13 +28,24 @@ from .._support.tracing import (
     EagerContext,
     KernelTracer,
     Launchable,
+    KernelRegionGraph,
 )
 
 __all__ = [
     "thread",
+    "parameterize",
 ]
 
 TCallable = TypeVar("TCallable", bound=Callable)
+
+
+def parameterize(parameters: dict[str, Any]):
+    def decorator(f: Optional[TCallable]) -> Optional[TCallable]:
+        if f is not None:
+            f.parameters = parameters
+        return f
+
+    return decorator
 
 
 def thread(*symbolic_shape: SymbolDef):
@@ -31,12 +53,13 @@ def thread(*symbolic_shape: SymbolDef):
 
     def decorator(f: Optional[TCallable] = None) -> "UnconfiguredThread[TCallable]":
         # Eagerly capture the trace and attach it to the wrapped function.
-        tracer = KernelTracer()
-        with CompiledContext(tracer, grid_type=GridType) as context:
-            g = tracer.trace(f)
-            gm = fx.GraphModule(tracer.root, g, f.__name__)
+        region_graph = KernelRegionGraph()
+        with CompiledContext(region_graph, grid_type=GridType) as context:
+            with region_graph.subtracer() as subtracer:
+                root_name, implicit_capture = subtracer.trace(f)
+                trace = CapturedTrace(region_graph, root_name)
 
-        return UnconfiguredThread[TCallable](GridType, f.__name__, f, CapturedTrace(gm))
+        return UnconfiguredThread[TCallable](GridType, f.__name__, f, trace)
 
     return decorator
 

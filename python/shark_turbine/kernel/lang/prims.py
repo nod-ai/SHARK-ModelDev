@@ -12,6 +12,11 @@ from .._support.tracing import (
 __all__ = [
     "is_debug",
     "program_id",
+    "constant",
+    "dot",
+    "for_loop",
+    "load",
+    "store",
 ]
 
 
@@ -20,4 +25,18 @@ def is_debug() -> bool:
     return BaseContext.current().eager
 
 
+# Core language operations
 program_id = ops.thread_program_id
+
+# Math Operations
+constant = ops.vector_constant
+
+# Reduction Operations
+dot = ops.vector_dot
+
+# Control Flow Operations
+for_loop = ops.for_loop
+
+# Memory Operations
+load = ops.kernel_buffer_load
+store = ops.kernel_buffer_store

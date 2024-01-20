@@ -4,6 +4,7 @@ from iree.compiler.ir import (
     AffineMap,
     AffineMapAttr,
     Attribute,
+    ArrayAttr,
     Block,
     Context,
     DenseElementsAttr,
@@ -33,4 +34,5 @@ from iree.compiler.dialects import (
     math as math_d,
     stream as stream_d,
     vector as vector_d,
+    scf as scf_d,
 )

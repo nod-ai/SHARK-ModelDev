@@ -4,7 +4,7 @@ Such kernels operate on global memory at the boundary, scheduling
 actual loads/stores/computes to local vectors using PyTorch tensor
 level operations executed as threads over a grid.
 """
-from typing import Any, Callable, Type, Optional, Sequence, Union
+from typing import Any, Callable, Type, Optional, Sequence, Union, List
 
 from dataclasses import dataclass
 import inspect
@@ -12,6 +12,7 @@ import operator as py_operator
 
 import torch
 import torch.fx as fx
+import torch.utils._pytree as pytree
 
 from .._support.indexing import (
     Grid,
@@ -20,6 +21,10 @@ from .._support.indexing import (
     SymbolDef,
     is_kernel_buffer_meta_derived,
 )
+
+from .._support.tracing import CapturedTrace
+
+from .. import lang as tkl
 
 from ..lang import (
     Index,
@@ -43,9 +48,15 @@ from .base import (
 
 from .ir import (
     AffineMap,
+    Attribute,
+    AffineExpr,
     AffineMapAttr,
+    ArrayAttr,
     FunctionType,
-    IndexType,
+    VectorType,
+    DenseElementsAttr,
+    F32Type,
+    FloatAttr,
     InsertionPoint,
     IrType,
     Location,
@@ -57,6 +68,7 @@ from .ir import (
     func_d,
     math_d,
     vector_d,
+    scf_d,
 )
 
 from .kernel_codegen import (
@@ -89,27 +101,28 @@ class ThreadEmitter:
 
     OP_HANDLERS: dict[Any, Callable[["ThreadEmitter", fx.Node], None]] = {}
 
-    def __init__(self, sig: BoundKernelSignature):
-        self._node_values: dict[fx.Node, Value] = {}
+    def __init__(self, root_sig: BoundKernelSignature, trace: CapturedTrace):
+        self._node_values: dict[fx.Node, List[Value]] = {}
         self._grid_axis_values: dict[int, Value] = {}
-        self._sig = sig
-        self.ip = InsertionPoint(sig.entry_block)
+        self._root_sig = root_sig
+        self.trace = trace
+        self.ip = InsertionPoint(root_sig.entry_block)
 
-    def lookup_node_value(self, node: fx.Node) -> Value:
-        value = self._node_values.get(node)
-        if value is None:
-            value = self._sig.resolve_by_reference(("node", node))
-            self._node_values[node] = value
-        return value
+    def lookup_node_values(self, node: fx.Node) -> List[Value]:
+        values = self._node_values.get(node)
+        if values is None:
+            values = [self._root_sig.resolve_by_reference(("node", node))]
+            self._node_values[node] = values
+        return values
 
     def lookup_grid_axis_value(self, grid_axis: int) -> Value:
         value = self._grid_axis_values.get(grid_axis)
         if value is None:
             try:
-                value = self._sig.resolve_by_reference(("grid", grid_axis))
+                value = self._root_sig.resolve_by_reference(("grid", grid_axis))
             except KeyError:
                 raise CodegenError(f"Grid axis {grid_axis} out of bounds")
-            self._node_values[grid_axis] = value
+            self._node_values[grid_axis] = [value]
         return value
 
     def bind_node_result(
@@ -120,14 +133,25 @@ class ThreadEmitter:
         ), f"Cannot rebind node {node}: already bound"
         if attrs is not None:
             attrs.store(node)
-        self._node_values[node] = value
+        self._node_values[node] = [value]
 
-    def emit_graph(self, graph: fx.Graph):
-        for node in graph.nodes:
-            # TODO: Construct a location for the node.
-            with self.ip, Location.unknown():
-                if node.op == "call_function":
-                    self.emit_function_call_node(node)
+    def bind_node_results(
+        self,
+        node: fx.Node,
+        values: List[Value],
+        *,
+        attrs: Optional[NodeAttrs] = None,
+    ):
+        assert (
+            node not in self._node_values
+        ), f"Cannot rebind node {node}: already bound"
+        if attrs is not None:
+            attrs.store(node)
+        self._node_values[node] = values
+
+    def emit(self):
+        with self.ip, Location.unknown():
+            self.emit_graph(self.trace.get_root_graph())
 
     def emit_function_call_node(self, node: fx.Node):
         target_op = node.target
@@ -136,6 +160,27 @@ class ThreadEmitter:
         except KeyError:
             raise CodegenError(f"No handler registered for op {target_op}")
         handler(self, node)
+        # dump
+
+    def emit_graph(self, graph: fx.Graph):
+        """Emits the given graph at the current insertion point."""
+        for node in graph.nodes:
+            if node.op == "call_function":
+                self.emit_function_call_node(node)
+            if node.op == "output":
+                return node.args
+
+    def emit_subgraph(self, subgraph: fx.Graph, implicit_capture: list[fx.Node]):
+        # Map subgraph freevars -> implicit_capture
+        freevars = self.trace.region_graph.inner_freevars[subgraph]
+        assert len(freevars) == len(
+            implicit_capture
+        ), f"Expected {len(freevars)} implicit capture args, got {len(implicit_capture)}"
+        for freevar, arg in zip(freevars, implicit_capture):
+            self._node_values[freevar.node] = self.lookup_node_values(arg)
+
+        # Emit subgraph
+        return self.emit_graph(subgraph)
 
     def finish(self):
         with self.ip, Location.unknown():
@@ -153,6 +198,21 @@ def handle_op(op):
 ###############################################################################
 # Python/scalar ops
 ###############################################################################
+
+
+@handle_op(py_operator.getitem)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        proxy, index = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguements") from e
+
+    if not isinstance(proxy, fx.Node):
+        raise CodegenError(f"Expected fx.Node")
+    node_values = emitter.lookup_node_values(proxy)
+
+    emitter.bind_node_result(node, node_values[index])
+
 
 BINARY_ARITHMETIC_OPS = [
     (py_operator.add, "add"),
@@ -268,7 +328,11 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     indices = cast_indices(emitter, [s.start for s in sa.slices])
     pad_value = arith_d.constant(element_type, pad_attr)
     result = vector_d.transfer_read(
-        vector_type, kb_src, indices, AffineMap.get_identity(len(indices)), pad_value
+        vector_type,
+        kb_src,
+        indices,
+        AffineMap.get_identity(len(indices)),
+        pad_value,
     )
     emitter.bind_node_result(node, result)
 
@@ -300,8 +364,203 @@ def _(emitter: ThreadEmitter, node: fx.Node):
 
     permutation_map = AffineMap.get_identity(dest_rank)
     vector_d.transfer_write(
-        None, insert_vector, kb_dest, indices, AffineMapAttr.get(permutation_map)
+        None,
+        insert_vector,
+        kb_dest,
+        indices,
+        AffineMapAttr.get(permutation_map),
     )
+
+
+###############################################################################
+# Memory Ops
+###############################################################################
+
+
+@handle_op(tkl.load)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        kb, multi_index, vector_shape = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    element_type = kb_ir_type.element_type
+    vector_type = VectorType.get(vector_shape, element_type)
+    pad_attr = ScalarBuilder.zero_attr(element_type)
+    indices = cast_indices(emitter, multi_index)
+    pad_value = arith_d.constant(element_type, pad_attr)
+    result = vector_d.transfer_read(
+        vector_type,
+        kb_src,
+        indices,
+        AffineMap.get_identity(len(indices)),
+        pad_value,
+    )
+    emitter.bind_node_result(node, result)
+
+
+@handle_op(tkl.store)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        kb, multi_index, item = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    dest_rank = kb_ir_type.rank
+    indices = cast_indices(emitter, multi_index)
+    if dest_rank != len(indices):
+        raise CodegenError(
+            f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(indices)}"
+        )
+    insert_vector = cast_vector(emitter, item, element_type=kb_ir_type.element_type)
+    insert_type = VectorType(insert_vector.type)
+    insert_rank = insert_type.rank
+
+    # Special case rank-0 broadcast.
+    if insert_rank == 0:
+        broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
+        insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
+
+    permutation_map = AffineMap.get_identity(dest_rank)
+    vector_d.transfer_write(
+        None,
+        insert_vector,
+        kb_dest,
+        indices,
+        AffineMapAttr.get(permutation_map),
+    )
+
+
+###############################################################################
+# Math Ops
+###############################################################################
+
+
+@handle_op(tkl.constant)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        shape, dtype, value = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    # TODO: Have better way to get the dtype.
+    if dtype == torch.float32:
+        element_type = F32Type.get()
+        vector_type = VectorType.get(shape, element_type)
+        dense_value = DenseElementsAttr.get_splat(vector_type, FloatAttr.get_f32(value))
+        result = arith_d.ConstantOp(vector_type, dense_value)
+        emitter.bind_node_result(node, result)
+    else:
+        raise CodegenError(f"NYI: Constant type {dtype}")
+
+
+###############################################################################
+# Reduction Ops
+###############################################################################
+
+
+@handle_op(tkl.dot)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        lhs, rhs, acc = node.args
+        lhs = cast_vector(emitter, lhs)
+        rhs = cast_vector(emitter, rhs)
+        acc = cast_vector(emitter, acc)
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    vector_type = VectorType(lhs.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+
+    n, m, k = (
+        AffineExpr.get_dim(0),
+        AffineExpr.get_dim(1),
+        AffineExpr.get_dim(2),
+    )
+    indexing_maps = [
+        AffineMap.get(3, 0, [n, k]),
+        AffineMap.get(3, 0, [k, m]),
+        AffineMap.get(3, 0, [n, m]),
+    ]
+    indexing_maps_attr = [AffineMapAttr.get(map) for map in indexing_maps]
+    # TODO: Bad hack, please fix.
+    iterator_types = ArrayAttr.get(
+        [
+            Attribute.parse("#vector.iterator_type<parallel>"),
+            Attribute.parse("#vector.iterator_type<parallel>"),
+            Attribute.parse("#vector.iterator_type<reduction>"),
+        ]
+    )
+    result = vector_d.ContractionOp(
+        acc.type,
+        lhs,
+        rhs,
+        acc,
+        indexing_maps_attr,
+        iterator_types,
+    )
+    emitter.bind_node_result(node, result)
+
+
+###############################################################################
+# Control Flow ops
+###############################################################################
+
+
+@handle_op(tkl.for_loop)
+def _(emitter: ThreadEmitter, node: fx.Node):
+    try:
+        start, end, step, init_args = node.args
+        subgraph = node.kwargs["subgraph"]
+        implicit_capture = node.kwargs["implicit_capture"]
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    # Check if init_args is a flattened list of values.
+    for arg in init_args:
+        if len(emitter.lookup_node_values(arg)) != 1:
+            raise CodegenError(f"NYI: For loop init args must be flattened")
+
+    # Get IR values mapping to the node args.
+    start = cast_py_value(emitter, start)
+    end = cast_py_value(emitter, end)
+    step = cast_py_value(emitter, step)
+
+    # Flatten init_args and get IR values for each of them.
+    flat_init_args, init_args_spec = pytree.tree_flatten((init_args))
+    flat_init_args = [cast_py_value(emitter, arg) for arg in flat_init_args]
+
+    # Get the subgraph for body of the loop.
+    assert isinstance(subgraph, str)
+    subgraph = emitter.trace.get_subgraph(subgraph)
+
+    # Create scf.for operation.
+    forOp = scf_d.ForOp(start, end, step, flat_init_args)
+    # Enter body of for loop.
+    with InsertionPoint(forOp.body):
+        # TODO: Flatten subgraph args here.
+        subgraph_args = [
+            node
+            for node in subgraph.nodes
+            if node.op == "placeholder" and "lifted" not in node.meta
+        ]
+        # Add mapping for induction variable argument.
+        emitter.bind_node_result(subgraph_args[0], forOp.induction_variable)
+        # Add mapping for iter_args.
+        emitter.bind_node_results(subgraph_args[1], forOp.inner_iter_args)
+
+        ret = emitter.emit_subgraph(subgraph, implicit_capture)
+        # Use ret in terminatory of body
+        # TODO: Flatten return values here.
+        flat_ret_values, ret_spec = pytree.tree_flatten((ret))
+        flat_ret_values = [cast_py_value(emitter, value) for value in flat_ret_values]
+        scf_d.YieldOp(flat_ret_values)
+
+    results = forOp.results_
+    emitter.bind_node_results(node, results)
 
 
 ###############################################################################
@@ -386,19 +645,31 @@ def emit_reduction(
 
 
 def cast_py_value(emitter: ThreadEmitter, value) -> Value:
+    """
+    Converts the given value to an IR Value.
+    If the value is a fx.Node, the result of the fx.Node should corresspond to
+    exactly one IR Value.
+    If the value is a constant, a constant value will be built for it.
+    """
     if isinstance(value, fx.Node):
         try:
-            return emitter.lookup_node_value(value)
+            node_values = emitter.lookup_node_values(value)
+            assert len(node_values) == 1, f"Expected exactly one value for node {value}"
+            return node_values[0]
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")
 
     return ScalarBuilder.constant(value)
 
 
-def cast_py_lvalue(emitter: ThreadEmitter, py_value) -> tuple[Value, fx.Node]:
+def cast_py_lvalue(emitter: ThreadEmitter, py_value: fx.Node) -> tuple[Value, fx.Node]:
     if isinstance(py_value, fx.Node):
         try:
-            return emitter.lookup_node_value(py_value), py_value
+            node_values = emitter.lookup_node_values(py_value)
+            assert (
+                len(node_values) == 1
+            ), f"Expected exactly one value for node {py_value}"
+            return node_values[0], py_value
         except KeyError:
             raise CodegenError(f"Producer node `{py_value}` has no IR Value")
     else:
