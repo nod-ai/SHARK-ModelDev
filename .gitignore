@@ -28,3 +28,6 @@ wheelhouse
 *.safetensors
 *.gguf
 *.vmfb
+
+#Benchmark artifacts
+benchmark_e2e_results.json
