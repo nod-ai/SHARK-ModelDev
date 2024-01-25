@@ -90,17 +90,19 @@ class StatelessLlamaChecks(unittest.TestCase):
         check_output_string(torch_str, turbine_str)
 
     def test_benchmark_vmfb(self):
-        llama.export_transformer_model(
-            hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-            hf_auth_token=None,
-            compile_to="vmfb",
-            external_weights="safetensors",
-            # external_weight_file="Llama-2-7b-chat-hf-function-calling-v2_f16_int4.safetensors", Do not export weights because this doesn't get quantized
-            quantization=quantization,
-            precision=precision,
-            device="llvm-cpu",
-            target_triple="host",
-        )
+        vmfb_name = "Llama_2_7b_chat_hf_function_calling_v2.vmfb"
+        if not os.path.isfile(vmfb_name):
+            llama.export_transformer_model(
+                hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+                hf_auth_token=None,
+                compile_to="vmfb",
+                external_weights="safetensors",
+                # external_weight_file="Llama-2-7b-chat-hf-function-calling-v2_f16_int4.safetensors", Do not export weights because this doesn't get quantized
+                quantization=quantization,
+                precision=precision,
+                device="llvm-cpu",
+                target_triple="host",
+            )
         test_dataset_path = "python/turbine_models/tests/benchmark_prompt_test.json"
         test_output_path = "benchmark_e2e_results.json"
         benchmark_result_path = llm_e2e_benchmark.run_llm_benchmark(
