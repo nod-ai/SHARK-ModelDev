@@ -5,7 +5,6 @@ from typing import (
     TypeVar,
     Callable,
     Union,
-    assert_type,
     cast,
     Any,
 )

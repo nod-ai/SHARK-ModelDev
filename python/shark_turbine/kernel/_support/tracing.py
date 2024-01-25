@@ -4,7 +4,6 @@ from typing import (
     TypeVar,
     Callable,
     Type,
-    assert_type,
     cast,
     List,
     Dict,
@@ -41,6 +40,14 @@ from ..ops.base import (
 )
 
 from . import context
+
+try:
+    from typing import assert_type
+except ImportError:
+    # No-op if not supported. Introduced in Python 3.11.
+    def assert_type(a, b):
+        pass
+
 
 TCallable = TypeVar("TCallable", bound=Callable)
 

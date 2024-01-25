@@ -3,7 +3,6 @@ from typing import (
     TypeVar,
     Callable,
     Type,
-    assert_type,
     cast,
     List,
     Dict,

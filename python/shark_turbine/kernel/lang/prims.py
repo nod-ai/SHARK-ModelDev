@@ -1,5 +1,3 @@
-from typing import assert_type
-
 from .. import ops
 
 from .._support.tracing import (
