@@ -155,6 +155,15 @@ class ContextTest(unittest.TestCase):
         ):
             c.finalize()
 
+    def testDependentDynamicDims(self):
+        c = IndexingContext()
+        inst = object()
+        kb1 = KernelBuffer[M, M * 4]
+        c.bind_shaped(inst, kb1, (c.next_dyn_dim(), c.next_dyn_dim()))
+        c.finalize()
+        self.assertEqual(c.dyn_dims[0], c.eval_dim(inst, kb1, 0))
+        self.assertEqual(c.dyn_dims[0] * 4, c.eval_dim(inst, kb1, 1))
+
 
 if __name__ == "__main__":
     unittest.main()
