@@ -20,7 +20,6 @@ import random
 import torch.fx as fx
 
 from .indexing import (
-    BoundedSymbolicValue,
     Grid,
     KernelBuffer,
     sym_0,

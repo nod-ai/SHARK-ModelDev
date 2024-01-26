@@ -10,12 +10,12 @@ from .. import ops
 from . import context
 
 __all__ = [
-    "BoundedSymbolicValue",
     "KernelBuffer",
     "Grid",
     "InputBuffer",
     "OutputBuffer",
-    "SymbolDef",
+    "IndexExpr",
+    "IndexSymbol",
     "TemporaryBuffer",
     "sym",
     "sym_0",
@@ -77,210 +77,29 @@ DefaultElementType = TorchElementType(torch.float32)
 # Dimension symbols
 ###############################################################################
 
+import sympy
 
-class SymbolExpr:
-    def is_one(self) -> Optional[bool]:
-        """Returns True if the symbol is known to be 1.
-
-        Return False if known to be != 1 and None if not known.
-        """
-        raise NotImplementedError
-
-    def is_non_negative(self) -> Optional[bool]:
-        """Returns True is the symbol is known to be non-negative.
-
-        Returns False if known to be negative and None if not known.
-        """
-        raise NotImplementedError
-
-    def is_positive(self) -> Optional[bool]:
-        """Returns True is the symbol is known to be greater than zero.
-
-        Returns False if known to be <= 0 and None if not known.
-        """
-        raise NotImplementedError
-
-    def is_negative(self) -> Optional[bool]:
-        """Returns True is the symbol is known to be greater than zero.
-
-        Returns False if known to be <= 0 and None if not known.
-        """
-        raise NotImplementedError
+IndexExpr = sympy.core.Expr
+IndexSymbol = sympy.core.Symbol
 
 
-class SymbolDef(SymbolExpr):
-    """Represents a named symbol representing a dimension in a shape."""
-
-    ALL_SYMBOLS: ClassVar[dict[str, "SymbolDef"]] = dict()
-    name: str
-
-    def __new__(cls, name: str):
-        existing = cls.ALL_SYMBOLS.get(name)
-        if existing is not None:
-            return existing
-        new = super().__new__(cls)
-        new.name = name
-        cls.ALL_SYMBOLS[name] = new
-        return new
-
-    def __repr__(self):
-        return f"Symbol({self.name})"
-
-    @classmethod
-    def create_expando(cls):
-        """Create an expando class that creates unique symbols based on attr access."""
-
-        class Expando:
-            def __getattr__(self, n):
-                return cls(n)
-
-        return Expando()
-
-    def is_one(self) -> Optional[bool]:
-        value = IndexingContext.current().get_static_value(self)
-        if value is None:
-            return None
-        return value == 1
-
-    def is_non_negative(self) -> Optional[bool]:
-        value = IndexingContext.current().get_static_value(self)
-        if value is None:
-            return None
-        return value >= 0
-
-    def is_positive(self) -> Optional[bool]:
-        value = IndexingContext.current().get_static_value(self)
-        if value is None:
-            return None
-        return value > 0
-
-    def is_negative(self) -> Optional[bool]:
-        value = IndexingContext.current().get_static_value(self)
-        if value is None:
-            return None
-        return value < 0
+def index_symbol(name: str) -> IndexSymbol:
+    symbol = sympy.symbols(name)
+    if not isinstance(symbol, sympy.core.Symbol):
+        raise ValueError(f"Expected a single symbol name but got '{name}'")
+    return symbol
 
 
-sym = SymbolDef.create_expando()
+class _IndexSymbolExpando:
+    def __getattr__(self, n):
+        return index_symbol(n)
 
-sym_0 = SymbolDef("0")
-sym_1 = SymbolDef("1")
-sym_2 = SymbolDef("2")
-sym_n1 = SymbolDef("-1")
+sym = _IndexSymbolExpando()
 
-
-###############################################################################
-# Bounded symbolic value.
-###############################################################################
-
-BoundedRangeExprT = tuple[Optional[SymbolExpr], Optional[SymbolExpr]]
-
-
-class _BoundedSymbolicValueMeta(type):
-    """Meta-class for deriving new bounded symbolic values."""
-
-    range: BoundedRangeExprT
-
-    def __new__(mcls, name: str, bases, dct, *, range: BoundedRangeExprT):
-        dct["range"] = range
-        dct["__qualname__"] = _bounded_symbolic_value_repr(range=range)
-        new_class = type.__new__(mcls, name, bases, dct)
-        return new_class
-
-    def __repr__(cls):
-        return _bounded_symbolic_value_repr(range=cls.range)
-
-    @property
-    def min_bound(cls) -> Optional[SymbolExpr]:
-        return cls.range[0]
-
-    @property
-    def max_bound(cls) -> Optional[SymbolExpr]:
-        return cls.range[1]
-
-    def bound(
-        cls: Type[SubtypeT],
-        min_bound: Optional[SymbolExpr],
-        max_bound: Optional[SymbolExpr],
-    ) -> Type[SubtypeT]:
-        class Bounded(BoundedSymbolicValue, range=(min_bound, max_bound)):
-            ...
-
-        return Bounded
-
-    def narrow(
-        cls: Type[SubtypeT],
-        *,
-        min_bound: Optional[SymbolExpr] = None,
-        max_bound: Optional[SymbolExpr] = None,
-    ) -> Type[SubtypeT]:
-        class Bounded(
-            BoundedSymbolicValue,
-            range=(
-                min_bound if min_bound is not None else cls.min_bound,
-                max_bound if max_bound is not None else cls.max_bound,
-            ),
-        ):
-            ...
-
-        return Bounded
-
-
-def _bounded_symbolic_value_repr(*, range: BoundedRangeExprT) -> str:
-    min_expr, max_expr = range
-    min_s = repr(min_expr) if min_expr is not None else "*"
-    max_s = repr(max_expr) if max_expr is not None else "*"
-    return f"BoundedSymbolicValue({min_s} : {max_s})"
-
-
-class BoundedSymbolicValue(
-    SymbolExpr, metaclass=_BoundedSymbolicValueMeta, range=(None, None)
-):
-    """Represents a symbolic value that is bounded to a range fixed for the type."""
-
-    def __init__(self, value: Optional[int] = None):
-        self.value = value
-
-    def __repr__(self):
-        return f"{type(self)}({'proxy' if self.value is None else self.value})"
-
-    @property
-    def static_range(self) -> Optional[tuple[int, int]]:
-        # TODO: This is a hack until shape derivation is in place.
-        ctx = IndexingContext.current()
-        mn, mx = type(self).range
-        if mn is not None:
-            mn = ctx.get_static_value(mn)
-        if mx is not None:
-            mx = ctx.get_static_value(mx)
-        if mn is not None and mx is not None:
-            return mn, mx
-        else:
-            return None
-
-    def is_one(self) -> Optional[bool]:
-        r = self.static_range
-        if r:
-            return r[0] == 1 and r[1] == 2
-        return None
-
-    def is_non_negative(self) -> Optional[bool]:
-        r = self.static_range
-        if r:
-            return r[0] >= 0
-        return None
-
-    def is_positive(self) -> Optional[bool]:
-        r = self.static_range
-        if r:
-            return r[0] > 0
-        return None
-
-    def is_negative(self) -> Optional[bool]:
-        r = self.static_range
-        if r:
-            return r[1] < 0
-        return None
+sym_0 = index_symbol("0")
+sym_1 = index_symbol("1")
+sym_2 = index_symbol("2")
+sym_n1 = index_symbol("-1")
 
 
 ###############################################################################
@@ -297,7 +116,7 @@ class _GridMeta(type):
         bases,
         dct,
         *,
-        symbolic_shape: Optional[tuple[SymbolDef]],
+        symbolic_shape: Optional[tuple[IndexExpr]],
     ):
         new_class = type.__new__(mcls, name, bases, dct)
         new_class.symbolic_shape = symbolic_shape
@@ -306,7 +125,7 @@ class _GridMeta(type):
         return new_class
 
     def __class_getitem__(
-        cls, symbolic_shape: Union[SymbolDef, tuple[SymbolDef]]
+        cls, symbolic_shape: Union[IndexExpr, tuple[IndexExpr]]
     ) -> Type["Grid"]:
         if not isinstance(symbolic_shape, tuple):
             symbolic_shape = (symbolic_shape,)
@@ -322,7 +141,7 @@ class _GridMeta(type):
 class Grid(metaclass=_GridMeta, symbolic_shape=None):
     """Grid with bounding symbolic shape information in the type."""
 
-    symbolic_shape: ClassVar[Optional[tuple[SymbolDef]]]
+    symbolic_shape: ClassVar[Optional[tuple[IndexExpr]]]
     rank: int
 
     def __init__(self, *dims: int):
@@ -351,7 +170,7 @@ class Grid(metaclass=_GridMeta, symbolic_shape=None):
         return iter(self.dims)
 
 
-def _make_shaped_grid(cls: Type[Grid], symbolic_shape: tuple[SymbolDef]):
+def _make_shaped_grid(cls: Type[Grid], symbolic_shape: tuple[IndexExpr]):
     class ShapedGrid(Grid, symbolic_shape=symbolic_shape):
         ...
 
@@ -391,7 +210,7 @@ class _KernelBufferMeta(type):
 
     element_type: ElementType
     usage: KernelBufferUsage
-    symbolic_shape: Optional[tuple[SymbolDef]]
+    symbolic_shape: Optional[tuple[IndexExpr]]
     rank: Optional[int]
 
     def __new__(
@@ -419,7 +238,7 @@ class _KernelBufferMeta(type):
         cls: Type[SubtypeT],
         *,
         element_type: Union[NotSetType, ElementType] = NotSet,
-        symbolic_shape: Union[NotSetType, Optional[tuple[SymbolDef]]] = NotSet,
+        symbolic_shape: Union[NotSetType, Optional[tuple[IndexExpr]]] = NotSet,
         usage: Union[NotSetType, KernelBufferUsage] = NotSet,
     ) -> Type[SubtypeT]:
         init_element_type = (
@@ -458,7 +277,7 @@ def _kernel_buffer_type_repr(
     *,
     element_type: ElementType,
     usage: KernelBufferUsage,
-    symbolic_shape: Optional[tuple[SymbolDef]],
+    symbolic_shape: Optional[tuple[IndexExpr]],
 ) -> str:
     root = KernelBufferUsage._type_name(usage)
     if symbolic_shape:
@@ -484,7 +303,7 @@ class KernelBuffer(metaclass=_KernelBufferMeta):
     """
 
     usage: ClassVar[KernelBufferUsage]
-    symbolic_shape: ClassVar[Optional[tuple[SymbolDef]]]
+    symbolic_shape: ClassVar[Optional[tuple[IndexExpr]]]
     rank: Optional[int]
 
     def __init__(self, tensor: torch.Tensor):
@@ -499,7 +318,7 @@ class KernelBuffer(metaclass=_KernelBufferMeta):
         self.rank = tensor_rank
 
     def __class_getitem__(
-        cls, symbolic_shape: Union[SymbolDef, tuple[SymbolDef]]
+        cls, symbolic_shape: Union[IndexExpr, tuple[IndexExpr]]
     ) -> Type["KernelBuffer"]:
         if not isinstance(symbolic_shape, tuple):
             symbolic_shape = (symbolic_shape,)
@@ -540,14 +359,14 @@ class IndexingContext:
     __tk_context_idname__ = "IndexingContext"
 
     def __init__(self):
-        self.constant_bindings: dict[SymbolDef, int] = {
+        self.constant_bindings: dict[IndexSymbol, int] = {
             sym_0: 0,
             sym_1: 1,
             sym_2: 2,
             sym_n1: -1,
         }
 
-    def bind_constant(self, sym: SymbolDef, value: int):
+    def bind_constant(self, sym: IndexSymbol, value: int):
         existing = self.constant_bindings.get(sym)
         if existing is not None and existing != value:
             raise ValueError(
@@ -555,7 +374,7 @@ class IndexingContext:
             )
         self.constant_bindings[sym] = value
 
-    def get_static_value(self, sym: SymbolExpr) -> Optional[int]:
+    def get_static_value(self, sym: IndexExpr) -> Optional[int]:
         """If the symbol can be resolved to a static value, returns it."""
         return self.constant_bindings.get(sym)
 

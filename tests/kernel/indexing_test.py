@@ -65,13 +65,6 @@ class Test(unittest.TestCase):
         T = InputBuffer[M].of(torch.float16)
         self.assertEqual("InputBuffer[M].of(torch.float16)", repr(T))
 
-    def testBoundedSymbolValue(self):
-        self.assertEqual("BoundedSymbolicValue(* : *)", (repr(BoundedSymbolicValue)))
-        B1 = BoundedSymbolicValue.bound(sym_0, None)
-        self.assertEqual("BoundedSymbolicValue(Symbol(0) : *)", repr(B1))
-        B2 = B1.narrow(max_bound=sym_1)
-        self.assertEqual("BoundedSymbolicValue(Symbol(0) : Symbol(1))", repr(B2))
-
 
 if __name__ == "__main__":
     unittest.main()

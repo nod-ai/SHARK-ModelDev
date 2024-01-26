@@ -7,7 +7,8 @@ from .._support.indexing import (
     InputBuffer,
     KernelBuffer,
     OutputBuffer,
-    SymbolDef,
+    IndexExpr,
+    IndexSymbol,
     TemporaryBuffer,
     sym,
 )
