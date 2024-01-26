@@ -120,12 +120,12 @@ class StatelessLlamaChecks(unittest.TestCase):
         if len(benchmark_result) <= 0:
             raise ValueError("Dataset is empty, or did not read dataset correctly.")
         # Test result for prompt #1
-        assert benchmark_result[0]["decoded_tokens"] == 20
+        assert benchmark_result[0]["decoded_tokens"] == 10
         assert benchmark_result[0]["num_iterations"] == 2
         assert benchmark_result[0]["decode_speed(tok/s)"] > 0
         assert benchmark_result[0]["prefill_speed(tok/s)"] > 0
         # Test result for prompt #2
-        assert benchmark_result[1]["decoded_tokens"] == 50
+        assert benchmark_result[1]["decoded_tokens"] == 20
         assert benchmark_result[1]["num_iterations"] == 1
         assert benchmark_result[1]["decode_speed(tok/s)"] > 0
         assert benchmark_result[1]["prefill_speed(tok/s)"] > 0
