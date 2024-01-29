@@ -15,8 +15,6 @@ from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama i
 from turbine_models.custom_models import remap_gguf
 import safetensors
 
-BATCH_SIZE = 1
-
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -71,18 +69,17 @@ json_schema_16 = """
 """
 
 
-def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
+def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim, batch_size):
     all_pkv_tensors = []
     for i in range(heads * 2):
         # Numpy semantic: sliced = global_pkv[i, 0, 0:seq_step, 0:heads, 0:hidden_dim]
-        # Generates tensor<1 x 1 x seq_step x heads x hidden_dim>
+        # Generates tensor<1 x batch_size x seq_step x heads x hidden_dim>
         sliced = IREE.tensor_slice(
-            global_pkv, i, 0, (0, seq_step), (0, heads), (0, hidden_dim)
+            global_pkv, i, (0, batch_size), (0, seq_step), (0, heads), (0, hidden_dim)
         )  # sequence context dim
         all_pkv_tensors.append(
-            IREE.tensor_reshape(sliced, 1, seq_step, heads, hidden_dim)
+            IREE.tensor_reshape(sliced, batch_size, seq_step, heads, hidden_dim)
         )
-
     return all_pkv_tensors
 
 
@@ -110,6 +107,7 @@ def export_transformer_model(
     else:
         state_schema = pytree.treespec_loads(json_schema_64)
     if streaming_llm:
+        print("Compiling with Streaming LLM")
         enable_llama_pos_shift_attention(mod)
     dtype = torch.float32
     if precision == "f16":
@@ -123,13 +121,8 @@ def export_transformer_model(
     # TODO: generate these values instead of magic numbers
     HEADS = mod.config.num_attention_heads
     HIDDEN_DIM = int(mod.config.hidden_size / HEADS)
-    BATCH_SIZE = 1
     MAX_STEP_SEQ = mod.config.max_position_embeddings - 1
-    global_pkv = torch.zeros(
-        size=(HEADS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
-        dtype=dtype,
-    )
-
+    global_pkv = AbstractTensor(HEADS * 2, None, MAX_STEP_SEQ, HEADS, HIDDEN_DIM)
     mapper = {}
     if external_weights is not None:
         if external_weights == "safetensors":
@@ -150,29 +143,27 @@ def export_transformer_model(
             )
         else:
             params = export_parameters(mod)
-        global_state = export_global(
-            abstractify(global_pkv), uninitialized=True, mutable=True
-        )
+        global_state = export_global(global_pkv, uninitialized=True, mutable=True)
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
-        def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
+        def run_initialize(self, x=AbstractTensor(None, None, dtype=torch.int64)):
+            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ] + [x.dynamic_dim(0) < MAX_STEP_SEQ]
             token, *state = self.initialize(x, constraints=init_const)
             self.global_seq_step = IREE.tensor_dim(
                 state[0], 1
             )  # ? dimension of arbitrarily 0th kv tensor
             for i in range(HEADS * 2):
                 slice_of_state = IREE.tensor_reshape(
-                    state[i], 1, 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                    state[i], 1, IREE.tensor_dim(x,0), self.global_seq_step, HEADS, HIDDEN_DIM
                 )
                 self.global_state = IREE.tensor_update(
                     self.global_state, slice_of_state, i, 0, 0, 0, 0
                 )
             return token
-
-        def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
+        
+        def run_forward(self, x=AbstractTensor(None, 1, dtype=torch.int64)):
             state_arg = slice_up_to_step(
-                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
+                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, IREE.tensor_dim(x, 0)#.ir_value
             )
             forw_const = (
                 [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
@@ -181,16 +172,20 @@ def export_transformer_model(
                     for x in state_arg[1:]
                 ]
                 + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                + [x.dynamic_dim(0) == (state_arg[0].dynamic_dim(0)) for x in state_arg[1:]]
+                + [x.dynamic_dim(0) == state_arg[0].dynamic_dim(0)]
+                + [x.dynamic_dim(0) < state_arg[0].dynamic_dim(1) for x in state_arg[1:0]]
+                + [x.dynamic_dim(0) > 0]
+                + [x.dynamic_dim(0) < MAX_STEP_SEQ]
             )
             token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
             for i in range(HEADS * 2):
                 update = IREE.tensor_reshape(
-                    state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
+                    state_update[i], 1, IREE.tensor_dim(x,0), 1, HEADS, HIDDEN_DIM
                 )
                 self.global_state = IREE.tensor_update(
                     self.global_state, update, i, 0, self.global_seq_step, 0, 0
                 )
-
             self.global_seq_step = self.global_seq_step + 1
             return token
 
@@ -199,16 +194,16 @@ def export_transformer_model(
 
         def get_seq_step(self):
             return self.global_seq_step
-
+        
         @jittable
         def initialize(input_ids):
             result = mod.forward(input_ids)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
+            #token1 = token1[None, :]
             state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
             return token1, *state1_flat
-
+        
         @jittable
         def forward(token0: torch.Tensor, *state0_flat):
             # Unpad the states.
@@ -220,13 +215,13 @@ def export_transformer_model(
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
             return token1, *state1_flat
-
+        
     class StreamingStateUpdateModule(StateUpdateModule):
         def run_cached_initialize(
-            self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
+            self, x=AbstractTensor(None, None, dtype=torch.int64)
         ):
             state_arg = slice_up_to_step(
-                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
+                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, IREE.tensor_dim(x, 0)
             )
             forw_const = (
                 [x.dynamic_dim(1) < MAX_STEP_SEQ]
@@ -235,7 +230,10 @@ def export_transformer_model(
                     x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
                     for x in state_arg[1:]
                 ]
-                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]] 
+                + [x.dynamic_dim(0) == state_arg[0].dynamic_dim(0) for x in state_arg[:]]
+                + [x.dynamic_dim(0) < MAX_STEP_SEQ for x in state_arg[:]]
+                + [state_arg[0].dynamic_dim(0) < MAX_STEP_SEQ]
             )
             token, *state = self.cached_initialize(
                 x, *state_arg, constraints=forw_const
@@ -295,7 +293,6 @@ def export_transformer_model(
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     if streaming_llm:
-        print("Compiling with Streaming LLM")
         inst = StreamingStateUpdateModule(context=Context(), import_to=import_to)
     else:
         inst = StateUpdateModule(context=Context(), import_to=import_to)
@@ -321,7 +318,6 @@ def export_transformer_model(
             "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
             "--iree-stream-resource-index-bits=64",
             "--iree-vm-target-index-bits=64",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
             "--iree-opt-const-expr-hoisting=False",
         ]
         if device == "cpu" or device == "llvm-cpu":
