@@ -41,6 +41,7 @@ from .ir import (
     Attribute,
     Block,
     Context,
+    DenseElementsAttr,
     DenseResourceElementsAttr,
     FloatAttr,
     BF16Type,
@@ -292,6 +293,7 @@ class FxImporter:
             literal_resolver_callback=self._literal_resolver_callback,
         )
         node_importer.import_nodes(g.nodes)
+        print('IMPORT STATELESS GRAPH 4')
         self.symbol_table.insert(func)
 
     def _graph_to_function_meta(self, g: Graph) -> Tuple[FunctionType, Location]:
@@ -314,6 +316,22 @@ class FxImporter:
             elif node.op == "output":
                 # An output node's args[0] is the return value. This seems to
                 # always be "boxed" as a tuple, which we emit as multi-results.
+                '''if type(node.args[0]) is tuple:
+                    for result_node in node.args[0]:
+                        if result_node is None:
+                            result_types.append(
+                                IrType.parse("!torch.none", context=self._c)
+                            )
+                        else:
+                            result_types.append(self._cc.node_val_to_type(result_node))
+                else:
+                    result_node = node.args[0]
+                    if result_node is None:
+                        result_types.append(
+                            IrType.parse("!torch.none", context=self._c)
+                        )
+                    else:
+                        result_types.append(self._cc.node_val_to_type(result_node))'''
                 for result_node in node.args[0]:
                     if result_node is None:
                         result_types.append(
@@ -321,6 +339,8 @@ class FxImporter:
                         )
                     else:
                         result_types.append(self._cc.node_val_to_type(result_node))
+                print('result types:', result_types)
+
         return (
             FunctionType.get(input_types, result_types, context=self._c),
             loc if loc else Location.unknown(self._c),
@@ -381,6 +401,8 @@ class ContextCache:
 
     def node_val_to_type(self, node: torch_fx.Node) -> IrType:
         try:
+            if isinstance(node, list):
+                node = node[0]
             tensor_meta = node.meta.get("tensor_meta")
             val = node.meta.get("val")
             if tensor_meta is not None:
@@ -402,7 +424,7 @@ class ContextCache:
                 t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(val))
                 if t is not None:
                     return IrType.parse(t, self._c)
-            import pdb; pdb.set_trace()
+
             raise NotImplementedError(
                 f"FIXME: Unsupported placeholder node (this often indicates that a necessary) "
                 f"fx preprocessing pass was not run): {node.meta}"
@@ -504,8 +526,11 @@ class GraphNodeImporter:
                     self._v[(node, 0)] = self._b.arguments[num_placeholders]
                     num_placeholders += 1
                 elif op == "call_function":
+                    print(node, op)
                     target = node.target
+                    print('TARGET:', target)
                     if target == operator.getitem:
+                        print('GETITEM')
                         # Special case handling of getitem for when it is resolving
                         # against a function call that we know has returned multiple
                         # results. We short-circuit this case because we have modeled
@@ -530,21 +555,29 @@ class GraphNodeImporter:
                             )
                     elif isinstance(target, TorchOpOverload):
                         # Dispatch to an ATen op.
+                        print('DISPATCH TO AN ATEN OP')
                         self._import_torch_op_overload(loc, node, target)
                     elif target in SYMBOLIC_TORCH_OPS or (
                         is_symbolic(node.meta.get("val"))
                         and is_builtin_function_or_method(target)
                     ):
+                        print('SYMBOLIC TORCH OP')
                         self._import_symbolic_torch_op(loc, node, target)
                     else:
                         raise NotImplementedError(
                             f"FIX ME: Unimplemented call_function: target={node.target}, {node.meta}"
                         )
+                    print('IMPORT NODES 3')
                 elif op == "output":
                     # args[0] is a singleton tuple that we flatten into multiple
                     # results.
-                    operands = [self._import_argument(loc, arg) for arg in node.args[0]]
+                    operands = []
+                    if node.args[0] is not tuple:
+                        operands = [self._import_argument(loc, node.args[0])]
+                    else:
+                        operands = [self._import_argument(loc, arg) for arg in node.args[0]]
                     func_dialect.ReturnOp(operands, loc=loc)
+                    print('IMPORT NODES 4')
 
     def _promote_symbolic_scalar_int_float(self, loc, graph, param):
         temp_target = torch.ops.aten.Float.Scalar
@@ -747,6 +780,7 @@ class GraphNodeImporter:
         if isinstance(arg, torch_fx.Node):
             # If implementing boxed support for multi-result nodes, then
             # this will need to do something more intelligent.
+            print(arg, arg.op)
             if arg in self._multi_result_nodes:
                 raise RuntimeError(f"Attempt to de-reference a multi-result node")
 
@@ -840,6 +874,9 @@ class GraphNodeImporter:
                     raise RuntimeError(f"Attempt to de-reference a multi-result node")
                 val = self._v[(operand, 0)]
                 val_type = str(val.type)
+                print('val_type: ', val_type)
+                print('element_type: ', element_type)
+                print('operand: ', operand)
                 assert (
                     isinstance(element_type, str) and element_type in val_type
                 ) or SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(
@@ -929,11 +966,15 @@ def _make_vtensor_literal_op(
         tensor_type = create_mlir_tensor_type(tensor)
         shape_desc = "_".join([str(d) for d in tensor.shape])
         blob_name = f"torch_tensor_{shape_desc}_{str(tensor.dtype)}"
-        elements_attr = DenseResourceElementsAttr.get_from_buffer(
-            bytes_view,
-            blob_name,
-            tensor_type,
-        )
+        print('bytes_view.shape: ', bytes_view.shape)
+        if len(bytes_view.shape):
+            elements_attr = DenseResourceElementsAttr.get_from_buffer(
+                bytes_view,
+                blob_name,
+                tensor_type,
+            )
+        else:
+            elements_attr = DenseElementsAttr.get(bytes_view, signless=False)
         mapping.value = elements_attr
     else:
         elements_attr = mapping.value

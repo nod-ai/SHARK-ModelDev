@@ -37,6 +37,7 @@ class Scheduler(torch.nn.Module):
         latents = latents * self.scheduler.init_noise_sigma
         for t in self.scheduler.timesteps:
             latent_model_input = torch.cat([latents] * 2)
+            t = t.unsqueeze(0)
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
             unet_out = self.unet.forward(
                 latent_model_input, t, encoder_hidden_states, return_dict=False
@@ -45,11 +46,11 @@ class Scheduler(torch.nn.Module):
             noise_pred = noise_pred_uncond + self.guidance_scale * (
                 noise_pred_text - noise_pred_uncond
             )
-            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+            latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
         return latents
 
 
-'''def export_scheduler(
+def export_scheduler(
     scheduler,
     hf_model_name,
     batch_size,
@@ -73,8 +74,6 @@ class Scheduler(torch.nn.Module):
         encoder_hidden_states_sizes = (2, 77, 1024)
 
     sample = (batch_size, 4, height // 8, width // 8)
-    print('SAMPLE:', sample)
-    print('ENCODER HIDDEN STATES:', encoder_hidden_states_sizes)
 
     class CompiledScheduler(CompiledModule):
         if external_weights:
@@ -97,18 +96,18 @@ class Scheduler(torch.nn.Module):
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-vae")
+    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)'''
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
 
 if __name__ == '__main__':
     hf_model_name = "CompVis/stable-diffusion-v1-4"
-    scheduler = Scheduler(hf_model_name, 4)
+    scheduler = Scheduler(hf_model_name, 2)
     inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
-    '''batch_size = 1
+    batch_size = 1
     height = 512
     width = 512
     hf_auth_token = None
@@ -136,8 +135,4 @@ if __name__ == '__main__':
     safe_name = utils.create_safe_name(hf_model_name, "-vae")
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")'''
-
-    exported = export(scheduler, *inputs)
-    exported.print_readable()
-    compiled_binary = exported.compile(save_to=None)
+    print("Saved to", safe_name + ".mlir")
