@@ -12,19 +12,20 @@ from .. import ops
 from . import context
 
 __all__ = [
-    "KernelBuffer",
+    "backed_sym_index_type",
+    "sym",
+    "BoundedRelation",
+    "EqualRelation",
     "Grid",
-    "InputBuffer",
-    "OutputBuffer",
     "IndexingContext",
+    "IndexRelation",
     "IndexExpr",
     "IndexSymbol",
+    "InputBuffer",
+    "KernelBuffer",
+    "OutputBuffer",
+    "SymIndex",
     "TemporaryBuffer",
-    "sym",
-    "sym_0",
-    "sym_1",
-    "sym_2",
-    "sym_n1",
 ]
 
 
@@ -77,23 +78,22 @@ class TorchElementType(ElementType):
 DefaultElementType = TorchElementType(torch.float32)
 
 ###############################################################################
-# Dimension symbols
+# Index symbols and expressions
+# These are just light-weight helpers around sympy symbols and expressions.
 ###############################################################################
 
-IndexExpr = sympy.core.Expr
 IndexSymbol = sympy.core.Symbol
+IndexExpr = sympy.core.Expr
 
 
 def index_symbol(name: str) -> IndexSymbol:
-    symbol = sympy.symbols(name)
-    if not isinstance(symbol, sympy.core.Symbol):
-        raise ValueError(f"Expected a single symbol name but got '{name}'")
-    return symbol
+    """Returns a named symbol, assumed to be a non-negative integer."""
+    return sympy.Symbol(name, integer=True, nonnegative=True)
 
 
-def index_value(value: Any) -> IndexExpr:
+def index_expr(value: Any) -> IndexExpr:
     expr = sympy.sympify(value)
-    if not isinstance(expr, sympy.core.Integer):
+    if not expr.is_integer:
         raise ValueError(f"Expected Integer from {value}. Got {type(expr)}")
     return expr
 
@@ -104,11 +104,6 @@ class _IndexSymbolExpando:
 
 
 sym = _IndexSymbolExpando()
-
-sym_0 = index_value(0)
-sym_1 = index_value(1)
-sym_2 = index_value(2)
-sym_n1 = index_value(-1)
 
 ###############################################################################
 # Shape expressions
@@ -533,6 +528,9 @@ class IndexingContext:
         else:
             return None
 
+    def simplify_expr(self, expr: IndexExpr) -> IndexExpr:
+        return expr.subs(self.frozen_subs).simplify()
+
     ##### Context management.
     @staticmethod
     def current() -> "IndexingContext":
@@ -543,3 +541,131 @@ class IndexingContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         context.pop(IndexingContext, self)
+
+
+###############################################################################
+# Symbolic index value type.
+# This type is used in place of `int` to track a symbolic value during
+# traced execution. The type does not carry
+###############################################################################
+
+
+class IndexRelation(ABC):
+    """ABC for assumptions that can be made about an index value."""
+
+    __slots__ = []
+    ...
+
+
+class EqualRelation(IndexRelation):
+    """An index assumption that can take a single symbolic value."""
+
+    __slots__ = ["eq_expr"]
+
+    def __init__(self, eq_expr: IndexExpr):
+        self.eq_expr = eq_expr
+
+    def __eq__(self, other):
+        if not isinstance(other, EqualRelation):
+            return False
+        return self.eq_expr == other.eq_expr
+
+    def __repr__(self):
+        expr = self.eq_expr
+        if isinstance(expr, IndexSymbol):
+            return f"=={expr}"
+        else:
+            return f"==({expr})"
+
+
+class BoundedRelation(IndexRelation):
+    """An index assumption that can take any value in a range."""
+
+    __slots__ = [
+        "lower_expr",
+        "lower_inclusive",
+        "upper_expr",
+        "upper_inclusive",
+    ]
+
+    def __init__(
+        self,
+        lower_expr: Any,
+        upper_expr: Any,
+        *,
+        lower_inclusive: bool = True,
+        upper_inclusive: bool = True,
+    ):
+        self.lower_expr = index_expr(lower_expr)
+        self.lower_inclusive = lower_inclusive
+        self.upper_expr = index_expr(upper_expr)
+        self.upper_inclusive = upper_inclusive
+
+    def __eq__(self, other):
+        if not isinstance(other, BoundedRelation):
+            return False
+        return (
+            self.lower_inclusive == other.lower_inclusive
+            and self.upper_inclusive == other.upper_inclusive
+            and self.lower_expr == other.lower_expr
+            and self.upper_expr == other.upper_expr
+        )
+
+    def __repr__(self):
+        return (
+            f"∈{'[' if self.lower_inclusive else '('}"
+            f"{self.lower_expr}, {self.upper_expr}"
+            f"{']' if self.upper_inclusive else ')'}"
+        )
+
+
+class _SymIndexMeta(type):
+    """Meta-class for a concrete symbolic index value."""
+
+    def __new__(
+        mcls,
+        name: str,
+        bases,
+        dct,
+        *,
+        assumption: Optional[IndexRelation],
+    ):
+        new_class = type.__new__(mcls, name, bases, dct)
+        new_class.assumption = assumption
+        new_class.__qualname__ = repr(new_class)
+        return new_class
+
+    def __repr__(self):
+        if self.assumption:
+            return f"SymIndex{self.assumption}"
+        else:
+            return "UnbackedSymIndex"
+
+
+class SymIndex(metaclass=_SymIndexMeta, assumption=None):
+    """Symbolic index value defined for an assumption.
+
+    The base type is unbacked (None assumption).
+    """
+
+    __slots__ = [
+        "value",
+    ]
+
+    assumption: ClassVar[Optional[IndexRelation]]
+
+    def __init__(self, value: int):
+        self.value = value
+
+    def __int__(self):
+        return self.value
+
+    def __repr__(self):
+        return repr(self.value)
+
+
+def backed_sym_index_type(assumption: IndexRelation) -> Type[SymIndex]:
+    class BackedSymIndex(SymIndex, assumption=assumption):
+        ...
+
+    return BackedSymIndex

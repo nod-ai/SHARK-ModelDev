@@ -17,10 +17,6 @@ class TestTypes(unittest.TestCase):
         self.assertEqual("Grid[M, N]", repr(Grid[sym.M, sym.N]))
         self.assertEqual("Grid[M, M/2]", repr(Grid[M, M / 2]))
 
-    def testIllegalStringArity(self):
-        with self.assertRaisesRegex(ValueError, "Expected a single symbol"):
-            Grid["M, N"]
-
     def testGridAttrs(self):
         T = Grid[M, N]
         self.assertIs(T.symbolic_shape[0], M)
@@ -163,6 +159,27 @@ class ContextTest(unittest.TestCase):
         c.finalize()
         self.assertEqual(c.dyn_dims[0], c.eval_dim(inst, kb1, 0))
         self.assertEqual(c.dyn_dims[0] * 4, c.eval_dim(inst, kb1, 1))
+
+
+class SymIndexTest(unittest.TestCase):
+    def testTypeRepr(self):
+        i = SymIndex(3)
+        self.assertEqual("3", repr(i))
+        self.assertEqual("UnbackedSymIndex", repr(type(i)))
+        t0 = backed_sym_index_type(EqualRelation(M))
+        self.assertEqual("SymIndex==M", repr(t0))
+        t1 = backed_sym_index_type(EqualRelation(M + 1))
+        self.assertEqual("SymIndex==(M + 1)", repr(t1))
+
+    def testBounded(self):
+        t = backed_sym_index_type(BoundedRelation(M, M + 1))
+        self.assertEqual("SymIndex∈[M, M + 1]", repr(t))
+        t = backed_sym_index_type(
+            BoundedRelation(M, M + 1, lower_inclusive=False, upper_inclusive=False)
+        )
+        self.assertEqual("SymIndex∈(M, M + 1)", repr(t))
+        t = backed_sym_index_type(BoundedRelation(0, M, upper_inclusive=False))
+        self.assertEqual("SymIndex∈[0, M)", repr(t))
 
 
 if __name__ == "__main__":
