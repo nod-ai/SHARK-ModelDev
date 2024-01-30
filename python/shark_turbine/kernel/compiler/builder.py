@@ -165,3 +165,21 @@ class _ScalarBuilder:
 
 
 ScalarBuilder = _ScalarBuilder()
+
+
+class IRProxyValue:
+    """Wrapper around an (ir.Value, type) that is standing in for a Python value.
+    
+    This shows up while emitting in various ways and lets us preserve the notion
+    that if this was proper runtime, there would be a regular Python object.
+    """
+    __slots__ = [
+        "ir_value",
+        "py_type",
+    ]
+    def __init__(self, ir_value: Value, py_type: type):
+        self.ir_value = ir_value
+        self.py_type = py_type
+
+    def __repr__(self):
+        return f"<IRProxyValue({self.ir_value}):{self.py_type}>"

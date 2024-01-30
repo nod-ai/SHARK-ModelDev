@@ -94,7 +94,7 @@ def index_symbol(name: str) -> IndexSymbol:
 def index_expr(value: Any) -> IndexExpr:
     expr = sympy.sympify(value)
     if not expr.is_integer:
-        raise ValueError(f"Expected Integer from {value}. Got {type(expr)}")
+        raise ValueError(f"Expected Integer from {value}. Got {expr} ({type(expr)})")
     return expr
 
 
@@ -402,6 +402,7 @@ class IndexingContext:
         "shaped_bindings",
         "dyn_dims",
         "frozen_subs",
+        "unbacked_symbols",
     ]
 
     __tk_context_idname__ = "IndexingContext"
@@ -412,10 +413,16 @@ class IndexingContext:
         self.shaped_bindings: dict[Any, _ShapedBinding] = {}
         self.dyn_dims: list[IndexSymbol] = []
         self.frozen_subs: list[IndexSymbol, int] = []
+        self.unbacked_symbols: list[IndexSymbol] = []
 
     def next_dyn_dim(self) -> IndexSymbol:
         s = index_symbol(f"D{len(self.dyn_dims)}")
         self.dyn_dims.append(s)
+        return s
+
+    def new_unbacked_symbol(self) -> IndexSymbol:
+        s = index_symbol(f"_S{len(self.unbacked_symbols)}")
+        self.unbacked_symbols.append(s)
         return s
 
     def bind_shaped(
@@ -523,13 +530,20 @@ class IndexingContext:
         self, instance: Any, shaped_type: ShapedType, pos: int
     ) -> Optional[int]:
         expr = self.eval_dim(instance, shaped_type, pos)
-        if isinstance(expr, sympy.Integer):
+        try:
             return int(expr)
-        else:
+        except TypeError:
             return None
 
     def simplify_expr(self, expr: IndexExpr) -> IndexExpr:
         return expr.subs(self.frozen_subs).simplify()
+
+    def get_static_value(self, expr: IndexExpr) -> Optional[int]:
+        expr = self.simplify_expr(expr)
+        try:
+            return int(expr)
+        except TypeError:
+            return None
 
     ##### Context management.
     @staticmethod
@@ -554,7 +568,6 @@ class IndexRelation(ABC):
     """ABC for assumptions that can be made about an index value."""
 
     __slots__ = []
-    ...
 
 
 class EqualRelation(IndexRelation):
@@ -649,19 +662,16 @@ class SymIndex(metaclass=_SymIndexMeta, assumption=None):
     """
 
     __slots__ = [
-        "value",
+        "symbol",
     ]
 
     assumption: ClassVar[Optional[IndexRelation]]
 
-    def __init__(self, value: int):
-        self.value = value
-
-    def __int__(self):
-        return self.value
+    def __init__(self, idxc: IndexingContext):
+        self.symbol = idxc.new_unbacked_symbol()
 
     def __repr__(self):
-        return repr(self.value)
+        return f"<{self.symbol} over {self.bound}>"
 
 
 def backed_sym_index_type(assumption: IndexRelation) -> Type[SymIndex]:

@@ -162,24 +162,41 @@ class ContextTest(unittest.TestCase):
 
 
 class SymIndexTest(unittest.TestCase):
-    def testTypeRepr(self):
-        i = SymIndex(3)
-        self.assertEqual("3", repr(i))
+    def testUnbacked(self):
+        idxc = IndexingContext()
+        i = SymIndex(idxc)
         self.assertEqual("UnbackedSymIndex", repr(type(i)))
+
+    def testEqual(self):
+        idxc = IndexingContext()
+        idxc.bind_constant(M, 30)
+        idxc.finalize()
+
         t0 = backed_sym_index_type(EqualRelation(M))
         self.assertEqual("SymIndex==M", repr(t0))
+        i0 = t0(idxc)
+
         t1 = backed_sym_index_type(EqualRelation(M + 1))
         self.assertEqual("SymIndex==(M + 1)", repr(t1))
+        i1 = t1(idxc)
 
     def testBounded(self):
+        idxc = IndexingContext()
+        idxc.bind_constant(M, 30)
+        idxc.finalize()
+
         t = backed_sym_index_type(BoundedRelation(M, M + 1))
         self.assertEqual("SymIndex∈[M, M + 1]", repr(t))
+        i = t(idxc)
+
         t = backed_sym_index_type(
             BoundedRelation(M, M + 1, lower_inclusive=False, upper_inclusive=False)
         )
         self.assertEqual("SymIndex∈(M, M + 1)", repr(t))
+
         t = backed_sym_index_type(BoundedRelation(0, M, upper_inclusive=False))
         self.assertEqual("SymIndex∈[0, M)", repr(t))
+
 
 
 if __name__ == "__main__":

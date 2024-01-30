@@ -1,8 +1,6 @@
 from typing import Any, Optional, Type, Union
 
-import torch.fx as fx
-
-from .base import CodegenError
+from .builder import IRProxyValue
 
 from .._support.indexing import (
     index_expr,
@@ -11,7 +9,7 @@ from .._support.indexing import (
 )
 
 
-NormalizedSlice = Union[slice, None, IndexExpr]
+NormalizedSlice = Union[slice, None, IndexExpr, IRProxyValue]
 
 
 def _norm_slice_spec(rank: int, slice_spec) -> list[NormalizedSlice]:
@@ -33,8 +31,11 @@ def _norm_slice_spec(rank: int, slice_spec) -> list[NormalizedSlice]:
                 stop if stop is None else index_expr(stop),
                 index_expr(step),
             )
+        elif isinstance(s, IRProxyValue):
+            # Dynamic index extraction.
+            return s
         else:
-            # Index extraction case.
+            # Static index extraction case.
             return index_expr(s)
 
     if not isinstance(slice_spec, tuple):
@@ -73,18 +74,32 @@ def _norm_slice_axis(
         # Fall-through to normalize a full slice
         pass
     else:
-        # Assume that it is an index extract of the axis.
-        s = idxc.simplify_expr(s)
-        nn_assump = s.is_nonnegative
+        # Index extract, either static or dynamic.
+        if isinstance(s, IRProxyValue):
+            # Dynamic index extraction.
+            # Assume that it is of SymIndex type since that is the invariant
+            # coming in.
+            bounding_expr = s.py_type.bounding_expr(idxc)
+            is_dynamic = True
+        else:
+            # Static index extraction.
+            bounding_expr = s
+            is_dynamic = False
+
+        # Static index extraction.
+        bounding_expr = idxc.simplify_expr(bounding_expr)
+        nn_assump = bounding_expr.is_nonnegative
         if nn_assump is None:
             raise IndexError(
                 f"Indices used in code generation must be statically negative or postive. "
-                f"Got: {s}"
+                f"Got: {bounding_expr}"
             )
         if nn_assump:
             return s
         else:
             # Index from end.
+            if is_dynamic:
+                raise IndexError(f"Negative indexing via dynamic indexes not yet supported")
             return axis_bound_expr + s
 
     start = idxc.simplify_expr(s.start)

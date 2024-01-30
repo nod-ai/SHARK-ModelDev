@@ -18,7 +18,8 @@ from .._support.indexing import (
     Grid,
     IndexingContext,
     KernelBuffer,
-    SymbolDef,
+    IndexSymbol,
+    SymIndex,
     is_kernel_buffer_meta_derived,
 )
 
@@ -37,7 +38,7 @@ from .analysis import (
 )
 
 from .builder import (
-    ModuleBuilder,
+    IRProxyValue,
     ScalarBuilder,
 )
 
@@ -77,7 +78,7 @@ from .kernel_codegen import (
 
 from . import op_matchers
 
-ArgTypeUnion = Union[SymbolDef, Type[KernelBuffer]]
+ArgTypeUnion = Union[IndexSymbol, Type[KernelBuffer]]
 
 
 @dataclass
@@ -319,8 +320,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         raise ValidationError("Malformed arguments") from e
 
     kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
+    slice_spec = cast_indexable(emitter, slice_spec)
+    print("SLICE SPEC:", slice_spec, type(slice_spec))
     sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
-    sa.normalize_symbolic_ranges()
     vector_shape = sa.symbolic_shape
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
@@ -346,8 +348,8 @@ def _(emitter: ThreadEmitter, node: fx.Node):
 
     kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
     dest_rank = kb_ir_type.rank
+    slice_spec = cast_indexable(emitter, slice_spec)
     sa = SliceAnalysis(kb_py_type.symbolic_shape, slice_spec)
-    sa.normalize_symbolic_ranges()
     indices = cast_indices(emitter, [s.start for s in sa.slices])
     if dest_rank != len(indices):
         raise CodegenError(
@@ -697,6 +699,40 @@ def cast_kernel_buffer(
         )
 
     return value, MemRefType(ir_type), py_type
+
+
+def cast_indexable(emitter: ThreadEmitter, py_producer) -> Any:
+    """Casts 'indexables' to an equivalent backed by IRProxyValue of index types.
+
+    Similar to cast_kernel_buffer, this will cast from a node producer to an
+    arbitrary structure terminator with IRProxyValue for 'indexables'. This includes
+    tuples and slice objects (which can exist in the [] index brackets).
+    """
+    if py_producer is None:
+        return None
+    
+    # Unroll containers.
+    if isinstance(py_producer, tuple):
+        return tuple(cast_indexable(emitter, v) for v in py_producer)
+    elif isinstance(py_producer, slice):
+        return slice(
+            cast_indexable(emitter, py_producer.start),
+            cast_indexable(emitter, py_producer.stop),
+            cast_indexable(emitter, py_producer.step),
+        )
+    elif isinstance(py_producer, list):
+        return [cast_indexable(emitter, v) for v in py_producer]
+
+    # Terminals.
+    if isinstance(py_producer, fx.Node):
+        value, node = cast_py_lvalue(emitter, py_producer)
+        terminal_type = node.type
+        if not issubclass(terminal_type, SymIndex):
+            raise CodegenError(f"Required an index value but got {terminal_type}")
+        return IRProxyValue(value, terminal_type)
+
+    # Materialize any other python values.
+    return cast_py_value(emitter, py_producer)
 
 
 def cast_indices(emitter: ThreadEmitter, slice) -> list[Value]:
