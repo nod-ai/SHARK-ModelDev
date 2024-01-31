@@ -20,10 +20,12 @@ import random
 import torch.fx as fx
 
 from .indexing import (
-    BoundedSymbolicValue,
+    backed_sym_index_type,
+    BoundedRelation,
+    IndexExpr,
     Grid,
     KernelBuffer,
-    sym_0,
+    SymIndex,
 )
 
 from ..lang.types import (
@@ -98,9 +100,16 @@ class KernelTracer(SubgraphTracer):
     # Register our custom proxies.
     def proxy(self, node: fx.Node) -> fx.Proxy:
         t = node.type
-        if t is not None and issubclass(t, KernelBuffer):
-            return KernelBufferProxy(node, self, t)
+        if t is not None:
+            if issubclass(t, KernelBuffer):
+                return KernelBufferProxy(node, self, t)
         return super().proxy(node)
+
+    def create_arg(self, a):
+        # Let IndexExpr persist as arguments.
+        if isinstance(a, IndexExpr):
+            return a
+        return super().create_arg(a)
 
 
 class CapturedTrace:
@@ -163,23 +172,28 @@ class CompiledContext(BaseContext):
         super().__init__(eager=False)
         self.region_graph = region_graph
         self.grid_type = grid_type
+        self.current_thread_types = [
+            backed_sym_index_type(BoundedRelation(0, n, upper_inclusive=False))
+            for n in grid_type.symbolic_shape
+        ]
 
     ### ========================================================================
     ### Core Operations
     ### ========================================================================
 
     def handle_thread_program_id(self, op, axis: int) -> Index:
-        grid_shape = self.grid_type.symbolic_shape
-        if axis < 0 or axis >= len(grid_shape):
+        grid_types = self.current_thread_types
+        if axis < 0 or axis >= len(grid_types):
             raise IndexError(
-                f"Illegal index into grid of rank {len(grid_shape)}: {axis}"
+                f"Illegal index into grid of rank {len(grid_types)}: {axis}"
             )
+
         proxy = self.region_graph.create_proxy(
             "call_function",
             op,
             args=(axis,),
             kwargs={},
-            type_expr=BoundedSymbolicValue.bound(sym_0, grid_shape[axis]),
+            type_expr=grid_types[axis],
         )
         return proxy
 

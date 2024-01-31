@@ -18,7 +18,7 @@ from torch.export import export
 from ..lang import (
     KernelBuffer,
     Grid,
-    SymbolDef,
+    IndexExpr,
 )
 
 from .._support.tracing import (
@@ -47,7 +47,7 @@ def parameterize(parameters: dict[str, Any]):
     return decorator
 
 
-def thread(*symbolic_shape: SymbolDef):
+def thread(*symbolic_shape: IndexExpr):
     GridType = Grid[symbolic_shape]
 
     def decorator(f: Optional[TCallable] = None) -> "UnconfiguredThread[TCallable]":

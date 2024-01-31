@@ -24,9 +24,9 @@ import torch.fx as fx
 from .._support.indexing import (
     Grid,
     IndexingContext,
+    IndexSymbol,
     KernelBuffer,
     KernelBufferUsage,
-    SymbolDef,
     is_kernel_buffer_meta_derived,
 )
 
@@ -75,13 +75,13 @@ class BindingDesc:
     # is the backing KernelBuffer type.
     kernel_buffer_type: Optional[Type[KernelBuffer]] = None
 
-    # If a SYMBOL_VALUE, then this is the corresponding SymbolDef.
-    symbol_type: Optional[Type[SymbolDef]] = None
+    # If a SYMBOL_VALUE, then this is the corresponding IndexSymbol.
+    symbol_type: Optional[Type[IndexSymbol]] = None
 
     def as_mlir_type(self) -> IrType:
         idx_context = IndexingContext.current()
 
-        def sym_to_dim_asm(s: SymbolDef) -> str:
+        def sym_to_dim_asm(s: IndexSymbol) -> str:
             static_value = idx_context.get_static_value(s)
             return "?" if static_value is None else str(static_value)
 
@@ -164,7 +164,7 @@ class KernelSignature:
                         kernel_buffer_type=t,
                     )
                 )
-            elif issubclass(t, SymbolDef):
+            elif issubclass(t, IndexSymbol):
                 self.bindings.append(
                     BindingDesc(
                         ("node", node),

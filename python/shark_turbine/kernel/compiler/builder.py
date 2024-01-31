@@ -1,7 +1,13 @@
-from typing import Optional
+from typing import Any, Optional, Union
+
+from .._support.indexing import (
+    IndexExpr,
+    SymIndex,
+)
 
 from .base import (
     CodegenError,
+    NDEBUG,
 )
 
 from .ir import (
@@ -30,6 +36,29 @@ FLOAT_TYPES_ASM = {
     "f64",
     # TODO: FP8 types.
 }
+
+
+class IRProxyValue:
+    """Wrapper around an (ir.Value, py_value) for handling notionally python
+    proxies that are associated with an IR Value.
+    """
+
+    __slots__ = [
+        "ir_value",
+        "py_value",
+    ]
+
+    def __init__(self, ir_value: Value, py_value: Any = None):
+        self.ir_value = ir_value
+        self.py_value = py_value
+        assert NDEBUG or self.validate()
+
+    def validate(self):
+        assert isinstance(self.ir_value, Value), f"Got {type(self.ir_value)}"
+        return True
+
+    def __repr__(self):
+        return f"<IRProxyValue({self.ir_value}):{self.py_value}>"
 
 
 class ModuleBuilder:
@@ -84,7 +113,7 @@ class _ScalarBuilder:
             )
         return handler(t)
 
-    def constant(self, py_value) -> Value:
+    def constant(self, py_value) -> IRProxyValue:
         attr_name = f"py_constant_{type(py_value).__name__}"
         try:
             handler = getattr(self, attr_name)
@@ -94,19 +123,27 @@ class _ScalarBuilder:
             )
         return handler(py_value)
 
-    def binary_arithmetic(self, op: str, lhs: Value, rhs: Value) -> Value:
-        attr_name = f"binary_{op}_{lhs.type}_{rhs.type}"
+    def binary_arithmetic(
+        self, op: str, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        lhs_ir_type = lhs.ir_value.type
+        rhs_ir_type = rhs.ir_value.type
+        attr_name = f"binary_{op}_{lhs_ir_type}_{rhs_ir_type}"
         try:
             handler = getattr(self, attr_name)
         except AttributeError:
             raise CodegenError(
-                f"Cannot perform binary arithmetic operation '{op}' between {lhs.type} and {rhs.type} (tried '{attr_name}')"
+                f"Cannot perform binary arithmetic operation '{op}' between {lhs_ir_type} and {rhs_ir_type} (tried '{attr_name}')"
             )
         return handler(lhs, rhs)
 
-    def binary_vector_arithmetic(self, op: str, lhs: Value, rhs: Value) -> Value:
-        lhs_element_type = VectorType(lhs.type).element_type
-        rhs_element_type = VectorType(rhs.type).element_type
+    def binary_vector_arithmetic(
+        self, op: str, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> Value:
+        lhs_ir = lhs.ir_value
+        rhs_ir = rhs.ir_value
+        lhs_element_type = VectorType(lhs_ir.type).element_type
+        rhs_element_type = VectorType(rhs_ir.type).element_type
         attr_name = f"binary_{op}_{lhs_element_type}_{rhs_element_type}"
         try:
             handler = getattr(self, attr_name)
@@ -124,44 +161,59 @@ class _ScalarBuilder:
     def zero_attr_f32(self, t: IrType) -> Attribute:
         return FloatAttr.get(t, 0.0)
 
-    def py_constant_int(self, py_value) -> Value:
+    def py_constant_int(self, py_value) -> IRProxyValue:
         # If coming from a stock 'int' Python type with no idea how to convert it,
         # there isn't much smart we can do. We conservatively treat 'index' as
         # reasonable.
         result_type = IndexType.get()
-        return arith_d.constant(result_type, IntegerAttr.get(result_type, py_value))
+        return IRProxyValue(
+            arith_d.constant(result_type, IntegerAttr.get(result_type, py_value)),
+            py_value,
+        )
 
     # Binary index arithmetic.
-    def binary_add_index_index(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.addi(lhs, rhs)
+    def binary_add_index_index(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.addi(lhs.ir_value, rhs.ir_value))
 
-    def binary_mul_index_index(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.muli(lhs, rhs)
+    def binary_mul_index_index(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.muli(lhs.ir_value, rhs.ir_value))
 
-    def binary_sub_index_index(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.subi(lhs, rhs)
+    def binary_sub_index_index(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.subi(lhs.ir_value, rhs.ir_value))
 
-    def binary_mod_index_index(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.remsi(lhs, rhs)
+    def binary_mod_index_index(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.remsi(lhs.ir_value, rhs.ir_value))
 
-    def binary_floordiv_index_index(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.floordivsi(lhs, rhs)
+    def binary_floordiv_index_index(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.floordivsi(lhs.ir_value, rhs.ir_value))
 
     # Binary f32 arithmetic
-    def binary_add_f32_f32(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.addf(lhs, rhs)
+    def binary_add_f32_f32(self, lhs: IRProxyValue, rhs: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(arith_d.addf(lhs.ir_value, rhs.ir_value))
 
-    def binary_mul_f32_f32(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.mulf(lhs, rhs)
+    def binary_mul_f32_f32(self, lhs: IRProxyValue, rhs: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(arith_d.mulf(lhs.ir_value, rhs.ir_value))
 
-    def binary_sub_f32_f32(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.subf(lhs, rhs)
+    def binary_sub_f32_f32(self, lhs: IRProxyValue, rhs: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(arith_d.subf(lhs.ir_value, rhs.ir_value))
 
-    def binary_mod_f32_f32(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.remf(lhs, rhs)
+    def binary_mod_f32_f32(self, lhs: IRProxyValue, rhs: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(arith_d.remf(lhs.ir_value, rhs.ir_value))
 
-    def binary_truediv_f32_f32(self, lhs: Value, rhs: Value) -> Value:
-        return arith_d.divf(lhs, rhs)
+    def binary_truediv_f32_f32(
+        self, lhs: IRProxyValue, rhs: IRProxyValue
+    ) -> IRProxyValue:
+        return IRProxyValue(arith_d.divf(lhs.ir_value, rhs.ir_value))
 
 
 ScalarBuilder = _ScalarBuilder()

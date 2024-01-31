@@ -35,8 +35,9 @@ class Test(unittest.TestCase):
         print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
-            idxc.bind_constant(M, 128)
-            idxc.bind_constant(K, 64)
+            idxc.bind_shaped(0, tk.lang.InputBuffer[M, K], (128, 64))
+            idxc.bind_shaped(1, tk.lang.OutputBuffer[M, K], (128, 64))
+            idxc.finalize()
 
             sig = kernel_codegen.KernelSignature()
             sig.add_from_graph_placeholders(trace.get_root_graph())

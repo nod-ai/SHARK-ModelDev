@@ -1,3 +1,6 @@
+NDEBUG = False
+
+
 class CodegenError(Exception):
     ...
 
