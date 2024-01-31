@@ -96,7 +96,7 @@ def export_scheduler(
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-scheduler)
+    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
     if compile_to != "vmfb":
         return module_str
     else:
