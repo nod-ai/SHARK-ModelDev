@@ -111,7 +111,7 @@ if __name__ == '__main__':
     height = 512
     width = 512
     hf_auth_token = None
-    compile_to = "vmfb"
+    compile_to = "linalg"
     external_weights = None
     external_weight_path = "stable_diffusion_v1_4_clip.safetensors"
     device = "cpu"
@@ -132,7 +132,7 @@ if __name__ == '__main__':
         iree_target_triple,
         vulkan_max_allocation,
     )
-    safe_name = utils.create_safe_name(hf_model_name, "-vae")
+    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")
