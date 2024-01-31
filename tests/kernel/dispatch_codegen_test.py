@@ -37,6 +37,7 @@ class Test(unittest.TestCase):
         with indexing.IndexingContext() as idxc:
             idxc.bind_constant(M, 128)
             idxc.bind_constant(K, 64)
+            idxc.finalize()
 
             sig = kernel_codegen.KernelSignature()
             sig.add_from_graph_placeholders(trace.get_root_graph())

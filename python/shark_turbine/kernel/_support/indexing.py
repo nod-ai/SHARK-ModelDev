@@ -667,11 +667,18 @@ class SymIndex(metaclass=_SymIndexMeta, assumption=None):
 
     assumption: ClassVar[Optional[IndexRelation]]
 
-    def __init__(self, idxc: IndexingContext):
-        self.symbol = idxc.new_unbacked_symbol()
+    def __init__(self, symbol: IndexSymbol):
+        self.symbol = symbol
 
     def __repr__(self):
-        return f"<{self.symbol} over {self.bound}>"
+        return f"<'{self.symbol}' over {type(self)}>"
+
+    def cast(self, cast: Type["SymIndex"]) -> "SymIndex":
+        """Cast the SymIndex to a new type, typically to further constrain it.
+
+        The new instance shares the symbol.
+        """
+        return cast(self.symbol)
 
 
 def backed_sym_index_type(assumption: IndexRelation) -> Type[SymIndex]:

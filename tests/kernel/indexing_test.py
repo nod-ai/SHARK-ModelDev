@@ -198,6 +198,5 @@ class SymIndexTest(unittest.TestCase):
         self.assertEqual("SymIndex∈[0, M)", repr(t))
 
 
-
 if __name__ == "__main__":
     unittest.main()
