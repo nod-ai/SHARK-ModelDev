@@ -55,11 +55,6 @@ class IRProxyValue:
 
     def validate(self):
         assert isinstance(self.ir_value, Value), f"Got {type(self.ir_value)}"
-        # ir_type = self.ir_value.type
-        # if IndexType.get() == ir_type:
-        #     assert isinstance(
-        #         self.py_value, (SymIndex, int)
-        #     ), f"Expected SymIndex py_value for index IR type but got: {self}"
         return True
 
     def __repr__(self):

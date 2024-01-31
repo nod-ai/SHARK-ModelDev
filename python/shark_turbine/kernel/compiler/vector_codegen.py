@@ -142,12 +142,6 @@ class ThreadEmitter:
             attrs.store(node)
         self._node_values[node] = [proxy]
 
-    # def bind_node_ir_value(
-    #     self, node: fx.Node, ir_value: Value, *, attrs: Optional[NodeAttrs] = None
-    # ):
-    #     """Special case of bind_node_proxy which binds a naked IR value."""
-    #     self.bind_node_proxy(node, IRProxyValue(ir_value, None), attrs=attrs)
-
     def bind_node_proxies(
         self,
         node: fx.Node,
@@ -166,17 +160,6 @@ class ThreadEmitter:
         if attrs is not None:
             attrs.store(node)
         self._node_values[node] = proxies
-
-    # def bind_node_ir_values(
-    #     self,
-    #     node: fx.Node,
-    #     ir_values: List[Value],
-    #     *,
-    #     attrs: Optional[NodeAttrs] = None,
-    # ):
-    #     self.bind_node_proxies(
-    #         node, [IRProxyValue(v, None) for v in ir_values], attrs=attrs
-    #     )
 
     def emit(self):
         with self.ip, Location.unknown():

@@ -93,8 +93,6 @@ def index_symbol(name: str) -> IndexSymbol:
 
 def index_expr(value: Any) -> IndexExpr:
     expr = sympy.sympify(value)
-    # if not expr.is_integer:
-    #     raise ValueError(f"Expected Integer from {value}. Got {expr} ({type(expr)})")
     return expr
 
 
