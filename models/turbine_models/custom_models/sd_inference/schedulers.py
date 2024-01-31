@@ -96,7 +96,7 @@ def export_scheduler(
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
+    safe_name = utils.create_safe_name(hf_model_name, "-scheduler2")
     if compile_to != "vmfb":
         return module_str
     else:
@@ -107,13 +107,20 @@ if __name__ == '__main__':
     hf_model_name = "CompVis/stable-diffusion-v1-4"
     scheduler = Scheduler(hf_model_name, 2)
     inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
+    print('TORCH:', scheduler.forward(*inputs))
+    # save inputs as npy
+    input0 = inputs[0].detach().cpu().numpy()
+    input1 = inputs[1].detach().cpu().numpy()
+    import numpy as np
+    np.save('input0.npy', input0)
+    np.save('input1.npy', input1)
     batch_size = 1
     height = 512
     width = 512
     hf_auth_token = None
-    compile_to = "linalg"
+    compile_to = "vmfb"
     external_weights = None
-    external_weight_path = "stable_diffusion_v1_4_clip.safetensors"
+    external_weight_path = "stable_diffusion_v1_4_scheduler.safetensors"
     device = "cpu"
     iree_target_triple = None
     vulkan_max_allocation = None
