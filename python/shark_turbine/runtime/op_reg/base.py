@@ -618,7 +618,7 @@ class KernelBuilder(ABC):
 
     def constant_index(self, i: int) -> Value:
         """Builds a constant index value."""
-        return arith_d.constant(IntegerAttr.get(IndexType.get(), i))
+        return arith_d.constant(IndexType.get(), IntegerAttr.get(IndexType.get(), i))
 
 
 class FreeFuncKernelBuilder(KernelBuilder):
