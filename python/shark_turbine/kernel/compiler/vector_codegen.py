@@ -421,6 +421,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
+    vector_shape = cast_py_literal(emitter, vector_shape)
     kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, kb)
     ref_shape = kb_py_type.symbolic_shape
     slice_spec = cast_slice_spec(emitter, ref_shape, multi_index)
@@ -485,6 +486,8 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         shape, dtype, value = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
+
+    shape = cast_py_literal(emitter, shape)
 
     # TODO: Have better way to get the dtype.
     if dtype == torch.float32:
@@ -696,6 +699,33 @@ def emit_reduction(
 ###############################################################################
 
 
+def cast_py_literal(emitter: ThreadEmitter, value) -> Any:
+    """Treats the given value as a Python literal.
+
+    An exception will be raised if it cannot be computed statically.
+    """
+    if isinstance(value, IndexExpr):
+        simplified = IndexingContext.current().simplify_expr(value)
+        try:
+            return int(simplified)
+        except TypeError as e:
+            raise CodegenError(
+                f"Literal value required but got symbolic value requiring "
+                f"dynamic resolution: {simplified}"
+            ) from e
+    elif isinstance(value, tuple):
+        return tuple(cast_py_literal(emitter, v) for v in value)
+    elif isinstance(value, list):
+        return [cast_py_literal(emitter, v) for v in value]
+    elif isinstance(value, dict):
+        return {
+            cast_py_literal(emitter, k): cast_py_literal(emitter, v)
+            for k, v in value.items()
+        }
+    elif isinstance(value, (int, float, str)):
+        return value
+
+
 def cast_py_value(emitter: ThreadEmitter, value) -> IRProxyValue:
     """
     Converts the given value to an IR Value.
@@ -710,7 +740,15 @@ def cast_py_value(emitter: ThreadEmitter, value) -> IRProxyValue:
             return node_values[0]
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")
-
+    elif isinstance(value, IndexExpr):
+        simplified = IndexingContext.current().simplify_expr(value)
+        try:
+            value = int(simplified)
+        except TypeError as e:
+            raise CodegenError(
+                f"Dynamically resolved symbolic values not yet implemented. Got: "
+                f"{simplified}"
+            ) from e
     return ScalarBuilder.constant(value)
 
 

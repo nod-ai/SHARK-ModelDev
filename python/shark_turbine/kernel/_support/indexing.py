@@ -93,8 +93,8 @@ def index_symbol(name: str) -> IndexSymbol:
 
 def index_expr(value: Any) -> IndexExpr:
     expr = sympy.sympify(value)
-    if not expr.is_integer:
-        raise ValueError(f"Expected Integer from {value}. Got {expr} ({type(expr)})")
+    # if not expr.is_integer:
+    #     raise ValueError(f"Expected Integer from {value}. Got {expr} ({type(expr)})")
     return expr
 
 
@@ -428,6 +428,8 @@ class IndexingContext:
     def bind_shaped(
         self, instance: Any, shaped_type: ShapedType, dims: Dims
     ) -> _ShapedBinding:
+        if instance in self.shaped_bindings:
+            raise ValueError(f"Argument binding {instance} is already bound")
         symbolic_shape = shaped_type.symbolic_shape
         rank = shaped_type.rank
         if rank != len(dims):

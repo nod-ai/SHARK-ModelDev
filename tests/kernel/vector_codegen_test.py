@@ -64,8 +64,8 @@ class Test(unittest.TestCase):
         print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
-            idxc.bind_constant(M, 128)
-            idxc.bind_constant(K, 64)
+            idxc.bind_shaped(0, tk.lang.KernelBuffer[M, K], (128, 64))
+            idxc.bind_shaped(1, tk.lang.KernelBuffer[M, K], (128, 64))
             idxc.finalize()
 
             sig = kernel_codegen.KernelSignature()
@@ -104,8 +104,8 @@ class Test(unittest.TestCase):
         print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
-            idxc.bind_constant(M, 128)
-            idxc.bind_constant(K, 64)
+            idxc.bind_shaped(0, tk.lang.KernelBuffer[M, K], (128, 64))
+            idxc.bind_shaped(1, tk.lang.KernelBuffer[M, K], (128, 64))
             idxc.finalize()
 
             sig = kernel_codegen.KernelSignature()
@@ -127,53 +127,35 @@ class Test(unittest.TestCase):
         N = tkl.sym.N
         M = tkl.sym.M
         K = tkl.sym.K
+        BLOCK_SIZE = tkl.sym.BLOCK_SIZE
 
-        GRID_N = tkl.sym.GRID_N
-        GRID_M = tkl.sym.GRID_M
-
-        def inner_gemm(
-            A: tkl.KernelBuffer[N, K],
-            B: tkl.KernelBuffer[K, M],
-            output: tkl.KernelBuffer[N, M],
-            k: int,
-            block_size: int,
-        ):
-            grid_n = tkl.program_id(0)
-            grid_m = tkl.program_id(1)
-
-            acc = tkl.constant((block_size, block_size), torch.float32, 0.0)
-
-            @tkl.for_loop(0, k // block_size, init_args=[acc])
-            def body(i, c):
-                a = tkl.load(A, (grid_n, i * block_size), (block_size, block_size))
-                b = tkl.load(B, (i * block_size, grid_m), (block_size, block_size))
-                return (tkl.dot(a, b, c),)
-
-            tkl.store(output, (grid_n, grid_m), body[0])
-
-        @tk.gen.thread(GRID_N, GRID_M)
+        @tk.gen.thread(N // BLOCK_SIZE, M // BLOCK_SIZE)
         def gemm_kernel(
             A: tkl.KernelBuffer[N, K],
             B: tkl.KernelBuffer[K, M],
             output: tkl.KernelBuffer[N, M],
         ):
-            # TODO: We should find a way to parameterize these so we can autotune over them.
-            # TODO: Ideally, we should be getting k from the symbol. The symbol value
-            # is currently not available at tracing time which is a problem.
-            k = 512
-            block_size = 32
-            inner_gemm(A, B, output, k, block_size)
+            grid_n = tkl.program_id(0)
+            grid_m = tkl.program_id(1)
+
+            acc = tkl.constant((BLOCK_SIZE, BLOCK_SIZE), torch.float32, 0.0)
+
+            @tkl.for_loop(0, K // BLOCK_SIZE, init_args=[acc])
+            def body(i, c):
+                a = tkl.load(A, (grid_n, i * BLOCK_SIZE), (BLOCK_SIZE, BLOCK_SIZE))
+                b = tkl.load(B, (i * BLOCK_SIZE, grid_m), (BLOCK_SIZE, BLOCK_SIZE))
+                return (tkl.dot(a, b, c),)
+
+            tkl.store(output, (grid_n, grid_m), body[0])
 
         trace = gemm_kernel._trace
         print(trace.region_graph)
         mb = builder.ModuleBuilder()
         with indexing.IndexingContext() as idxc:
-            BLOCK_SIZE = 32
-            idxc.bind_constant(N, 512)
-            idxc.bind_constant(M, 512)
-            idxc.bind_constant(K, 512)
-            idxc.bind_constant(GRID_N, 512 // BLOCK_SIZE)
-            idxc.bind_constant(GRID_M, 512 // BLOCK_SIZE)
+            idxc.bind_shaped("A", tkl.KernelBuffer[N, K], (512, 1024))
+            idxc.bind_shaped("B", tkl.KernelBuffer[K, M], (1024, 2048))
+            idxc.bind_shaped("output", tkl.KernelBuffer[N, M], (512, 2048))
+            idxc.bind_constant(BLOCK_SIZE, 32)
             idxc.finalize()
 
             sig = kernel_codegen.KernelSignature()

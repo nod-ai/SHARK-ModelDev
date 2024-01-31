@@ -22,8 +22,10 @@ import torch.fx as fx
 from .indexing import (
     backed_sym_index_type,
     BoundedRelation,
+    IndexExpr,
     Grid,
     KernelBuffer,
+    SymIndex,
 )
 
 from ..lang.types import (
@@ -98,9 +100,16 @@ class KernelTracer(SubgraphTracer):
     # Register our custom proxies.
     def proxy(self, node: fx.Node) -> fx.Proxy:
         t = node.type
-        if t is not None and issubclass(t, KernelBuffer):
-            return KernelBufferProxy(node, self, t)
+        if t is not None:
+            if issubclass(t, KernelBuffer):
+                return KernelBufferProxy(node, self, t)
         return super().proxy(node)
+
+    def create_arg(self, a):
+        # Let IndexExpr persist as arguments.
+        if isinstance(a, IndexExpr):
+            return a
+        return super().create_arg(a)
 
 
 class CapturedTrace:
