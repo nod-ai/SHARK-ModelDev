@@ -559,8 +559,8 @@ class IndexingContext:
 
 ###############################################################################
 # Symbolic index value type.
-# This type is used in place of `int` to track a symbolic value during
-# traced execution. The type does not carry
+# TODO: We think we want to remove this in the next rev, in favor of doing
+# relationship verification as part of a pass.
 ###############################################################################
 
 

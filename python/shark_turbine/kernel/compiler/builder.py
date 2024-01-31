@@ -217,17 +217,3 @@ class _ScalarBuilder:
 
 
 ScalarBuilder = _ScalarBuilder()
-
-
-# class SliceSpecExtractor:
-#     """Helper for extracting values from a slice spec (list of slices)."""
-#     __slots__ = [
-#         "ref",
-#         "slice_spec",
-#     ]
-#     def __init__(self, ref: tuple[IndexExpr, ...], slice_spec: list[SliceAtom]):
-#         self.ref = ref
-#         self.slice_spec = slice_spec
-
-#     def validate(self, require_unit_step: bool = False):
-#         """Requires that there are only unit-steps in the slices."""
