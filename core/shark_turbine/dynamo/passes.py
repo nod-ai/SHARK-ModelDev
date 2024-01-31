@@ -50,6 +50,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._unsafe_index.Tensor,
     # decompositions added manually in this file
     torch.ops.aten._scaled_dot_product_flash_attention.default,
+    torch.ops.aten.unbind.int,
 ]
 
 
