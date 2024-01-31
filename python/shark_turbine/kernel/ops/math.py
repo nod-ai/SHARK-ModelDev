@@ -9,8 +9,14 @@ from .base import (
 )
 
 __all__ = [
+    "exp2",
     "vector_constant",
 ]
+
+
+@define_op
+def exp2(val):
+    ...
 
 
 @define_op

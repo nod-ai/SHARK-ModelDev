@@ -24,6 +24,7 @@ from .ir import (
     Value,
     VectorType,
     arith_d,
+    math_d,
     builtin_d,
 )
 
@@ -139,7 +140,7 @@ class _ScalarBuilder:
 
     def binary_vector_arithmetic(
         self, op: str, lhs: IRProxyValue, rhs: IRProxyValue
-    ) -> Value:
+    ) -> IRProxyValue:
         lhs_ir = lhs.ir_value
         rhs_ir = rhs.ir_value
         lhs_element_type = VectorType(lhs_ir.type).element_type
@@ -149,9 +150,32 @@ class _ScalarBuilder:
             handler = getattr(self, attr_name)
         except AttributeError:
             raise CodegenError(
-                f"Cannot perform binary arithmetic operation '{op}' between {lhs.type} and {rhs.type} (tried '{attr_name}')"
+                f"Cannot perform binary arithmetic operation '{op}' between {lhs_ir.type} and {rhs_ir.type} (tried '{attr_name}')"
             )
         return handler(lhs, rhs)
+
+    def unary_arithmetic(self, op: str, val: IRProxyValue) -> IRProxyValue:
+        val_ir_type = val.ir_value.type
+        attr_name = f"unary_{op}_{val_ir_type}"
+        try:
+            handler = getattr(self, attr_name)
+        except AttributeError:
+            raise CodegenError(
+                f"Cannot perform unary arithmetic operation '{op}' on {val_ir_type} (tried '{attr_name}')"
+            )
+        return handler(val)
+
+    def unary_vector_arithmetic(self, op: str, val: IRProxyValue) -> IRProxyValue:
+        val_ir = val.ir_value
+        val_element_type = VectorType(val_ir.type).element_type
+        attr_name = f"unary_{op}_{val_element_type}"
+        try:
+            handler = getattr(self, attr_name)
+        except AttributeError:
+            raise CodegenError(
+                f"Cannot perform unary arithmetic operation '{op}' on {val_ir.type} (tried '{attr_name}')"
+            )
+        return handler(val)
 
     def promote_index_to_f32(self, value: Value, to_type: IrType) -> Value:
         i32_type = IntegerType.get_signless(32)
@@ -214,6 +238,9 @@ class _ScalarBuilder:
         self, lhs: IRProxyValue, rhs: IRProxyValue
     ) -> IRProxyValue:
         return IRProxyValue(arith_d.divf(lhs.ir_value, rhs.ir_value))
+
+    def unary_exp2_f32(self, val: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(math_d.exp2(val.ir_value))
 
 
 ScalarBuilder = _ScalarBuilder()

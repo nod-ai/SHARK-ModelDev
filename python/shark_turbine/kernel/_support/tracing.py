@@ -264,6 +264,13 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Math Operations
     ### ========================================================================
+    def handle_exp2(self, op, val):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(val,),
+            kwargs={},
+        )
 
     def handle_vector_constant(
         self, op, shape: Tuple[int, ...], dtype, value: int | float
@@ -278,12 +285,79 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Reduction Operations
     ### ========================================================================
+    def handle_vector_max(self, op, vector, axis, acc):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(vector, axis, acc),
+            kwargs={},
+        )
+
+    def handle_vector_sum(self, op, vector, axis, acc):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(vector, axis, acc),
+            kwargs={},
+        )
 
     def handle_vector_dot(self, op, lhs, rhs, acc):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(lhs, rhs, acc),
+            kwargs={},
+        )
+
+    ### ========================================================================
+    ### Shape Manipulation Operations
+    ### ========================================================================
+    def handle_vector_broadcast(self, op, vector, leading_sizes):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(vector, leading_sizes),
+            kwargs={},
+        )
+
+    def handle_vector_broadcast_in_dim(self, op, vector, shape, broadcast_dimensions):
+        # Currently, we do not have a corressponding op in MLIR, so
+        # we trace this to broadcast + transpose.
+        # TODO: Add a vector dialect op for this in MLIR.
+
+        # Remove broadcast_dimensions from shape.
+        shape_with_leading = tuple(
+            dim for i, dim in enumerate(shape) if i not in broadcast_dimensions
+        )
+
+        # Broadcast
+        broadcasted_vector = self.region_graph.create_proxy(
+            "call_function",
+            target=ops.vector_broadcast,
+            args=(vector, shape_with_leading),
+            kwargs={},
+        )
+
+        # Get the permutation for the transpose.
+        permutation = tuple(
+            i for i in range(len(shape)) if i not in broadcast_dimensions
+        )
+        permutation = permutation + tuple(broadcast_dimensions)
+        print(permutation)
+
+        # Transpose
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=ops.vector_transpose,
+            args=(broadcasted_vector, permutation),
+            kwargs={},
+        )
+
+    def handle_vector_transpose(self, op, vector, permutation):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(vector, permutation),
             kwargs={},
         )
 
