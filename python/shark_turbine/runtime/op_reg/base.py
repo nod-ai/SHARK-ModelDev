@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional, Sequence, Type, Union
 from abc import ABC, abstractmethod, abstractproperty
 import functools
 import logging
+import re
 import textwrap
 
 import torch
@@ -132,8 +133,8 @@ class CustomOp(ABC):
         register_meta: bool,
         register_impl: bool,
     ):
-        name = self.name
-        fq_schema = f"{name}{self.signature}"
+        fq_schema = self.signature
+        name = _extract_name_from_signature(fq_schema)
         library.define(fq_schema)
         self.library = library
         self.cache_key_base = f"{library.ns}.{library.kind}::{name}"
@@ -157,16 +158,14 @@ class CustomOp(ABC):
         ALL_CUSTOM_OP_REGS[fq_name] = self
 
     @abstractproperty
-    def name(self) -> str:
-        """Name of the operation."""
-        ...
-
-    @abstractproperty
     def signature(self) -> str:
         """PyTorch function signature.
 
-        This excludes the name, which will come from the `name` property
-        and be prepended to make a full PyTorch schema.
+        This is in the normal PyTorch kernel registration form. For example:
+
+        ```
+        my_op(Tensor t) -> Tensor
+        ```
         """
         ...
 
@@ -772,3 +771,13 @@ def _create_impl_trampoline(op: CustomOp):
         return eager_dispatch(ksel)
 
     return handler
+
+
+_SIGNATURE_NAME_PATTERN = re.compile(r"^([^(]+)")
+
+
+def _extract_name_from_signature(sig: str) -> str:
+    m = re.match(_SIGNATURE_NAME_PATTERN, sig)
+    if not m:
+        raise ValueError(f"Expected signature of form `name() -> (). Got: {sig}")
+    return m.group(1)

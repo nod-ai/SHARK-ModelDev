@@ -15,11 +15,10 @@ from shark_turbine.runtime.op_reg.compiler import _testing_get_cache_size
 
 
 class KernelRegTest(unittest.TestCase):
-    def testSimple(self):
+    def testRegistrationDispatchAndCache(self):
         @CustomOp.register
         class identity(CustomOp):
-            name = "test_identity"
-            signature = "(Tensor self) -> Tensor"
+            signature = "test_identity(Tensor self) -> Tensor"
 
             def select(self, ksel: KernelSelection):
                 x = ksel.arg_tensor(0)

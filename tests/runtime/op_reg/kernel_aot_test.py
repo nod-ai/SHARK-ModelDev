@@ -43,14 +43,15 @@ class KernelRegTest(unittest.TestCase):
     def testTrace(self):
         mlp = MLP()
         prog = aot.export(mlp, torch.empty(97, 8, dtype=torch.float32))
-        # print("ORIGINAL EXPORTED:")
-        # print(prog.print_readable())
 
         p = ExpandCustomOpsPass(prog.mlir_module)
         p.run()
 
         print("CUSTOM OP CONVERTED:")
-        print(prog.mlir_module)
+        module_asm = str(prog.mlir_module)
+        self.assertIn('flow.tensor.trace "LAYER0"', module_asm)
+        self.assertIn('flow.tensor.trace "LAYER1"', module_asm)
+        self.assertIn('flow.tensor.trace "LAYER3"', module_asm)
 
     def testEager(self):
         mlp = MLP()

@@ -43,8 +43,11 @@ from ..rewriter import (
 
 
 class ExpandCustomOpsPass(Pass):
-    def __init__(self, root_op: Operation):
+    def __init__(
+        self, root_op: Operation, reg: dict[str, CustomOp] = ALL_CUSTOM_OP_REGS
+    ):
         super().__init__(root_op)
+        self.reg = reg
         # Track pending deletions in a dict to preserve order and unique.
         self.ops_to_delete: dict[Operation, None] = {}
         self.type_converter = NativeTypeConverter(root_op.context)
@@ -76,7 +79,7 @@ class ExpandCustomOpsPass(Pass):
                     custom_op_name = StringAttr(op.attributes["name"]).value
                     if custom_op_name.startswith(name_prefix):
                         local_name = custom_op_name[len(name_prefix) :]
-                        custom_op_reg = ALL_CUSTOM_OP_REGS.get(local_name)
+                        custom_op_reg = self.reg.get(local_name)
                         if custom_op_reg is not None:
                             self.expand_custom_op(custom_op_reg, op)
 
@@ -172,7 +175,9 @@ class AOTKernelSelection(KernelSelection):
         return desc
 
     def return_tensor(self, t: Tensor) -> TensorArg:
-        raise NotImplementedError("NYI: return_tensor")
+        desc = TensorArg(t)
+        self.result_descs.append(desc)
+        return desc
 
 
 def _get_constant_str_from_value(v: Value) -> str:
@@ -224,6 +229,7 @@ class InlineKernelBuilder(KernelBuilder):
         )
         self.location = location
         self.torch_op = torch_op
+        self.type_converter = type_converter
 
     def yield_results(self, *results: Value):
         """Yields results of the kernel computation."""
@@ -234,5 +240,9 @@ class InlineKernelBuilder(KernelBuilder):
                 torch_op_results
             ), f"Mismatched yield_results with custom op results"
             for new_result, old_result in zip(results, torch_op_results):
+                torch_type = old_result.type
+                new_result = self.type_converter.materialize_native_to_torch(
+                    new_result, torch_type
+                )
                 old_result.replace_all_uses_with(new_result)
         self.yielded = True

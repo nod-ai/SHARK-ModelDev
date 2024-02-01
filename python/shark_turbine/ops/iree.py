@@ -43,8 +43,7 @@ def _emit_tensor_trace(kb: KernelBuilder, key: str, ts: list[Value]):
 
 @CustomOp.register(library=IREE_LIBRARY)
 class trace_tensor(CustomOp):
-    name = "trace_tensor"
-    signature = "(str trace_key, Tensor tensor) -> ()"
+    signature = "trace_tensor(str trace_key, Tensor tensor) -> ()"
 
     def select(self, ksel: KernelSelection):
         ksel.attr_str(0)
@@ -57,8 +56,7 @@ class trace_tensor(CustomOp):
 
 @CustomOp.register(library=IREE_LIBRARY)
 class trace_tensors(CustomOp):
-    name = "trace_tensors"
-    signature = "(str trace_key, Tensor[] tensors) -> ()"
+    signature = "trace_tensors(str trace_key, Tensor[] tensors) -> ()"
 
     def select(self, ksel: KernelSelection):
         ksel.attr_str(0)
