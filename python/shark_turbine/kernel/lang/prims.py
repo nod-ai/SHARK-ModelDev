@@ -11,10 +11,16 @@ __all__ = [
     "is_debug",
     "program_id",
     "constant",
+    "exp2",
+    "max",
+    "sum",
     "dot",
     "for_loop",
     "load",
     "store",
+    "broadcast",
+    "broadcast_in_dim",
+    "transpose",
 ]
 
 
@@ -27,9 +33,12 @@ def is_debug() -> bool:
 program_id = ops.thread_program_id
 
 # Math Operations
+exp2 = ops.exp2
 constant = ops.vector_constant
 
 # Reduction Operations
+max = ops.vector_max
+sum = ops.vector_sum
 dot = ops.vector_dot
 
 # Control Flow Operations
@@ -38,3 +47,8 @@ for_loop = ops.for_loop
 # Memory Operations
 load = ops.kernel_buffer_load
 store = ops.kernel_buffer_store
+
+# Shape Manipulation operations
+broadcast = ops.vector_broadcast
+broadcast_in_dim = ops.vector_broadcast_in_dim
+transpose = ops.vector_transpose

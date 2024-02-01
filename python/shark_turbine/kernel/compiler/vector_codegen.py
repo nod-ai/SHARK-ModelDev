@@ -234,6 +234,10 @@ BINARY_ARITHMETIC_OPS = [
     (py_operator.truediv, "truediv"),
 ]
 
+UNARY_ARITHMETIC_OPS = [
+    (tkl.exp2, "exp2"),
+]
+
 
 def binary_broadcast(
     lhs: IRProxyValue, rhs: IRProxyValue
@@ -249,9 +253,9 @@ def binary_broadcast(
 
     # Promote to vector.
     if not lhs_is_vector:
-        lhs = IRProxyValue(vector_d.splat(VectorType([], lhs_type), lhs.ir_value))
+        lhs = IRProxyValue(vector_d.splat(VectorType.get([], lhs_type), lhs.ir_value))
     if not rhs_is_vector:
-        rhs = IRProxyValue(vector_d.splat(VectorType([], rhs_type), rhs.ir_value))
+        rhs = IRProxyValue(vector_d.splat(VectorType.get([], rhs_type), rhs.ir_value))
     lhs_type = VectorType(lhs.ir_value.type)
     rhs_type = VectorType(rhs.ir_value.type)
 
@@ -283,8 +287,8 @@ def binary_broadcast(
 
 
 def _define_arithmetic_handlers():
-    def register(py_operator, mnemonic):
-        @handle_op(py_operator)
+    def register_binary_op(op, mnemonic):
+        @handle_op(op)
         def _(emitter: ThreadEmitter, node: fx.Node):
             try:
                 lhs, rhs = node.args
@@ -300,10 +304,29 @@ def _define_arithmetic_handlers():
                 result = ScalarBuilder.binary_arithmetic(mnemonic, lhs, rhs)
             emitter.bind_node_proxy(node, result)
 
-    for py_operator, mnemonic in BINARY_ARITHMETIC_OPS:
+    def register_unary_op(op, mnemonic):
+        @handle_op(op)
+        def _(emitter: ThreadEmitter, node: fx.Node):
+            try:
+                (val,) = node.args
+            except ValueError as e:
+                raise ValidationError("Malformed arguments") from e
+
+            val = cast_py_value(emitter, val)
+            is_vector = VectorType.isinstance(val.ir_value.type)
+            if is_vector:
+                result = ScalarBuilder.unary_vector_arithmetic(mnemonic, val)
+            else:
+                result = ScalarBuilder.unary_arithmetic(mnemonic, val)
+            emitter.bind_node_proxy(node, result)
+
+    for op, mnemonic in BINARY_ARITHMETIC_OPS:
         # Need to capture these per iteration, not just final value,
         # so call a function.
-        register(py_operator, mnemonic)
+        register_binary_op(op, mnemonic)
+
+    for op, mnemonic in UNARY_ARITHMETIC_OPS:
+        register_unary_op(op, mnemonic)
 
 
 _define_arithmetic_handlers()
@@ -417,7 +440,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         vector_type,
         kb_src,
         start_indices,
-        AffineMap.get_identity(len(start_indices)),
+        AffineMap.get_minor_identity(len(ref_shape), len(vector_shape)),
         pad_value,
     )
     emitter.bind_node_proxy(node, IRProxyValue(result))
@@ -448,7 +471,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
-    permutation_map = AffineMap.get_identity(dest_rank)
+    permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
     vector_d.transfer_write(
         None,
         insert_vector,
@@ -532,6 +555,78 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
+def register_reduction(op):
+    def decorator(f: Callable[[IrType, NodeAttrs], vector_d.CombiningKind]):
+        @handle_op(op)
+        def _(emitter: ThreadEmitter, node: fx.Node):
+            try:
+                vector, axis, acc = node.args
+            except ValueError as e:
+                raise ValidationError("Malformed arguements") from e
+
+            axis = cast_py_literal(emitter, axis)
+            emit_reduction(emitter, node, vector, axis, acc, f)
+
+    return decorator
+
+
+def emit_reduction(
+    emitter: ThreadEmitter,
+    node: fx.Node,
+    raw_input,
+    axis: int,
+    raw_acc,
+    combiner_callback: Callable[[IrType, NodeAttrs], vector_d.CombiningKind],
+):
+    # Setup.
+    attrs = NodeAttrs.load(raw_input)
+    input = cast_vector(emitter, raw_input)
+    vector_type = VectorType(input.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+
+    if raw_acc:
+        acc = cast_vector(emitter, raw_acc)
+    else:
+        acc = arith_d.constant(element_type, ScalarBuilder.zero_attr(element_type))
+
+    combiner = combiner_callback(element_type, attrs)
+
+    if not axis:
+        # Reduce to scalar.
+        scalar_result = vector_d.multi_reduction(
+            combiner, input, acc, list(range(rank))
+        )
+        result = vector_d.splat(VectorType.get([], element_type), scalar_result)
+        emitter.bind_node_proxy(node, IRProxyValue(result), attrs=attrs)
+    else:
+        # Reduce to vector.
+        vector_result = vector_d.multi_reduction(combiner, input, acc, [axis])
+        emitter.bind_node_proxy(node, IRProxyValue(vector_result), attrs=attrs)
+
+
+@register_reduction(tkl.max)
+def _(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+    if ScalarBuilder.is_floating_point_type(element_type):
+        # Non-NaN propagating.
+        # TODO: Carry a "fastmath" flag on the emitter and choose between this
+        # and MAXIMUMF?
+        return vector_d.CombiningKind.MAXNUMF
+    elif ScalarBuilder.is_integer_type(element_type):
+        return (
+            vector_d.CombiningKind.MAXUI
+            if attrs.unsigned
+            else vector_d.CombiningKind.MAXSI
+        )
+
+    raise CodegenError(f"No max reduction for type {element_type}")
+
+
+@register_reduction(tkl.sum)
+def _(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
+    return vector_d.CombiningKind.ADD
+
+
 ###############################################################################
 # Control Flow ops
 ###############################################################################
@@ -584,9 +679,8 @@ def _(emitter: ThreadEmitter, node: fx.Node):
             subgraph_args[0], IRProxyValue(forOp.induction_variable)
         )
         # Add mapping for iter_args.
-        emitter.bind_node_proxies(
-            subgraph_args[1], [IRProxyValue(v) for v in forOp.inner_iter_args]
-        )
+        for i, v in enumerate(forOp.inner_iter_args):
+            emitter.bind_node_proxy(subgraph_args[i + 1], IRProxyValue(v))
 
         ret = emitter.emit_subgraph(subgraph, implicit_capture)
         # Use ret in terminatory of body
@@ -602,79 +696,41 @@ def _(emitter: ThreadEmitter, node: fx.Node):
 
 
 ###############################################################################
-# Torch and math ops
+# Shape Manipulation Ops
 ###############################################################################
 
 
-@handle_op(torch.exp)
+@handle_op(tkl.broadcast)
 def _(emitter: ThreadEmitter, node: fx.Node):
-    args = op_matchers.torch_exp(*node.args, **node.kwargs)
-    raw_input = args["input"]
-    input = cast_vector(emitter, raw_input)
-    result = math_d.exp(input)
+    try:
+        vector, leading_sizes = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    vector = cast_vector(emitter, vector)
+    leading_sizes = cast_py_literal(emitter, leading_sizes)
+
+    old_shape = vector.type.shape
+    broadcasted_shape = list(leading_sizes) + old_shape
+    broadcasted_type = VectorType.get(broadcasted_shape, vector.type.element_type)
+    result = vector_d.broadcast(broadcasted_type, vector)
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
-@handle_op(torch.max)
+@handle_op(tkl.transpose)
 def _(emitter: ThreadEmitter, node: fx.Node):
-    args = op_matchers.torch_max_unary(
-        *node.args, **node.kwargs
-    ) or op_matchers.torch_max(*node.args, **node.kwargs)
+    try:
+        vector, permutation = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
 
-    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
-        if ScalarBuilder.is_floating_point_type(element_type):
-            # Non-NaN propagating.
-            # TODO: Carry a "fastmath" flag on the emitter and choose between this
-            # and MAXIMUMF?
-            return vector_d.CombiningKind.MAXNUMF
-        elif ScalarBuilder.is_integer_type(element_type):
-            return (
-                vector_d.CombiningKind.MAXUI
-                if attrs.unsigned
-                else vector_d.CombiningKind.MAXSI
-            )
+    vector = cast_vector(emitter, vector)
+    permutation = cast_py_literal(emitter, permutation)
+    new_shape = [vector.type.shape[i] for i in permutation]
+    result_type = VectorType.get(new_shape, vector.type.element_type)
 
-    emit_reduction(emitter, node, args, combiner)
-
-
-@handle_op(torch.sum)
-def _(emitter: ThreadEmitter, node: fx.Node):
-    args = op_matchers.torch_sum_unary(
-        *node.args, **node.kwargs
-    ) or op_matchers.torch_sum(*node.args, **node.kwargs)
-
-    def combiner(element_type: IrType, attrs: NodeAttrs) -> vector_d.CombiningKind:
-        return vector_d.CombiningKind.ADD
-
-    emit_reduction(emitter, node, args, combiner)
-
-
-def emit_reduction(
-    emitter: ThreadEmitter,
-    node: fx.Node,
-    args: dict,
-    combiner_callback: Callable[[IrType], vector_d.CombiningKind],
-):
-    # Setup.
-    raw_input = args["input"]
-    attrs = NodeAttrs.load(raw_input)
-    input = cast_vector(emitter, raw_input)
-    vector_type = VectorType(input.type)
-    element_type = vector_type.element_type
-    rank = vector_type.rank
-    zero = arith_d.constant(element_type, ScalarBuilder.zero_attr(element_type))
-    combiner = combiner_callback(element_type, attrs)
-
-    if len(args) == 1:
-        # Reduce to scalar.
-        scalar_result = vector_d.multi_reduction(
-            combiner, input, zero, list(range(rank))
-        )
-        result = vector_d.splat(VectorType.get([], element_type), scalar_result)
-        emitter.bind_node_proxy(node, IRProxyValue(result), attrs=attrs)
-    else:
-        # Reduce to vector.
-        raise CodegenError("NYI: Reduce to vector")
+    result = vector_d.transpose(result_type, vector, permutation)
+    emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
 ###############################################################################

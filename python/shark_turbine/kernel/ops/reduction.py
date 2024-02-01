@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 import typing
 
 if typing.TYPE_CHECKING:
@@ -9,10 +9,22 @@ from .base import (
 )
 
 __all__ = [
+    "vector_max",
+    "vector_sum",
     "vector_dot",
 ]
 
 
 @define_op
-def vector_dot(lhs: "Vector", rhs: "Vector", acc) -> "Vector":
+def vector_max(vector: "Vector", axis=None, acc=None) -> "Vector":
+    ...
+
+
+@define_op
+def vector_sum(vector: "Vector", axis=None, acc=None) -> "Vector":
+    ...
+
+
+@define_op
+def vector_dot(lhs: "Vector", rhs: "Vector", acc=None) -> "Vector":
     ...
