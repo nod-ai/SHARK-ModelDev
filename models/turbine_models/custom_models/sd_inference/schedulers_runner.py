@@ -1,8 +1,11 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
+from diffusers import (
+    PNDMScheduler,
+    UNet2DConditionModel,
+)
 
 parser = argparse.ArgumentParser()
 
@@ -65,41 +68,46 @@ def run_scheduler(
     results = runner.ctx.modules.compiled_scheduler["main"](*inputs)
     return results
 
-'''
-def run_torch_unet(
-    hf_model_name, hf_auth_token, sample, timestep, encoder_hidden_states
-):
-    from diffusers import UNet2DConditionModel
 
-    class UnetModel(torch.nn.Module):
-        def __init__(self, hf_model_name, hf_auth_token):
+def run_torch_scheduler(
+    hf_model_name, num_inference_steps, sample, encoder_hidden_states
+):
+
+    class Scheduler(torch.nn.Module):
+        def __init__(self, hf_model_name, num_inference_steps):
             super().__init__()
+            self.scheduler = PNDMScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
+            self.scheduler.set_timesteps(num_inference_steps)
             self.unet = UNet2DConditionModel.from_pretrained(
                 hf_model_name,
                 subfolder="unet",
-                token=hf_auth_token,
             )
             self.guidance_scale = 7.5
 
-        def forward(self, sample, timestep, encoder_hidden_states):
-            samples = torch.cat([sample] * 2)
-            unet_out = self.unet.forward(
-                samples, timestep, encoder_hidden_states, return_dict=False
-            )[0]
-            noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
-            noise_pred = noise_pred_uncond + self.guidance_scale * (
-                noise_pred_text - noise_pred_uncond
-            )
-            return noise_pred
+        def forward(self, latents, encoder_hidden_states) -> torch.FloatTensor:
+            latents = latents * self.scheduler.init_noise_sigma
+            for t in self.scheduler.timesteps:
+                latent_model_input = torch.cat([latents] * 2)
+                t = t.unsqueeze(0)
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
+                unet_out = self.unet.forward(
+                    latent_model_input, t, encoder_hidden_states, return_dict=False
+                )[0]
+                noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
+                noise_pred = noise_pred_uncond + self.guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+                latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+            return latents
 
-    unet_model = UnetModel(
+    scheduler = Scheduler(
         hf_model_name,
-        hf_auth_token,
+        num_inference_steps,
     )
-    results = unet_model.forward(sample, timestep, encoder_hidden_states)
+    results = scheduler.forward(sample, encoder_hidden_states)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
-'''
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -127,6 +135,20 @@ if __name__ == "__main__":
         turbine_output.to_host().dtype,
     )
 
+    if args.compare_vs_torch:
+        print("generating torch output: ")
+        from turbine_models.custom_models.sd_inference import utils
+
+        torch_output = run_torch_scheduler(
+            args.hf_model_name,
+            2,
+            sample,
+            encoder_hidden_states,
+        )
+        print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
+        err = utils.largest_error(torch_output, turbine_output)
+        print("Largest Error: ", err)
+        assert err < 9e-5
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output = None
