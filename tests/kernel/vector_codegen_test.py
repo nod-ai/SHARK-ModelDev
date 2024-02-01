@@ -56,8 +56,8 @@ class Test(unittest.TestCase):
         ):
             row_index = tk.lang.program_id(0)
             input_row = input[row_index, :]
-            numerator = torch.exp(input_row - torch.max(input_row))
-            output_row = numerator / torch.sum(numerator)
+            numerator = tkl.exp2(input_row - tkl.max(input_row))
+            output_row = numerator / tkl.sum(numerator)
             output[row_index, :] = output_row
 
         trace = softmax_kernel._trace
@@ -93,8 +93,8 @@ class Test(unittest.TestCase):
             prefetch = input[row_idx, 1]
 
             @tkl.for_loop(2, 5, init_args=[sum, prefetch])
-            def prefetch_sum(i, iter_args):
-                new_sum = iter_args[0] + iter_args[1]
+            def prefetch_sum(i, sum, prefetch):
+                new_sum = sum + prefetch
                 new_prefetch = input[row_idx, i]
                 return new_sum, new_prefetch
 

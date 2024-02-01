@@ -285,7 +285,7 @@ class CompiledContext(BaseContext):
     ### ========================================================================
     ### Reduction Operations
     ### ========================================================================
-    def handle_vector_max(self, op, vector, axis, acc):
+    def handle_vector_max(self, op, vector, axis=None, acc=None):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,
@@ -293,7 +293,7 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_vector_sum(self, op, vector, axis, acc):
+    def handle_vector_sum(self, op, vector, axis=None, acc=None):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,
@@ -301,7 +301,7 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_vector_dot(self, op, lhs, rhs, acc):
+    def handle_vector_dot(self, op, lhs, rhs, acc=None):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,

@@ -3,6 +3,7 @@ import unittest
 
 import torch
 import shark_turbine.kernel as tk
+import shark_turbine.kernel.lang as tkl
 
 from shark_turbine.kernel.compiler import (
     builder,
@@ -27,8 +28,8 @@ class Test(unittest.TestCase):
         ):
             row_index = tk.lang.program_id(0)
             input_row = input[row_index, :]
-            numerator = torch.exp(input_row - torch.max(input_row))
-            output_row = numerator / torch.sum(numerator)
+            numerator = tkl.exp2(input_row - tkl.max(input_row))
+            output_row = numerator / tkl.sum(numerator)
             output[row_index, :] = output_row
 
         trace = softmax_kernel._trace
