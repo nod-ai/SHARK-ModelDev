@@ -128,8 +128,10 @@ def export_transformer_model(
     )
     # TODO: generate these values instead of magic numbers
     NUM_LAYERS = mod.config.num_hidden_layers
-    HEADS = mod.config.num_attention_heads
-    HIDDEN_DIM = int(mod.config.hidden_size / HEADS)
+    HEADS = getattr(mod.config, "num_key_value_heads", None)
+    if HEADS is None:
+        HEADS = mod.config.num_attention_heads
+    HIDDEN_DIM = int(mod.config.hidden_size / mod.config.num_attention_heads)
     BATCH_SIZE = 1
     MAX_STEP_SEQ = mod.config.max_position_embeddings - 1
     global_pkv = torch.zeros(
