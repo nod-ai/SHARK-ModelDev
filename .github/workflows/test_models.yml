@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-ubuntu-builder-large]
+        os: [nod-ai-shared-cpubuilder]
 
     runs-on: ${{matrix.os}}
     steps:
