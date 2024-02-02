@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nod-ai-shared-cpubuilder]
+        os: [icelake]
 
     runs-on: ${{matrix.os}}
     steps:
