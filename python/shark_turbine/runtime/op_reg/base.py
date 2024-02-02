@@ -664,8 +664,6 @@ class FreeFuncKernelBuilder(KernelBuilder):
                     else:
                         continue
                 else:
-                    # for i in range(arity):
-                    #     result_types.append(IrType.parse(d.mlir_type_asm[i]))
                     raise AssertionError("NYI: arity > 1 results")
 
             # Create the func.

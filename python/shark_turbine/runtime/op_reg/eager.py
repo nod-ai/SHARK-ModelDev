@@ -51,7 +51,7 @@ def eager_dispatch(ksel: KernelSelection):
     torch_device: Optional[torch.device] = None
     for arg_desc in ksel.arg_descs:
         if not arg_desc.is_list:
-            if arg_desc.ir_arity:
+            if arg_desc.ir_arity == 1:
                 # One arg has maybe_tensor_value as a single element (common case).
                 tensor_arg = arg_desc.maybe_tensor_value
                 if tensor_arg is None:
@@ -61,6 +61,8 @@ def eager_dispatch(ksel: KernelSelection):
                 if device is not None:
                     break
             else:
+                # Optional arg omitted.
+                assert arg_desc.ir_arity == 0
                 continue
         else:
             # List. maybe_tensor_value is a list. Uncommon case.

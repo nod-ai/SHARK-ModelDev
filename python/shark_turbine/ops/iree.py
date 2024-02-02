@@ -4,6 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+"""Custom ops for built-in IREE functionality."""
+
 from ..support.ir_imports import (
     RankedTensorType,
     StringAttr,
@@ -28,6 +30,9 @@ IREE_LIBRARY = def_library("iree")
 
 ################################################################################
 # trace_tensor / trace_tensors
+# See the flow.tensor_trace op for details. In essence:
+#   * trace_key is a name to label tensors with (intended for log filtering)
+#   * tensor or tensors are values to log a value for
 ################################################################################
 
 

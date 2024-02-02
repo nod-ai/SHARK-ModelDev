@@ -68,7 +68,7 @@ class ExpandCustomOpsPass(Pass):
         This finds operations of the form:
         %0 = torch.operator "torch.ns.op"
 
-        And looks them up in the ALL_CUSTOM_OP_REGS. If it originated from one of those
+        And looks them up in the reg dict. If it originated from one of those
         registered ops, then it will be expanded in place.
         """
         name_prefix = "torch."
