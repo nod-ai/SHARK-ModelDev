@@ -53,6 +53,28 @@ TORCH_DTYPE_TO_IREE_TYPE: dict[torch.dtype, Callable[[], IrType]] = {
     torch.complex128: lambda: ComplexType.get(F64Type.get()),
 }
 
+TORCH_DTYPE_TO_SIGNED_MLIR_TYPE_ASM = {
+    torch.float16: "f16",
+    torch.bfloat16: "bf16",
+    torch.float32: "f32",
+    torch.float64: "f64",
+    torch.uint8: "ui8",
+    torch.int8: "si8",
+    torch.int16: "si16",
+    torch.int32: "si32",
+    torch.int64: "si64",
+    torch.bool: "i1",
+    torch.qint8: "si8",
+    torch.quint8: "ui8",
+    torch.complex32: "complex<f16>",
+    torch.complex64: "complex<f32>",
+    torch.complex128: "complex<f64>",
+}
+
+SIGNED_MLIR_TYPE_ASM_TO_TORCH_DTYPE = dict(
+    (v, k) for k, v in TORCH_DTYPE_TO_SIGNED_MLIR_TYPE_ASM.items()
+)
+
 TORCH_DTYPE_TO_IREE_TYPE_ASM = {
     torch.float16: "f16",
     torch.bfloat16: "bf16",

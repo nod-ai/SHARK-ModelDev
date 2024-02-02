@@ -263,7 +263,7 @@ def _device_import_torch_tensor_cpu(device: Device, t: torch.Tensor) -> HalBuffe
         memory_type=MemoryType.DEVICE_LOCAL,
         allowed_usage=BufferUsage.DEFAULT,
         device=hal_device,
-        buffer=t.numpy(),
+        buffer=t.detach().numpy(),
         element_type=element_type,
     )
     return bv
