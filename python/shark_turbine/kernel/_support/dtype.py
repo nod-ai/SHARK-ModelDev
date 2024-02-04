@@ -18,28 +18,34 @@ _INDEX_TYPES = ["index"]
 
 
 class DataType:
-    name: str
+    _name: str
+    _ir_type_asm: str
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, name, ir_type_asm=None):
+        self._name = name
+        if ir_type_asm is None:
+            self._ir_type_asm = name
 
     def ir_type_asm(self):
-        return self.name
+        return self._ir_type_asm
 
-    def is_int(self):
-        return self.name in _INT_TYPES
+    def __str__(self):
+        return self._name
 
-    def is_float(self):
-        return self.name in _FLOAT_TYPES
+    def __repr__(self):
+        return f"DataType({self._ir_type_asm})"
 
-    def is_index(self):
-        return self.name in _INDEX_TYPES
+    def is_int_asm(self):
+        return self._name in _INT_TYPES
 
-    def is_bool(self):
-        return self.name == "bool"
+    def is_float_asm(self):
+        return self._name in _FLOAT_TYPES
+
+    def is_index_asm(self):
+        return self._name in _INDEX_TYPES
 
 
-bool = DataType("i1")
+bool = DataType("bool", "i1")
 i4 = DataType("i4")
 i8 = DataType("i8")
 i16 = DataType("i16")
