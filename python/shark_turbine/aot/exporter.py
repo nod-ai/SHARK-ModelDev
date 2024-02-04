@@ -79,7 +79,7 @@ class ExportOutput:
             if file_path.suffix == ".mlirbc":
                 self.mlir_module.write_bytecode(f)
             else:
-                self.mlir_module.print(f, binary=True)
+                self.mlir_module.print(file=f, binary=True)
 
     def _run_import(self):
         CompiledModule.run_import(self.compiled_module)
