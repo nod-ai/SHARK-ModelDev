@@ -10,6 +10,7 @@ import torch
 from .. import ops
 
 from . import context
+from . import dtype
 
 __all__ = [
     "backed_sym_index_type",
@@ -28,6 +29,9 @@ __all__ = [
     "TemporaryBuffer",
 ]
 
+DataType = dtype.DataType
+DefaultDataType = dtype.f32
+
 
 class NotSetType:
     ...
@@ -36,46 +40,6 @@ class NotSetType:
 NotSet = NotSetType()
 
 SubtypeT = TypeVar("SubtypeT")
-
-###############################################################################
-# ElementType
-###############################################################################
-
-
-class ElementType(ABC):
-    @staticmethod
-    def cast(something) -> "ElementType":
-        if isinstance(something, torch.dtype):
-            return TorchElementType(something)
-        else:
-            raise TypeError(
-                f"Cannot convert {something} (of type {type(something)}) to an element type"
-            )
-
-    @abstractmethod
-    def ir_type_asm(self) -> str:
-        ...
-
-
-class TorchElementType(ElementType):
-    def __init__(self, dtype: torch.dtype):
-        self.dtype = dtype
-
-    def __repr__(self):
-        return repr(self.dtype)
-
-    def __eq__(self, other):
-        return isinstance(other, TorchElementType) and self.dtype == other.dtype
-
-    def ir_type_asm(self) -> str:
-        dtype = self.dtype
-        if dtype == torch.float32:
-            return "f32"
-        else:
-            raise ValueError(f"Torch dtype {dtype} cannot be mapped to MLIR type")
-
-
-DefaultElementType = TorchElementType(torch.float32)
 
 ###############################################################################
 # Index symbols and expressions
@@ -224,7 +188,7 @@ class _KernelBufferMeta(type):
     This lets us specialize with symbolic shape information.
     """
 
-    element_type: ElementType
+    element_type: DataType
     usage: KernelBufferUsage
     symbolic_shape: Optional[SymbolicShapeExpr]
     rank: Optional[int]
@@ -235,7 +199,7 @@ class _KernelBufferMeta(type):
         bases,
         dct,
     ):
-        element_type = dct.get("element_type") or DefaultElementType
+        element_type = dct.get("element_type") or DefaultDataType
         dct["element_type"] = element_type
         usage = dct.get("usage") or KernelBufferUsage.NONE
         dct["usage"] = usage
@@ -253,7 +217,7 @@ class _KernelBufferMeta(type):
     def new_subtype(
         cls: Type[SubtypeT],
         *,
-        element_type: Union[NotSetType, ElementType] = NotSet,
+        element_type: Union[NotSetType, DataType] = NotSet,
         symbolic_shape: Union[NotSetType, Optional[SymbolicShapeable]] = NotSet,
         usage: Union[NotSetType, KernelBufferUsage] = NotSet,
     ) -> Type[SubtypeT]:
@@ -272,9 +236,7 @@ class _KernelBufferMeta(type):
 
         return Subtype
 
-    def of(
-        cls: Type[SubtypeT], element_type: Union[Any, ElementType, torch.dtype]
-    ) -> Type[SubtypeT]:
+    def of(cls: Type[SubtypeT], element_type: Union[Any, DataType]) -> Type[SubtypeT]:
         return cls.new_subtype(element_type=element_type)
 
     def __repr__(cls):
@@ -291,7 +253,7 @@ def is_kernel_buffer_meta_derived(t: type) -> bool:
 
 def _kernel_buffer_type_repr(
     *,
-    element_type: ElementType,
+    element_type: DataType,
     usage: KernelBufferUsage,
     symbolic_shape: Optional[tuple[IndexExpr]],
 ) -> str:
@@ -300,7 +262,7 @@ def _kernel_buffer_type_repr(
         stem = f"{root}[{', '.join(repr(s) for s in symbolic_shape)}]"
     else:
         stem = f"{root}"
-    if element_type != DefaultElementType:
+    if element_type != DefaultDataType:
         stem += f".of({element_type})"
     return stem
 

@@ -496,7 +496,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     shape = cast_py_literal(emitter, shape)
 
     # TODO: Have better way to get the dtype.
-    if dtype == torch.float32:
+    if dtype == tkl.f32:
         element_type = F32Type.get()
         vector_type = VectorType.get(shape, element_type)
         dense_value = DenseElementsAttr.get_splat(vector_type, FloatAttr.get_f32(value))

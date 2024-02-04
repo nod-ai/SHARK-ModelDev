@@ -1,6 +1,5 @@
 from typing import Type
 
-
 __all__ = [
     "Index",
     "Vector",

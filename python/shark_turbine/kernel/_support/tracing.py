@@ -42,6 +42,7 @@ from ..ops.base import (
 )
 
 from . import context
+from .dtype import DataType
 
 try:
     from typing import assert_type
@@ -108,6 +109,9 @@ class KernelTracer(SubgraphTracer):
     def create_arg(self, a):
         # Let IndexExpr persist as arguments.
         if isinstance(a, IndexExpr):
+            return a
+        # Let DataType persist as arguments.
+        if isinstance(a, DataType):
             return a
         return super().create_arg(a)
 
