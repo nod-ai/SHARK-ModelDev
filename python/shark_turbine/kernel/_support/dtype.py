@@ -39,7 +39,7 @@ class DataType:
         return self.name == "bool"
 
 
-bool = DataType("bool")
+bool = DataType("i1")
 i4 = DataType("i4")
 i8 = DataType("i8")
 i16 = DataType("i16")
