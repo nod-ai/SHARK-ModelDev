@@ -9,11 +9,12 @@ import turbine_models.custom_models.stateless_llama as llama
 import os
 import unittest
 import difflib
+import json
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from shark_turbine.aot import *
 from turbine_models.custom_models import llm_runner
-
+from turbine_models.custom_models.llama_benchmark.e2e import llm_e2e_benchmark
 from turbine_models.gen_external_params.gen_external_params import (
     gen_external_params,
 )
@@ -87,6 +88,47 @@ class StatelessLlamaChecks(unittest.TestCase):
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
         )
         check_output_string(torch_str, turbine_str)
+
+    def test_benchmark_vmfb(self):
+        vmfb_name = "Llama_2_7b_chat_hf_function_calling_v2.vmfb"
+        if not os.path.isfile(vmfb_name):
+            llama.export_transformer_model(
+                hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+                hf_auth_token=None,
+                compile_to="vmfb",
+                external_weights="safetensors",
+                # external_weight_file="Llama-2-7b-chat-hf-function-calling-v2_f16_int4.safetensors", Do not export weights because this doesn't get quantized
+                quantization=quantization,
+                precision=precision,
+                device="llvm-cpu",
+                target_triple="host",
+            )
+        test_dataset_path = "python/turbine_models/tests/benchmark_prompt_test.json"
+        test_output_path = "benchmark_e2e_results.json"
+        benchmark_result_path = llm_e2e_benchmark.run_llm_benchmark(
+            "local-task",
+            "Llama_2_7b_chat_hf_function_calling_v2.vmfb",
+            "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+            None,
+            f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
+            test_dataset_path,
+            test_output_path,
+        )
+        benchmark_result = []
+        with open(benchmark_result_path) as f:
+            benchmark_result = json.load(f)
+        if len(benchmark_result) <= 0:
+            raise ValueError("Dataset is empty, or did not read dataset correctly.")
+        # Test result for prompt #1
+        assert benchmark_result[0]["decoded_tokens"] == 10
+        assert benchmark_result[0]["num_iterations"] == 2
+        assert benchmark_result[0]["decode_speed(tok/s)"] > 0
+        assert benchmark_result[0]["prefill_speed(tok/s)"] > 0
+        # Test result for prompt #2
+        assert benchmark_result[1]["decoded_tokens"] == 25
+        assert benchmark_result[1]["num_iterations"] == 1
+        assert benchmark_result[1]["decode_speed(tok/s)"] > 0
+        assert benchmark_result[1]["prefill_speed(tok/s)"] > 0
 
     def test_streaming_vmfb_comparison(self):
         """

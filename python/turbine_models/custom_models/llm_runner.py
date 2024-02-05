@@ -104,6 +104,18 @@ class SharkLLM(object):
         self.last_prompt = None
         self.streaming_llm = streaming_llm
         self.prev_token_len = 0
+        self.min_token = 0
+        self.max_token = 1024
+        self.last_prefill_time = -1.0
+        self.last_prompt_decode_time = -1.0
+        self.last_num_tokens_decoded = -1
+        self.last_num_tokens_prefill = -1
+
+    def set_min_token(self, min_token):
+        self.min_token = min_token
+
+    def set_max_token(self, max_token):
+        self.max_token = max_token
 
     def format_out(self, results):
         return torch.tensor(results.to_host()[0][0])
@@ -125,25 +137,23 @@ class SharkLLM(object):
             input_ids = input_ids[:, token_slice:]
         inputs = [ireert.asdevicearray(self.runner.config.device, input_ids)]
         if self.first_input or not self.streaming_llm:
-            s = time.time()
+            prefill_start_time = time.time()
             results = self.model["run_initialize"](*inputs)  # example_input_id
-            e = time.time()
-            print(
-                f"num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}"
-            )
+            prefill_end_time = time.time()
+            self.last_num_tokens_prefill = token_len
+            self.last_prefill_time = prefill_end_time - prefill_start_time
             token_len += 1
             self.first_input = False
         else:
-            s = time.time()
+            prefill_start_time = time.time()
             results = self.model["run_cached_initialize"](*inputs)  # example_input_id
-            e = time.time()
-            print(
-                f"Cached num_tokens: {token_len}, time_taken={e-s}, tok/second:{token_len/(e-s)}"
-            )
+            prefill_end_time = time.time()
+            self.last_num_tokens_prefill = token_len
+            self.last_prefill_time = prefill_end_time - prefill_start_time
             token_len += 1
-        s = time.time()
+        decode_start_time = time.time()
         turbine_results.append(self.format_out(results))
-        while self.format_out(results) != 2:
+        for _ in range(self.max_token):
             if self.streaming_llm and self.model["get_seq_step"]() > 600:
                 print("Evicting cache space!")
                 self.model["evict_kvcache_space"]()
@@ -151,11 +161,12 @@ class SharkLLM(object):
             # uncomment to see tokens as they are emitted
             # print(f"turbine: {tokenizer.decode(self.format_out(results))}")
             turbine_results.append(self.format_out(results))
-        e = time.time()
+            if self.format_out(results) == 2 and len(turbine_results) >= self.min_token:
+                break
+        decode_end_time = time.time()
         decoded_tokens = len(turbine_results)
-        print(
-            f"Decode num_tokens: {decoded_tokens}, time_taken={e-s}, tok/second:{decoded_tokens/(e-s)}"
-        )
+        self.last_prompt_decode_time = decode_end_time - decode_start_time
+        self.last_num_tokens_decoded = decoded_tokens
         self.prev_token_len = token_len + decoded_tokens
         return turbine_results
 
@@ -196,6 +207,12 @@ def run_llm(
         result = llm.generate(example_input_id)
         bot_response = tokenizer.decode(result, skip_special_tokens=True)
         print(f"\nBOT: {bot_response}\n")
+        print(
+            f"Prefill num_tokens : {llm.last_num_tokens_prefill}, time_taken: {llm.last_prefill_time}, tok/second: {llm.last_num_tokens_prefill/llm.last_prefill_time}"
+        )
+        print(
+            f"Decode num_tokens : {llm.last_num_tokens_decoded}, time_taken: {llm.last_prompt_decode_time}, tok/second: {llm.last_num_tokens_decoded/llm.last_prompt_decode_time}"
+        )
         prompt = append_bot_prompt(prompt, bot_response)
 
 
