@@ -9,7 +9,7 @@ from setuptools import find_namespace_packages, setup
 
 
 TURBINE_MODELS_DIR = os.path.realpath(os.path.dirname(__file__))
-TURBINE_ROOT_DIR = Path(TURBINE_MODELS_DIR).parent.parent
+TURBINE_ROOT_DIR = Path(TURBINE_MODELS_DIR).parent
 print(TURBINE_ROOT_DIR)
 VERSION_INFO_FILE = os.path.join(TURBINE_ROOT_DIR, "version_info.json")
 
@@ -47,15 +47,11 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
     ],
-    package_dir={
-        "": f"{str(TURBINE_ROOT_DIR)}/python",
-    },
     packages=find_namespace_packages(
         include=[
             "turbine_models",
             "turbine_models.*",
         ],
-        where=f"{str(TURBINE_ROOT_DIR)}/python",
     ),
     install_requires=[
         "Shark-Turbine",
