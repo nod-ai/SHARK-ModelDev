@@ -17,6 +17,7 @@ from .ir import (
     IndexType,
     IntegerAttr,
     IntegerType,
+    DenseElementsAttr,
     IrType,
     Location,
     Operation,
@@ -26,8 +27,10 @@ from .ir import (
     arith_d,
     math_d,
     builtin_d,
+    F16Type,
+    F32Type,
+    F64Type,
 )
-
 
 # TODO: Have a way upstream to check if a floating point type.
 FLOAT_TYPES_ASM = {
@@ -89,6 +92,9 @@ class _ScalarBuilder:
     def is_integer_type(self, t: IrType) -> bool:
         return IntegerType.isinstance(t)
 
+    def is_index_type(self, t: IrType) -> bool:
+        return IndexType.isinstance(t)
+
     def promote(self, value: Value, to_type: IrType) -> Value:
         value_type = value.type
         # Short-circuit if already the right type.
@@ -104,25 +110,37 @@ class _ScalarBuilder:
             )
         return handler(value, to_type)
 
-    def zero_attr(self, t: IrType) -> Attribute:
-        attr_name = f"zero_attr_{t}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"Cannot derive a zero value for type `{t}` (tried '{attr_name}')"
-            )
-        return handler(t)
+    def constant_attr(self, val: int | float, element_type: IrType) -> Attribute:
+        if self.is_integer_type(element_type) or self.is_index_type(element_type):
+            if not isinstance(val, int):
+                raise TypeError(f"Expected an integer value, got {val}")
+            return IntegerAttr.get(element_type, val)
 
-    def constant(self, py_value) -> IRProxyValue:
-        attr_name = f"py_constant_{type(py_value).__name__}"
-        try:
-            handler = getattr(self, attr_name)
-        except AttributeError:
-            raise CodegenError(
-                f"Cannot convert Python value to constant: {py_value} of type {type(py_value)} (tried '{attr_name}')"
-            )
-        return handler(py_value)
+        if self.is_floating_point_type(element_type):
+            if not isinstance(val, float):
+                raise TypeError(f"Expected a float value, got {val}")
+            return FloatAttr.get(element_type, val)
+
+        raise CodegenError(
+            f"Cannot create a constant attribute for type `{element_type}`"
+        )
+
+    def zero_attr(self, t: IrType) -> Attribute:
+        if self.is_integer_type(t) or self.is_index_type(t):
+            return self.constant_attr(0, t)
+        if self.is_floating_point_type(t):
+            return self.constant_attr(0.0, t)
+        raise CodegenError(f"Cannot create a zero attribute for type `{t}`")
+
+    def constant(self, py_value, element_type: IrType) -> IRProxyValue:
+        attr = self.constant_attr(py_value, element_type)
+        return IRProxyValue(arith_d.constant(element_type, attr))
+
+    def constant_vector(self, py_value, shape, element_type: IrType) -> IRProxyValue:
+        attr = self.constant_attr(py_value, element_type)
+        vector_type = VectorType.get(shape, element_type)
+        splat = DenseElementsAttr.get_splat(vector_type, attr)
+        return IRProxyValue(arith_d.constant(vector_type, splat))
 
     def binary_arithmetic(
         self, op: str, lhs: IRProxyValue, rhs: IRProxyValue
@@ -184,16 +202,6 @@ class _ScalarBuilder:
 
     def zero_attr_f32(self, t: IrType) -> Attribute:
         return FloatAttr.get(t, 0.0)
-
-    def py_constant_int(self, py_value) -> IRProxyValue:
-        # If coming from a stock 'int' Python type with no idea how to convert it,
-        # there isn't much smart we can do. We conservatively treat 'index' as
-        # reasonable.
-        result_type = IndexType.get()
-        return IRProxyValue(
-            arith_d.constant(result_type, IntegerAttr.get(result_type, py_value)),
-            py_value,
-        )
 
     # Binary index arithmetic.
     def binary_add_index_index(
