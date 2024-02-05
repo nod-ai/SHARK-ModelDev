@@ -63,9 +63,7 @@ class TransposedMMMatcher(NamedOpMatcher):
             m=m,
             n=n,
             k=k,
-            element_type=self.builder.get_tensor_element_type(
-                op.operands[0].type
-            ),
+            element_type=self.builder.get_tensor_element_type(op.operands[0].type),
         )
 
 
@@ -134,9 +132,7 @@ class MMGroupQuantRewriterPass(Pass):
 
     def run(self):
         globals = self.globals
-        mms = match_children(
-            self.funcs, TransposedMMMatcher(globals, self.builder)
-        )
+        mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
 
         for mr in mms:
             if mr.k is None or mr.n is None:
@@ -165,12 +161,10 @@ class MMGroupQuantRewriterPass(Pass):
                 element_type=mr.element_type,
             )
 
-            inline_module = Operation.parse(
-                inline_module_asm, context=self.context
+            inline_module = Operation.parse(inline_module_asm, context=self.context)
+            actual_callee_name = self.merge_module(inline_module).translate_symbol(
+                "compute_mm_group_quant"
             )
-            actual_callee_name = self.merge_module(
-                inline_module
-            ).translate_symbol("compute_mm_group_quant")
             with InsertionPoint(mr.op), mr.op.location:
                 results = self.builder.call_native(
                     actual_callee_name, [mr.op.result.type], mr.op.operands[0]

@@ -16,11 +16,11 @@ YOUR_HF_TOKEN="insert token for headless"
 sudo apt install -y git
 git clone https://github.com/nod-ai/SHARK-Turbine.git
 cd SHARK-Turbine
-pip install -r requirements.txt
-pip install -r turbine-models-requirements.txt
+pip install -r core/requirements.txt
+pip install -r models/requirements.txt
 
 # do an editable install from the cloned SHARK-Turbine
-pip install --editable .
+pip install --editable core models
 
 # Log in with Hugging Face CLI if token setup is required
 if [[ $YOUR_HF_TOKEN == hf_* ]]; then

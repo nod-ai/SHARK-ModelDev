@@ -12,12 +12,13 @@ from pathlib import Path
 from setuptools import find_namespace_packages, setup
 
 THIS_DIR = os.path.realpath(os.path.dirname(__file__))
-VERSION_INFO_FILE = os.path.join(THIS_DIR, "version_info.json")
+REPO_DIR = os.path.dirname(THIS_DIR)
+VERSION_INFO_FILE = os.path.join(REPO_DIR, "version_info.json")
 
 
 with open(
     os.path.join(
-        THIS_DIR,
+        REPO_DIR,
         "README.md",
     ),
     "rt",
@@ -38,7 +39,6 @@ packages = find_namespace_packages(
         "shark_turbine",
         "shark_turbine.*",
     ],
-    where="python",
 )
 
 print("Found packages:", packages)
@@ -90,9 +90,6 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
     ],
-    package_dir={
-        "": "python",
-    },
     packages=packages,
     entry_points={
         "torch_dynamo_backends": [
