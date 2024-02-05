@@ -26,6 +26,8 @@ from .._support.indexing import (
     is_kernel_buffer_meta_derived,
 )
 
+from .._support import dtype
+
 from .._support.tracing import CapturedTrace
 
 from .. import lang as tkl
@@ -57,6 +59,7 @@ from .ir import (
     VectorType,
     DenseElementsAttr,
     F32Type,
+    IndexType,
     FloatAttr,
     InsertionPoint,
     IrType,
@@ -494,16 +497,9 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         raise ValidationError("Malformed arguments") from e
 
     shape = cast_py_literal(emitter, shape)
-
-    # TODO: Have better way to get the dtype.
-    if dtype == torch.float32:
-        element_type = F32Type.get()
-        vector_type = VectorType.get(shape, element_type)
-        dense_value = DenseElementsAttr.get_splat(vector_type, FloatAttr.get_f32(value))
-        result = arith_d.ConstantOp(vector_type, dense_value).result
-        emitter.bind_node_proxy(node, IRProxyValue(result))
-    else:
-        raise CodegenError(f"NYI: Constant type {dtype}")
+    dtype = cast_dtype(emitter, dtype)
+    constant = ScalarBuilder.constant_vector(value, shape, dtype)
+    emitter.bind_node_proxy(node, constant)
 
 
 ###############################################################################
@@ -788,7 +784,7 @@ def cast_py_value(emitter: ThreadEmitter, value) -> IRProxyValue:
                 f"Dynamically resolved symbolic values not yet implemented. Got: "
                 f"{simplified}"
             ) from e
-    return ScalarBuilder.constant(value)
+    return ScalarBuilder.constant(value, IndexType.get())
 
 
 def cast_py_lvalue(emitter: ThreadEmitter, py_value: fx.Node) -> tuple[Value, fx.Node]:
@@ -857,6 +853,15 @@ def cast_vector(
         element_type = value.type
         vector_type = VectorType.get([], element_type)
         return vector_d.splat(vector_type, value)
+
+
+def cast_dtype(emitter: ThreadEmitter, dtype: dtype.DataType) -> IrType:
+    try:
+        ir_dtype = IrType.parse(dtype.ir_type_asm())
+    except CodegenError as e:
+        raise CodegenError(f"Failed to convert dtype {dtype} to IR type") from e
+
+    return ir_dtype
 
 
 ###############################################################################
@@ -995,7 +1000,7 @@ def cast_dynamic_index_value(emitter: ThreadEmitter, py_index) -> IRProxyValue:
     except TypeError:
         # Need to materialize the expression.
         raise CodegenError(f"NYI: Materialized index expression {py_index}")
-    return ScalarBuilder.constant(int_value)
+    return ScalarBuilder.constant(int_value, IndexType.get())
 
 
 def extract_slice_starts(
@@ -1006,7 +1011,7 @@ def extract_slice_starts(
     def _extract(i):
         atom = slice_spec[i]
         if atom is None:
-            return ScalarBuilder.constant(0)
+            return ScalarBuilder.constant(0, IndexType.get())
         elif isinstance(atom, slice):
             return cast_dynamic_index_value(emitter, atom.start).ir_value
         else:
