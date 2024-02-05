@@ -138,7 +138,7 @@ class Test(unittest.TestCase):
             grid_n = tkl.program_id(0)
             grid_m = tkl.program_id(1)
 
-            acc = tkl.constant((BLOCK_SIZE, BLOCK_SIZE), torch.float32, 0.0)
+            acc = tkl.constant((BLOCK_SIZE, BLOCK_SIZE), tkl.f32, 0.0)
 
             @tkl.for_loop(0, K // BLOCK_SIZE, init_args=[acc])
             def body(i, c):
