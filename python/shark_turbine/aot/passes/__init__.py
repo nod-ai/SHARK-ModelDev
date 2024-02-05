@@ -5,3 +5,4 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from .functorch import functorch_functionalize
+from .remove_alias import remove_alias
