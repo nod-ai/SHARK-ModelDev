@@ -1,4 +1,4 @@
-name: Test
+name: Turbine Core Test
 
 on:
   workflow_dispatch:
@@ -39,14 +39,14 @@ jobs:
           # from non default locations first. Installing the PyTorch CPU
           # wheels saves multiple minutes and a lot of bandwidth on runner setup.
           pip install --index-url https://download.pytorch.org/whl/cpu \
-            -r pytorch-cpu-requirements.txt \
-            -r torchvision-requirements.txt          
-          pip install --upgrade -r requirements.txt
-          pip install -e  .[testing]
+            -r core/pytorch-cpu-requirements.txt \
+            -r core/torchvision-requirements.txt          
+          pip install --upgrade -r core/requirements.txt
+          pip install -e  core[testing]
 
       - name: Run tests
         run: |
-          pytest -n 4 tests/
+          pytest -n 4 core/tests/
 
   black:
     strategy:
