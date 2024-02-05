@@ -176,7 +176,9 @@ class _ScalarBuilder:
                 f"Cannot perform binary arithmetic operation '{op}' between {lhs_ir.type} and {rhs_ir.type} due to element type mismatch"
             )
 
-        typeclass = "float" if self.is_floating_point_type(lhs_element_type) else "integer"
+        typeclass = (
+            "float" if self.is_floating_point_type(lhs_element_type) else "integer"
+        )
         attr_name = f"binary_{op}_{typeclass}"
         try:
             handler = getattr(self, attr_name)
@@ -201,7 +203,9 @@ class _ScalarBuilder:
     def unary_vector_arithmetic(self, op: str, val: IRProxyValue) -> IRProxyValue:
         val_ir = val.ir_value
         val_element_type = VectorType(val_ir.type).element_type
-        typeclass = "float" if self.is_floating_point_type(val_element_type) else "integer"
+        typeclass = (
+            "float" if self.is_floating_point_type(val_element_type) else "integer"
+        )
         attr_name = f"unary_{op}_{typeclass}"
         try:
             handler = getattr(self, attr_name)
