@@ -499,7 +499,6 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     shape = cast_py_literal(emitter, shape)
     dtype = cast_dtype(emitter, dtype)
     constant = ScalarBuilder.constant_vector(value, shape, dtype)
-    print(constant)
     emitter.bind_node_proxy(node, constant)
 
 

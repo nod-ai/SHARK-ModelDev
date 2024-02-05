@@ -23,8 +23,7 @@ class DataType:
 
     def __init__(self, name, ir_type_asm=None):
         self._name = name
-        if ir_type_asm is None:
-            self._ir_type_asm = name
+        self._ir_type_asm = ir_type_asm if ir_type_asm else name
 
     def ir_type_asm(self):
         return self._ir_type_asm
