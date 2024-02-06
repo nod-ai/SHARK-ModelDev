@@ -54,8 +54,8 @@ def load_requirement_pins(requirements_file: str):
     requirement_pins.update(dict(pin_pairs))
 
 
-load_requirement_pins(REPO_DIR / "core", "iree-requirements.txt")
-load_requirement_pins(REPO_DIR / "core", "misc-requirements.txt")
+load_requirement_pins(REPO_DIR / "core" / "iree-requirements.txt")
+load_requirement_pins(REPO_DIR / "core" / "misc-requirements.txt")
 
 
 def get_version_spec(dep: str):
