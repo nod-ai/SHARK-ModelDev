@@ -101,7 +101,6 @@ class Scheduler(torch.nn.Module):
 def export_scheduler(
     scheduler,
     hf_model_name,
-    num_inference_steps,
     batch_size,
     height,
     width,
@@ -162,7 +161,6 @@ if __name__ == "__main__":
     mod_str = export_scheduler(
         scheduler_module,
         args.hf_model_name,
-        args.num_inference_steps,
         args.batch_size,
         args.height,
         args.width,

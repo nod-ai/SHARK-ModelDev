@@ -113,9 +113,7 @@ def run_torch_scheduler(
                 )[0]
             return latents
 
-    scheduler_module = Scheduler(
-        args.hf_model_name, args.num_inference_steps, scheduler
-    )
+    scheduler_module = Scheduler(hf_model_name, num_inference_steps, scheduler)
     results = scheduler_module.forward(sample, encoder_hidden_states)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
