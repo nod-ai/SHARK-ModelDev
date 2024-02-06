@@ -9,7 +9,7 @@ import os
 import distutils.command.build
 from pathlib import Path
 
-from setuptools import find_namespace_packages, setup
+from setuptools import find_namespace_packages, setup # type: ignore
 
 THIS_DIR = Path(__file__).resolve().parent 
 REPO_DIR = THIS_DIR.parent
@@ -47,13 +47,14 @@ print("Found packages:", packages)
 requirement_pins = {}
 
 
-def load_requirement_pins(requirements_file: str):
+def load_requirement_pins(requirements_file: Path):
     with open(requirements_file, "rt") as f:
         lines = f.readlines()
     pin_pairs = [line.strip().split("==") for line in lines if "==" in line]
     requirement_pins.update(dict(pin_pairs))
 
 
+load_requirement_pins(THIS_DIR / "requirements.txt")
 load_requirement_pins(REPO_DIR / "core" / "iree-requirements.txt")
 load_requirement_pins(REPO_DIR / "core" / "misc-requirements.txt")
 
@@ -93,6 +94,7 @@ setup(
     packages=packages,
     package_data = {"turbine_serving": ["py.typed"]},
     install_requires=[
+        f"fastapi{get_version_spec('fastapi')}",
         f"iree-compiler{get_version_spec('iree-compiler')}",
         f"iree-runtime{get_version_spec('iree-runtime')}",
     ],
