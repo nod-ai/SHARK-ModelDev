@@ -1,4 +1,4 @@
-# Copyright 2023 Stella Laurenzo
+# Copyright 2024 Advanced Micro Devices, Inc
 #
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -9,11 +9,11 @@ import os
 import distutils.command.build
 from pathlib import Path
 
-from setuptools import find_namespace_packages, setup
+from setuptools import find_namespace_packages, setup  # type: ignore
 
-THIS_DIR = os.path.realpath(os.path.dirname(__file__))
-REPO_DIR = os.path.dirname(THIS_DIR)
-VERSION_INFO_FILE = os.path.join(REPO_DIR, "version_info.json")
+THIS_DIR = Path(__file__).resolve().parent
+REPO_DIR = THIS_DIR.parent
+VERSION_INFO_FILE = REPO_DIR / "version_info.json"
 
 
 with open(
@@ -36,8 +36,8 @@ PACKAGE_VERSION = version_info["package-version"]
 
 packages = find_namespace_packages(
     include=[
-        "shark_turbine",
-        "shark_turbine.*",
+        "turbine_serving",
+        "turbine_serving.*",
     ],
 )
 
@@ -47,16 +47,16 @@ print("Found packages:", packages)
 requirement_pins = {}
 
 
-def load_requirement_pins(requirements_file: str):
-    with open(Path(THIS_DIR) / requirements_file, "rt") as f:
+def load_requirement_pins(requirements_file: Path):
+    with open(requirements_file, "rt") as f:
         lines = f.readlines()
     pin_pairs = [line.strip().split("==") for line in lines if "==" in line]
     requirement_pins.update(dict(pin_pairs))
 
 
-load_requirement_pins("iree-requirements.txt")
-load_requirement_pins("misc-requirements.txt")
-load_requirement_pins("pytorch-cpu-requirements.txt")
+load_requirement_pins(THIS_DIR / "requirements.txt")
+load_requirement_pins(REPO_DIR / "core" / "iree-requirements.txt")
+load_requirement_pins(REPO_DIR / "core" / "misc-requirements.txt")
 
 
 def get_version_spec(dep: str):
@@ -77,7 +77,7 @@ class BuildCommand(distutils.command.build.build):
 
 
 setup(
-    name=f"shark-turbine",
+    name=f"turbine-serving",
     version=f"{PACKAGE_VERSION}",
     author="SHARK Authors",
     author_email="stella@nod.ai",
@@ -92,25 +92,15 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     packages=packages,
-    entry_points={
-        "torch_dynamo_backends": [
-            "turbine_cpu = shark_turbine.dynamo.backends.cpu:backend",
-        ],
-    },
+    package_data={"turbine_serving": ["py.typed"]},
     install_requires=[
-        f"numpy{get_version_spec('numpy')}",
+        f"fastapi{get_version_spec('fastapi')}",
         f"iree-compiler{get_version_spec('iree-compiler')}",
         f"iree-runtime{get_version_spec('iree-runtime')}",
-        # Use the [torch-cpu-nightly] spec to get a more recent/specific version.
-        "torch>=2.1.0",
+        f"uvicorn{get_version_spec('uvicorn')}",
     ],
     extras_require={
-        "torch-cpu-nightly": [f"torch{get_version_spec('torch')}"],
-        "onnx": [
-            f"onnx{get_version_spec('onnx')}",
-        ],
         "testing": [
-            f"onnx{get_version_spec('onnx')}",
             f"pytest{get_version_spec('pytest')}",
             f"pytest-xdist{get_version_spec('pytest-xdist')}",
         ],
