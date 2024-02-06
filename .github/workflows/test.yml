@@ -1,4 +1,4 @@
-name: Turbine Core Test
+name: Turbine Unit Tests
 
 on:
   workflow_dispatch:
@@ -42,8 +42,12 @@ jobs:
             -r core/pytorch-cpu-requirements.txt \
             -r core/torchvision-requirements.txt          
           pip install --upgrade -r core/requirements.txt
-          pip install -e  core[testing]
+          pip install -e core[testing] -e serving[testing]
 
-      - name: Run tests
+      - name: Run core tests
         run: |
-          pytest -n 4 core/tests/
+          pytest -n 4 core/
+
+      - name: Run serving tests
+        run: |
+          pytest -n 4 serving/

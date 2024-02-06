@@ -97,6 +97,7 @@ setup(
         f"fastapi{get_version_spec('fastapi')}",
         f"iree-compiler{get_version_spec('iree-compiler')}",
         f"iree-runtime{get_version_spec('iree-runtime')}",
+        f"uvicorn{get_version_spec('uvicorn')}",
     ],
     extras_require={
         "testing": [

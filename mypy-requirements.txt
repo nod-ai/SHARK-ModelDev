@@ -1,0 +1,2 @@
+# Typing packages needed for full mypy execution at the project level.
+types-requests

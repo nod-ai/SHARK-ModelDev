@@ -45,6 +45,7 @@ jobs:
       - name: Install MyPy
         run: |
           python3 -m pip install mypy==1.8.0
+          python3 -m pip install -r mypy-requirements.txt
       - name: Type check serving/ directory
         run: |
           mypy serving/
