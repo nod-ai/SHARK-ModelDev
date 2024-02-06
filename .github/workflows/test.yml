@@ -45,17 +45,17 @@ jobs:
           pip install -e core[testing] -e serving[testing]
 
       - name: Run core tests
-        if: !cancelled()
+        if: {{ !cancelled() }}
         run: |
           pytest -n 4 core/
 
       - name: Run serving tests
-        if: !cancelled()
+        if: {{ !cancelled() }}
         run: |
           pytest -n 4 serving/
 
       - name: MyPy Type Checking
-        if: !cancelled()
+        if: {{ !cancelled() }}
         run: |
           pip install -r mypy-requirements.txt
           mypy serving/
