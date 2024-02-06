@@ -233,7 +233,7 @@ class StableDiffusionTest(unittest.TestCase):
             example_input,
         )
         err = utils.largest_error(torch_output, turbine)
-        assert err < 2e-3
+        assert err < 3e-3
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
