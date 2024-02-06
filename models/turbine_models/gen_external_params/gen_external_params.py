@@ -127,7 +127,6 @@ def gen_external_params(
         auto_model=AutoModelForCausalLM,
         hf_auth_token=hf_auth_token,
     )
-    model_builder.build_model()
 
     if precision == "f16":
         model = model_builder.model.half()
