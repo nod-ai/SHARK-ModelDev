@@ -17,20 +17,61 @@ import numpy as np
 
 from turbine_models.custom_models.sd_inference import utils
 from diffusers import (
-    PNDMScheduler,
     UNet2DConditionModel,
 )
 
+import safetensors
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    help="HF model name",
+    default="CompVis/stable-diffusion-v1-4",
+)
+parser.add_argument(
+    "--scheduler_id",
+    type=str,
+    help="Scheduler ID",
+    default="PNDM",
+)
+parser.add_argument(
+    "--num_inference_steps", type=int, default=50, help="Number of inference steps"
+)
+parser.add_argument(
+    "--batch_size", type=int, default=1, help="Batch size for inference"
+)
+parser.add_argument(
+    "--height", type=int, default=512, help="Height of Stable Diffusion"
+)
+parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
+parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
+parser.add_argument("--external_weight_path", type=str, default="")
+parser.add_argument(
+    "--external_weights",
+    type=str,
+    default=None,
+    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
+)
+parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
+# TODO: Bring in detection for target triple
+parser.add_argument(
+    "--iree_target_triple",
+    type=str,
+    default="",
+    help="Specify vulkan target triple or rocm/cuda target device.",
+)
+parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
+
 
 class Scheduler(torch.nn.Module):
-    def __init__(self, hf_model_name, num_inference_steps):
+    def __init__(self, hf_model_name, num_inference_steps, scheduler):
         super().__init__()
-        self.scheduler = PNDMScheduler(
-            beta_start=0.00085,
-            beta_end=0.012,
-            beta_schedule="scaled_linear",
-            skip_prk_steps=True,
-        )
+        self.scheduler = scheduler
         self.scheduler.set_timesteps(num_inference_steps)
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
@@ -43,7 +84,9 @@ class Scheduler(torch.nn.Module):
         for t in self.scheduler.timesteps:
             latent_model_input = torch.cat([latents] * 2)
             t = t.unsqueeze(0)
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
+            latent_model_input = self.scheduler.scale_model_input(
+                latent_model_input, timestep=t
+            )
             unet_out = self.unet.forward(
                 latent_model_input, t, encoder_hidden_states, return_dict=False
             )[0]
@@ -58,6 +101,7 @@ class Scheduler(torch.nn.Module):
 def export_scheduler(
     scheduler,
     hf_model_name,
+    num_inference_steps,
     batch_size,
     height,
     width,
@@ -101,48 +145,36 @@ def export_scheduler(
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-scheduler2")
+    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
     if compile_to != "vmfb":
         return module_str
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
-if __name__ == '__main__':
-    hf_model_name = "CompVis/stable-diffusion-v1-4"
-    scheduler = Scheduler(hf_model_name, 2)
-    inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
-    # save inputs as npy
-    input0 = inputs[0].detach().cpu().numpy()
-    input1 = inputs[1].detach().cpu().numpy()
-    import numpy as np
-    np.save('input0.npy', input0)
-    np.save('input1.npy', input1)
-    batch_size = 1
-    height = 512
-    width = 512
-    hf_auth_token = None
-    compile_to = "vmfb"
-    external_weights = None
-    external_weight_path = "stable_diffusion_v1_4_scheduler.safetensors"
-    device = "cpu"
-    iree_target_triple = None
-    vulkan_max_allocation = None
 
-    mod_str = export_scheduler(
-        scheduler,
-        hf_model_name,
-        batch_size,
-        height,
-        width,
-        hf_auth_token,
-        compile_to,
-        external_weights,
-        external_weight_path,
-        device,
-        iree_target_triple,
-        vulkan_max_allocation,
+if __name__ == "__main__":
+    args = parser.parse_args()
+    schedulers = utils.get_schedulers(args.hf_model_name)
+    scheduler = schedulers[args.scheduler_id]
+    scheduler_module = Scheduler(
+        args.hf_model_name, args.num_inference_steps, scheduler
     )
-    safe_name = utils.create_safe_name(hf_model_name, "-scheduler")
+    mod_str = export_scheduler(
+        scheduler_module,
+        args.hf_model_name,
+        args.num_inference_steps,
+        args.batch_size,
+        args.height,
+        args.width,
+        args.hf_auth_token,
+        args.compile_to,
+        args.external_weights,
+        args.external_weight_path,
+        args.device,
+        args.iree_target_triple,
+        args.vulkan_max_allocation,
+    )
+    safe_name = utils.create_safe_name(args.hf_model_name, "-scheduler")
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")
