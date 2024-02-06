@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   test:
+    name: "Test"
     strategy:
       matrix:
         version: [3.11]
