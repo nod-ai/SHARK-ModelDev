@@ -9,9 +9,9 @@ import os
 import distutils.command.build
 from pathlib import Path
 
-from setuptools import find_namespace_packages, setup # type: ignore
+from setuptools import find_namespace_packages, setup  # type: ignore
 
-THIS_DIR = Path(__file__).resolve().parent 
+THIS_DIR = Path(__file__).resolve().parent
 REPO_DIR = THIS_DIR.parent
 VERSION_INFO_FILE = REPO_DIR / "version_info.json"
 
@@ -92,7 +92,7 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     packages=packages,
-    package_data = {"turbine_serving": ["py.typed"]},
+    package_data={"turbine_serving": ["py.typed"]},
     install_requires=[
         f"fastapi{get_version_spec('fastapi')}",
         f"iree-compiler{get_version_spec('iree-compiler')}",
