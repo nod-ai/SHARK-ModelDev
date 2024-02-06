@@ -41,6 +41,7 @@ from .ir import (
     Attribute,
     Block,
     Context,
+    DenseElementsAttr,
     DenseResourceElementsAttr,
     FloatAttr,
     BF16Type,
@@ -573,9 +574,11 @@ class GraphNodeImporter:
         # operations on symbolic arguments as regular python expressions rather than as torch ops
         if is_builtin_function_or_method(target):
             arg_types = [
-                arg.meta["val"].node.pytype
-                if isinstance(arg, torch.fx.Node)
-                else type(arg)
+                (
+                    arg.meta["val"].node.pytype
+                    if isinstance(arg, torch.fx.Node)
+                    else type(arg)
+                )
                 for arg in node.args
             ]
             is_int = [item == int for item in arg_types]
@@ -925,15 +928,21 @@ def _make_vtensor_literal_op(
         # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
         # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
         np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
-        bytes_view = memoryview(np_tensor)
-        tensor_type = create_mlir_tensor_type(tensor)
-        shape_desc = "_".join([str(d) for d in tensor.shape])
-        blob_name = f"torch_tensor_{shape_desc}_{str(tensor.dtype)}"
-        elements_attr = DenseResourceElementsAttr.get_from_buffer(
-            bytes_view,
-            blob_name,
-            tensor_type,
-        )
+        # DenseResourceElementsAttr creation doesnt support rank 0 tensors, so we use DenseElementsAttr instead.
+        if np_tensor.size == 1:
+            elements_attr = DenseElementsAttr.get(
+                type=TORCH_DTYPE_TO_MLIR_TYPE[tensor.dtype](), array=np_tensor
+            )
+        else:
+            bytes_view = memoryview(np_tensor)
+            tensor_type = create_mlir_tensor_type(tensor)
+            shape_desc = "_".join([str(d) for d in tensor.shape])
+            blob_name = f"torch_tensor_{shape_desc}_{str(tensor.dtype)}"
+            elements_attr = DenseResourceElementsAttr.get_from_buffer(
+                bytes_view,
+                blob_name,
+                tensor_type,
+            )
         mapping.value = elements_attr
     else:
         elements_attr = mapping.value
