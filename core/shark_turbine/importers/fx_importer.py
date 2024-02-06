@@ -908,7 +908,7 @@ def create_mlir_tensor_type(tensor: torch.Tensor) -> IrType:
         tensor_type = RankedTensorType.get(tuple(tensor.size()), element_type)
         return tensor_type
     except KeyError:
-        raise TypeError(f"Could not map Torch dtype {dtype} to an IREE type")
+        raise TypeError(f"Could not map Torch dtype {dtype} to an MLIR type")
 
 
 def _make_vtensor_literal_op(
@@ -928,10 +928,15 @@ def _make_vtensor_literal_op(
         # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
         # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
         np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
-        # DenseResourceElementsAttr creation doesnt support rank 0 tensors, so we use DenseElementsAttr instead.
+        # one element constants are more optimizable as splat DenseElementsAttr. DenseResourceElementsAttr does not support splats, so don't use it for that case. In addition, at the time of writing, it has bugs with handling 0d tensors.
         if np_tensor.size == 1:
+            try:
+                dtype = tensor.dtype
+                element_type = TORCH_DTYPE_TO_MLIR_TYPE[dtype]()
+            except KeyError:
+                raise TypeError(f"Could not map Torch dtype {dtype} to an MLIR type")
             elements_attr = DenseElementsAttr.get(
-                type=TORCH_DTYPE_TO_MLIR_TYPE[tensor.dtype](), array=np_tensor
+                type=element_type, array=np_tensor, shape=[]
             )
         else:
             bytes_view = memoryview(np_tensor)
