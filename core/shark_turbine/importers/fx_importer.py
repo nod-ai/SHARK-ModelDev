@@ -928,7 +928,9 @@ def _make_vtensor_literal_op(
         # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
         # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
         np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
-        # one element constants are more optimizable as splat DenseElementsAttr. DenseResourceElementsAttr does not support splats, so don't use it for that case. In addition, at the time of writing, it has bugs with handling 0d tensors.
+        # One element constants are more optimizable as splat DenseElementsAttr. DenseResourceElementsAttr does not 
+        # support splats, so don't use it for that case. In addition, at the time of writing, it has bugs with handling 
+        # 0d tensors.
         if np_tensor.size == 1:
             try:
                 dtype = tensor.dtype
