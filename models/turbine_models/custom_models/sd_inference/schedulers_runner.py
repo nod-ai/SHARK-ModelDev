@@ -76,7 +76,12 @@ def run_torch_scheduler(
     class Scheduler(torch.nn.Module):
         def __init__(self, hf_model_name, num_inference_steps):
             super().__init__()
-            self.scheduler = PNDMScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
+            self.scheduler = PNDMScheduler(
+                beta_start=0.00085,
+                beta_end=0.012,
+                beta_schedule="scaled_linear",
+                skip_prk_steps=True,
+            )
             self.scheduler.set_timesteps(num_inference_steps)
             self.unet = UNet2DConditionModel.from_pretrained(
                 hf_model_name,

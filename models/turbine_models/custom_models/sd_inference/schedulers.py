@@ -25,7 +25,12 @@ from diffusers import (
 class Scheduler(torch.nn.Module):
     def __init__(self, hf_model_name, num_inference_steps):
         super().__init__()
-        self.scheduler = PNDMScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
+        self.scheduler = PNDMScheduler(
+            beta_start=0.00085,
+            beta_end=0.012,
+            beta_schedule="scaled_linear",
+            skip_prk_steps=True,
+        )
         self.scheduler.set_timesteps(num_inference_steps)
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
@@ -102,12 +107,10 @@ def export_scheduler(
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
-
 if __name__ == '__main__':
     hf_model_name = "CompVis/stable-diffusion-v1-4"
     scheduler = Scheduler(hf_model_name, 2)
     inputs = (torch.randn(1, 4, 64, 64), torch.randn(2, 77, 768),)
-    print('TORCH:', scheduler.forward(*inputs))
     # save inputs as npy
     input0 = inputs[0].detach().cpu().numpy()
     input1 = inputs[1].detach().cpu().numpy()
