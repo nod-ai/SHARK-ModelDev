@@ -52,6 +52,11 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
+# These decompositions either didnt exist or weren't required for 2.1.0
+if torch.__version__ > "2.1.0":
+    DEFAULT_DECOMPOSITIONS.append(torch.ops.aten._scaled_dot_product_flash_attention_for_cpu)
+    DEFAULT_DECOMPOSITIONS.append(torch.ops.aten.unbind_int)
+
 
 def apply_decompositions(
     gm: torch.fx.GraphModule,
