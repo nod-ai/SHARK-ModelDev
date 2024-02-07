@@ -48,16 +48,20 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._log_softmax_backward_data,
     torch.ops.aten.lift_fresh_copy.default,
     torch.ops.aten._unsafe_index.Tensor,
+    torch.ops.aten.unbind.int,
     # decompositions added manually in this file
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
-# These decompositions either didnt exist or weren't required for 2.1.0
+# These decompositions don't exist in 2.1.0, but are required in newer versions.
 if torch.__version__ > "2.1.0":
-    DEFAULT_DECOMPOSITIONS.append(
-        torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
-    )
-    DEFAULT_DECOMPOSITIONS.append(torch.ops.aten.unbind_int)
+    try:
+        DEFAULT_DECOMPOSITIONS.append(
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
+        )
+    # If we are <= 2.1.0, this is guaranteed
+    except AttributeError:
+        pass
 
 
 def apply_decompositions(
