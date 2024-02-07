@@ -81,12 +81,20 @@ def export_clip_model(
     )
     mapper = {}
     if external_weight_path:
-        weights_path_1 = external_weight_path.split(f".{external_weights}")[0] + "_1" + f".{external_weights}"
-        weights_path_2 = external_weight_path.split(f".{external_weights}")[0] + "_2" + f".{external_weights}"
+        weights_path_1 = (
+            external_weight_path.split(f".{external_weights}")[0]
+            + "_1"
+            + f".{external_weights}"
+        )
+        weights_path_2 = (
+            external_weight_path.split(f".{external_weights}")[0]
+            + "_2"
+            + f".{external_weights}"
+        )
     else:
         weights_path_1 = None
         weights_path_2 = None
-    
+
     utils.save_external_weights(
         mapper, text_encoder_1_model, external_weights, weights_path_1
     )
@@ -107,7 +115,7 @@ def export_clip_model(
 
         def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
             return jittable(text_encoder_1_model.forward)(inp)
-    
+
     class CompiledClip2(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -134,14 +142,29 @@ def export_clip_model(
         return module_1_str, module_2_str, tokenizer_1, tokenizer_2
     else:
 
-        vmfb_path_1 = utils.compile_to_vmfb(module_1_str, device, target_triple, max_alloc, safe_name_1, return_path=True)
-        vmfb_path_2 = utils.compile_to_vmfb(module_2_str, device, target_triple, max_alloc, safe_name_2, return_path=True)
+        vmfb_path_1 = utils.compile_to_vmfb(
+            module_1_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name_1,
+            return_path=True,
+        )
+        vmfb_path_2 = utils.compile_to_vmfb(
+            module_2_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name_2,
+            return_path=True,
+        )
 
         return vmfb_path_1, vmfb_path_2, tokenizer_1, tokenizer_2
 
 
 if __name__ == "__main__":
     import re
+
     args = parser.parse_args()
     mod_1_str, mod_2_str, _, _ = export_clip_model(
         args.hf_model_name,

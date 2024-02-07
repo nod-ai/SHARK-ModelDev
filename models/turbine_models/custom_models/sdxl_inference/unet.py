@@ -80,7 +80,7 @@ class UnetModel(torch.nn.Module):
                     auth_token=hf_auth_token,
                     low_cpu_mem_usage=False,
                 )
-        else: 
+        else:
             self.unet = UNet2DConditionModel.from_pretrained(
                 hf_model_name,
                 subfolder="unet",
@@ -155,7 +155,7 @@ def export_unet_model(
             prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
             text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
             time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
-            guidance_scale=AbstractTensor(1, dtype=dtype), 
+            guidance_scale=AbstractTensor(1, dtype=dtype),
         ):
             return jittable(unet_model.forward)(
                 sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
@@ -169,11 +169,14 @@ def export_unet_model(
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name, return_path=False)
+        utils.compile_to_vmfb(
+            module_str, device, target_triple, max_alloc, safe_name, return_path=False
+        )
 
 
 if __name__ == "__main__":
     import logging
+
     logging.basicConfig(level=logging.DEBUG)
     args = parser.parse_args()
     unet_model = UnetModel(
