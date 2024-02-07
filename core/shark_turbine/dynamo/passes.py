@@ -48,10 +48,15 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._log_softmax_backward_data,
     torch.ops.aten.lift_fresh_copy.default,
     torch.ops.aten._unsafe_index.Tensor,
+    torch.ops.aten.unbind.int,
     # decompositions added manually in this file
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
+if hasattr(torch.ops.aten, "_scaled_dot_product_flash_attention_for_cpu"):
+    DEFAULT_DECOMPOSITIONS.append(
+        torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
+    )
 
 def apply_decompositions(
     gm: torch.fx.GraphModule,

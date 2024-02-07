@@ -112,9 +112,13 @@ def export_transformer_model(
         hf_model_name,
         torch_dtype=torch.float,
         token=hf_auth_token,
+        trust_remote_code=True,
     )
     schema_json = generate_schema(mod.config.num_hidden_layers)
     state_schema = pytree.treespec_loads(schema_json)
+    print(mod)
+    print(mod.config.num_attention_heads)
+    print(mod.config)
     if streaming_llm:
         enable_llama_pos_shift_attention(mod)
     dtype = torch.float32
@@ -125,6 +129,7 @@ def export_transformer_model(
         hf_model_name,
         use_fast=False,
         token=hf_auth_token,
+        trust_remote_code=True,
     )
     # TODO: generate these values instead of magic numbers
     NUM_LAYERS = mod.config.num_hidden_layers
@@ -165,7 +170,7 @@ def export_transformer_model(
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
         def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
+            init_const = [x.dynamic_dim(1) <= 16]
             token, *state = self.initialize(x, constraints=init_const)
             self.global_seq_step = IREE.tensor_dim(
                 state[0], 1
@@ -382,6 +387,9 @@ def export_transformer_model(
 
 
 if __name__ == "__main__":
+    import logging
+    logger = logging.getLogger("shark_turbine.aot")
+    logger.setLevel(logging.DEBUG)
     args = parser.parse_args()
     mod_str, _ = export_transformer_model(
         args.hf_model_name,
