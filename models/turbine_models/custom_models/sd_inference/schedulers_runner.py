@@ -87,7 +87,6 @@ def run_scheduler(
 def run_torch_scheduler(
     hf_model_name, scheduler, num_inference_steps, sample, encoder_hidden_states
 ):
-
     class Scheduler(torch.nn.Module):
         def __init__(self, hf_model_name, num_inference_steps, scheduler):
             super().__init__()
