@@ -45,7 +45,9 @@ parser.add_argument(
     "--height", type=int, default=512, help="Height of Stable Diffusion"
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
-parser.add_argument("--precision", type=str, default="f32", help="Precision of Stable Diffusion")
+parser.add_argument(
+    "--precision", type=str, default="f32", help="Precision of Stable Diffusion"
+)
 
 
 def run_unet(
@@ -97,13 +99,13 @@ def run_torch_unet(
             )
 
         def forward(
-                self,
-                sample,
-                timestep,
-                prompt_embeds,
-                text_embeds,
-                time_ids,
-                guidance_scale,
+            self,
+            sample,
+            timestep,
+            prompt_embeds,
+            text_embeds,
+            time_ids,
+            guidance_scale,
         ):
             with torch.no_grad():
                 added_cond_kwargs = {
@@ -146,9 +148,7 @@ if __name__ == "__main__":
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
     timestep = torch.zeros(1, dtype=torch.int64)
-    prompt_embeds = torch.rand(
-        2 * args.batch_size, args.max_length, 2048, dtype=dtype
-    )
+    prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
     guidance_scale = torch.Tensor([7.5], dtype=dtype)

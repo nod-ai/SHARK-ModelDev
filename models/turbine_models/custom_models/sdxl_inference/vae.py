@@ -116,7 +116,7 @@ def export_vae_model(
     mapper = {}
     dtype = torch.float16 if precision == "f16" else torch.float32
     if precision == "f16":
-        vae_model=vae_model.half()
+        vae_model = vae_model.half()
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
     )
@@ -142,7 +142,9 @@ def export_vae_model(
     if compile_to != "vmfb":
         return module_str
     else:
-        return utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        return utils.compile_to_vmfb(
+            module_str, device, target_triple, max_alloc, safe_name
+        )
 
 
 if __name__ == "__main__":

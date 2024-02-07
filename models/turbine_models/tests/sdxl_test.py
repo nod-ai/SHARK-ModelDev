@@ -59,7 +59,12 @@ vae_model = vae.VaeModel(
 
 class StableDiffusionTest(unittest.TestCase):
     def test01_ExportClipModels(self):
-        vmfb_path_1, vmfb_path_2, _, _, = clip.export_clip_model(
+        (
+            vmfb_path_1,
+            vmfb_path_2,
+            _,
+            _,
+        ) = clip.export_clip_model(
             # This is a public model, so no auth required
             arguments["hf_model_name"],
             None,
@@ -70,8 +75,12 @@ class StableDiffusionTest(unittest.TestCase):
         )
         assert os.path.exists(f"{arguments['safe_model_name']}_clip_1.vmfb")
         assert os.path.exists(f"{arguments['safe_model_name']}_clip_2.vmfb")
-        arguments["external_weight_path_1"] = f"{arguments['safe_model_name']}_clip_1.safetensors"
-        arguments["external_weight_path_2"] = f"{arguments['safe_model_name']}_clip_2.safetensors"
+        arguments["external_weight_path_1"] = (
+            f"{arguments['safe_model_name']}_clip_1.safetensors"
+        )
+        arguments["external_weight_path_2"] = (
+            f"{arguments['safe_model_name']}_clip_2.safetensors"
+        )
         arguments["vmfb_path_1"] = vmfb_path_1
         arguments["vmfb_path_2"] = vmfb_path_2
         turbine_1 = clip_runner.run_clip(
@@ -93,7 +102,10 @@ class StableDiffusionTest(unittest.TestCase):
             index=2,
         )
         torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
-            arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"], arguments["precision"],
+            arguments["hf_model_name"],
+            arguments["hf_auth_token"],
+            arguments["prompt"],
+            arguments["precision"],
         )
         err1 = utils.largest_error(torch_output_1, turbine_1[0])
         err2 = utils.largest_error(torch_output_2, turbine_2[0])
@@ -123,9 +135,9 @@ class StableDiffusionTest(unittest.TestCase):
                 device="cpu",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_unet.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_unet.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
         dtype = torch.float16 if arguments["precision"] == "f16" else torch.float32
         sample = torch.rand(
@@ -133,7 +145,7 @@ class StableDiffusionTest(unittest.TestCase):
                 arguments["batch_size"],
                 arguments["in_channels"],
                 arguments["height"] // 8,
-                arguments["width"] // 8
+                arguments["width"] // 8,
             ),
             dtype=dtype,
         )
@@ -175,7 +187,6 @@ class StableDiffusionTest(unittest.TestCase):
     #     os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
     #     os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
 
-
     def test05_ExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -193,7 +204,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_vae_decode.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_decode.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
@@ -220,7 +233,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
 
-    def test06_ExportVaeModelEncode(self): 
+    def test06_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -237,7 +250,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_vae_encode.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_encode.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],

@@ -8,7 +8,10 @@ parser = argparse.ArgumentParser()
 
 # TODO move common runner flags to generic flag file
 parser.add_argument(
-    "--vmfb_path_1", type=str, default="", help="path to vmfb containing compiled module"
+    "--vmfb_path_1",
+    type=str,
+    default="",
+    help="path to vmfb containing compiled module",
 )
 parser.add_argument(
     "--external_weight_path_1",
@@ -17,7 +20,10 @@ parser.add_argument(
     help="path to external weight parameters if model compiled without them",
 )
 parser.add_argument(
-    "--vmfb_path_2", type=str, default="", help="path to vmfb containing compiled module"
+    "--vmfb_path_2",
+    type=str,
+    default="",
+    help="path to vmfb containing compiled module",
 )
 parser.add_argument(
     "--external_weight_path_2",
@@ -61,6 +67,7 @@ parser.add_argument(
     help="f16, f32",
 )
 
+
 def run_clip(
     device, prompt, vmfb_path, hf_model_name, hf_auth_token, external_weight_path, index
 ):
@@ -76,7 +83,7 @@ def run_clip(
         subfolder="tokenizer_2",
         token=hf_auth_token,
     )
-    if index==1:
+    if index == 1:
         text_input = tokenizer_1(
             prompt,
             padding="max_length",
@@ -87,7 +94,7 @@ def run_clip(
         example_input = text_input.input_ids
         inp = [ireert.asdevicearray(runner.config.device, example_input)]
         results = runner.ctx.modules.compiled_clip1["main"](*inp)
-    elif index==2:
+    elif index == 2:
         text_input = tokenizer_2(
             prompt,
             padding="max_length",
@@ -98,7 +105,7 @@ def run_clip(
         example_input = text_input.input_ids
         inp = [ireert.asdevicearray(runner.config.device, example_input)]
         results = runner.ctx.modules.compiled_clip2["main"](*inp)
-    else: 
+    else:
         print("Incorrect CLIP model index, please use 1 or 2")
         exit(1)
 
@@ -193,10 +200,14 @@ if __name__ == "__main__":
         torch_output1, torch_output2 = run_torch_clip(
             args.hf_model_name, args.hf_auth_token, args.prompt, args.precision
         )
-        print("TORCH OUTPUT 1:", torch_output1, torch_output1.shape, torch_output1.dtype)
+        print(
+            "TORCH OUTPUT 1:", torch_output1, torch_output1.shape, torch_output1.dtype
+        )
         err1 = utils.largest_error(torch_output1, turbine_output1[0])
 
-        print("TORCH OUTPUT 2:", torch_output2, torch_output2.shape, torch_output2.dtype)
+        print(
+            "TORCH OUTPUT 2:", torch_output2, torch_output2.shape, torch_output2.dtype
+        )
         err2 = utils.largest_error(torch_output2, turbine_output2[0])
         print("Largest Error for CLIP 1: ", err1)
         print("Largest Error for CLIP 2: ", err2)
