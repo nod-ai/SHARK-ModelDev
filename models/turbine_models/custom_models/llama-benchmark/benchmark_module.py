@@ -35,7 +35,6 @@ def create_benchmark_vmfb(args):
         "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
         "--iree-stream-resource-index-bits=64",
         "--iree-vm-target-index-bits=64",
-        "--iree-opt-const-expr-hoisting=False",
     ]
     device = args.device
     if device == "cpu" or device == "llvm-cpu":
