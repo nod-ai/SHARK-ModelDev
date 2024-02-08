@@ -186,9 +186,10 @@ def run_llm(
         example_input_id = initial_input.input_ids
         turbine_results = llm.generate(example_input_id)
         return tokenizer.decode(turbine_results)
+    prompt = chat_sys_prompt
     while True:
         user_prompt = input("User prompt: ")
-        prompt = append_user_prompt(chat_sys_prompt, user_prompt)
+        prompt = append_user_prompt(prompt, user_prompt)
         initial_input = tokenizer(prompt, return_tensors="pt")
         example_input_id = initial_input.input_ids
         result = llm.generate(example_input_id)
