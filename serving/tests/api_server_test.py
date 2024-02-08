@@ -86,4 +86,4 @@ def test_generate_streaming(server: ServerRunner):
     expected_contents = b'{"text": "Hi Bob!"}\x00' * 5
     assert (
         full_contents == expected_contents
-    ), f"Expected {expected_contents} vs {full_contents}"
+    ), f"Expected {expected_contents!r} vs {full_contents!r}"

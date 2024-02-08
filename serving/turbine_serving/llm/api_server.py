@@ -23,7 +23,6 @@ from .service import (
     create_mock_generate_service,
     GenerateService,
     GenerateRequest,
-    GenerateResponsePart,
 )
 
 logger = get_logger("turbine_serving.llm.api_server")
@@ -93,7 +92,18 @@ def main(clargs: Sequence[str]):
         action="store_true",
         help="Enable the mock testing service",
     )
+    parser.add_argument(
+        "--device-uri", type=str, default="local-task", help="Device URI to serve on"
+    )
+
     args = parser.parse_args(clargs)
+
+    # Spin up the device machinery.
+    # Note that in the future, for multi-device, we will need more scaffolding for
+    # configuration and bringup, obviously.
+    from .session import DeviceSession
+
+    device_session = DeviceSession(uri=args.device_uri)
 
     if args.testing_mock_service:
         logger.info("Enabling mock LLM generate service")
