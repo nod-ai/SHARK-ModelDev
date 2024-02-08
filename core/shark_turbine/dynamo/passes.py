@@ -53,17 +53,6 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
-# These decompositions don't exist in 2.1.0, but are required in newer versions.
-if torch.__version__ > "2.1.0":
-    try:
-        DEFAULT_DECOMPOSITIONS.append(
-            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
-        )
-    # If we are <= 2.1.0, this is guaranteed
-    except AttributeError:
-        pass
-
-
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
