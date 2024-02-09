@@ -28,7 +28,7 @@ arguments = {
     "batch_size": 1,
     "height": 512,
     "width": 512,
-    "precision": "f16",
+    "precision": "fp16",
     "max_length": 77,
     "guidance_scale": 7.5,
     "run_vmfb": True,
@@ -139,7 +139,7 @@ class StableDiffusionTest(unittest.TestCase):
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_unet.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
-        dtype = torch.float16 if arguments["precision"] == "f16" else torch.float32
+        dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
                 arguments["batch_size"],
@@ -216,7 +216,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         example_input_torch = example_input
-        if arguments["precision"] == "f16":
+        if arguments["precision"] == "fp16":
             example_input = example_input.half()
         turbine = vae_runner.run_vae(
             arguments["device"],
@@ -262,7 +262,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         example_input_torch = example_input
-        if arguments["precision"] == "f16":
+        if arguments["precision"] == "fp16":
             example_input = example_input.half()
         turbine = vae_runner.run_vae(
             arguments["device"],

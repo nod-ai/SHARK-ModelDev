@@ -35,7 +35,7 @@ default_arguments = {
     "batch_size": 1,
     "height": 512,
     "width": 512,
-    "precision": "fp16",
+    "precision": "fp32",
     "max_length": 77,
     "guidance_scale": 7.5,
     "run_vmfb": True,
