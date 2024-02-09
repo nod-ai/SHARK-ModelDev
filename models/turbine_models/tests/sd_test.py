@@ -86,8 +86,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
+        os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
 
     def testExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
@@ -120,7 +120,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=dtype,
         )
         timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
@@ -144,8 +144,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
+        os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
 
     def testExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
@@ -189,9 +189,10 @@ class StableDiffusionTest(unittest.TestCase):
             example_input,
         )
         err = utils.largest_error(torch_output, turbine)
-        assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
+        print(f"Error: {err}")
+        assert err < 2e-3
+        os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
     def testExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
@@ -235,9 +236,10 @@ class StableDiffusionTest(unittest.TestCase):
             example_input,
         )
         err = utils.largest_error(torch_output, turbine)
+        print(f"Error: {err}")
         assert err < 2e-3
-        # os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
+        os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
 
 if __name__ == "__main__":

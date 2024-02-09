@@ -91,4 +91,5 @@ def compile_to_vmfb(
 def create_safe_name(hf_model_name, model_name_str):
     safe_name = hf_model_name.split("/")[-1].strip() + model_name_str
     safe_name = re.sub("-", "_", safe_name)
+    safe_name = re.sub("\.", "_", safe_name)
     return safe_name

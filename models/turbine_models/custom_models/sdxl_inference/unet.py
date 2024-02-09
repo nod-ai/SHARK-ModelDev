@@ -33,9 +33,9 @@ parser.add_argument(
     "--batch_size", type=int, default=1, help="Batch size for inference"
 )
 parser.add_argument(
-    "--height", type=int, default=768, help="Height of Stable Diffusion"
+    "--height", type=int, default=1024, help="Height of Stable Diffusion"
 )
-parser.add_argument("--width", type=int, default=768, help="Width of Stable Diffusion")
+parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
 parser.add_argument(
     "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
 )
