@@ -69,9 +69,9 @@ class StableDiffusionTest(unittest.TestCase):
                 "cpu",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_clip.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_clip.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_clip.vmfb"
         turbine = clip_runner.run_clip(
             arguments["device"],
@@ -107,9 +107,9 @@ class StableDiffusionTest(unittest.TestCase):
                 device="cpu",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_unet.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_unet.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
@@ -164,9 +164,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_vae.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_vae.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
@@ -210,9 +210,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_vae.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_vae.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
