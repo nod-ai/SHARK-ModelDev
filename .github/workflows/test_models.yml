@@ -55,4 +55,5 @@ jobs:
 
       - name: Run sd tests
         run: |
+          pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu
           pytest models/turbine_models/tests/sd_test.py
