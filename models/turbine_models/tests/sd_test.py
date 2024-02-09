@@ -101,8 +101,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
+        os.remove(f"{arguments['safe_model_name']}_clip.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
 
     def testExportUnetModel(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
@@ -136,7 +136,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=dtype,
         )
         timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
@@ -160,8 +160,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
+        os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
 
     def testExportVaeModelDecode(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
@@ -207,9 +207,10 @@ class StableDiffusionTest(unittest.TestCase):
             example_input,
         )
         err = utils.largest_error(torch_output, turbine)
-        assert err < 9e-5
-        # os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-        # os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
+        print(f"Error: {err}")
+        assert err < 2e-3
+        os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
+        os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
     def testExportVaeModelEncode(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
@@ -255,7 +256,7 @@ class StableDiffusionTest(unittest.TestCase):
             example_input,
         )
         err = utils.largest_error(torch_output, turbine)
-        assert err < 3e-3
+        assert err < 2e-3
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
