@@ -22,7 +22,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/sdxl-turbo",
+    default="stabilityai/stable-diffusion-xl-base-1.0",
 )
 parser.add_argument(
     "--batch_size", type=int, default=1, help="Batch size for inference"
