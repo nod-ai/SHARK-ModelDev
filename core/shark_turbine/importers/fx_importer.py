@@ -783,6 +783,8 @@ class GraphNodeImporter:
                     gm, arg.target
                 ), f"Attempting to retrieve attribute '{arg.target}' from module, but no such attribute exists"
                 obj = getattr(gm, arg.target)
+                print(arg.op)
+                print(arg.target)
                 with loc:
                     self._v[(arg, 0)] = self._import_literal(obj)
 
@@ -950,7 +952,14 @@ def _make_vtensor_literal_op(
         # detach() which throws an error as we are operating in a FakeTensorMode, hence the simplest way to get this raw
         # buffer is via the indirection: Tensor -> list -> numpy array. This allows us to create a vtensor literal as
         # desired, but also limits which data types we can support in this function (see TORCH_DTYPE_TO_NPY_TYPE above)
-        np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
+        print("TENSOR SHAPE: ")
+        print(tensor.shape)
+        print(tensor.dtype)
+        print(tensor)
+        try:
+            np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
+        except AssertionError:
+            np_tensor = np.zeros(tensor.shape, npy_dtype)
         # One element constants are more optimizable as splat DenseElementsAttr. DenseResourceElementsAttr does not
         # support splats, so don't use it for that case. In addition, at the time of writing, it has bugs with handling
         # 0d tensors.

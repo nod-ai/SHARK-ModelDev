@@ -189,7 +189,7 @@ def export_transformer_model(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, NUM_LAYERS
             )
             forw_const = (
-                [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                [state_arg[0].dynamic_dim(1) < 16]
                 + [
                     x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
                     for x in state_arg[1:]
@@ -220,17 +220,18 @@ def export_transformer_model(
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
-            state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
+            #state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
             return token1, *state1_flat
 
         @jittable
         def forward(token0: torch.Tensor, *state0_flat):
             # Unpad the states.
-            state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
+            #state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
             state0 = pytree.tree_unflatten(state0_flat, state_schema)
             result = mod.forward(token0, past_key_values=state0)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
+            #state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
+            state1_flat = [x[:, -1, :, :].reshape(1,1,HEADS,HIDDEN_DIM) for x in state1_flat]
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
             return token1, *state1_flat

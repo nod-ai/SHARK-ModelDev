@@ -237,6 +237,7 @@ class jittable(CallableIntrinsic):
             literal_resolver_callback=_make_literal_resolver(proc_trace.module_builder),
             py_attr_tracker=proc_trace.module_builder.fx_py_attr_tracker,
         )
+        print(gm.graph)
         fx_importer.import_stateless_graph(gm.graph, func_name=self.function_name)
 
         # TODO: Real debugging options

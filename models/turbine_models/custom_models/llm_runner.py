@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 from turbine_models.model_runner import vmfbRunner
 from transformers import AutoTokenizer
 from iree import runtime as ireert
@@ -111,7 +112,7 @@ class SharkLLM(object):
     def evict_kvcache_space(self):
         self.model["evict_kvcache_space"]()
 
-    def generate(self, input_ids):
+    def generate(self, input_ids, tokenizer=None):
         # TODO: Replace with args.
         if self.streaming_llm and self.model["get_seq_step"]() > 600:
             print("Evicting cache space!")
@@ -143,14 +144,24 @@ class SharkLLM(object):
             token_len += 1
         s = time.time()
         turbine_results.append(self.format_out(results))
-        while self.format_out(results) != 2:
+        print(turbine_results)#return turbine_results
+        seq_step = self.model["get_seq_step"]()
+        print(f"seq_step: {seq_step}")
+        print(self.model["get_global_state"]().to_host()[0,0,seq_step-1,0,:15])
+        #while self.format_out(results) != 2:
+        for i in range(10):
             if self.streaming_llm and self.model["get_seq_step"]() > 600:
                 print("Evicting cache space!")
                 self.model["evict_kvcache_space"]()
             results = self.model["run_forward"](results)
+            print(np.argmax(self.model["get_global_state"]().to_host()))
             # uncomment to see tokens as they are emitted
-            # print(f"turbine: {tokenizer.decode(self.format_out(results))}")
+            print(f"turbine: {tokenizer.decode(self.format_out(results))}")
             turbine_results.append(self.format_out(results))
+            seq_step = self.model["get_seq_step"]()
+            print(f"seq_step: {seq_step}")
+            print(f"Start pkv: {self.model['get_global_state']().to_host()[0,0,seq_step-1,0,:15]}")
+            print("end pkv")
         e = time.time()
         decoded_tokens = len(turbine_results)
         print(
@@ -175,6 +186,7 @@ def run_llm(
         hf_model_name,
         use_fast=False,
         token=hf_auth_token,
+        trust_remote_code=True
     )
     llm = SharkLLM(
         device=device,
@@ -185,7 +197,7 @@ def run_llm(
     if not chat_mode:
         initial_input = tokenizer(prompt, return_tensors="pt")
         example_input_id = initial_input.input_ids
-        turbine_results = llm.generate(example_input_id)
+        turbine_results = llm.generate(example_input_id, tokenizer)
         return tokenizer.decode(turbine_results)
     prompt = chat_sys_prompt
     while True:
@@ -227,7 +239,11 @@ def run_torch_llm(hf_model_name, hf_auth_token, prompt, streaming_llm=False):
 
     torch_results = []
     torch_results.append(int(model_token))
-    while model_token != 2:
+    torch_results.append(model_builder.tokenizer.decode(model_token))
+    print(pkv[0][0][0,-1,0,:15])
+
+#    while model_token != 2:
+    for i in range(10):
         model_results = model_builder.model.forward(
             torch.unsqueeze(model_token, 0), past_key_values=pkv
         )
@@ -235,6 +251,7 @@ def run_torch_llm(hf_model_name, hf_auth_token, prompt, streaming_llm=False):
         pkv = model_results.past_key_values
         torch_results.append(int(model_token[0]))
 
+        print(pkv[0][0][0,-1,0,:15])
     return model_builder.tokenizer.decode(torch_results)
 
 
