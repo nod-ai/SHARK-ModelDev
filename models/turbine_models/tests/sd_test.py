@@ -217,7 +217,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(

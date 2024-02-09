@@ -27,7 +27,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/sdxl-turbo",
+    default="stabilityai/stable-diffusion-xl-base-1.0",
 )
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_path", type=str, default="")
@@ -175,10 +175,8 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-    safe_name_1 = safe_name + "_clip_1"
-    safe_name_2 = safe_name + "_clip_2"
+    safe_name_1 = safe_name = utils.create_safe_name(args.hf_model_name, "_clip_1")
+    safe_name_2 = safe_name = utils.create_safe_name(args.hf_model_name, "_clip_2")
     with open(f"{safe_name_1}.mlir", "w+") as f:
         f.write(mod_1_str)
     print("Saved to", safe_name_1 + ".mlir")
