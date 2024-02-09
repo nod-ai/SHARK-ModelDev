@@ -75,12 +75,12 @@ class StableDiffusionTest(unittest.TestCase):
         )
         assert os.path.exists(f"{arguments['safe_model_name']}_clip_1.vmfb")
         assert os.path.exists(f"{arguments['safe_model_name']}_clip_2.vmfb")
-        arguments["external_weight_path_1"] = (
-            f"{arguments['safe_model_name']}_clip_1.safetensors"
-        )
-        arguments["external_weight_path_2"] = (
-            f"{arguments['safe_model_name']}_clip_2.safetensors"
-        )
+        arguments[
+            "external_weight_path_1"
+        ] = f"{arguments['safe_model_name']}_clip_1.safetensors"
+        arguments[
+            "external_weight_path_2"
+        ] = f"{arguments['safe_model_name']}_clip_2.safetensors"
         arguments["vmfb_path_1"] = vmfb_path_1
         arguments["vmfb_path_2"] = vmfb_path_2
         turbine_1 = clip_runner.run_clip(
@@ -135,9 +135,9 @@ class StableDiffusionTest(unittest.TestCase):
                 device="cpu",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_unet.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_unet.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
         dtype = torch.float16 if arguments["precision"] == "f16" else torch.float32
         sample = torch.rand(
@@ -204,9 +204,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_vae_decode.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_decode.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
@@ -250,9 +250,9 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            f"{arguments['safe_model_name']}_vae_encode.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_encode.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],

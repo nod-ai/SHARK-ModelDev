@@ -141,7 +141,6 @@ def export_clip_model(
     if compile_to != "vmfb":
         return module_1_str, module_2_str, tokenizer_1, tokenizer_2
     else:
-
         vmfb_path_1 = utils.compile_to_vmfb(
             module_1_str,
             device,
