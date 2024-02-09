@@ -37,7 +37,7 @@ parser.add_argument(
 )
 parser.add_argument("--width", type=int, default=768, help="Width of Stable Diffusion")
 parser.add_argument(
-    "--precision", type=str, default="f16", help="Precision of Stable Diffusion"
+    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
 )
 parser.add_argument(
     "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
@@ -62,9 +62,9 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
 class UnetModel(torch.nn.Module):
-    def __init__(self, hf_model_name, hf_auth_token=None, precision="f32"):
+    def __init__(self, hf_model_name, hf_auth_token=None, precision="fp32"):
         super().__init__()
-        if precision == "f16":
+        if precision == "fp16":
             try:
                 self.unet = UNet2DConditionModel.from_pretrained(
                     hf_model_name,
@@ -118,7 +118,7 @@ def export_unet_model(
     batch_size,
     height,
     width,
-    precision="f32",
+    precision="fp32",
     max_length=77,
     hf_auth_token=None,
     compile_to="torch",
@@ -129,8 +129,8 @@ def export_unet_model(
     max_alloc=None,
 ):
     mapper = {}
-    dtype = torch.float16 if precision == "f16" else torch.float32
-    if precision == "f16":
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    if precision == "fp16":
         unet_model = unet_model.half()
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
