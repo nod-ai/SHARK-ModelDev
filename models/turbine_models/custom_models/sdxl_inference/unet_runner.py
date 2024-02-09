@@ -46,7 +46,7 @@ parser.add_argument(
 )
 parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
 parser.add_argument(
-    "--precision", type=str, default="f32", help="Precision of Stable Diffusion"
+    "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
 )
 
 
@@ -140,7 +140,7 @@ def run_torch_unet(
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    if args.precision == "f16":
+    if args.precision == "fp16":
         dtype = torch.float16
     else:
         dtype = torch.float32

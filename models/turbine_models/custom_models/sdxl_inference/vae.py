@@ -114,8 +114,8 @@ def export_vae_model(
     variant="decode",
 ):
     mapper = {}
-    dtype = torch.float16 if precision == "f16" else torch.float32
-    if precision == "f16":
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    if precision == "fp16":
         vae_model = vae_model.half()
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path

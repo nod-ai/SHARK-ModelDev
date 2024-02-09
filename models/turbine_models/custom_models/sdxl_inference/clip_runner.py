@@ -63,8 +63,8 @@ parser.add_argument(
 parser.add_argument(
     "--precision",
     type=str,
-    default="f32",
-    help="f16, f32",
+    default="fp32",
+    help="fp16, fp32",
 )
 
 
@@ -112,7 +112,7 @@ def run_clip(
     return results
 
 
-def run_torch_clip(hf_model_name, hf_auth_token, prompt, precision="f16"):
+def run_torch_clip(hf_model_name, hf_auth_token, prompt, precision="fp16"):
     # TODO: Integrate with HFTransformerBuilder
     from transformers import CLIPTextModel, CLIPTextModelWithProjection
 
