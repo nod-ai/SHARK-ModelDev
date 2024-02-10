@@ -4,11 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Callable, Optional
 
 from abc import abstractmethod, ABC
 import asyncio
 from dataclasses import dataclass
+
+########################################################################################
+# User-level single request service
+########################################################################################
 
 
 @dataclass
@@ -54,6 +58,26 @@ class GenerateService(ABC):
     @abstractmethod
     async def abort(self, request_id: str) -> None:
         """Aborts a submitted request."""
+        ...
+
+
+########################################################################################
+# Batch generation service
+# This service is completely asynchronous and operates on a BatchGenerateRequest as
+# a state machine. It is expected to have an external actor stepping it through
+# states.
+########################################################################################
+
+
+@dataclass
+class BatchGenerateRequest:
+    requests: list[GenerateRequest]
+
+
+class BatchGenerateService(ABC):
+    """Handles generation of a batch of requests."""
+
+    def start_prefill(self, request: BatchGenerateRequest):
         ...
 
 

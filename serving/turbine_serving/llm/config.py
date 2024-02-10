@@ -58,13 +58,18 @@ sense of scale only: real workloads will vary.
 
 from dataclasses import dataclass
 
+from iree.runtime import (  # type: ignore
+    HalElementType,
+)
 
+
+@dataclass
 class ModelParams:
     """Parameters for a specific compiled model, sufficient to do cache planning and
     invocations."""
 
-    # Size in bytes of the KV cache dtype.
-    attn_dtype_size: int
+    # The element type of the attention caches.
+    attn_dtype: HalElementType
 
     # Maximum length of a sequence including prompt and output.
     max_seq_len: int
@@ -86,8 +91,33 @@ class ModelParams:
     # Similarly, batch sizes that the decode stage is compiled for.
     decode_batch_sizes: list[int]
 
+    # Name of the IREE module implementing the model.
+    module_name: str = "module"
 
-class BlockCacheParams:
+    # ABI of the module.
+    module_abi_version: int = 1
+
+    # Size in bytes of the KV cache dtype.
+    @property
+    def attn_dtype_size(self) -> int:
+        assert HalElementType.is_byte_aligned(self.attn_dtype)
+        return HalElementType.dense_byte_count(self.attn_dtype)
+
+    @property
+    def max_prefill_batch_size(self) -> int:
+        return self.prefill_batch_sizes[-1]
+
+    @property
+    def max_decode_batch_size(self) -> int:
+        return self.decode_batch_sizes[-1]
+
+    @property
+    def max_batch_size(self):
+        return max(self.max_prefill_batch_size, self.max_decode_batch_size)
+
+
+@dataclass
+class CacheParams:
     """Parameters for management of the block cache.
 
     This is paired with a ModelParams.
@@ -96,10 +126,45 @@ class BlockCacheParams:
     run or pen/paper analysis to derive the parameters.
     """
 
-    model_params: ModelParams
+    model: ModelParams
 
     # The size of the static block cache on the device.
     device_block_count: int
 
     # The stride of each block in sequence positions.
-    block_position_stride: int
+    block_pos_stride: int
+
+    @property
+    def attn_unit_size_elements(self) -> int:
+        """Size in bytes of each cache line in the attention cache.
+
+        Each cache line can store a unit position stride.
+        """
+        size = 1
+        size *= self.model.transformer_block_count
+        size *= 2  # K and V cache line
+        size *= self.model.attn_head_count
+        size *= self.model.attn_head_dim
+        return size
+
+    @property
+    def attn_block_size_elements(self) -> int:
+        """Size in bytes of each attention block of {block_position_stride} positions."""
+        return self.attn_unit_size_elements * self.block_pos_stride
+
+
+@dataclass
+class ServiceParams:
+    """Parameters for the serving service."""
+
+    cache: CacheParams
+    model: ModelParams
+
+
+# From: https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
+def human_size(num, suffix="B"):
+    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
