@@ -23,8 +23,8 @@ import os
 
 arguments = {
     "hf_auth_token": None,
-    "hf_model_name": "stabilityai/sdxl-turbo",
-    "safe_model_name": "sdxl_turbo",
+    "hf_model_name": "stabilityai/stable-diffusion-xl-base-1.0",
+    "safe_model_name": "stable_diffusion_xl_base_1_0",
     "batch_size": 1,
     "height": 512,
     "width": 512,
@@ -53,7 +53,7 @@ unet_model = unet.UnetModel(
 vae_model = vae.VaeModel(
     # This is a public model, so no auth required
     arguments["hf_model_name"],
-    custom_vae="madebyollin/sdxl-vae-fp16-fix",
+    custom_vae="madebyollin/sdxl-vae-fp16-fix" if arguments.precision == "fp16" else None,
 )
 
 
@@ -73,8 +73,8 @@ class StableDiffusionTest(unittest.TestCase):
             f"{arguments['safe_model_name']}" + "_clip",
             "cpu",
         )
-        assert os.path.exists(f"{arguments['safe_model_name']}_clip_1.vmfb")
-        assert os.path.exists(f"{arguments['safe_model_name']}_clip_2.vmfb")
+        assert os.path.exists(f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_clip_1.vmfb")
+        assert os.path.exists(f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_clip_2.vmfb")
         arguments[
             "external_weight_path_1"
         ] = f"{arguments['safe_model_name']}_clip_1.safetensors"
