@@ -178,8 +178,12 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name_1 = safe_name = utils.create_safe_name(args.hf_model_name, f"_{str(args.max_length)}_clip_1")
-    safe_name_2 = safe_name = utils.create_safe_name(args.hf_model_name, f"_{str(args.max_length)}_clip_2")
+    safe_name_1 = safe_name = utils.create_safe_name(
+        args.hf_model_name, f"_{str(args.max_length)}_clip_1"
+    )
+    safe_name_2 = safe_name = utils.create_safe_name(
+        args.hf_model_name, f"_{str(args.max_length)}_clip_2"
+    )
     with open(f"{safe_name_1}.mlir", "w+") as f:
         f.write(mod_1_str)
     print("Saved to", safe_name_1 + ".mlir")
