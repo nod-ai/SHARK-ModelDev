@@ -75,7 +75,6 @@ class LaunchableThread(Launchable):
                 trace = CapturedTrace(region_graph, root_name)
         return trace
 
-
     def eager_execute(self, args, kwargs):
         grid = self.grid_type()
         rank = grid.rank
