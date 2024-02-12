@@ -390,7 +390,7 @@ class Launchable(ABC):
     def eager_execute(self, args, kwargs):
         ...
 
-    def benchmark_execute(self, args, kwargs):
+    def test_execute(self, args, kwargs):
         ...
 
 
@@ -441,9 +441,9 @@ class DebugLaunchContext(LaunchContext):
         return launchable.eager_execute(args, kwargs)
 
 
-class BenchmarkLaunchContext(LaunchContext):
+class TestLaunchContext(LaunchContext):
     def launch(self, launchable: Launchable, args, kwargs):
-        return launchable.benchmark_execute(args, kwargs)
+        return launchable.test_execute(args, kwargs)
 
 
 ###############################################################################

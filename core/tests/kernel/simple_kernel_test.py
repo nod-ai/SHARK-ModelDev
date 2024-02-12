@@ -23,7 +23,7 @@ class Test(unittest.TestCase):
             out[i] = i
 
         out = torch.empty(8, dtype=torch.int32)
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             iota_kernel(out)
         print(out)
 

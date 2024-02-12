@@ -34,7 +34,7 @@ class Test(unittest.TestCase):
 
         input = torch.randn(128, 64)
         output = torch.zeros(128, 64)
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             softmax_kernel(input, output)
 
 

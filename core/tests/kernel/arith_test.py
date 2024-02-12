@@ -46,7 +46,7 @@ class Test(unittest.TestCase):
                 c = (a * b) / c
                 c = c + a - b
 
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             iota_kernel(torch.zeros(17))
 
 

@@ -60,7 +60,7 @@ def memref_to_tensor(memrefs: list[IrType]):
     return tensors
 
 
-def isolated_benchmark_call(
+def isolated_test_call(
     mb: ModuleBuilder, exe: StreamExecutable, sig: KernelSignature, entrypoint: str
 ):
     with InsertionPoint(mb.body_block), Location.unknown():

@@ -101,7 +101,7 @@ class LaunchableThread(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
-    def benchmark_execute(self, args, kwargs):
+    def test_execute(self, args, kwargs):
         # Trace the function.
         trace = self._trace()
         idxc = IndexingContext.current()
@@ -136,7 +136,7 @@ class LaunchableThread(Launchable):
 
         mb.module_op.verify()
 
-        host_codegen.isolated_benchmark_call(mb, exe, kernel_sig, entrypoint_name)
+        host_codegen.isolated_test_call(mb, exe, kernel_sig, entrypoint_name)
 
         print(mb.module_op.get_asm())
 

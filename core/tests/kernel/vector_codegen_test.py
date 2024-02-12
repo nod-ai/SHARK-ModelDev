@@ -19,7 +19,7 @@ class Test(unittest.TestCase):
             secret_value = ((i * (33 - i) + 4) % 8) // 2
             out[i] = secret_value
 
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             out = torch.zeros(17, dtype=torch.int32)
 
     def testSoftmaxFx(self):
@@ -33,7 +33,7 @@ class Test(unittest.TestCase):
             output_row = numerator / tkl.sum(numerator)
             output[row_index, :] = output_row
 
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             input = torch.randn(128, 64, dtype=torch.float32)
             output = torch.zeros(128, 64, dtype=torch.float32)
             softmax_kernel(input, output)
@@ -55,7 +55,7 @@ class Test(unittest.TestCase):
 
             output[row_idx, 0] = prefetch_sum[0]
 
-        with tk.gen.BenchmarkLaunchContext():
+        with tk.gen.TestLaunchContext():
             input = torch.randn(128, 64, dtype=torch.float32)
             output = torch.zeros(128, 64, dtype=torch.float32)
             for_loop_kernel(input, output)
@@ -85,7 +85,7 @@ class Test(unittest.TestCase):
 
             tkl.store(output, (grid_n, grid_m), body[0])
 
-        with tk.gen.BenchmarkLaunchContext({BLOCK_SIZE: 32}):
+        with tk.gen.TestLaunchContext({BLOCK_SIZE: 32}):
             A = torch.randn(512, 1024, dtype=torch.float32)
             B = torch.randn(1024, 2048, dtype=torch.float32)
             output = torch.zeros(512, 2048, dtype=torch.float32)
