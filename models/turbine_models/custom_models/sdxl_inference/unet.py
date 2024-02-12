@@ -165,7 +165,7 @@ def export_unet_model(
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-unet")
+    safe_name = utils.create_safe_name(hf_model_name, f"_{max_length}_unet")
     if compile_to != "vmfb":
         return module_str
     else:
@@ -199,7 +199,7 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
+    safe_name = utils.create_safe_name(args.hf_model_name, f"_{args.max_length}_unet")
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")
