@@ -12,6 +12,8 @@ from typing import (
 import inspect
 import math
 
+import torch
+
 from ..lang import (
     KernelBuffer,
     Grid,
@@ -65,6 +67,15 @@ class LaunchableThread(Launchable):
         self._f = eager_function
         self._sig = inspect.signature(eager_function)
 
+    def _trace(self) -> CapturedTrace:
+        region_graph = KernelRegionGraph()
+        with CompiledContext(region_graph, grid_type=self.grid_type) as context:
+            with region_graph.subtracer() as subtracer:
+                root_name, _ = subtracer.trace(self._f)
+                trace = CapturedTrace(region_graph, root_name)
+        return trace
+
+
     def eager_execute(self, args, kwargs):
         grid = self.grid_type()
         rank = grid.rank
@@ -93,12 +104,7 @@ class LaunchableThread(Launchable):
 
     def benchmark_execute(self, args, kwargs):
         # Trace the function.
-        region_graph = KernelRegionGraph()
-        with CompiledContext(region_graph, grid_type=self.grid_type) as context:
-            with region_graph.subtracer() as subtracer:
-                root_name, _ = subtracer.trace(self._f)
-                trace = CapturedTrace(region_graph, root_name)
-
+        trace = self._trace()
         idxc = IndexingContext.current()
 
         sig = self._sig
@@ -110,8 +116,8 @@ class LaunchableThread(Launchable):
             param = sig.parameters[arg_name]
             param_type = param.annotation
             if isinstance(param_type, type) and issubclass(param_type, KernelBuffer):
-                # TODO: Add a check here if the type matches.
-                idxc.bind_shaped(arg_name, param_type, arg_value._tensor.shape)
+                assert isinstance(arg_value, torch.Tensor)
+                idxc.bind_shaped(arg_name, param_type, list(arg_value.shape))
 
         idxc.finalize()
 
