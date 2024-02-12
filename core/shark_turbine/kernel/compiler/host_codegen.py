@@ -1,23 +1,5 @@
-"""Code generation support for top-level IREE dispatch constructs.
-
-This assumes that you have some form of code generation for the
-"inside" of some kernels, as this layer is responsible for
-embedding and generating the calls/dispatches.
-"""
-
-from typing import Any, Callable, Optional
-
-from .._support.indexing import (
-    IndexingContext,
-)
-
-from .kernel_codegen import KernelSignature, FunctionalKernelSignature
+from .kernel_codegen import KernelSignature
 from .dispatch_codegen import StreamExecutable
-
-from .base import (
-    CodegenError,
-    ValidationError,
-)
 
 from .builder import (
     ModuleBuilder,
@@ -26,28 +8,15 @@ from .builder import (
 from .ir import (
     Block,
     FunctionType,
-    IndexType,
     InsertionPoint,
-    IntegerAttr,
     IrType,
     Location,
-    FlatSymbolRefAttr,
     ArrayAttr,
     SymbolRefAttr,
-    Operation,
-    StringAttr,
     MemRefType,
     RankedTensorType,
-    Value,
-    arith_d,
     flow_d,
     func_d,
-    stream_d,
-)
-
-from ..lang import (
-    KernelBuffer,
-    Grid,
 )
 
 
