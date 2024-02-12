@@ -25,7 +25,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/sdxl-turbo",
+    default="stabilityai/stable-diffusion-xl-base-1.0",
 )
 parser.add_argument(
     "--hf_auth_token",
@@ -42,12 +42,13 @@ parser.add_argument(
     "--batch_size", type=int, default=1, help="Batch size for inference"
 )
 parser.add_argument(
-    "--height", type=int, default=512, help="Height of Stable Diffusion"
+    "--height", type=int, default=1024, help="Height of Stable Diffusion"
 )
-parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
+parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
 parser.add_argument(
     "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
 )
+parser.add_argument("--max_length", type=int, default=77, help="Max input length of Stable Diffusion")
 
 
 def run_unet(
@@ -153,9 +154,9 @@ if __name__ == "__main__":
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
     guidance_scale = torch.Tensor([7.5], dtype=dtype)
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, args.max_length, 768, dtype=dtype)
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, args.max_length, 1024, dtype=dtype)
 
     turbine_output = run_unet(
         args.device,

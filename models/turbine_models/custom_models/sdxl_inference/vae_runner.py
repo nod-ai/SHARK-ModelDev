@@ -25,7 +25,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="CompVis/stable-diffusion-v1-4",
+    default="stabilityai/stable-diffusion-xl-base-1.0",
 )
 parser.add_argument(
     "--device",
