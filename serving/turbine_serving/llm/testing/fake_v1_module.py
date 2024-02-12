@@ -10,12 +10,17 @@ This uses a PyModuleInterface to define a fake VmModule that exposes 'prefill_bs
 and 'decode_bs{n}' such that the call sequence and args/results can be manipulated.
 """
 
+import textwrap
+import threading
+
 from iree.runtime import (  # type: ignore
     HalBuffer,
     HalBufferView,
     HalElementType,
+    HalFence,
     PyModuleInterface,
     VmModule,
+    VmRef,
 )
 
 from ..config import ModelParams
@@ -29,18 +34,46 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
         def prefill(
             self,
             bs: int,
-            # token_ids_ref,
-            # seq_lens_ref,
-            attn_block_bv_ref,
-            tied_attn_block_buffer_ref_inp,
-            tied_attn_block_buffer_ref_out,
+            token_ids_ref: VmRef,
+            seq_lens_ref: VmRef,
+            attn_block_indices_ref: VmRef,
+            attn_block_bv_ref: VmRef,
+            tied_attn_block_buffer_ref_inp: VmRef,
+            tied_attn_block_buffer_ref_out: VmRef,
+            wait_fence_ref: VmRef,
+            signal_fence_ref: VmRef,
         ):
-            attn_block_bv = attn_block_bv_ref.deref(HalBufferView)
-            tied_attn_block_buffer = tied_attn_block_buffer_ref_out.deref(HalBuffer)
-            print(f"FAKE_V1_MODULE: PREFILL bs={bs}")
-            print(f"  attn_block (input): {attn_block_bv}")
-            print(f"  TIED RESULT attn_block_buffer: {tied_attn_block_buffer}")
+            def run():
+                print(f"FAKE_V1_MODULE: PREFILL bs={bs} : WAIT")
+                wait_fence = wait_fence_ref.deref(HalFence)  # type: HalFence
+                signal_fence = signal_fence_ref.deref(HalFence)  # type: HalFence
+                try:
+                    wait_fence.wait()
+                    print("  - READY")
 
+                    tied_attn_block_buffer = tied_attn_block_buffer_ref_out.deref(
+                        HalBuffer
+                    )
+                    _format_device_buffer_view(
+                        lambda s: print("  token_ids =", s), token_ids_ref
+                    )
+                    _format_device_buffer_view(
+                        lambda s: print("  seq_lens =", s), seq_lens_ref
+                    )
+                    _format_device_buffer_view(
+                        lambda s: print("  attn_block_indices =", s),
+                        attn_block_indices_ref,
+                    )
+                    _format_device_buffer_view(
+                        lambda s: print("  attn_block =", s), attn_block_bv_ref
+                    )
+
+                    print(f"  TIED RESULT attn_block_buffer: {tied_attn_block_buffer}")
+                    signal_fence.signal()
+                except Exception as e:
+                    signal_fence.fail(str(e))
+
+            threading.Thread(target=run).start()
             return attn_block_bv_ref
 
         def decode(self, bs: int):
@@ -53,7 +86,7 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
         def trampoline(self, *args):
             return self.prefill(bs, *args)
 
-        iface.export(f"prefill_bs{bs}", "0rrr_r", trampoline)
+        iface.export(f"prefill_bs{bs}", "0rrrrrrrr_r", trampoline)
 
     [add_prefill_bs(bs) for bs in model_params.prefill_batch_sizes]
 
@@ -67,3 +100,10 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
     [add_decode_bs(bs) for bs in model_params.decode_batch_sizes]
 
     return iface.create()
+
+
+def _format_device_buffer_view(callback, bv_ref: VmRef):
+    bv = bv_ref.deref(HalBufferView)  # type: HalBufferView
+    value = bv.map().asarray(bv.shape, HalElementType.map_to_dtype(bv.element_type))
+    value_indented = textwrap.indent(repr(value), "    ")
+    callback(f"{bv!r}\n{value_indented}")

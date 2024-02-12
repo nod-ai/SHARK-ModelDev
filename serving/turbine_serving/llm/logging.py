@@ -9,6 +9,9 @@ import os
 import sys
 
 
+# Whether debug assertions are disabled.
+NDEBUG: bool = False
+
 _default_log_level = os.getenv("TURBINE_LOG_LEVEL", "DEBUG")
 
 

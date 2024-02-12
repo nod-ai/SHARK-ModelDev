@@ -22,20 +22,26 @@ Key concepts:
     host side work across multiple OS threads, ensuring faster feeding of the device.
 """
 
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import math
 import queue
 from threading import Lock, Thread
+import warnings
+
+import numpy as np
 
 from iree.runtime import (  # type: ignore[import-untyped]
     create_hal_module,
     get_driver,
     BufferUsage,
     HalBufferView,
+    HalCommandBuffer,
     HalDevice,
     HalDriver,
     HalElementType,
+    HalFence,
+    HalSemaphore,
     MemoryType,
     VmFunction,
     VmInstance,
@@ -43,7 +49,7 @@ from iree.runtime import (  # type: ignore[import-untyped]
     VmModule,
 )
 
-from .logging import get_logger
+from .logging import get_logger, NDEBUG
 
 logger = get_logger("shark_turbine.serving.session")
 _CONFIG_LOCK = Lock()
@@ -67,6 +73,7 @@ class DeviceSession:
         "driver",
         "_module_sets",
         "queues",
+        "_queue_request_count",
         "vm_instance",
     ]
 
@@ -79,6 +86,7 @@ class DeviceSession:
         vm_instance: Optional[VmInstance] = None,
         queue_count: int = 1,
     ):
+        self._queue_request_count = 0
         self.vm_instance = vm_instance or get_vm_instance()
         if uri is not None:
             assert (
@@ -114,6 +122,15 @@ class DeviceSession:
             raise KeyError(
                 f"ModuleSet '{name}' not found. Available: {self._module_sets.keys()}"
             )
+
+    def queue(self, index: int = -1) -> "WorkQueue":
+        """Gets a queue either with an explicit index or in some rotating fashion."""
+        if index >= 0:
+            return self.queues[index]
+        else:
+            self._queue_request_count += 1
+            qc = self._queue_request_count
+            return self.queues[qc % len(self.queues)]
 
 
 class ModuleSet:
@@ -189,12 +206,15 @@ class ModuleSet:
         return context
 
 
+_ThunkQueueT = queue.SimpleQueue[Union[None, Callable[[], None]]]
+
+
 class HostContext:
     def __init__(self, session: DeviceSession, modules: list[VmModule], name: str):
         self.session = session
         self.vm_context = VmContext(session.vm_instance, modules=modules)
         self.name = name
-        self._thunk_queue = queue.SimpleQueue()
+        self._thunk_queue: _ThunkQueueT = queue.SimpleQueue()
         t = Thread(
             target=_host_context_run,
             args=[self._thunk_queue, name],
@@ -211,13 +231,14 @@ class HostContext:
 
     def __del__(self):
         if self._running:
+            warnings.warn(f"HostContext deallocated without shutdown(): {self}")
             self.shutdown()
 
     def schedule(self, thunk: Callable[[], None]):
         self._thunk_queue.put(thunk)
 
 
-def _host_context_run(thunk_queue: queue.SimpleQueue, name: str):
+def _host_context_run(thunk_queue: _ThunkQueueT, name: str):
     logger.info("Starting host context thread %s", name)
     try:
         while True:
@@ -243,9 +264,53 @@ def _host_context_run(thunk_queue: queue.SimpleQueue, name: str):
 
 
 class WorkQueue:
+    """Models a queue as a progression of steps against a timeline semaphore."""
+
+    __slots__ = [
+        "_device",
+        "_lock",
+        "_semaphore",
+        "_step",
+        "index",
+    ]
+
     def __init__(self, session: DeviceSession, index: int):
-        self.session = session
         self.index = index
+        self._device = session.device
+        self._lock = Lock()
+        self._semaphore = session.device.create_semaphore(0)
+        self._step = 0
+
+    def execute_sequential(self, command_buffers: list[HalCommandBuffer]):
+        """Executes a list of command buffers at the current step, advancing to the
+        next.
+        """
+        with self._lock:
+            current_step = self._step
+            next_step = current_step + 1
+            self._step = next_step
+        sem = self._semaphore
+        self._device.queue_execute(
+            command_buffers, [(sem, current_step)], [(sem, next_step)]
+        )
+
+    def current_fence(self) -> HalFence:
+        """Gets a fence representing the current step."""
+        with self._lock:
+            return HalFence.create_at(self._semaphore, self._step)
+
+    def step_fences(self) -> tuple[HalFence, HalFence]:
+        """Gets two fences, one at the current step and one at the next."""
+        with self._lock:
+            current_step = self._step
+            next_step = current_step + 1
+            self._step = next_step
+        sem = self._semaphore
+        return HalFence.create_at(sem, current_step), HalFence.create_at(sem, next_step)
+
+    def __repr__(self):
+        with self._lock:
+            return f"WorkQueue[{self.index}](semaphore={self._semaphore}, step={self._step}"
 
 
 class TransferBuffer:
@@ -257,6 +322,8 @@ class TransferBuffer:
     __slots__ = [
         "host_buffer",
         "device_buffer",
+        "host_buffer_map",
+        "_pool",
     ]
 
     def __init__(self, session: DeviceSession, buffer_size_bytes: int):
@@ -270,6 +337,8 @@ class TransferBuffer:
             allowed_usage=BufferUsage.DEFAULT,
             allocation_size=buffer_size_bytes,
         )
+        self.host_buffer_map = self.host_buffer.map()
+        self._pool: Optional["TransferBufferPool"] = None
 
     @staticmethod
     def allocate_shaped(
@@ -280,6 +349,52 @@ class TransferBuffer:
             element_type
         )
         return TransferBuffer(session, buffer_size_bytes)
+
+    def recycle(self):
+        pool = self._pool
+        assert (
+            pool is not None
+        ), f"Cannot recycle a TransferBuffer that was not acquired from a pool ({self})"
+        self._pool = None
+        pool.recycle(self)
+
+    def h2d_array(
+        self,
+        cb: HalCommandBuffer,
+        shape: list[int],
+        element_type: HalElementType,
+        *,
+        fill_value: Any = None,
+    ) -> tuple[np.ndarray, HalBufferView]:
+        """Performs an h2d transfer on the given CommandBuffer of the given shape and
+        element type.
+
+        Returns a host array and device buffer view. Because transfers do not start
+        until the command buffer is submitted, the host array should be populated
+        between the return from this call and submission.
+        """
+        ary = self.host_buffer_map.asarray(
+            shape, HalElementType.map_to_dtype(element_type)
+        )
+        if fill_value is not None:
+            ary.fill(fill_value)
+        bv = HalBufferView(self.device_buffer, shape, element_type)
+        cb.copy(self.host_buffer, self.device_buffer, length=bv.byte_length)
+        return ary, bv
+
+    def __repr__(self):
+        if self._pool is None:
+            return f"TransferBuffer(FREE)"
+        else:
+            return f"TransferBuffer({self._pool})"
+
+    if not NDEBUG:
+
+        def __del__(self):
+            if self._pool is not None:
+                warnings.warn(
+                    f"Deallocated TransferBuffer which needed to be recycled: {self}"
+                )
 
 
 class TransferBufferPool:
@@ -363,15 +478,55 @@ class TransferBufferPool:
         """
         free_list = self._free_list
         if len(free_list) > 0:
-            return free_list.pop()
+            tb = free_list.pop()
+            assert tb._pool is None
+            tb._pool = self
+            return tb
+
         allocator = self._allocator
         if not allocator:
             raise RuntimeError(
                 f"Transfer buffer pool '%s' exhausted and not growable", self.name
             )
         logger.info("Grow transfer buffer pool '%s'", self.name)
-        return allocator()
+        tb = allocator()
+        assert tb._pool is None
+        tb._pool = self
+        return tb
 
     def recycle(self, tb: TransferBuffer):
         """Recycles an acquired transfer buffer."""
         self._free_list.append(tb)
+
+    def __repr__(self):
+        return f"TransferBufferPool({self.name})"
+
+
+class AsyncResources:
+    """Resources held for some asynchronous scope."""
+
+    __slots__ = [
+        "_resources",
+    ]
+
+    def __init__(self):
+        self._resources: list[Union[TransferBuffer, "AsyncResources"]] = []
+
+    def acquire_transfer_buffer(self, pool: TransferBufferPool) -> TransferBuffer:
+        tb = pool.acquire()
+        self._resources.append(tb)
+        return tb
+
+    def recycle(self):
+        for r in self._resources:
+            r.recycle()
+        self._resources.clear()
+
+    if not NDEBUG:
+
+        def __del__(self):
+            if len(self._resources) != 0:
+                warnings.warn(
+                    f"Deallocated AsyncResources that was not recycled: {self}"
+                )
+                self.recycle()

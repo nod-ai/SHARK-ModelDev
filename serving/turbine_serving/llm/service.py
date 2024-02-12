@@ -30,6 +30,12 @@ class GenerateRequest:
     # Fields that are set as the request is processed.
     prompt_token_ids: Optional[list[int]] = None
 
+    @property
+    def required_prompt_token_ids(self) -> list[int]:
+        ids = self.prompt_token_ids
+        assert ids is not None
+        return ids
+
 
 @dataclass
 class GenerateResponsePart:
