@@ -48,7 +48,9 @@ parser.add_argument("--width", type=int, default=1024, help="Width of Stable Dif
 parser.add_argument(
     "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
 )
-parser.add_argument("--max_length", type=int, default=77, help="Max input length of Stable Diffusion")
+parser.add_argument(
+    "--max_length", type=int, default=77, help="Max input length of Stable Diffusion"
+)
 
 
 def run_unet(
