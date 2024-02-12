@@ -29,6 +29,7 @@ parser.add_argument(
     help="HF model name",
     default="stabilityai/stable-diffusion-xl-base-1.0",
 )
+parser.add_argument("--max_length", type=int, default=77)
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
 parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
@@ -51,6 +52,7 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 def export_clip_model(
     hf_model_name,
     hf_auth_token=None,
+    max_length=77,
     compile_to="torch",
     external_weights=None,
     external_weight_path=None,
@@ -113,7 +115,7 @@ def export_clip_model(
         else:
             params = export_parameters(text_encoder_1_model)
 
-        def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
+        def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
             return jittable(text_encoder_1_model.forward)(inp)
 
     class CompiledClip2(CompiledModule):
@@ -127,7 +129,7 @@ def export_clip_model(
         else:
             params = export_parameters(text_encoder_2_model)
 
-        def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
+        def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
             return jittable(text_encoder_2_model.forward)(inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
@@ -168,6 +170,7 @@ if __name__ == "__main__":
     mod_1_str, mod_2_str, _, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
+        args.max_length,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,
@@ -175,8 +178,8 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name_1 = safe_name = utils.create_safe_name(args.hf_model_name, "_clip_1")
-    safe_name_2 = safe_name = utils.create_safe_name(args.hf_model_name, "_clip_2")
+    safe_name_1 = safe_name = utils.create_safe_name(args.hf_model_name, f"_{str(args.max_length)}_clip_1")
+    safe_name_2 = safe_name = utils.create_safe_name(args.hf_model_name, f"_{str(args.max_length)}_clip_2")
     with open(f"{safe_name_1}.mlir", "w+") as f:
         f.write(mod_1_str)
     print("Saved to", safe_name_1 + ".mlir")
