@@ -48,7 +48,6 @@ def isolated_test_call(
         with InsertionPoint(entry_block):
             assert isinstance(entry_block, Block)
             # Create a flow.dispatch op to the kernel
-
             dispatch = SymbolRefAttr.get([exe.sym_name.value, entrypoint])
             entrypoints = ArrayAttr.get([dispatch])
 

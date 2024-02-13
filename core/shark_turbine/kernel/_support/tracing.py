@@ -414,21 +414,19 @@ class LaunchContext(ABC):
     def __enter__(self) -> "LaunchContext":
         # Push an indexing context with the constand bindings for this launch
         # context in it.
-        # TODO: Is this the most pythonic way to do this? Ask Stella before
-        # landing.
+        # TODO: Is creating a IndexingContext as part of LaunchContext the
+        # correct layering?
         idxc = IndexingContext()
         context.push(IndexingContext, idxc)
         for s, val in self.constant_bindings.items():
             idxc.bind_constant(s, val)
-
         return context.push(LaunchContext, self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Pop the indexing context created as part of this launch.
-        # TODO: Is this the most pythonic way to do this? Ask Stella before
-        # landing.
+        # TODO: Is creating a IndexingContext as part of LaunchContext the
+        # correct layering?
         context.pop(IndexingContext, IndexingContext().current())
-
         context.pop(LaunchContext, self)
 
     @abstractmethod
