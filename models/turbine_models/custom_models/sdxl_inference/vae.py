@@ -91,7 +91,7 @@ class VaeModel(torch.nn.Module):
         inp = inp / 0.13025
         x = self.vae.decode(inp, return_dict=False)[0]
         x = (x / 2 + 0.5).clamp(0, 1)
-        return x
+        return x.round()
 
     def encode_inp(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
