@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import json
+from turbine_models.turbine_tank import turbine_tank
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -61,6 +62,18 @@ parser.add_argument(
     action="store_true",
     help="Compile LLM with StreamingLLM optimizations",
 )
+parser.add_argument(
+    "--download_ir",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="download IR from turbine tank",
+)
+parser.add_argument(
+    "--upload_ir",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="upload IR to turbine tank",
+)
 
 
 def generate_schema(num_layers):
@@ -107,7 +120,18 @@ def export_transformer_model(
     vulkan_max_allocation=None,
     streaming_llm=False,
     vmfb_path=None,
+    download_ir=False,
+    upload_ir=False,
 ):
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name,
+        use_fast=False,
+        token=hf_auth_token,
+    )
+
+    if download_ir:
+        return turbine_tank.downloadModelArtifacts(hf_model_name), tokenizer
+
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
         torch_dtype=torch.float,
@@ -121,11 +145,7 @@ def export_transformer_model(
     if precision == "f16":
         mod = mod.half()
         dtype = torch.float16
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
+
     # TODO: generate these values instead of magic numbers
     NUM_LAYERS = mod.config.num_hidden_layers
     HEADS = getattr(mod.config, "num_key_value_heads", None)
@@ -319,6 +339,14 @@ def export_transformer_model(
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
+    if upload_ir:
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(module_str)
+        model_name_upload = hf_model_name.replace("/", "_")
+        turbine_tank.uploadToBlobStorage(
+            str(os.path.abspath(f"{safe_name}.mlir")),
+            f"{model_name_upload}/{model_name_upload}.mlir",
+        )
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
@@ -382,6 +410,8 @@ def export_transformer_model(
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    if args.upload_ir and args.download_ir:
+        raise ValueError("upload_ir and download_ir can't both be true")
     mod_str, _ = export_transformer_model(
         args.hf_model_name,
         args.hf_auth_token,
@@ -395,6 +425,8 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.streaming_llm,
         args.vmfb_path,
+        args.download_ir,
+        args.upload_ir,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
