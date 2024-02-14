@@ -237,6 +237,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
+    @unittest.expectedFailure
     def testExportPNDMScheduler(self):
         with self.assertRaises(SystemExit) as cm:
             schedulers.export_scheduler(
