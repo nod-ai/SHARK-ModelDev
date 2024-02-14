@@ -6,13 +6,6 @@ from typing import List, Optional
 
 from .decompositions import DEFAULT_DECOMPOSITIONS
 
-# These decompositions don't exist in 2.1.0, but are required in newer versions.
-if hasattr(torch.ops.aten, "_scaled_dot_product_flash_attention_for_cpu"):
-    DEFAULT_DECOMPOSITIONS.append(
-        torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
-    )
-
-
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
