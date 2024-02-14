@@ -4,6 +4,7 @@ import subprocess
 import datetime
 import os
 from pathlib import Path
+from functools import cmp_to_key
 
 custom_path = os.getenv("TURBINE_TANK_CACHE_DIR")
 if custom_path is not None:
@@ -108,6 +109,16 @@ def download_public_folder(model_name: str, prefix: str, model_dir: str):
             sample_blob.write(download_stream.readall())
 
 
+# sort blobs by last modified
+def compare(item1, item2):
+    if item1.last_modified < item2.last_modified:
+        return -1
+    elif item1.last_modified < item2.last_modified:
+        return 1
+    else:
+        return 0
+
+
 def downloadModelArtifacts(model_name: str) -> str:
     model_name = model_name.replace("/", "_")
     container_client = BlobServiceClient.from_connection_string(
@@ -115,6 +126,7 @@ def downloadModelArtifacts(model_name: str) -> str:
     ).get_container_client(container=container_name)
     blob_list = container_client.list_blobs()
     # get the latest blob uploaded to turbine tank (can't use [] notation for blob_list)
+    blob_list = sorted(blob_list, key=cmp_to_key(compare))
     for blob in blob_list:
         latest_blob = blob
     # get the prefix for the latest blob (2024-02-13_26d6428)
