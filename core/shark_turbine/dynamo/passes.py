@@ -51,6 +51,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten.unbind.int,
 ]
 
+
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
