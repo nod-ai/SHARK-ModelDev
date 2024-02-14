@@ -62,7 +62,6 @@ class VaeModel(torch.nn.Module):
     ):
         super().__init__()
         self.vae = None
-        self.base_vae = False
         if custom_vae in ["", None]:
             self.vae = AutoencoderKL.from_pretrained(
                 hf_model_name,
@@ -89,11 +88,9 @@ class VaeModel(torch.nn.Module):
             self.vae.load_state_dict(custom_vae)
 
     def decode_inp(self, inp):
-        if not self.base_vae:
-            inp = 1 / 0.18215 * inp
+        inp = 1 / 0.18215 * inp
         x = self.vae.decode(inp, return_dict=False)[0]
-        x = (x / 2 + 0.5).clamp(0, 1)
-        return x
+        return (x / 2 + 0.5).clamp(0, 1)
 
     def encode_inp(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
