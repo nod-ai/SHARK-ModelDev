@@ -24,6 +24,8 @@ Key concepts:
 
 from typing import Any, Callable, Optional, Union
 
+import asyncio
+import concurrent.futures
 import math
 import queue
 from threading import Lock, Thread
@@ -38,6 +40,7 @@ from iree.runtime import (  # type: ignore[import-untyped]
     HalBufferView,
     HalCommandBuffer,
     HalDevice,
+    HalDeviceLoopBridge,
     HalDriver,
     HalElementType,
     HalFence,
@@ -174,7 +177,8 @@ class ModuleSet:
 
     def shutdown(self):
         for hc in self.contexts:
-            hc.shutdown()
+            if hc is not None:
+                hc.shutdown()
 
     def module(self, name: str) -> VmModule:
         for m in self.modules:
@@ -195,7 +199,7 @@ class ModuleSet:
         return f
 
     @property
-    def context(self) -> "HostContext":
+    def host_context(self) -> "HostContext":
         """Gets a context, load balancing across available instances."""
         with _CONFIG_LOCK:
             self._context_counter += 1
@@ -214,53 +218,65 @@ class HostContext:
         self.session = session
         self.vm_context = VmContext(session.vm_instance, modules=modules)
         self.name = name
-        self._thunk_queue: _ThunkQueueT = queue.SimpleQueue()
-        t = Thread(
-            target=_host_context_run,
-            args=[self._thunk_queue, name],
+        self.loop = asyncio.new_event_loop()
+        self.loop.set_debug(True)
+
+        # def exc_handler(loop, context):
+        #     print("[EXCEPTION]", loop, context)
+        # self.loop.set_exception_handler(exc_handler)
+
+        self._device_bridge = HalDeviceLoopBridge(session.device, self.loop)
+        self._shutdown_future = self.loop.create_future()
+        logger.info(f"Starting asyncio loop thread %s", name)
+        self._loop_thread = Thread(
+            target=self.loop.run_until_complete,
+            args=[self._shutdown_future],
             name=name,
             daemon=False,
         )
-        self._running = True
-        t.start()
+        self._loop_thread.start()
 
-    def shutdown(self):
+    def shutdown(self, join: bool = True):
+        if self._shutdown_future is None:
+            return
         logger.info("Signalling shutdown of host context %s", self.name)
-        self._thunk_queue.put(None)
-        self._running = False
+        local_future = self._shutdown_future
+        del self._shutdown_future
+
+        def _shutdown():
+            local_future.set_result(True)
+
+        self.loop.call_soon_threadsafe(_shutdown)
+        self._device_bridge.stop()
+        if join:
+            self._loop_thread.join()
+        self.loop.close()
 
     def __del__(self):
-        if self._running:
+        if hasattr(self, "_shutdown_future"):
             warnings.warn(f"HostContext deallocated without shutdown(): {self}")
-            self.shutdown()
+            self.shutdown(join=False)
 
-    def schedule(self, thunk: Callable[[], None]):
-        self._thunk_queue.put(thunk)
+    def run_coroutine_threadsafe(self, coro) -> concurrent.futures.Future:
+        """Runs a coroutine from another thread, returning a concurrent Future.
 
+        This should be used for submitting initial work to the host context from
+        another thread or event loop.
 
-def _host_context_run(thunk_queue: _ThunkQueueT, name: str):
-    logger.info("Starting host context thread %s", name)
-    try:
-        while True:
-            item = thunk_queue.get()
-            if item is None:
-                break
-            try:
-                item()
-            except:
-                # TODO: Notify some watchdog to shutdown.
-                logger.exception(
-                    "Unhandled exception on host context thread %s. "
-                    "Processing will continue but the system needs "
-                    "to reset.",
-                    name,
-                )
-    except:
-        logger.exception(
-            "Host context thread %s died with a top-level exception!", name
-        )
-    finally:
-        logger.info("Host context thread %s finished", name)
+        Note that the concurrent Future should have its result() retrieved to
+        ensure that any asynchronous exceptions are propagated. Otherwise, they will
+        be silently consumed.
+        """
+        return asyncio.run_coroutine_threadsafe(coro, self.loop)
+
+    def on_semaphore(
+        self, sem: HalSemaphore, payload: int, value: Any
+    ) -> asyncio.Future:
+        """Returns an awaitable for when the semaphore attains a payload timepoint.
+
+        The resulting Future will take the given `value` once complete.
+        """
+        return self._device_bridge.on_semaphore(sem, payload, value)
 
 
 class WorkQueue:

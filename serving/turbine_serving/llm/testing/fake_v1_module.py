@@ -30,6 +30,7 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
     class ServiceV1Module:
         def __init__(self, iface):
             ...
+            print("IFACE:", iface, dir(iface))
 
         def prefill(
             self,
@@ -50,7 +51,6 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
                 try:
                     wait_fence.wait()
                     print("  - READY")
-
                     tied_attn_block_buffer = tied_attn_block_buffer_ref_out.deref(
                         HalBuffer
                     )

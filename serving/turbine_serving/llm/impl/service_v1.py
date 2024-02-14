@@ -151,7 +151,7 @@ class GenerateServiceV1(BatchGenerateService):
             raise AssertionError(f"Unsupported batch size: {bs}")
 
         # Initialize the state machine.
-        hc = self.module_set.context
+        hc = self.module_set.host_context
         state = _State(
             bs=allowed_bs,
             queue=hc.session.queue(),
@@ -163,7 +163,7 @@ class GenerateServiceV1(BatchGenerateService):
         )
 
         # Schedule invocation work (on a dedicated host context/thread).
-        hc.schedule(lambda: self._invoke_prefill(hc, state))
+        hc.loop.call_soon_threadsafe(lambda: self._invoke_prefill(hc, state))
 
     def _invoke_prefill(self, hc: HostContext, state: "_State"):
         # Record a command buffer for performing h2d transfers.

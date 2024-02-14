@@ -37,6 +37,8 @@ def _setup_logger():
 
 root_logger, default_handler = _setup_logger()
 
+logging.getLogger("asyncio").addHandler(default_handler)
+
 
 def get_logger(name: str):
     logger = logging.getLogger(name)
