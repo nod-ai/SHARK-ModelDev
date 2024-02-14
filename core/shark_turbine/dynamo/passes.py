@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from .decompositions import DEFAULT_DECOMPOSITIONS
 
+
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
