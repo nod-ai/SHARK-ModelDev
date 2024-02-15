@@ -10,7 +10,7 @@ from iree.runtime import (  # type: ignore
     HalElementType,
 )
 
-from turbine_serving.llm.session import DeviceSession
+from turbine_serving.framework.session import DeviceSession
 from turbine_serving.llm.config import (
     CacheParams,
     ModelParams,
@@ -22,6 +22,11 @@ from turbine_serving.llm.service import (
     GenerateResponsePart,
 )
 
+from turbine_serving.llm.attn_block_cache import (
+    create_attn_block_cache_module,
+    AttnBlockCache,
+)
+
 from turbine_serving.llm.impl.service_v1 import (
     GenerateServiceV1,
 )
@@ -29,6 +34,11 @@ from turbine_serving.llm.impl.service_v1 import (
 from turbine_serving.llm.testing.fake_v1_module import (
     create_fake_module,
 )
+
+
+@pytest.fixture
+def cache_params(model_params: ModelParams) -> CacheParams:
+    return CacheParams(model=model_params, device_block_count=128, block_pos_stride=16)
 
 
 @pytest.fixture
@@ -47,38 +57,51 @@ def model_params() -> ModelParams:
 
 
 @pytest.fixture
-def session(model_params: ModelParams, scope="session"):
+def uninitialized_session(model_params: ModelParams):
     from iree.runtime._binding import disable_leak_checker  # type: ignore
 
     disable_leak_checker()
     session = DeviceSession(uri="local-task", queue_count=2)
-    lms = session.create_module_set("AwesomeLLM", context_count=1)
-    lms.add(
-        create_fake_module(session.device, "AwesomeLLM", model_params=model_params),
-    )
-    lms.initialize()
     yield session
     session.shutdown()
     del session
 
 
 @pytest.fixture
-def cache_params(model_params: ModelParams) -> CacheParams:
-    return CacheParams(model=model_params, device_block_count=128, block_pos_stride=16)
+def attn_block_cache(
+    uninitialized_session: DeviceSession, cache_params: CacheParams
+) -> AttnBlockCache:
+    return AttnBlockCache(uninitialized_session, cache_params)
+
+
+@pytest.fixture
+def session(
+    model_params: ModelParams,
+    uninitialized_session: DeviceSession,
+    attn_block_cache: AttnBlockCache,
+):
+    session = uninitialized_session
+    lms = session.create_module_set("AwesomeLLM", context_count=1)
+    lms.add(
+        create_attn_block_cache_module(attn_block_cache),
+        create_fake_module(session.device, "AwesomeLLM", model_params=model_params),
+    )
+    lms.initialize()
+    return session
 
 
 @pytest.fixture
 def service(
-    session: DeviceSession, cache_params: CacheParams, model_params: ModelParams
+    session: DeviceSession,
+    cache_params: CacheParams,
+    model_params: ModelParams,
+    attn_block_cache: AttnBlockCache,
 ):
     params = ServiceParams(cache=cache_params, model=model_params)
-    return GenerateServiceV1(session, params)
+    return GenerateServiceV1(session=session, params=params, cache=attn_block_cache)
 
 
 def test_single(service: GenerateServiceV1):
-    def callback(response: list[GenerateResponsePart]):
-        print("RESPONSE:", response)
-
     state = service.start()
 
     async def task():

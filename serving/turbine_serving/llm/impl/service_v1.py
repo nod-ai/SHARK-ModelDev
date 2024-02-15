@@ -33,7 +33,7 @@ from ...framework.session import (
     WorkQueue,
 )
 
-from ..cache import BlockCacheEntry, Cache
+from ..attn_block_cache import AttnBlockCacheEntry, AttnBlockCache
 from ..config import ServiceParams
 from ..service import (
     BatchGenerateService,
@@ -48,14 +48,16 @@ EXPECTED_CONCURRENCY = 10
 
 
 class GenerateServiceV1(BatchGenerateService):
-    def __init__(self, session: DeviceSession, params: ServiceParams):
+    def __init__(
+        self, *, session: DeviceSession, params: ServiceParams, cache: AttnBlockCache
+    ):
         self.params = params
         self.block_pos_stride = params.cache.block_pos_stride
         self.batch_sizes = params.model.prefill_batch_sizes
         # TODO: Remove distinction between prefill and decode batch sizes.
         assert params.model.decode_batch_sizes == self.batch_sizes
         self.session = session
-        self.cache = Cache(session, params.cache)
+        self.cache = cache
         module_name = params.model.module_name
         logger.info("Configuring serving for module set %s", module_name)
         self.module_set = session.module_set(params.model.module_name)
@@ -145,7 +147,7 @@ class _Sequence:
     def __init__(self, request: GenerateRequest):
         self.request = request
         self.seq_length: int = 0
-        self.attn_blocks: list[BlockCacheEntry] = []
+        self.attn_blocks: list[AttnBlockCacheEntry] = []
         self.attn_blocks_needed: int = 0
 
 
@@ -222,7 +224,7 @@ class GenerateState(BatchGenerateState):
         # Acquire the needed attention blocks in one batch so as to give the scheduler
         # the most visibility into the need.
         logger.debug("Acquire prefill attn blocks: %s", attn_blocks_required)
-        all_attn_blocks: list[BlockCacheEntry] = []
+        all_attn_blocks: list[AttnBlockCacheEntry] = []
         await service.cache.acquire_attn_blocks(attn_blocks_required, all_attn_blocks)
         block_index = 0
         for seq in sequences:

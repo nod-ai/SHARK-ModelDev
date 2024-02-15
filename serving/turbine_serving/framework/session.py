@@ -161,8 +161,9 @@ class ModuleSet:
     def initialized(self) -> bool:
         return self.contexts[-1] is not None
 
-    def add(self, module: VmModule):
-        self.modules.append(module)
+    def add(self, *modules: VmModule):
+        for module in modules:
+            self.modules.append(module)
 
     def load_vmfb(self, vmfb_path: str):
         logger.info("Loading VMFB %s", vmfb_path)

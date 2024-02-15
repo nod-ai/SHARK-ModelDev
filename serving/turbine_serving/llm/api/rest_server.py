@@ -18,6 +18,8 @@ import uuid
 import uvicorn
 
 from ...framework.logging import get_logger
+from ...framework.session import DeviceSession
+
 
 from ..service import (
     create_mock_generate_service,
@@ -101,8 +103,6 @@ def main(clargs: Sequence[str]):
     # Spin up the device machinery.
     # Note that in the future, for multi-device, we will need more scaffolding for
     # configuration and bringup, obviously.
-    from .session import DeviceSession
-
     device_session = DeviceSession(uri=args.device_uri)
 
     if args.testing_mock_service:

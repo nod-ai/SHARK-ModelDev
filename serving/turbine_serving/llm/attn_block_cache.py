@@ -11,6 +11,8 @@ from iree.runtime import (  # type: ignore
     HalElementType,
     BufferUsage,
     MemoryType,
+    PyModuleInterface,
+    VmModule,
 )
 
 from ..framework.logging import get_logger
@@ -22,7 +24,7 @@ from .config import human_size, CacheParams
 logger = get_logger("turbine_serving.llm.cache")
 
 
-class BlockCacheEntry:
+class AttnBlockCacheEntry:
     __slots__ = [
         "index",
         "in_use",
@@ -36,7 +38,7 @@ class BlockCacheEntry:
         return f"Block({self.index}, {'FREE' if not self.in_use else 'BUSY'})"
 
 
-class Cache:
+class AttnBlockCache:
     def __init__(self, session: DeviceSession, cache_params: CacheParams):
         self.session = session
         self.cache_params = cache_params
@@ -75,10 +77,14 @@ class Cache:
         )
 
         # Accounting structs.
-        self.attn_block_entries = [BlockCacheEntry(i) for i in range(attn_block_count)]
+        self.attn_block_entries = [
+            AttnBlockCacheEntry(i) for i in range(attn_block_count)
+        ]
         self.attn_block_free = list(self.attn_block_entries)
 
-    async def acquire_attn_blocks(self, count: int, into_list: list[BlockCacheEntry]):
+    async def acquire_attn_blocks(
+        self, count: int, into_list: list[AttnBlockCacheEntry]
+    ):
         """Acquires 'count' attention blocks.
 
         If there are insufficient free blocks, raises an exception.
@@ -90,7 +96,7 @@ class Cache:
         for i in range(count):
             into_list.append(free_list.pop())
 
-    async def release_attn_blocks(self, blocks: list[BlockCacheEntry]):
+    async def release_attn_blocks(self, blocks: list[AttnBlockCacheEntry]):
         """Releases a list of attention blocks.
 
         If at all possible, this should be batched to include all blocks that need to
@@ -100,3 +106,28 @@ class Cache:
         free_list = self.attn_block_free
         for block in blocks:
             free_list.append(block)
+
+
+def create_attn_block_cache_module(attn_block_cache: AttnBlockCache) -> VmModule:
+    """Creates a VM module that exports the attention block cache.
+
+    For in-system use, we use a dynamic module that can provide the block cache
+    slab. In other uses, this may be provided by a statically compiled module
+    that does the same.
+
+    Interface:
+      Module name: attn_block_cache
+      Exports:
+        func @attn_block_cache.get_shared_slab() -> (!hal.buffer_view)
+    """
+
+    class Module:
+        def __init__(self, iface):
+            ...
+
+        def get_shared_slab(self):
+            return attn_block_cache.attn_block_buffer_view.ref
+
+    iface = PyModuleInterface(module_name="attn_block_cache", ctor=Module)
+    iface.export("get_shared_slab", "0v_r", Module.get_shared_slab)
+    return iface.create()
