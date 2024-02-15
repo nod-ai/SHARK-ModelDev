@@ -22,7 +22,7 @@ Key concepts:
     host side work across multiple OS threads, ensuring faster feeding of the device.
 """
 
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Coroutine, TypeVar, Optional, Union
 
 import asyncio
 import concurrent.futures
@@ -53,6 +53,8 @@ from iree.runtime import (  # type: ignore[import-untyped]
 )
 
 from .logging import get_logger, NDEBUG
+
+T = TypeVar("T")
 
 logger = get_logger("shark_turbine.serving.session")
 _CONFIG_LOCK = Lock()
@@ -257,7 +259,9 @@ class HostContext:
             warnings.warn(f"HostContext deallocated without shutdown(): {self}")
             self.shutdown(join=False)
 
-    def run_coroutine_threadsafe(self, coro) -> concurrent.futures.Future:
+    def run_concurrent(
+        self, coro: Coroutine[Any, Any, T]
+    ) -> concurrent.futures.Future[T]:
         """Runs a coroutine from another thread, returning a concurrent Future.
 
         This should be used for submitting initial work to the host context from
@@ -268,6 +272,14 @@ class HostContext:
         be silently consumed.
         """
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
+
+    def run_sync(self, coro: Coroutine[Any, Any, T]) -> T:
+        """Runs a coroutine on the host context loop from another thread.
+
+        Waits on and returns the result.
+        This is primarily intended for testing.
+        """
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result()
 
     def on_semaphore(
         self, sem: HalSemaphore, payload: int, value: Any
@@ -290,7 +302,7 @@ class WorkQueue:
         "index",
     ]
 
-    def __init__(self, session: DeviceSession, index: int):
+    def __init__(self, session: DeviceSession, index: int = 0):
         self.index = index
         self._device = session.device
         self._lock = Lock()
@@ -324,6 +336,12 @@ class WorkQueue:
         sem = self._semaphore
         return HalFence.create_at(sem, current_step), HalFence.create_at(sem, next_step)
 
+    def sync(self, host_context: HostContext) -> asyncio.Future:
+        """Awaitable that completes when all work currently queued completed."""
+        with self._lock:
+            current_step = self._step
+        return host_context.on_semaphore(self._semaphore, current_step, True)
+    
     def __repr__(self):
         with self._lock:
             return f"WorkQueue[{self.index}](semaphore={self._semaphore}, step={self._step}"

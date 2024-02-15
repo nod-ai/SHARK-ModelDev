@@ -52,7 +52,7 @@ def session(model_params: ModelParams, scope="session"):
     from iree.runtime._binding import disable_leak_checker  # type: ignore
 
     disable_leak_checker()
-    session = DeviceSession(uri="local-task")
+    session = DeviceSession(uri="local-task", queue_count=2)
     lms = session.create_module_set("AwesomeLLM", context_count=1)
     lms.add(
         create_fake_module("AwesomeLLM", model_params=model_params),
@@ -80,14 +80,21 @@ def test_single(service: GenerateServiceV1):
     def callback(response: list[GenerateResponsePart]):
         print("RESPONSE:", response)
 
-    request = BatchGenerateRequest(
-        requests=[
-            GenerateRequest(
-                "1",
-                "hello, tell me a story",
-                [3, 4, 5, 12, 23, 88, 10, 2, 5, 9, 12, 13, 99, 56, 33, 124, 73],
-            ),
-            GenerateRequest("2", "goodbye", [9, 10]),
-        ],
-    )
-    service.start_prefill(request)
+    state = service.start()
+
+    async def run():
+        state.set_sequences(
+            requests=[
+                GenerateRequest(
+                    "1",
+                    "hello, tell me a story",
+                    [3, 4, 5, 12, 23, 88, 10, 2, 5, 9, 12, 13, 99, 56, 33, 124, 73],
+                ),
+                GenerateRequest("2", "goodbye", [9, 10]),
+            ]
+        )
+        state.prefill()
+        await state.recycle()
+
+
+    state.host_context.run_sync(run())

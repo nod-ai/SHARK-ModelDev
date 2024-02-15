@@ -89,3 +89,14 @@ class Cache:
         ), f"Cache does not contain requested {count} free attn blocks"
         for i in range(count):
             into_list.append(free_list.pop())
+
+    def release_attn_blocks(self, blocks: list[BlockCacheEntry]):
+        """Releases a list of attention blocks.
+        
+        If at all possible, this should be batched to include all blocks that need to
+        be released at a given time since this will trigger heavy-weight scheduling
+        that will work better with a view of the new free list as a whole.
+        """
+        free_list = self.attn_block_free
+        for block in blocks:
+            free_list.append(block)

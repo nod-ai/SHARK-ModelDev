@@ -10,6 +10,10 @@ from abc import abstractmethod, ABC
 import asyncio
 from dataclasses import dataclass
 
+from .session import (
+    HostContext,
+)
+
 ########################################################################################
 # User-level single request service
 ########################################################################################
@@ -83,8 +87,24 @@ class BatchGenerateRequest:
 class BatchGenerateService(ABC):
     """Handles generation of a batch of requests."""
 
-    def start_prefill(self, request: BatchGenerateRequest):
+    __slots__ = []
+
+    # def start_prefill(self, request: BatchGenerateRequest):
+    #     ...
+    @abstractmethod
+    def start(self) -> "BatchGenerateState":
         ...
+
+
+class BatchGenerateState(ABC):
+    """In-progress batch generation state."""
+
+    __slots__ = [
+        "host_context",
+    ]
+
+    def __init__(self, host_context: HostContext):
+        self.host_context = host_context
 
 
 ########################################################################################

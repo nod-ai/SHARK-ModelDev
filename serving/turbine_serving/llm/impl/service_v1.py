@@ -10,6 +10,7 @@ This is far from where we want to land but is intended for first round bootstrap
 Perhaps the biggest issue is that it wouldn't mate well as-is with samplers.
 """
 
+import asyncio
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,6 +18,7 @@ import numpy as np
 from iree.runtime import (  # type: ignore
     HalCommandBuffer,
     HalElementType,
+    HalFence,
     VmFunction,
     VmVariantList,
 )
@@ -24,11 +26,15 @@ from iree.runtime import (  # type: ignore
 from ..cache import BlockCacheEntry, Cache
 from ..config import ServiceParams
 from ..logging import get_logger, NDEBUG
-from ..service import BatchGenerateRequest, BatchGenerateService
+from ..service import (
+    BatchGenerateService,
+    BatchGenerateState,
+    GenerateRequest,
+)
+
 from ..session import (
     AsyncResources,
     DeviceSession,
-    HostContext,
     TransferBufferPool,
     WorkQueue,
 )
@@ -118,19 +124,74 @@ class GenerateServiceV1(BatchGenerateService):
             name="prefill_seq_lens",
         )
 
-    def start_prefill(self, batch_request: BatchGenerateRequest):
-        block_pos_stride = self.block_pos_stride
-        cache = self.cache
+    def start(self) -> "GenerateState":
+        return GenerateState(self)
+
+
+class _Sequence:
+    __slots__ = [
+        "attn_blocks",
+        "prefill_token_ids",
+        "request",
+        "seq_length",
+    ]
+
+    prefill_token_ids: list[int]
+
+    def __init__(self, request: GenerateRequest):
+        self.request = request
+        self.seq_length: int = 0
+        self.attn_blocks: list[BlockCacheEntry] = []
+
+
+class GenerateState(BatchGenerateState):
+    __slots__ = [
+        "_bs",
+        "_decode_function",
+        "_prefill_function",
+        "_max_attn_blocks_length",
+        "_max_seq_length",
+        "_resources",
+        "_service",
+        "_sequences",
+        "_batch_queue",
+    ]
+
+    def __init__(self, service: GenerateServiceV1):
+        super().__init__(service.module_set.host_context)
+        self._resources = AsyncResources()
+        self._service = service
+        self._sequences: list[_Sequence] = []
+        self._batch_queue = WorkQueue(service.session)
+
+    def sync(self) -> asyncio.Future:
+        """Awaitable that completes when all work currently queued completed."""
+        return self._batch_queue.sync(self.host_context)
+
+    async def recycle(self):
+        """Recycles or releases all resources consumed by this instance."""
+        cache = self._service.cache
+        await self.sync()
+        self._resources.recycle()
+        all_blocks = []
+        for seq in self._sequences:
+            all_blocks.extend(seq.attn_blocks)
+        cache.release_attn_blocks(all_blocks)
+
+    def set_sequences(self, requests: list[GenerateRequest]):
+        service = self._service
+        block_pos_stride = service.block_pos_stride
 
         # Loop through each request and reserve initial attention blocks.
         bs = 0
-        sequences: list[_Sequence] = []
+        sequences = self._sequences
+        assert not sequences, "set_sequences already called"
         max_attn_blocks_length = 0
         max_seq_length = 0
 
-        for req in batch_request.requests:
+        for req in requests:
             bs += 1
-            seq = _Sequence()
+            seq = _Sequence(req)
             sequences.append(seq)
             seq.prefill_token_ids = prefill_token_ids = req.required_prompt_token_ids
             seq_length = len(prefill_token_ids)
@@ -138,55 +199,50 @@ class GenerateServiceV1(BatchGenerateService):
             max_seq_length = max(max_seq_length, seq_length)
             initial_block_count = seq_length // block_pos_stride + 1
             logger.debug("Acquire prefill attn blocks: %s", initial_block_count)
-            cache.acquire_attn_blocks(initial_block_count, seq.attn_blocks)
+            service.cache.acquire_attn_blocks(initial_block_count, seq.attn_blocks)
             max_attn_blocks_length = max(max_attn_blocks_length, initial_block_count)
 
         # Determine the appropriate batched entrypoints.
-        for allowed_bs in self.batch_sizes:
+        assert bs > 0
+        for allowed_bs in service.batch_sizes:
             if allowed_bs >= bs:
-                prefill_function = self.prefill_functions[allowed_bs]
-                decode_function = self.decode_functions[allowed_bs]
+                self._prefill_function = service.prefill_functions[allowed_bs]
+                self._decode_function = service.decode_functions[allowed_bs]
                 break
         else:
             raise AssertionError(f"Unsupported batch size: {bs}")
 
-        # Initialize the state machine.
-        hc = self.module_set.host_context
-        state = _State(
-            bs=allowed_bs,
-            queue=hc.session.queue(),
-            sequences=sequences,
-            max_attn_blocks_length=max_attn_blocks_length,
-            max_seq_length=max_seq_length,
-            prefill_function=prefill_function,
-            decode_function=decode_function,
-        )
+        # Save state.
+        self._bs = allowed_bs
+        self._max_attn_blocks_length = max_attn_blocks_length
+        self._max_seq_length = max_seq_length
 
-        # Schedule invocation work (on a dedicated host context/thread).
-        hc.loop.call_soon_threadsafe(lambda: self._invoke_prefill(hc, state))
+    def prefill(self):
+        hc = self.host_context
+        service = self._service
+        resources = self._resources
+        bs = self._bs
+        max_seq_length = self._max_seq_length
+        max_attn_blocks_length = self._max_attn_blocks_length
+        sequences = self._sequences
+        work_queue = self._batch_queue
 
-    def _invoke_prefill(self, hc: HostContext, state: "_State"):
         # Record a command buffer for performing h2d transfers.
         cb = HalCommandBuffer(hc.session.device)
-
-        resources = state.resources
-        bs = state.bs
-        max_seq_length = state.max_seq_length
-        max_attn_blocks_length = state.max_attn_blocks_length
 
         # Prepare input tokens, sequence lengths and block indices.
         # We acquire a transfer buffer of each from the respective pool, populate its
         # host side and enqueue.
         # prefill_tokens: array([bs, max_seq_length], np.int32)
         prefill_tokens_host, prefill_tokens_device = resources.acquire_transfer_buffer(
-            self.prefill_tokens_pool
+            service.prefill_tokens_pool
         ).h2d_array(cb, [bs, max_seq_length], HalElementType.INT_32, fill_value=0)
 
         # prefill_seq_lens: array([bs], np.int32)
         (
             prefill_seq_lens_host,
             prefill_seq_lens_device,
-        ) = resources.acquire_transfer_buffer(self.prefill_seq_lens_pool).h2d_array(
+        ) = resources.acquire_transfer_buffer(service.prefill_seq_lens_pool).h2d_array(
             cb, [bs], HalElementType.INT_32, fill_value=0
         )
 
@@ -194,13 +250,13 @@ class GenerateServiceV1(BatchGenerateService):
         (
             prefill_attn_block_indices_host,
             prefill_attn_block_indices_device,
-        ) = resources.acquire_transfer_buffer(self.block_indices_pool).h2d_array(
+        ) = resources.acquire_transfer_buffer(service.block_indices_pool).h2d_array(
             cb, [bs, max_attn_blocks_length], HalElementType.INT_16, fill_value=0
         )
 
         # Populate host buffers for each sequence.
-        for i in range(len(state.sequences)):
-            seq = state.sequences[i]
+        for i in range(len(sequences)):
+            seq = sequences[i]
             attn_blocks = seq.attn_blocks
             prefill_token_ids = seq.prefill_token_ids
             row_seq_len = len(prefill_token_ids)
@@ -211,7 +267,7 @@ class GenerateServiceV1(BatchGenerateService):
 
         # Perform h2d transfers.
         cb.end()
-        state.queue.execute_sequential([cb])
+        work_queue.execute_sequential([cb])
 
         # Inputs:
         #   token_ids
@@ -221,8 +277,8 @@ class GenerateServiceV1(BatchGenerateService):
         #   wait, signal semaphores
         #   tied attn_block_buffer (for input[2])
         #   tied attn_block_buffer (for result[0])
-        attn_block_buffer_view = self.cache.attn_block_buffer_view
-        attn_block_buffer = self.cache.attn_block_buffer
+        attn_block_buffer_view = service.cache.attn_block_buffer_view
+        attn_block_buffer = service.cache.attn_block_buffer
         inputs = VmVariantList(3)
         inputs.push_ref(prefill_tokens_device)
         inputs.push_ref(prefill_seq_lens_device)
@@ -230,7 +286,8 @@ class GenerateServiceV1(BatchGenerateService):
         inputs.push_ref(attn_block_buffer_view)
         inputs.push_ref(attn_block_buffer)  # Tied input[3]
         inputs.push_ref(attn_block_buffer)  # Tied result[0]
-        wait_fence, signal_fence = state.queue.step_fences()
+
+        wait_fence, signal_fence = work_queue.step_fences()
         inputs.push_ref(wait_fence)
         inputs.push_ref(signal_fence)
 
@@ -238,54 +295,7 @@ class GenerateServiceV1(BatchGenerateService):
         #   attn_block_buffer_view (tied output)
         #   decode_tokens
         outputs = VmVariantList(1)
-        hc.vm_context.invoke(state.prefill_function, inputs, outputs)
-
-        # TODO: Do not wait on signal fence.
-        signal_fence.wait()
-        print("INVOKE prefill output:", outputs)
-
-
-class _Sequence:
-    __slots__ = [
-        "attn_blocks",
-        "prefill_token_ids",
-        "seq_length",
-    ]
-
-    prefill_token_ids: list[int]
-
-    def __init__(self):
-        self.seq_length: int = 0
-        self.attn_blocks: list[BlockCacheEntry] = []
-
-
-class _State:
-    __slots__ = [
-        "bs",
-        "queue",
-        "decode_function",
-        "max_attn_blocks_length",
-        "max_seq_length",
-        "prefill_function",
-        "resources",
-        "sequences",
-    ]
-
-    def __init__(
-        self,
-        bs: int,
-        queue: WorkQueue,
-        max_seq_length: int,
-        max_attn_blocks_length: int,
-        sequences: list[_Sequence],
-        prefill_function: VmFunction,
-        decode_function: VmFunction,
-    ):
-        self.resources = AsyncResources()
-        self.bs = bs
-        self.queue = queue
-        self.max_seq_length = max_seq_length
-        self.max_attn_blocks_length = max_attn_blocks_length
-        self.sequences = sequences
-        self.prefill_function = prefill_function
-        self.decode_function = decode_function
+        # TODO: Async invoke.
+        hc.vm_context.invoke(self._prefill_function, inputs, outputs)
+        return outputs
+    

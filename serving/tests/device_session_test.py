@@ -48,8 +48,8 @@ def test_host_context_scheduling(local_device_session: DeviceSession):
         await hc.on_semaphore(sem, 2, True)
         sem.fail("Fail from task2")
 
-    f1 = hc.run_coroutine_threadsafe(task1())
-    f2 = hc.run_coroutine_threadsafe(task2())
+    f1 = hc.run_concurrent(task1())
+    f2 = hc.run_concurrent(task2())
     sem.signal(1)
     print("[main] Waiting for semaphore")
 
