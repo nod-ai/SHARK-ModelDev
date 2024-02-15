@@ -83,7 +83,7 @@ def test_single(service: GenerateServiceV1):
     state = service.start()
 
     async def run():
-        state.set_sequences(
+        await state.set_sequences(
             requests=[
                 GenerateRequest(
                     "1",
@@ -93,8 +93,7 @@ def test_single(service: GenerateServiceV1):
                 GenerateRequest("2", "goodbye", [9, 10]),
             ]
         )
-        state.prefill()
+        await state.prefill()
         await state.recycle()
-
 
     state.host_context.run_sync(run())

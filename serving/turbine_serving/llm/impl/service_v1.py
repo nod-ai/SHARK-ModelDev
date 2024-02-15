@@ -131,6 +131,7 @@ class GenerateServiceV1(BatchGenerateService):
 class _Sequence:
     __slots__ = [
         "attn_blocks",
+        "attn_blocks_needed",
         "prefill_token_ids",
         "request",
         "seq_length",
@@ -142,6 +143,7 @@ class _Sequence:
         self.request = request
         self.seq_length: int = 0
         self.attn_blocks: list[BlockCacheEntry] = []
+        self.attn_blocks_needed: int = 0
 
 
 class GenerateState(BatchGenerateState):
@@ -164,21 +166,22 @@ class GenerateState(BatchGenerateState):
         self._sequences: list[_Sequence] = []
         self._batch_queue = WorkQueue(service.session)
 
-    def sync(self) -> asyncio.Future:
-        """Awaitable that completes when all work currently queued completed."""
-        return self._batch_queue.sync(self.host_context)
-
     async def recycle(self):
         """Recycles or releases all resources consumed by this instance."""
         cache = self._service.cache
-        await self.sync()
+        await self._batch_queue.sync(self.host_context)
         self._resources.recycle()
         all_blocks = []
         for seq in self._sequences:
             all_blocks.extend(seq.attn_blocks)
-        cache.release_attn_blocks(all_blocks)
+            seq.attn_blocks.clear()
+        await cache.release_attn_blocks(all_blocks)
 
-    def set_sequences(self, requests: list[GenerateRequest]):
+    async def set_sequences(self, requests: list[GenerateRequest]):
+        """Initiates processing of a list of sequences that make up a batch.
+
+        This is async because it acquires resources which may not be available.
+        """
         service = self._service
         block_pos_stride = service.block_pos_stride
 
@@ -188,6 +191,7 @@ class GenerateState(BatchGenerateState):
         assert not sequences, "set_sequences already called"
         max_attn_blocks_length = 0
         max_seq_length = 0
+        attn_blocks_required = 0
 
         for req in requests:
             bs += 1
@@ -198,8 +202,8 @@ class GenerateState(BatchGenerateState):
             seq.seq_length = seq_length
             max_seq_length = max(max_seq_length, seq_length)
             initial_block_count = seq_length // block_pos_stride + 1
-            logger.debug("Acquire prefill attn blocks: %s", initial_block_count)
-            service.cache.acquire_attn_blocks(initial_block_count, seq.attn_blocks)
+            attn_blocks_required += initial_block_count
+            seq.attn_blocks_needed = initial_block_count
             max_attn_blocks_length = max(max_attn_blocks_length, initial_block_count)
 
         # Determine the appropriate batched entrypoints.
@@ -212,12 +216,25 @@ class GenerateState(BatchGenerateState):
         else:
             raise AssertionError(f"Unsupported batch size: {bs}")
 
+        # Acquire the needed attention blocks in one batch so as to give the scheduler
+        # the most visibility into the need.
+        logger.debug("Acquire prefill attn blocks: %s", attn_blocks_required)
+        all_attn_blocks = []
+        await service.cache.acquire_attn_blocks(attn_blocks_required, all_attn_blocks)
+        block_index = 0
+        for seq in sequences:
+            next_block_count = seq.attn_blocks_needed
+            seq.attn_blocks.extend(
+                all_attn_blocks[block_index : block_index + seq.attn_blocks_needed]
+            )
+            block_index += next_block_count
+
         # Save state.
         self._bs = allowed_bs
         self._max_attn_blocks_length = max_attn_blocks_length
         self._max_seq_length = max_seq_length
 
-    def prefill(self):
+    async def prefill(self):
         hc = self.host_context
         service = self._service
         resources = self._resources
@@ -298,4 +315,3 @@ class GenerateState(BatchGenerateState):
         # TODO: Async invoke.
         hc.vm_context.invoke(self._prefill_function, inputs, outputs)
         return outputs
-    

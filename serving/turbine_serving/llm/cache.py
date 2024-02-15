@@ -78,7 +78,7 @@ class Cache:
         self.attn_block_entries = [BlockCacheEntry(i) for i in range(attn_block_count)]
         self.attn_block_free = list(self.attn_block_entries)
 
-    def acquire_attn_blocks(self, count: int, into_list: list[BlockCacheEntry]):
+    async def acquire_attn_blocks(self, count: int, into_list: list[BlockCacheEntry]):
         """Acquires 'count' attention blocks.
 
         If there are insufficient free blocks, raises an exception.
@@ -90,9 +90,9 @@ class Cache:
         for i in range(count):
             into_list.append(free_list.pop())
 
-    def release_attn_blocks(self, blocks: list[BlockCacheEntry]):
+    async def release_attn_blocks(self, blocks: list[BlockCacheEntry]):
         """Releases a list of attention blocks.
-        
+
         If at all possible, this should be batched to include all blocks that need to
         be released at a given time since this will trigger heavy-weight scheduling
         that will work better with a view of the new free list as a whole.

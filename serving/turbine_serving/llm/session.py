@@ -341,7 +341,7 @@ class WorkQueue:
         with self._lock:
             current_step = self._step
         return host_context.on_semaphore(self._semaphore, current_step, True)
-    
+
     def __repr__(self):
         with self._lock:
             return f"WorkQueue[{self.index}](semaphore={self._semaphore}, step={self._step}"
