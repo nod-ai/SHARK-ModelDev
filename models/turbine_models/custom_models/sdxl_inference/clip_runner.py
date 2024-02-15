@@ -66,10 +66,22 @@ parser.add_argument(
     default="fp32",
     help="fp16, fp32",
 )
+parser.add_argument(
+    "--max_length",
+    type=int,
+    default=77,
+)
 
 
 def run_clip(
-    device, prompt, vmfb_path, hf_model_name, hf_auth_token, external_weight_path, index
+    device,
+    prompt,
+    vmfb_path,
+    hf_model_name,
+    hf_auth_token,
+    external_weight_path,
+    max_length,
+    index,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
@@ -87,7 +99,7 @@ def run_clip(
         text_input = tokenizer_1(
             prompt,
             padding="max_length",
-            max_length=tokenizer_1.model_max_length,
+            max_length=max_length,
             truncation=True,
             return_tensors="pt",
         )
@@ -98,7 +110,7 @@ def run_clip(
         text_input = tokenizer_2(
             prompt,
             padding="max_length",
-            max_length=tokenizer_2.model_max_length,
+            max_length=max_length,
             truncation=True,
             return_tensors="pt",
         )
@@ -112,7 +124,9 @@ def run_clip(
     return results
 
 
-def run_torch_clip(hf_model_name, hf_auth_token, prompt, precision="fp16"):
+def run_torch_clip(
+    hf_model_name, hf_auth_token, prompt, precision="fp16", max_length=77
+):
     # TODO: Integrate with HFTransformerBuilder
     from transformers import CLIPTextModel, CLIPTextModelWithProjection
 
@@ -139,14 +153,14 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt, precision="fp16"):
     text_input_1 = tokenizer_1(
         prompt,
         padding="max_length",
-        max_length=tokenizer_1.model_max_length,
+        max_length=max_length,
         truncation=True,
         return_tensors="pt",
     )
     text_input_2 = tokenizer_2(
         prompt,
         padding="max_length",
-        max_length=tokenizer_2.model_max_length,
+        max_length=max_length,
         truncation=True,
         return_tensors="pt",
     )
@@ -169,6 +183,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.external_weight_path_1,
+        args.max_length,
         index=1,
     )
     print(
@@ -185,6 +200,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.external_weight_path_2,
+        args.max_length,
         index=2,
     )
     print(
@@ -195,10 +211,14 @@ if __name__ == "__main__":
     )
     if args.compare_vs_torch:
         print("generating torch output: ")
-        from turbine_models.custom_models.sdxl_inference import utils
+        from turbine_models.custom_models.sd_inference import utils
 
         torch_output1, torch_output2 = run_torch_clip(
-            args.hf_model_name, args.hf_auth_token, args.prompt, args.precision
+            args.hf_model_name,
+            args.hf_auth_token,
+            args.prompt,
+            args.precision,
+            args.max_length,
         )
         print(
             "TORCH OUTPUT 1:", torch_output1, torch_output1.shape, torch_output1.dtype
