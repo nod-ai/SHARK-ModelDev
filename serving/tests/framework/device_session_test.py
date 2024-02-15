@@ -6,7 +6,7 @@
 
 import pytest
 
-from turbine_serving.llm.session import (
+from turbine_serving.framework.session import (
     DeviceSession,
 )
 

@@ -13,10 +13,10 @@ from iree.runtime import (  # type: ignore
     MemoryType,
 )
 
+from ..framework.logging import get_logger
+from ..framework.session import DeviceSession
 
 from .config import human_size, CacheParams
-from .logging import get_logger
-from .session import DeviceSession, TransferBuffer, TransferBufferPool
 
 
 logger = get_logger("turbine_serving.llm.cache")

@@ -24,22 +24,23 @@ from iree.runtime import (  # type: ignore
     VmVariantList,
 )
 
-from ..cache import BlockCacheEntry, Cache
-from ..config import ServiceParams
-from ..logging import get_logger, NDEBUG
-from ..service import (
-    BatchGenerateService,
-    BatchGenerateState,
-    GenerateRequest,
-)
-
-from ..session import (
+from ...framework.logging import get_logger, NDEBUG
+from ...framework.session import (
     AsyncResources,
     DeviceSession,
     TimelineGuarded,
     TransferBufferPool,
     WorkQueue,
 )
+
+from ..cache import BlockCacheEntry, Cache
+from ..config import ServiceParams
+from ..service import (
+    BatchGenerateService,
+    BatchGenerateState,
+    GenerateRequest,
+)
+
 
 logger = get_logger("turbine_serving.llm.impl.service_v1")
 

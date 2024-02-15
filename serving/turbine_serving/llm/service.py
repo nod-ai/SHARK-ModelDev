@@ -10,7 +10,7 @@ from abc import abstractmethod, ABC
 import asyncio
 from dataclasses import dataclass
 
-from .session import (
+from ..framework.session import (
     HostContext,
 )
 

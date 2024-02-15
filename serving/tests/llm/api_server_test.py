@@ -21,7 +21,7 @@ class ServerRunner:
             [
                 sys.executable,
                 "-m",
-                "turbine_serving.llm.api_server",
+                "turbine_serving.llm.api.rest_server",
                 "--testing-mock-service",
             ]
             + args,

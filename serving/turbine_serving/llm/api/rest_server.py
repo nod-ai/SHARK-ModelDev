@@ -17,9 +17,9 @@ import sys
 import uuid
 import uvicorn
 
-from .logging import get_logger
+from ...framework.logging import get_logger
 
-from .service import (
+from ..service import (
     create_mock_generate_service,
     GenerateService,
     GenerateRequest,
