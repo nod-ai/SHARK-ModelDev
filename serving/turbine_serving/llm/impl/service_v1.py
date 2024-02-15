@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from iree.runtime import (  # type: ignore
+    HalBufferView,
     HalCommandBuffer,
     HalElementType,
     HalFence,
@@ -35,6 +36,7 @@ from ..service import (
 from ..session import (
     AsyncResources,
     DeviceSession,
+    TimelineGuarded,
     TransferBufferPool,
     WorkQueue,
 )
@@ -219,7 +221,7 @@ class GenerateState(BatchGenerateState):
         # Acquire the needed attention blocks in one batch so as to give the scheduler
         # the most visibility into the need.
         logger.debug("Acquire prefill attn blocks: %s", attn_blocks_required)
-        all_attn_blocks = []
+        all_attn_blocks: list[BlockCacheEntry] = []
         await service.cache.acquire_attn_blocks(attn_blocks_required, all_attn_blocks)
         block_index = 0
         for seq in sequences:
@@ -234,7 +236,7 @@ class GenerateState(BatchGenerateState):
         self._max_attn_blocks_length = max_attn_blocks_length
         self._max_seq_length = max_seq_length
 
-    async def prefill(self):
+    async def prefill(self) -> TimelineGuarded[HalBufferView]:
         hc = self.host_context
         service = self._service
         resources = self._resources
@@ -294,15 +296,10 @@ class GenerateState(BatchGenerateState):
         #   wait, signal semaphores
         #   tied attn_block_buffer (for input[2])
         #   tied attn_block_buffer (for result[0])
-        attn_block_buffer_view = service.cache.attn_block_buffer_view
-        attn_block_buffer = service.cache.attn_block_buffer
         inputs = VmVariantList(3)
         inputs.push_ref(prefill_tokens_device)
         inputs.push_ref(prefill_seq_lens_device)
         inputs.push_ref(prefill_attn_block_indices_device)
-        inputs.push_ref(attn_block_buffer_view)
-        inputs.push_ref(attn_block_buffer)  # Tied input[3]
-        inputs.push_ref(attn_block_buffer)  # Tied result[0]
 
         wait_fence, signal_fence = work_queue.step_fences()
         inputs.push_ref(wait_fence)
@@ -314,4 +311,4 @@ class GenerateState(BatchGenerateState):
         outputs = VmVariantList(1)
         # TODO: Async invoke.
         hc.vm_context.invoke(self._prefill_function, inputs, outputs)
-        return outputs
+        return work_queue.guard(outputs.get_as_ref(0).deref(HalBufferView))

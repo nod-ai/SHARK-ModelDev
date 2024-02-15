@@ -18,7 +18,6 @@ from turbine_serving.llm.config import (
 )
 
 from turbine_serving.llm.service import (
-    BatchGenerateRequest,
     GenerateRequest,
     GenerateResponsePart,
 )
@@ -55,7 +54,7 @@ def session(model_params: ModelParams, scope="session"):
     session = DeviceSession(uri="local-task", queue_count=2)
     lms = session.create_module_set("AwesomeLLM", context_count=1)
     lms.add(
-        create_fake_module("AwesomeLLM", model_params=model_params),
+        create_fake_module(session.device, "AwesomeLLM", model_params=model_params),
     )
     lms.initialize()
     yield session
@@ -82,7 +81,7 @@ def test_single(service: GenerateServiceV1):
 
     state = service.start()
 
-    async def run():
+    async def task():
         await state.set_sequences(
             requests=[
                 GenerateRequest(
@@ -93,7 +92,16 @@ def test_single(service: GenerateServiceV1):
                 GenerateRequest("2", "goodbye", [9, 10]),
             ]
         )
-        await state.prefill()
+        guarded_outputs = await state.prefill()
+        prefill_ids = await guarded_outputs.resolve(state.host_context)
+        print(
+            "PREFILL IDS:",
+            prefill_ids,
+            ":\n",
+            prefill_ids.map().asarray(
+                prefill_ids.shape, HalElementType.map_to_dtype(prefill_ids.element_type)
+            ),
+        )
         await state.recycle()
 
-    state.host_context.run_sync(run())
+    state.host_context.run_sync(task())

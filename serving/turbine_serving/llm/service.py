@@ -79,15 +79,10 @@ class GenerateService(ABC):
 ########################################################################################
 
 
-@dataclass
-class BatchGenerateRequest:
-    requests: list[GenerateRequest]
-
-
 class BatchGenerateService(ABC):
     """Handles generation of a batch of requests."""
 
-    __slots__ = []
+    __slots__ = []  # type: ignore
 
     # def start_prefill(self, request: BatchGenerateRequest):
     #     ...

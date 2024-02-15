@@ -10,14 +10,18 @@ This uses a PyModuleInterface to define a fake VmModule that exposes 'prefill_bs
 and 'decode_bs{n}' such that the call sequence and args/results can be manipulated.
 """
 
+import numpy as np
 import textwrap
 import threading
 
 from iree.runtime import (  # type: ignore
+    BufferUsage,
     HalBuffer,
     HalBufferView,
+    HalDevice,
     HalElementType,
     HalFence,
+    MemoryType,
     PyModuleInterface,
     VmModule,
     VmRef,
@@ -26,7 +30,9 @@ from iree.runtime import (  # type: ignore
 from ..config import ModelParams
 
 
-def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
+def create_fake_module(
+    device: HalDevice, module_name: str, model_params: ModelParams
+) -> VmModule:
     class ServiceV1Module:
         def __init__(self, iface):
             ...
@@ -38,12 +44,11 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
             token_ids_ref: VmRef,
             seq_lens_ref: VmRef,
             attn_block_indices_ref: VmRef,
-            attn_block_bv_ref: VmRef,
-            tied_attn_block_buffer_ref_inp: VmRef,
-            tied_attn_block_buffer_ref_out: VmRef,
             wait_fence_ref: VmRef,
             signal_fence_ref: VmRef,
         ):
+            result_array: np.ndarray = np.ndarray([bs, 1], dtype=np.int32)
+
             def run():
                 print(f"FAKE_V1_MODULE: PREFILL bs={bs} : WAIT")
                 wait_fence = wait_fence_ref.deref(HalFence)  # type: HalFence
@@ -51,9 +56,6 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
                 try:
                     wait_fence.wait()
                     print("  - READY")
-                    tied_attn_block_buffer = tied_attn_block_buffer_ref_out.deref(
-                        HalBuffer
-                    )
                     _format_device_buffer_view(
                         lambda s: print("  token_ids =", s), token_ids_ref
                     )
@@ -64,17 +66,29 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
                         lambda s: print("  attn_block_indices =", s),
                         attn_block_indices_ref,
                     )
-                    _format_device_buffer_view(
-                        lambda s: print("  attn_block =", s), attn_block_bv_ref
-                    )
 
-                    print(f"  TIED RESULT attn_block_buffer: {tied_attn_block_buffer}")
+                    # Async populate.
+                    device_array = result_bv.map().asarray(
+                        result_array.shape, result_array.dtype
+                    )
+                    for i in range(bs):
+                        device_array[i, 0] = i + 1
+
                     signal_fence.signal()
                 except Exception as e:
                     signal_fence.fail(str(e))
 
             threading.Thread(target=run).start()
-            return attn_block_bv_ref
+
+            result_buffer = device.allocator.allocate_buffer(
+                memory_type=MemoryType.DEVICE_LOCAL | MemoryType.HOST_VISIBLE,
+                allowed_usage=BufferUsage.DEFAULT,
+                allocation_size=result_array.size * result_array.itemsize,
+            )
+            result_bv = HalBufferView(
+                result_buffer, result_array.shape, HalElementType.INT_32
+            )
+            return result_bv.ref
 
         def decode(self, bs: int):
             print(f"FAKE_V1_MODULE: DECODE bs={bs}")
@@ -86,7 +100,7 @@ def create_fake_module(module_name: str, model_params: ModelParams) -> VmModule:
         def trampoline(self, *args):
             return self.prefill(bs, *args)
 
-        iface.export(f"prefill_bs{bs}", "0rrrrrrrr_r", trampoline)
+        iface.export(f"prefill_bs{bs}", "0rrrrr_r", trampoline)
 
     [add_prefill_bs(bs) for bs in model_params.prefill_batch_sizes]
 

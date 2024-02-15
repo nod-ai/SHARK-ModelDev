@@ -22,7 +22,7 @@ Key concepts:
     host side work across multiple OS threads, ensuring faster feeding of the device.
 """
 
-from typing import Any, Callable, Coroutine, TypeVar, Optional, Union
+from typing import Any, Callable, Coroutine, Generic, TypeVar, Optional, Union
 
 import asyncio
 import concurrent.futures
@@ -342,6 +342,11 @@ class WorkQueue:
             current_step = self._step
         return host_context.on_semaphore(self._semaphore, current_step, True)
 
+    def guard(self, value: T) -> "TimelineGuarded[T]":
+        """Guards an arbitrary value as a timeline guard at the current queue
+        position. The value will become available when the queue is sync'd."""
+        return TimelineGuarded(value, self._semaphore, self._step)
+
     def __repr__(self):
         with self._lock:
             return f"WorkQueue[{self.index}](semaphore={self._semaphore}, step={self._step}"
@@ -564,3 +569,32 @@ class AsyncResources:
                     f"Deallocated AsyncResources that was not recycled: {self}"
                 )
                 self.recycle()
+
+
+class TimelineGuarded(Generic[T]):
+    """Some form of results that are structurally available now but will not be
+    populated until some point in the future.
+
+    This is used to encapsulate entities that are guarded by availability of
+    a timepoint. Note that we only allow a single timepoint guard in order to
+    simplify subsequent coordination. This will typically be the case when the
+    guard is derived from a queue of some form (as opposed to a gather).
+    """
+
+    __slots__ = [
+        "value",
+        "sem",
+        "timeline",
+    ]
+
+    def __init__(self, value: T, sem: HalSemaphore, timeline: int):
+        self.value = value
+        self.sem = sem
+        self.timeline = timeline
+
+    def resolve(self, host_context: HostContext) -> asyncio.Future[T]:
+        """Produces an awaitable that resolves to the value once available."""
+        return host_context.on_semaphore(self.sem, self.timeline, self.value)
+
+    def __repr__(self):
+        return f"TimelineGuarded[{self.sem} @ {self.payload}] = {self.value}"
