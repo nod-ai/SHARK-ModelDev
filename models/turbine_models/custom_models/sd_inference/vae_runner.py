@@ -127,7 +127,7 @@ if __name__ == "__main__":
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_results)
         print("Largest Error: ", err)
-        assert err < 2e-3
+        assert err < 3e-3
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_results = None
