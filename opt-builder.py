@@ -86,8 +86,8 @@ if __name__ == "__main__":
                     x.dynamic_dim(1),]
                 )
 
-        def run_not(self, x=abstractify(inp)):
-            return self.compute(x)
+        #def run(self, x=abstractify(inp)):
+        #    return self.compute(x)
 
     print("module defined")
     inst = GlobalModule(context=Context())
