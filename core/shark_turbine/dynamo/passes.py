@@ -53,6 +53,7 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
+
 def apply_decompositions(
     gm: torch.fx.GraphModule,
     example_inputs,
