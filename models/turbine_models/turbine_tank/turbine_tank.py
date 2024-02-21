@@ -19,6 +19,7 @@ else:
     print(
         f"turbine_tank local cache is located at {WORKDIR} . You may change this by assigning the TURBINE_TANK_CACHE_DIR environment variable."
     )
+os.makedirs(WORKDIR, exist_ok=True)
 
 storage_account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
 storage_account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
