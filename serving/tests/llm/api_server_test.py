@@ -21,7 +21,8 @@ class ServerRunner:
             [
                 sys.executable,
                 "-m",
-                "turbine_serving.llm.entrypoints.api_server",
+                "turbine_serving.llm.api.rest_server",
+                "--testing-mock-service",
             ]
             + args,
             env=env,
@@ -39,9 +40,9 @@ class ServerRunner:
             except Exception as e:
                 if self.process.poll() is not None:
                     raise RuntimeError("API server processs terminated") from e
-            time.sleep(0.25)
+            time.sleep(1.0)
             if time.time() - start > 30:
-                raise RuntimeError("Timeout waiting for server start") from e
+                raise RuntimeError("Timeout waiting for server start")
 
     def __del__(self):
         try:
@@ -59,5 +60,30 @@ def server():
     yield runner
 
 
-def test_basic(server: ServerRunner):
+def test_health(server: ServerRunner):
+    # Health check is part of getting the fixture.
     ...
+
+
+def test_generate_non_streaming(server: ServerRunner):
+    resp = requests.post(
+        f"{server.url}/generate",
+        json={
+            "prompt": "Hi Bob",
+        },
+    )
+    resp.raise_for_status()
+    d = resp.json()
+    assert d["text"] == "Hi Bob", repr(d)
+
+
+def test_generate_streaming(server: ServerRunner):
+    resp = requests.post(
+        f"{server.url}/generate", json={"prompt": "Hi Bob!", "stream": True}
+    )
+    resp.raise_for_status()
+    full_contents = resp.content
+    expected_contents = b'{"text": "Hi Bob!"}\x00' * 5
+    assert (
+        full_contents == expected_contents
+    ), f"Expected {expected_contents!r} vs {full_contents!r}"
