@@ -62,12 +62,6 @@ parser.add_argument(
     action="store_true",
     help="Compile LLM with StreamingLLM optimizations",
 )
-parser.add_argument(
-    "--upload_ir",
-    action=argparse.BooleanOptionalAction,
-    default=False,
-    help="upload IR to turbine tank",
-)
 
 
 def generate_schema(num_layers):
@@ -413,7 +407,6 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.streaming_llm,
         args.vmfb_path,
-        args.upload_ir,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)

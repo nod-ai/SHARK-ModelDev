@@ -54,12 +54,6 @@ parser.add_argument(
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-parser.add_argument(
-    "--upload_ir",
-    action=argparse.BooleanOptionalAction,
-    default=False,
-    help="upload IR to turbine tank",
-)
 
 
 class UnetModel(torch.nn.Module):
@@ -167,7 +161,6 @@ if __name__ == "__main__":
         args.device,
         args.iree_target_triple,
         args.vulkan_max_allocation,
-        args.upload_ir,
     )
     safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
     with open(f"{safe_name}.mlir", "w+") as f:

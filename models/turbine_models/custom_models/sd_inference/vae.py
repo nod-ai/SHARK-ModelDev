@@ -55,12 +55,6 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument("--variant", type=str, default="decode")
-parser.add_argument(
-    "--upload_ir",
-    action=argparse.BooleanOptionalAction,
-    default=False,
-    help="upload IR to turbine tank",
-)
 
 
 class VaeModel(torch.nn.Module):
@@ -156,7 +150,6 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
         args.variant,
-        args.upload_ir,
     )
     safe_name = utils.create_safe_name(args.hf_model_name, "-vae")
     with open(f"{safe_name}.mlir", "w+") as f:
