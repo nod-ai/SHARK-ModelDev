@@ -26,9 +26,7 @@ def largest_error(array1, array2):
     return max_error
 
 
-def compile_to_vmfb(
-    module_str, device, target_triple, max_alloc, safe_name, upload_ir=False
-):
+def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
     flags = [
         "--iree-input-type=torch",
         "--mlir-print-debuginfo",

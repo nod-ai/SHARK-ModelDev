@@ -145,9 +145,7 @@ def export_unet_model(
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name, upload_ir
-        )
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
 
 if __name__ == "__main__":
