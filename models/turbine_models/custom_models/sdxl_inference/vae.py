@@ -167,7 +167,7 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.variant,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, "-vae")
+    safe_name = utils.create_safe_name(args.hf_model_name, f"-vae-{args.variant}-{args.precision}")
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")

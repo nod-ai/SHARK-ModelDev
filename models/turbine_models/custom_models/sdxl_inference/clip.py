@@ -31,6 +31,9 @@ parser.add_argument(
 )
 parser.add_argument("--max_length", type=int, default=77)
 parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
+parser.add_argument(
+    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
+)
 parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
     "--external_weights",
@@ -53,6 +56,7 @@ def export_clip_model(
     hf_model_name,
     hf_auth_token=None,
     max_length=77,
+    precision="fp16",
     compile_to="torch",
     external_weights=None,
     external_weight_path=None,
@@ -81,6 +85,9 @@ def export_clip_model(
         subfolder="text_encoder_2",
         token=hf_auth_token,
     )
+    if precision == "fp16":
+        text_encoder_1_model = text_encoder_1_model.half()
+        text_encoder_2_model = text_encoder_2_model.half()
     mapper = {}
     if external_weight_path:
         weights_path_1 = (
@@ -103,7 +110,6 @@ def export_clip_model(
     utils.save_external_weights(
         mapper, text_encoder_2_model, external_weights, weights_path_2
     )
-
     class CompiledClip1(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -138,8 +144,8 @@ def export_clip_model(
 
     module_1_str = str(CompiledModule.get_mlir_module(inst1))
     module_2_str = str(CompiledModule.get_mlir_module(inst2))
-    safe_name_1 = utils.create_safe_name(hf_model_name, "-clip-1")
-    safe_name_2 = utils.create_safe_name(hf_model_name, "-clip-2")
+    safe_name_1 = utils.create_safe_name(hf_model_name, f"-{str(args.max_length)}-{precision}-clip-1")
+    safe_name_2 = utils.create_safe_name(hf_model_name, f"-{str(args.max_length)}-{precision}-clip-2")
     if compile_to != "vmfb":
         return module_1_str, module_2_str, tokenizer_1, tokenizer_2
     else:
@@ -171,6 +177,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.max_length,
+        args.precision,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,
@@ -179,10 +186,10 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
     )
     safe_name_1 = safe_name = utils.create_safe_name(
-        args.hf_model_name, f"_{str(args.max_length)}_clip_1"
+        args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_1"
     )
     safe_name_2 = safe_name = utils.create_safe_name(
-        args.hf_model_name, f"_{str(args.max_length)}_clip_2"
+        args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_2"
     )
     with open(f"{safe_name_1}.mlir", "w+") as f:
         f.write(mod_1_str)
