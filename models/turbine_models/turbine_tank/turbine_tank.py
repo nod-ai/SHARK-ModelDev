@@ -21,10 +21,10 @@ else:
     )
 os.makedirs(WORKDIR, exist_ok=True)
 
-storage_account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
-storage_account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
-connection_string = os.environ.get("AZURE_CONNECTION_STRING")
-container_name = os.environ.get("AZURE_CONTAINER_NAME")
+storage_account_key = "XSsr+KqxBLxXzRtFv3QbbdsAxdwDGe661Q1xY4ziMRtpCazN8W6HZePi6nwud5RNLC5Y7e410abg+AStyzmX1A=="
+storage_account_name = "tankturbine"
+connection_string = "DefaultEndpointsProtocol=https;AccountName=tankturbine;AccountKey=XSsr+KqxBLxXzRtFv3QbbdsAxdwDGe661Q1xY4ziMRtpCazN8W6HZePi6nwud5RNLC5Y7e410abg+AStyzmX1A==;EndpointSuffix=core.windows.net"
+container_name = "tankturbine"
 
 
 def get_short_git_sha() -> str:
