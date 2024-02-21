@@ -99,7 +99,6 @@ def export_unet_model(
     max_alloc=None,
     upload_ir=False,
 ):
-
     mapper = {}
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path

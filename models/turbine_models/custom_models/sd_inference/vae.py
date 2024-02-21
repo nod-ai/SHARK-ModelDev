@@ -98,7 +98,6 @@ def export_vae_model(
     variant="decode",
     upload_ir=False,
 ):
-
     mapper = {}
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
