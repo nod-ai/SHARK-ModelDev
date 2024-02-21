@@ -90,10 +90,12 @@ def download_public_folder(model_name: str, prefix: str, model_dir: str):
         container=container_name
     )
     blob_list = container_client.list_blobs(name_starts_with=prefix)
+    empty = True
 
     # go through the blobs with our target prefix
     # example prefix: "2024-02-13_26d6428/CompVis_stable-diffusion-v1-4-clip"
     for blob in blob_list:
+        empty = False
         blob_client = blob_service_client.get_blob_client(
             container=container_name, blob=blob.name
         )
@@ -107,6 +109,12 @@ def download_public_folder(model_name: str, prefix: str, model_dir: str):
         ) as sample_blob:
             download_stream = blob_client.download_blob()
             sample_blob.write(download_stream.readall())
+
+    if empty:
+        print(f"Model ({model_name}) has not been uploaded yet")
+        return True
+
+    return False
 
 
 # sort blobs by last modified
@@ -140,11 +148,13 @@ def downloadModelArtifacts(model_name: str) -> str:
         print("Already downloaded most recent version")
         return "NA"
     # download the model artifacts (passing in the model name, path in azure storage to model artifacts, local directory to store)
-    download_public_folder(
+    blobDNE = download_public_folder(
         model_name,
         download_latest_prefix + "/" + model_name,
         os.path.join(model_dir, download_latest_prefix),
     )
+    if blobDNE:
+        return
     model_dir = os.path.join(WORKDIR, model_name + "/" + download_latest_prefix)
     mlir_filename = os.path.join(model_dir, model_name + ".mlir")
     print(

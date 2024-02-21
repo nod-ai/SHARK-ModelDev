@@ -48,12 +48,6 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument(
-    "--download_ir",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help="download IR from turbine tank",
-)
-parser.add_argument(
     "--upload_ir",
     action=argparse.BooleanOptionalAction,
     default=False,
@@ -70,7 +64,6 @@ def export_clip_model(
     device=None,
     target_triple=None,
     max_alloc=None,
-    download_ir=False,
     upload_ir=False,
 ):
     # Load the tokenizer and text encoder to tokenize and encode the text.
@@ -79,9 +72,6 @@ def export_clip_model(
         subfolder="tokenizer",
         token=hf_auth_token,
     )
-
-    if download_ir:
-        return turbine_tank.downloadModelArtifacts(hf_model_name + "-clip"), tokenizer
 
     text_encoder_model = CLIPTextModel.from_pretrained(
         hf_model_name,
@@ -132,8 +122,6 @@ def export_clip_model(
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    if args.upload_ir and args.download_ir:
-        raise ValueError("upload_ir and download_ir can't both be true")
     mod_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
@@ -143,7 +131,6 @@ if __name__ == "__main__":
         args.device,
         args.iree_target_triple,
         args.vulkan_max_allocation,
-        args.download_ir,
         args.upload_ir,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()

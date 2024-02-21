@@ -63,12 +63,6 @@ parser.add_argument(
     help="Compile LLM with StreamingLLM optimizations",
 )
 parser.add_argument(
-    "--download_ir",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help="download IR from turbine tank",
-)
-parser.add_argument(
     "--upload_ir",
     action=argparse.BooleanOptionalAction,
     default=False,
@@ -120,7 +114,6 @@ def export_transformer_model(
     vulkan_max_allocation=None,
     streaming_llm=False,
     vmfb_path=None,
-    download_ir=False,
     upload_ir=False,
 ):
     tokenizer = AutoTokenizer.from_pretrained(
@@ -128,9 +121,6 @@ def export_transformer_model(
         use_fast=False,
         token=hf_auth_token,
     )
-
-    if download_ir:
-        return turbine_tank.downloadModelArtifacts(hf_model_name), tokenizer
 
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
@@ -410,8 +400,6 @@ def export_transformer_model(
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    if args.upload_ir and args.download_ir:
-        raise ValueError("upload_ir and download_ir can't both be true")
     mod_str, _ = export_transformer_model(
         args.hf_model_name,
         args.hf_auth_token,
@@ -425,7 +413,6 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.streaming_llm,
         args.vmfb_path,
-        args.download_ir,
         args.upload_ir,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
