@@ -138,13 +138,13 @@ def export_vae_model(
     inst = CompiledVae(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, f"-{precision}-vae-{variant}-{device}")
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"-{precision}-vae-{variant}-{device}"
+    )
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name
-        )
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
 
 if __name__ == "__main__":
@@ -167,7 +167,9 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.variant,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, f"-{args.precision}-vae-{args.variant}")
+    safe_name = utils.create_safe_name(
+        args.hf_model_name, f"-{args.precision}-vae-{args.variant}"
+    )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")
