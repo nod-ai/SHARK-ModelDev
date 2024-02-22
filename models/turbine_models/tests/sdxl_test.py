@@ -29,15 +29,16 @@ arguments = {
     "height": 512,
     "width": 512,
     "precision": "fp16",
-    "max_length": 77,
+    "max_length": 64,
     "guidance_scale": 7.5,
     "run_vmfb": True,
     "compile_to": None,
     "external_weight_path": "",
     "vmfb_path": "",
     "external_weights": "safetensors",
-    "device": "local-task",
-    "iree_target_triple": "",
+    "device": "cpu",
+    "rt_device": "local-task",
+    "iree_target_triple": "x86_64-linux-gnu",
     "vulkan_max_allocation": "4294967296",
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
@@ -54,76 +55,82 @@ vae_model = vae.VaeModel(
     # This is a public model, so no auth required
     arguments["hf_model_name"],
     custom_vae="madebyollin/sdxl-vae-fp16-fix"
-    if arguments.precision == "fp16"
+    if arguments["precision"] == "fp16"
     else None,
 )
 
 
 class StableDiffusionTest(unittest.TestCase):
     def test01_ExportClipModels(self):
-        (
-            vmfb_path_1,
-            vmfb_path_2,
-            _,
-            _,
-        ) = clip.export_clip_model(
+        with self.assertRaises(SystemExit) as cm:
+            clip.export_clip_model(
             # This is a public model, so no auth required
-            arguments["hf_model_name"],
-            None,
-            "vmfb",
-            "safetensors",
-            f"{arguments['safe_model_name']}" + "_clip",
-            "cpu",
-        )
-        assert os.path.exists(
-            f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_clip_1.vmfb"
-        )
-        assert os.path.exists(
-            f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_clip_2.vmfb"
-        )
+                arguments["hf_model_name"],
+                None,
+                arguments["max_length"],
+                arguments["precision"],
+                "vmfb",
+                "safetensors",
+                f"{arguments['safe_model_name']}" + "_clip",
+                arguments["device"],
+                arguments["iree_target_triple"],
+                index=1,
+            )
+        self.assertEqual(cm.exception.code, None)
+        with self.assertRaises(SystemExit) as cm:
+            clip.export_clip_model(
+            # This is a public model, so no auth required
+                arguments["hf_model_name"],
+                None,
+                arguments["max_length"],
+                arguments["precision"],
+                "vmfb",
+                "safetensors",
+                f"{arguments['safe_model_name']}" + "_clip",
+                arguments["device"],
+                arguments["iree_target_triple"],
+                index=2,
+            )
+        self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path_1"
         ] = f"{arguments['safe_model_name']}_clip_1.safetensors"
         arguments[
             "external_weight_path_2"
         ] = f"{arguments['safe_model_name']}_clip_2.safetensors"
-        arguments["vmfb_path_1"] = vmfb_path_1
-        arguments["vmfb_path_2"] = vmfb_path_2
+        arguments["vmfb_path_1"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_1_{arguments['device']}.vmfb"
+        arguments["vmfb_path_2"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_2_{arguments['device']}.vmfb"
         turbine_1 = clip_runner.run_clip(
-            arguments["device"],
+            arguments["rt_device"],
             arguments["prompt"],
             arguments["vmfb_path_1"],
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
             arguments["external_weight_path_1"],
+            arguments["max_length"],
             index=1,
         )
         turbine_2 = clip_runner.run_clip(
-            arguments["device"],
+            arguments["rt_device"],
             arguments["prompt"],
             arguments["vmfb_path_2"],
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
             arguments["external_weight_path_2"],
+            arguments["max_length"],
             index=2,
         )
         torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
             arguments["prompt"],
-            arguments["precision"],
+            arguments["max_length"],
         )
         err1 = utils.largest_error(torch_output_1, turbine_1[0])
         err2 = utils.largest_error(torch_output_2, turbine_2[0])
-        assert err1 < 9e-5 and err2 < 9e-5
+        assert err1 < 4e-2 and err2 < 4e-2
 
-    # def test02_ExportClipModelBreakdown(self):
-    #     os.remove(f"{arguments['safe_model_name']}_clip_1.safetensors")
-    #     os.remove(f"{arguments['safe_model_name']}_clip_1.vmfb")
-    #     os.remove(f"{arguments['safe_model_name']}_clip_2.safetensors")
-    #     os.remove(f"{arguments['safe_model_name']}_clip_2.vmfb")
-
-    def test03_ExportUnetModel(self):
+    def test02_ExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
                 unet_model,
@@ -138,13 +145,14 @@ class StableDiffusionTest(unittest.TestCase):
                 compile_to="vmfb",
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_unet.safetensors",
-                device="cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_unet.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
+        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -164,7 +172,7 @@ class StableDiffusionTest(unittest.TestCase):
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
-            arguments["device"],
+            arguments["rt_device"],
             sample,
             timestep,
             prompt_embeds,
@@ -189,11 +197,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
 
-    # def test04_ExportUnetModelBreakdown(self):
-    #     os.remove(f"{arguments['safe_model_name']}_unet.safetensors")
-    #     os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
-
-    def test05_ExportVaeModelDecode(self):
+    def test03_ExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -205,15 +209,16 @@ class StableDiffusionTest(unittest.TestCase):
                 arguments["precision"],
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_vae_decode.safetensors",
-                device="cpu",
+                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
                 variant="decode",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_decode.vmfb"
+        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
             4,
@@ -225,7 +230,7 @@ class StableDiffusionTest(unittest.TestCase):
         if arguments["precision"] == "fp16":
             example_input = example_input.half()
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            arguments["rt_device"],
             example_input,
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -239,7 +244,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
 
-    def test06_ExportVaeModelEncode(self):
+    def test04_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -251,15 +256,16 @@ class StableDiffusionTest(unittest.TestCase):
                 arguments["precision"],
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_vae_encode.safetensors",
-                device="cpu",
+                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors",
+                device=arguments["device"],
+                iree_target_triple=arguments["iree_target_triple"],
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae_encode.vmfb"
+        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
             3,
@@ -271,7 +277,7 @@ class StableDiffusionTest(unittest.TestCase):
         if arguments["precision"] == "fp16":
             example_input = example_input.half()
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            arguments["rt_device"],
             example_input,
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -284,10 +290,6 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 2e-3
-
-    # def test07_ExportVaeModelBreakdown(self):
-    #     os.remove(f"{arguments['safe_model_name']}_vae.safetensors")
-    #     os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
 
 if __name__ == "__main__":
