@@ -131,11 +131,19 @@ def export_clip_model(
         return module_str, tokenizer
     elif exit_on_vmfb == False:
         vmfb_path = utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name, return_path=True
+            module_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name,
+            return_path=True,
+            const_eval=True,
         )
         return None, vmfb_path
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        utils.compile_to_vmfb(
+            module_str, device, target_triple, max_alloc, safe_name, const_eval=True
+        )
 
 
 if __name__ == "__main__":

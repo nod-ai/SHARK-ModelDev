@@ -53,7 +53,6 @@ parser.add_argument(
     default="local-task",
     help="local-sync, local-task, cuda, vulkan, rocm",
 )
-
 parser.add_argument(
     "--prompt",
     type=str,

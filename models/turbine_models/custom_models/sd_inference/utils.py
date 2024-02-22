@@ -30,7 +30,13 @@ def largest_error(array1, array2):
 
 
 def compile_to_vmfb(
-    module_str, device, target_triple, max_alloc, safe_name, return_path=False
+    module_str,
+    device,
+    target_triple,
+    max_alloc,
+    safe_name,
+    return_path=False,
+    const_eval=False,
 ):
     flags = [
         "--iree-input-type=torch",
@@ -81,6 +87,14 @@ def compile_to_vmfb(
         )
     else:
         print("incorrect device: ", device)
+    if const_eval == False:
+        flags.extend(
+            [
+                "--iree-opt-const-expr-hoisting=False",
+                "--iree-codegen-linalg-max-constant-fold-elements=9223372036854775807",
+                "--iree-opt-const-eval=False",
+            ]
+        )
 
     flatbuffer_blob = ireec.compile_str(
         module_str,
