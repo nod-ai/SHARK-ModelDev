@@ -26,6 +26,7 @@ def save_external_weights(
 def largest_error(array1, array2):
     absolute_diff = np.abs(array1 - array2)
     max_error = np.max(absolute_diff)
+    print("Max error:", max_error)
     return max_error
 
 
@@ -92,7 +93,10 @@ def compile_to_vmfb(
             [
                 "--iree-opt-const-expr-hoisting=False",
                 "--iree-codegen-linalg-max-constant-fold-elements=9223372036854775807",
-                "--iree-opt-const-eval=False",
+                "--iree-flow-collapse-reduction-dims",
+                "--iree-opt-strip-assertions=true",
+                "--verify=false",
+                "--iree-llvmcpu-distribution-size=32",
             ]
         )
 
