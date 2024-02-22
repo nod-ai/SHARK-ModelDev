@@ -140,11 +140,13 @@ def export_transformer_model(
     )
 
     mapper = {}
+    param_set = set()
     if external_weights is not None:
         if external_weights == "safetensors":
             mod_params = dict(mod.named_parameters())
             for name in mod_params:
                 mapper["params." + name] = name
+                param_set.add(name)
             if external_weight_file:
                 safetensors.torch.save_file(mod_params, external_weight_file)
 
@@ -313,8 +315,12 @@ def export_transformer_model(
     if quantization == "int4" and not compile_to == "linalg":
         from shark_turbine.transforms.quantization import mm_group_quant
 
+        print(param_set)
+        if "lm_head.weight" in param_set:
+            param_set.remove("lm_head.weight")
         mm_group_quant.MMGroupQuantRewriterPass(
-            CompiledModule.get_mlir_module(inst).operation
+            CompiledModule.get_mlir_module(inst).operation,
+            param_names=param_set,
         ).run()
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = hf_model_name.split("/")[-1].strip()

@@ -38,6 +38,8 @@ __all__ = [
     "OpMatchResult",
     "Pass",
     "Transpose2DMatcher",
+    "PermuteMatcher",
+    "Transposed2DViewMatcher",
     "match_children",
     "pass_main",
 ]
@@ -192,6 +194,55 @@ class Transpose2DMatcher(NamedOpMatcher):
         ):
             return None
         return result
+
+
+class PermuteResult(OpMatchResult):
+    @property
+    def input(self) -> Value:
+        return self.op.operands[0]
+
+
+class PermuteMatcher(NamedOpMatcher):
+    def __init__(self, permutation: list[int]):
+        super().__init__("torch.aten.permute")
+        self.permutation = permutation
+
+    def match(self, op: Operation) -> Optional[PermuteResult]:
+        list_construct = NamedOpMatcher("torch.prim.ListConstruct")(op.operands[1])
+        if not list_construct:
+            return None
+        list_construct = list_construct.op
+        if len(self.permutation) != len(list_construct.operands):
+            return None
+        for i, list_item in enumerate(list_construct.operands):
+            if not ConstantIntMatcher(self.permutation[i])(list_item):
+                return None
+        return PermuteResult(op)
+
+
+class Transposed2DViewResult(OpMatchResult):
+    @property
+    def input(self) -> Value:
+        return self.op.operands[0]
+
+
+class Transposed2DViewMatcher(NamedOpMatcher):
+    def __init__(self, builder: Builder):
+        super().__init__("torch.aten.view")
+        self.builder = builder
+
+    def match(self, op: Operation) -> Optional[Transposed2DViewResult]:
+        list_construct = NamedOpMatcher("torch.prim.ListConstruct")(op.operands[1])
+        if not list_construct:
+            return None
+        list_construct = list_construct.op
+        if len(list_construct.operands) != 2:
+            return None
+        tensor_dims = self.builder.get_tensor_dims(op.operands[0].type)
+        if not ConstantIntMatcher(tensor_dims[0])(list_construct.operands[1]) or \
+           not ConstantIntMatcher(tensor_dims[1])(list_construct.operands[0]):
+            return None
+        return Transposed2DViewResult(op)
 
 
 class ConstantIntMatcher(NamedOpMatcher):

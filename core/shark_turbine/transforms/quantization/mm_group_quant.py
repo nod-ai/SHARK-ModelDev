@@ -49,8 +49,42 @@ class TransposedMMMatcher(NamedOpMatcher):
     def match(self, op: Operation):
         weight_transpose = Transpose2DMatcher()(op.operands[1])
         if not weight_transpose:
+            weight_transpose = PermuteMatcher([1, 0])(op.operands[1])
+        if not weight_transpose:
             return None
         weight_load = GlobalLoadMatcher(self.globals)(weight_transpose.input)
+        if not weight_load or not weight_load.resolved_global:
+            return None
+
+        m, n = self.builder.get_tensor_dims(op.operands[0].type)
+        _, k = self.builder.get_tensor_dims(op.operands[1].type)
+        return TransposedMMResult(
+            op,
+            weight_global=weight_load.resolved_global,
+            param_name=weight_load.global_ref,
+            m=m,
+            n=n,
+            k=k,
+            element_type=self.builder.get_tensor_element_type(op.operands[0].type),
+        )
+
+
+class ViewTransposedMMMatcher(NamedOpMatcher):
+    def __init__(self, globals: GlobalsDict, builder: Builder):
+        super().__init__("torch.aten.mm")
+        self.globals = globals
+        self.builder = builder
+
+    def match(self, op: Operation):
+        weight_transpose = Transpose2DMatcher()(op.operands[1])
+        if not weight_transpose:
+            weight_transpose = PermuteMatcher([1, 0])(op.operands[1])
+        if not weight_transpose:
+            return None
+        weight_view = Transposed2DViewMatcher(self.builder)(weight_transpose.input)
+        if not weight_view:
+            return None
+        weight_load = GlobalLoadMatcher(self.globals)(weight_view.input)
         if not weight_load or not weight_load.resolved_global:
             return None
 
@@ -125,19 +159,28 @@ module {{
 
 
 class MMGroupQuantRewriterPass(Pass):
-    def __init__(self, root_op: Operation, *, group_size: int = 128):
+    def __init__(self, root_op: Operation, *, group_size: int = 128, param_names: Optional[set] = None):
         super().__init__(root_op)
         self.group_size = group_size
         self.context = root_op.context
+        self.param_names = param_names
 
     def run(self):
         globals = self.globals
         mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
+        view_mms = match_children(self.funcs, ViewTransposedMMMatcher(globals, self.builder))
 
         for mr in mms:
             if mr.k is None or mr.n is None:
                 continue
             if (mr.k % self.group_size) != 0:
+                continue
+            self.rewrite(mr)
+        
+        for mr in view_mms:
+            if mr.k is None or mr.n is None:
+                continue
+            if (mr.k % self.group_size) != 0 or (mr.n % self.group_size):
                 continue
             self.rewrite(mr)
 
@@ -146,8 +189,7 @@ class MMGroupQuantRewriterPass(Pass):
 
     def rewrite(self, mr: TransposedMMResult):
         none_to_q = lambda x: "?" if x is None else x
-        # TODO (ian): make generalizable and not specific for brevitas
-        if "lm_head.weight" not in mr.param_name:
+        if self.param_names is None or mr.param_name[8:] in self.param_names:
             inline_module_asm = GROUP_MATMUL_TEMPLATE.format(
                 # TODO (ian): Fix skipping the "_params." portion of the name to match safetensor format with RenameParametersPass
                 param_name=mr.param_name[8:],
