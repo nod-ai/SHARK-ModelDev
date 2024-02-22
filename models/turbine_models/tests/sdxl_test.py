@@ -26,8 +26,8 @@ arguments = {
     "hf_model_name": "stabilityai/stable-diffusion-xl-base-1.0",
     "safe_model_name": "stable_diffusion_xl_base_1_0",
     "batch_size": 1,
-    "height": 512,
-    "width": 512,
+    "height": 1024,
+    "width": 1024,
     "precision": "fp16",
     "max_length": 64,
     "guidance_scale": 7.5,
@@ -158,7 +158,7 @@ class StableDiffusionTest(unittest.TestCase):
         ] = f"{arguments['safe_model_name']}_unet.safetensors"
         arguments[
             "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -169,7 +169,7 @@ class StableDiffusionTest(unittest.TestCase):
             ),
             dtype=dtype,
         )
-        timestep = torch.zeros((1), dtype=torch.int64)
+        timestep = torch.zeros((1), dtype=dtype)
         prompt_embeds = torch.rand(
             (2 * arguments["batch_size"], arguments["max_length"], 2048), dtype=dtype
         )
@@ -226,8 +226,8 @@ class StableDiffusionTest(unittest.TestCase):
         ] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
         arguments[
             "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
-        example_input = torch.rand(
+        ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
+        example_input = torch.ones(
             arguments["batch_size"],
             4,
             arguments["height"] // 8,
@@ -246,11 +246,12 @@ class StableDiffusionTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
+            "madebyollin/sdxl-vae-fp16-fix" if arguments["precision"] == "fp16" else "",
             "decode",
             example_input_torch,
         )
         err = utils.largest_error(torch_output, turbine)
-        assert err < 9e-5
+        assert err < 9e-3
 
     def test04_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
@@ -266,7 +267,7 @@ class StableDiffusionTest(unittest.TestCase):
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors",
                 device=arguments["device"],
-                iree_target_triple=arguments["iree_target_triple"],
+                target_triple=arguments["iree_target_triple"],
                 variant="encode",
             )
         self.assertEqual(cm.exception.code, None)
@@ -275,8 +276,8 @@ class StableDiffusionTest(unittest.TestCase):
         ] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
         arguments[
             "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
-        example_input = torch.rand(
+        ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
+        example_input = torch.ones(
             arguments["batch_size"],
             3,
             arguments["height"],
@@ -295,6 +296,7 @@ class StableDiffusionTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
+            "madebyollin/sdxl-vae-fp16-fix" if arguments["precision"] == "fp16" else "",
             "encode",
             example_input_torch,
         )

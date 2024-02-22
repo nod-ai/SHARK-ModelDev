@@ -51,14 +51,14 @@ def run_vae(device, example_input, vmfb_path, hf_model_name, external_weight_pat
     return results
 
 
-def run_torch_vae(hf_model_name, variant, example_input):
+def run_torch_vae(hf_model_name, custom_vae, variant, example_input):
     from diffusers import AutoencoderKL
 
     class VaeModel(torch.nn.Module):
         def __init__(
             self,
             hf_model_name,
-            custom_vae="",
+            custom_vae=custom_vae,
         ):
             super().__init__()
             self.vae = None
@@ -90,8 +90,7 @@ def run_torch_vae(hf_model_name, variant, example_input):
         def decode_inp(self, inp):
             inp = inp / 0.13025
             x = self.vae.decode(inp, return_dict=False)[0]
-            x = (x / 2 + 0.5).clamp(0, 1)
-            return x.round()
+            return (x / 2 + 0.5).clamp(0, 1)
 
         def encode_inp(self, inp):
             latents = self.vae.encode(inp).latent_dist.sample()
