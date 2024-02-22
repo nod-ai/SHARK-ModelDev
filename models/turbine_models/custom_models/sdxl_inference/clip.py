@@ -62,118 +62,97 @@ def export_clip_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
+    index=1,
     max_alloc=None,
+    exit_on_vmfb=True,
 ):
     # Load the tokenizer and text encoder to tokenize and encode the text.
-    tokenizer_1 = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
-    text_encoder_1_model = CLIPTextModel.from_pretrained(
-        hf_model_name,
-        subfolder="text_encoder",
-        token=hf_auth_token,
-    )
-    tokenizer_2 = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer_2",
-        token=hf_auth_token,
-    )
-    text_encoder_2_model = CLIPTextModelWithProjection.from_pretrained(
-        hf_model_name,
-        subfolder="text_encoder_2",
-        token=hf_auth_token,
-    )
+    if index == 1:
+        tokenizer = CLIPTokenizer.from_pretrained(
+            hf_model_name,
+            subfolder="tokenizer",
+            token=hf_auth_token,
+        )
+        text_encoder_model = CLIPTextModel.from_pretrained(
+            hf_model_name,
+            subfolder="text_encoder",
+            token=hf_auth_token,
+        )
+    elif index == 2:
+        tokenizer = CLIPTokenizer.from_pretrained(
+            hf_model_name,
+            subfolder="tokenizer_2",
+            token=hf_auth_token,
+        )
+        text_encoder_model = CLIPTextModelWithProjection.from_pretrained(
+            hf_model_name,
+            subfolder="text_encoder_2",
+            token=hf_auth_token,
+        )
     if precision == "fp16":
-        text_encoder_1_model = text_encoder_1_model.half()
-        text_encoder_2_model = text_encoder_2_model.half()
+        text_encoder_model = text_encoder_model.half()
+        text_encoder_model = text_encoder_model.half()
     mapper = {}
     if external_weight_path:
-        weights_path_1 = (
+        weights_path = (
             external_weight_path.split(f".{external_weights}")[0]
-            + "_1"
-            + f".{external_weights}"
-        )
-        weights_path_2 = (
-            external_weight_path.split(f".{external_weights}")[0]
-            + "_2"
+            + f"_{index}"
             + f".{external_weights}"
         )
     else:
-        weights_path_1 = None
-        weights_path_2 = None
+        weights_path = None
 
     utils.save_external_weights(
-        mapper, text_encoder_1_model, external_weights, weights_path_1
+        mapper, text_encoder_model, external_weights, weights_path
     )
-    utils.save_external_weights(
-        mapper, text_encoder_2_model, external_weights, weights_path_2
-    )
-    class CompiledClip1(CompiledModule):
+    class CompiledClip(CompiledModule):
         if external_weights:
             params = export_parameters(
-                text_encoder_1_model,
+                text_encoder_model,
                 external=True,
                 external_scope="",
                 name_mapper=mapper.get,
             )
         else:
-            params = export_parameters(text_encoder_1_model)
+            params = export_parameters(text_encoder_model)
 
         def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
-            return jittable(text_encoder_1_model.forward)(inp)
-
-    class CompiledClip2(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                text_encoder_2_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(text_encoder_2_model)
-
-        def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
-            return jittable(text_encoder_2_model.forward)(inp)
+            return jittable(text_encoder_model.forward)(inp)
+        
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst1 = CompiledClip1(context=Context(), import_to=import_to)
-    inst2 = CompiledClip2(context=Context(), import_to=import_to)
+    inst = CompiledClip(context=Context(), import_to=import_to)
 
-    module_1_str = str(CompiledModule.get_mlir_module(inst1))
-    module_2_str = str(CompiledModule.get_mlir_module(inst2))
-    safe_name_1 = utils.create_safe_name(hf_model_name, f"-{str(args.max_length)}-{precision}-clip-1")
-    safe_name_2 = utils.create_safe_name(hf_model_name, f"-{str(args.max_length)}-{precision}-clip-2")
+
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    safe_name = utils.create_safe_name(hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}")
     if compile_to != "vmfb":
-        return module_1_str, module_2_str, tokenizer_1, tokenizer_2
+        return module_str, tokenizer
+    elif exit_on_vmfb == False:
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name,
+            return_path=True
+        )
+        return None, vmfb_path
     else:
-        vmfb_path_1 = utils.compile_to_vmfb(
-            module_1_str,
+        utils.compile_to_vmfb(
+            module_str,
             device,
             target_triple,
             max_alloc,
-            safe_name_1,
-            return_path=True,
+            safe_name
         )
-        vmfb_path_2 = utils.compile_to_vmfb(
-            module_2_str,
-            device,
-            target_triple,
-            max_alloc,
-            safe_name_2,
-            return_path=True,
-        )
-
-        return vmfb_path_1, vmfb_path_2, tokenizer_1, tokenizer_2
 
 
 if __name__ == "__main__":
     import re
 
     args = parser.parse_args()
-    mod_1_str, mod_2_str, _, _ = export_clip_model(
+    mod_1_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
         args.max_length,
@@ -183,7 +162,23 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
+        1,
         args.vulkan_max_allocation,
+        exit_on_vmfb=False,
+    )
+    mod_2_str, _ = export_clip_model(
+        args.hf_model_name,
+        args.hf_auth_token,
+        args.max_length,
+        args.precision,
+        args.compile_to,
+        args.external_weights,
+        args.external_weight_path,
+        args.device,
+        args.iree_target_triple,
+        2,
+        args.vulkan_max_allocation,
+        exit_on_vmfb=True,
     )
     safe_name_1 = safe_name = utils.create_safe_name(
         args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_1"
