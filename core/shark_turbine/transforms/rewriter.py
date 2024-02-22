@@ -239,8 +239,9 @@ class Transposed2DViewMatcher(NamedOpMatcher):
         if len(list_construct.operands) != 2:
             return None
         tensor_dims = self.builder.get_tensor_dims(op.operands[0].type)
-        if not ConstantIntMatcher(tensor_dims[0])(list_construct.operands[1]) or \
-           not ConstantIntMatcher(tensor_dims[1])(list_construct.operands[0]):
+        if not ConstantIntMatcher(tensor_dims[0])(
+            list_construct.operands[1]
+        ) or not ConstantIntMatcher(tensor_dims[1])(list_construct.operands[0]):
             return None
         return Transposed2DViewResult(op)
 

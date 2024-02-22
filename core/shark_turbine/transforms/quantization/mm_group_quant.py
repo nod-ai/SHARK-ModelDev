@@ -159,7 +159,13 @@ module {{
 
 
 class MMGroupQuantRewriterPass(Pass):
-    def __init__(self, root_op: Operation, *, group_size: int = 128, param_names: Optional[set] = None):
+    def __init__(
+        self,
+        root_op: Operation,
+        *,
+        group_size: int = 128,
+        param_names: Optional[set] = None,
+    ):
         super().__init__(root_op)
         self.group_size = group_size
         self.context = root_op.context
@@ -168,7 +174,9 @@ class MMGroupQuantRewriterPass(Pass):
     def run(self):
         globals = self.globals
         mms = match_children(self.funcs, TransposedMMMatcher(globals, self.builder))
-        view_mms = match_children(self.funcs, ViewTransposedMMMatcher(globals, self.builder))
+        view_mms = match_children(
+            self.funcs, ViewTransposedMMMatcher(globals, self.builder)
+        )
 
         for mr in mms:
             if mr.k is None or mr.n is None:
@@ -176,7 +184,7 @@ class MMGroupQuantRewriterPass(Pass):
             if (mr.k % self.group_size) != 0:
                 continue
             self.rewrite(mr)
-        
+
         for mr in view_mms:
             if mr.k is None or mr.n is None:
                 continue
