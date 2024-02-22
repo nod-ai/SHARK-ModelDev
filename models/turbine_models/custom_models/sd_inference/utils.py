@@ -1,5 +1,6 @@
 import iree.compiler as ireec
 import numpy as np
+import os
 import safetensors
 import re
 from diffusers import (
@@ -18,7 +19,7 @@ def save_external_weights(
             mod_params = dict(model.named_parameters())
             for name in mod_params:
                 mapper["params." + name] = name
-            if external_weight_file:
+            if external_weight_file and not os.path.isfile(external_weight_file):
                 safetensors.torch.save_file(mod_params, external_weight_file)
                 print("Saved params to", external_weight_file)
 

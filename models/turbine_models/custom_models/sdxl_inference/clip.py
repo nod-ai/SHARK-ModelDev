@@ -129,6 +129,8 @@ def export_clip_model(
     )
     if compile_to != "vmfb":
         return module_str, tokenizer
+    elif os.path.isfile(safe_name + ".vmfb"):
+        exit()
     elif exit_on_vmfb == False:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
