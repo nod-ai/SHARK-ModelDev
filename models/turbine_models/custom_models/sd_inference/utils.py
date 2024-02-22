@@ -19,7 +19,6 @@ def save_external_weights(
             for name in mod_params:
                 mapper["params." + name] = name
             if external_weight_file:
-                print("Saving params to", external_weight_file)
                 safetensors.torch.save_file(mod_params, external_weight_file)
                 print("Saved params to", external_weight_file)
 
@@ -37,14 +36,19 @@ def compile_to_vmfb(
         "--iree-input-type=torch",
         "--mlir-print-debuginfo",
         "--mlir-print-op-on-diagnostic=false",
-        "--iree-llvmcpu-target-cpu-features=host",
-        "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
         "--iree-stream-resource-index-bits=64",
         "--iree-vm-target-index-bits=64",
         "--iree-flow-inline-constants-max-byte-length=1",
     ]
     if device == "cpu":
-        flags.append("--iree-llvmcpu-enable-ukernels=all")
+        flags.extend(
+            [
+                "--iree-llvmcpu-target-triple=" + target_triple,
+                "--iree-llvmcpu-target-cpu-features=host",
+                "--iree-llvmcpu-enable-ukernels=all",
+                "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
+            ]
+        )
         device = "llvm-cpu"
     elif device == "vulkan":
         flags.extend(

@@ -105,7 +105,7 @@ def run_clip(
         )
         example_input = text_input.input_ids
         inp = [ireert.asdevicearray(runner.config.device, example_input)]
-        results = runner.ctx.modules.compiled_clip1["main"](*inp)
+        results = runner.ctx.modules.compiled_clip["main"](*inp)
     elif index == 2:
         text_input = tokenizer_2(
             prompt,
@@ -116,7 +116,7 @@ def run_clip(
         )
         example_input = text_input.input_ids
         inp = [ireert.asdevicearray(runner.config.device, example_input)]
-        results = runner.ctx.modules.compiled_clip2["main"](*inp)
+        results = runner.ctx.modules.compiled_clip["main"](*inp)
     else:
         print("Incorrect CLIP model index, please use 1 or 2")
         exit(1)
@@ -125,7 +125,7 @@ def run_clip(
 
 
 def run_torch_clip(
-    hf_model_name, hf_auth_token, prompt, precision="fp16", max_length=77
+    hf_model_name, hf_auth_token, prompt, max_length=77
 ):
     # TODO: Integrate with HFTransformerBuilder
     from transformers import CLIPTextModel, CLIPTextModelWithProjection
