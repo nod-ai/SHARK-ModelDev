@@ -64,7 +64,7 @@ class StableDiffusionTest(unittest.TestCase):
     def test01_ExportClipModels(self):
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-            # This is a public model, so no auth required
+                # This is a public model, so no auth required
                 arguments["hf_model_name"],
                 None,
                 arguments["max_length"],
@@ -79,7 +79,7 @@ class StableDiffusionTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, None)
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-            # This is a public model, so no auth required
+                # This is a public model, so no auth required
                 arguments["hf_model_name"],
                 None,
                 arguments["max_length"],
@@ -98,8 +98,12 @@ class StableDiffusionTest(unittest.TestCase):
         arguments[
             "external_weight_path_2"
         ] = f"{arguments['safe_model_name']}_clip_2.safetensors"
-        arguments["vmfb_path_1"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_1_{arguments['device']}.vmfb"
-        arguments["vmfb_path_2"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_2_{arguments['device']}.vmfb"
+        arguments[
+            "vmfb_path_1"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_1_{arguments['device']}.vmfb"
+        arguments[
+            "vmfb_path_2"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_2_{arguments['device']}.vmfb"
         turbine_1 = clip_runner.run_clip(
             arguments["rt_device"],
             arguments["prompt"],
@@ -152,7 +156,9 @@ class StableDiffusionTest(unittest.TestCase):
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_unet.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
+        arguments[
+            "vmfb_path"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -218,7 +224,9 @@ class StableDiffusionTest(unittest.TestCase):
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
+        arguments[
+            "vmfb_path"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
             4,
@@ -265,7 +273,9 @@ class StableDiffusionTest(unittest.TestCase):
         arguments[
             "external_weight_path"
         ] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
-        arguments["vmfb_path"] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
+        arguments[
+            "vmfb_path"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
         example_input = torch.rand(
             arguments["batch_size"],
             3,

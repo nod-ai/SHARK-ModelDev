@@ -105,6 +105,7 @@ def export_clip_model(
     utils.save_external_weights(
         mapper, text_encoder_model, external_weights, weights_path
     )
+
     class CompiledClip(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -118,34 +119,23 @@ def export_clip_model(
 
         def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
             return jittable(text_encoder_model.forward)(inp)
-        
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
 
-
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}")
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
+    )
     if compile_to != "vmfb":
         return module_str, tokenizer
     elif exit_on_vmfb == False:
         vmfb_path = utils.compile_to_vmfb(
-            module_str,
-            device,
-            target_triple,
-            max_alloc,
-            safe_name,
-            return_path=True
+            module_str, device, target_triple, max_alloc, safe_name, return_path=True
         )
         return None, vmfb_path
     else:
-        utils.compile_to_vmfb(
-            module_str,
-            device,
-            target_triple,
-            max_alloc,
-            safe_name
-        )
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
 
 
 if __name__ == "__main__":
