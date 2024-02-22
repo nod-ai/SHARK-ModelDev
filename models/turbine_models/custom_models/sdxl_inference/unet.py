@@ -170,7 +170,12 @@ def export_unet_model(
         return module_str
     else:
         utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name, return_path=False
+            module_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name,
+            return_path=False,
         )
 
 
