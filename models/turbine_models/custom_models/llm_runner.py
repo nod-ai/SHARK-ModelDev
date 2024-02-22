@@ -154,7 +154,6 @@ class SharkLLM(object):
                 print("Evicting cache space!")
                 self.model["evict_kvcache_space"]()
             results = self.model["run_forward"](results)
-            print(np.argmax(self.model["get_global_state"]().to_host()))
             # uncomment to see tokens as they are emitted
             print(f"turbine: {tokenizer.decode(self.format_out(results))}")
             turbine_results.append(self.format_out(results))
@@ -256,6 +255,7 @@ def run_torch_llm(hf_model_name, hf_auth_token, prompt, streaming_llm=False):
 
 
 if __name__ == "__main__":
+    np.set_printoptions(precision=15)
     args = parser.parse_args()
     print("generating turbine output: ")
     turbine_output = run_llm(

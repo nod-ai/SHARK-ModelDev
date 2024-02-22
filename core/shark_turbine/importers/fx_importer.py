@@ -955,11 +955,11 @@ def _make_vtensor_literal_op(
         print("TENSOR SHAPE: ")
         print(tensor.shape)
         print(tensor.dtype)
-        print(tensor)
+        print(tensor.name)
         try:
             np_tensor = np.array(tensor.tolist()).astype(npy_dtype)
         except AssertionError:
-            np_tensor = np.zeros(tensor.shape, npy_dtype)
+            np_tensor = np.ones(tensor.shape, npy_dtype)
         # One element constants are more optimizable as splat DenseElementsAttr. DenseResourceElementsAttr does not
         # support splats, so don't use it for that case. In addition, at the time of writing, it has bugs with handling
         # 0d tensors.

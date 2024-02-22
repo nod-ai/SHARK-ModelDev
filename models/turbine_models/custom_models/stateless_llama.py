@@ -93,6 +93,9 @@ def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim, num_layers):
 
     return all_pkv_tensors
 
+def slice_position_ids(seq_step, input_size, pos_ids):
+    sliced = IREE.tensor_slice(pos_ids, 0, (seq_step, input_size))
+    return sliced
 
 def export_transformer_model(
     hf_model_name,
@@ -119,6 +122,7 @@ def export_transformer_model(
     print(mod)
     print(mod.config.num_attention_heads)
     print(mod.config)
+    mod.config.use_dynamic_ntk_alpha=False
     if streaming_llm:
         enable_llama_pos_shift_attention(mod)
     dtype = torch.float32
@@ -143,6 +147,12 @@ def export_transformer_model(
         size=(NUM_LAYERS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
         dtype=dtype,
     )
+    #position ids is the position of the tokens
+    position_ids = torch.arange(
+                    0,
+                    MAX_STEP_SEQ,
+                    dtype=torch.long,
+                ).unsqueeze(0)
 
     mapper = {}
     if external_weights is not None:
@@ -167,11 +177,15 @@ def export_transformer_model(
         global_state = export_global(
             abstractify(global_pkv), uninitialized=True, mutable=True
         )
+        pos_ids = export_global(abstractify(position_ids), uninitialized=False, mutable=False)
         global_seq_step = export_global(AbstractIndex, mutable=True)
 
         def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) <= 16]
-            token, *state = self.initialize(x, constraints=init_const)
+            #number of tokens
+            input_size = IREE.tensor_dim(x, 1)
+            pos_id_input = slice_position_ids(0, input_size, self.pos_ids)
+            init_const = [x.dynamic_dim(1) <= 16, pos_id_input.dynamic_dim(1) == x.dynamic_dim(1)]
+            token, *state = self.initialize(x, position_ids=pos_id_input, constraints=init_const)
             self.global_seq_step = IREE.tensor_dim(
                 state[0], 1
             )  # ? dimension of arbitrarily 0th kv tensor
@@ -188,15 +202,18 @@ def export_transformer_model(
             state_arg = slice_up_to_step(
                 self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, NUM_LAYERS
             )
+            input_size = IREE.tensor_dim(x, 1)
+            pos_id_input = slice_position_ids(self.global_seq_step, input_size, self.pos_ids)
             forw_const = (
-                [state_arg[0].dynamic_dim(1) < 16]
+                [state_arg[0].dynamic_dim(1) < 4]
                 + [
                     x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
                     for x in state_arg[1:]
                 ]
                 + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
             )
-            token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
+            forw_const += [pos_id_input.dynamic_dim(1)==state_arg[0].dynamic_dim(1)]
+            token, *state_update = self.forward(x, pos_id_input, *state_arg, constraints=forw_const)
             for i in range(NUM_LAYERS * 2):
                 update = IREE.tensor_reshape(
                     state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
@@ -215,8 +232,8 @@ def export_transformer_model(
             return self.global_seq_step
 
         @jittable
-        def initialize(input_ids):
-            result = mod.forward(input_ids)
+        def initialize(input_ids, position_ids):
+            result = mod.forward(input_ids, position_ids=position_ids)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
             token1 = torch.argmax(result.logits[:, -1, :], dim=1)
             token1 = token1[None, :]
@@ -224,11 +241,11 @@ def export_transformer_model(
             return token1, *state1_flat
 
         @jittable
-        def forward(token0: torch.Tensor, *state0_flat):
+        def forward(token0: torch.Tensor, pos_id_input, *state0_flat):
             # Unpad the states.
             #state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
             state0 = pytree.tree_unflatten(state0_flat, state_schema)
-            result = mod.forward(token0, past_key_values=state0)
+            result = mod.forward(token0, position_ids=pos_id_input, past_key_values=state0)
             state1_flat, _ = pytree.tree_flatten(result.past_key_values)
             #state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
             state1_flat = [x[:, -1, :, :].reshape(1,1,HEADS,HIDDEN_DIM) for x in state1_flat]
