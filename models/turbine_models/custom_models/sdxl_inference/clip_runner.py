@@ -124,9 +124,7 @@ def run_clip(
     return results
 
 
-def run_torch_clip(
-    hf_model_name, hf_auth_token, prompt, max_length=77
-):
+def run_torch_clip(hf_model_name, hf_auth_token, prompt, max_length=77):
     # TODO: Integrate with HFTransformerBuilder
     from transformers import CLIPTextModel, CLIPTextModelWithProjection
 
