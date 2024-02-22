@@ -150,7 +150,7 @@ if __name__ == "__main__":
     sample = torch.rand(
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
-    timestep = torch.zeros(1, dtype=torch.int64)
+    timestep = torch.zeros(1, dtype=dtype)
     prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)

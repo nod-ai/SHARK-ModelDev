@@ -151,7 +151,7 @@ def export_unet_model(
         def main(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
-            timestep=AbstractTensor(1, dtype=torch.int64),
+            timestep=AbstractTensor(1, dtype=dtype),
             prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
             text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
             time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
@@ -165,7 +165,9 @@ def export_unet_model(
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, f"_{max_length}_unet-{device}")
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_{max_length}_{height}x{width}_unet_{device}"
+    )
     if compile_to != "vmfb":
         return module_str
     else:
@@ -204,7 +206,10 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, f"_{args.max_length}_unet")
+    safe_name = utils.create_safe_name(
+        args.hf_model_name,
+        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+    )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")

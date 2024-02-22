@@ -90,8 +90,7 @@ class VaeModel(torch.nn.Module):
     def decode_inp(self, inp):
         inp = inp / 0.13025
         x = self.vae.decode(inp, return_dict=False)[0]
-        x = (x / 2 + 0.5).clamp(0, 1)
-        return x.round()
+        return (x / 2 + 0.5).clamp(0, 1)
 
     def encode_inp(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
@@ -139,7 +138,7 @@ def export_vae_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = utils.create_safe_name(
-        hf_model_name, f"-{precision}-vae-{variant}-{device}"
+        hf_model_name, f"_{height}x{width}_{precision}_vae_{variant}_{device}"
     )
     if compile_to != "vmfb":
         return module_str
