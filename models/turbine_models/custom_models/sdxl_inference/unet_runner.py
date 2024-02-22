@@ -1,7 +1,7 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from transformers import CLIPTokenizer
 from iree import runtime as ireert
+import time
 import torch
 
 parser = argparse.ArgumentParser()
@@ -65,6 +65,7 @@ def run_unet(
     hf_model_name,
     hf_auth_token,
     external_weight_path,
+    benchmark=False,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
@@ -76,7 +77,13 @@ def run_unet(
         ireert.asdevicearray(runner.config.device, time_ids),
         ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
+
+    unet_start = time.time()
     results = runner.ctx.modules.compiled_unet["main"](*inputs)
+    unet_time = (time.time() - unet_start) * 1000
+    if benchmark:
+        print(f"unet inference time: {unet_time:.3f} ms")
+
     return results
 
 

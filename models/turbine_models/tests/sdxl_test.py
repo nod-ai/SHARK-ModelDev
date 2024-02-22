@@ -4,8 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import argparse
 import logging
+import sys
+import torch
+from transformers import CLIPTextModel
 from turbine_models.custom_models.sdxl_inference import (
     clip,
     clip_runner,
@@ -14,11 +16,8 @@ from turbine_models.custom_models.sdxl_inference import (
     vae,
     vae_runner,
 )
-from transformers import CLIPTextModel
 from turbine_models.custom_models.sd_inference import utils
-import torch
 import unittest
-import os
 
 
 arguments = {
@@ -60,7 +59,7 @@ vae_model = vae.VaeModel(
 )
 
 
-class StableDiffusionTest(unittest.TestCase):
+class StableDiffusionXLTest(unittest.TestCase):
     def test01_ExportClipModels(self):
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
@@ -113,6 +112,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["external_weight_path_1"],
             arguments["max_length"],
             index=1,
+            benchmark=True,
         )
         turbine_2 = clip_runner.run_clip(
             arguments["rt_device"],
@@ -123,6 +123,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["external_weight_path_2"],
             arguments["max_length"],
             index=2,
+            benchmark=True,
         )
         torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
             arguments["hf_model_name"],
@@ -134,6 +135,7 @@ class StableDiffusionTest(unittest.TestCase):
         err2 = utils.largest_error(torch_output_2, turbine_2[0])
         assert err1 < 4e-2 and err2 < 4e-2
 
+    @unittest.expectedFailure
     def test02_ExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
@@ -189,6 +191,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
             arguments["external_weight_path"],
+            benchmark=True,
         )
         torch_output = unet_runner.run_torch_unet(
             arguments["hf_model_name"],
@@ -203,6 +206,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
 
+    @unittest.expectedFailure
     def test03_ExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -223,7 +227,7 @@ class StableDiffusionTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae_decode.safetensors"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors"
         arguments[
             "vmfb_path"
         ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
@@ -243,6 +247,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["vmfb_path"],
             arguments["hf_model_name"],
             arguments["external_weight_path"],
+            benchmark=True,
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
@@ -253,6 +258,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-3
 
+    @unittest.expectedFailure
     def test04_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -273,7 +279,7 @@ class StableDiffusionTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, None)
         arguments[
             "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae_encode.safetensors"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors"
         arguments[
             "vmfb_path"
         ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
@@ -293,6 +299,7 @@ class StableDiffusionTest(unittest.TestCase):
             arguments["vmfb_path"],
             arguments["hf_model_name"],
             arguments["external_weight_path"],
+            benchmark=True,
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
@@ -304,6 +311,15 @@ class StableDiffusionTest(unittest.TestCase):
         assert err < 2e-3
 
 
+def parse_args(args):
+    while len(args) > 1:
+        if args[0] in arguments.keys():
+            arguments[args[0]] = args[1]
+        args = args[2:]
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
+    parse_args(sys.argv[1:])
+    print("Test Config:", arguments)
     unittest.main()

@@ -1,7 +1,7 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from transformers import CLIPTokenizer
 from iree import runtime as ireert
+import time
 import torch
 
 parser = argparse.ArgumentParser()
@@ -43,11 +43,24 @@ parser.add_argument("--width", type=int, default=1024, help="Width of Stable Dif
 parser.add_argument("--variant", type=str, default="decode")
 
 
-def run_vae(device, example_input, vmfb_path, hf_model_name, external_weight_path):
+def run_vae(
+    device,
+    example_input,
+    vmfb_path,
+    hf_model_name,
+    external_weight_path,
+    benchmark=False,
+):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
-
     inputs = [ireert.asdevicearray(runner.config.device, example_input)]
+
+    vae_start = time.time()
     results = runner.ctx.modules.compiled_vae["main"](*inputs)
+    vae_time = (time.time() - vae_start) * 1000
+    if benchmark:
+        variant = "decode" if "decode" in vmfb_path else "encode"
+        print(f"vae {variant} inference time: {vae_time:.3f} ms")
+
     return results
 
 
