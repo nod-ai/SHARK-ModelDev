@@ -166,10 +166,12 @@ def export_unet_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_unet_{device}"
+        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
     )
     if compile_to != "vmfb":
         return module_str
+    elif os.path.isfile(safe_name + ".vmfb"):
+        exit()
     else:
         utils.compile_to_vmfb(
             module_str,
