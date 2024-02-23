@@ -258,7 +258,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-3
 
-    @unittest.expectedFailure
+    @unittest.expectedFailure()
     def test04_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -312,14 +312,21 @@ class StableDiffusionXLTest(unittest.TestCase):
 
 
 def parse_args(args):
-    while len(args) > 1:
-        if args[0] in arguments.keys():
-            arguments[args[0]] = args[1]
-        args = args[2:]
+    consume_args = []
+    for idx, arg in enumerate(args):
+        if arg in arguments.keys():
+            try:
+                arguments[arg] = int(args[idx + 1])
+            except:
+                arguments[arg] = args[idx + 1]
+            consume_args.extend([idx + 1, idx + 2])
+    return consume_args
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    parse_args(sys.argv[1:])
+    consume_args = parse_args(sys.argv[1:])[::-1]
     print("Test Config:", arguments)
+    for idx in consume_args:
+        del sys.argv[idx]
     unittest.main()
