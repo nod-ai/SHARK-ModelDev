@@ -26,7 +26,7 @@ class SimpleParams(nn.Module):
         return self.classifier(x)
 
 
-class ArgsTest(unittest.TestCase):
+class GlobalsTest(unittest.TestCase):
     def testGlobalParameters(self):
         m = SimpleParams()
 
