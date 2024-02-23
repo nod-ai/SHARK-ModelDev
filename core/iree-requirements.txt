@@ -1,2 +1,7 @@
+<<<<<<< HEAD
 iree-compiler==20240327.844
 iree-runtime==20240327.844
+=======
+iree-compiler>=20240306.822
+iree-runtime>=20240306.822
+>>>>>>> 25dee2b (Bump IREE version to >=20230306.822 for fx importer)
