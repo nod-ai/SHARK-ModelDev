@@ -1268,7 +1268,12 @@ class GraphNodeImporter:
 
             result_types = []
             for v in node.meta["val"]:
-                result_types.append(self._cc.tensor_metadata_to_type(v))
+                if v is not None:
+                    result_types.append(self._cc.tensor_metadata_to_type(v))
+                else:
+                    # get "!torch.none" for None value type
+                    t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(v))
+                    result_types.append(IrType.parse(t, self._c))
             result_types = tuple(result_types)
 
             self._multi_result_nodes.add(node)
