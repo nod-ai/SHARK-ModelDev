@@ -1,7 +1,6 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
-import time
 import torch
 
 parser = argparse.ArgumentParser()
@@ -65,7 +64,6 @@ def run_unet(
     hf_model_name,
     hf_auth_token,
     external_weight_path,
-    benchmark=False,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
@@ -77,12 +75,7 @@ def run_unet(
         ireert.asdevicearray(runner.config.device, time_ids),
         ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
-
-    unet_start = time.time()
     results = runner.ctx.modules.compiled_unet["main"](*inputs)
-    unet_time = (time.time() - unet_start) * 1000
-    if benchmark:
-        print(f"unet inference time: {unet_time:.3f} ms")
 
     return results
 
@@ -161,7 +154,7 @@ if __name__ == "__main__":
     prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
-    guidance_scale = torch.Tensor([7.5], dtype=dtype)
+    guidance_scale = torch.tensor([7.5], dtype=dtype)
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
         encoder_hidden_states = torch.rand(2, args.max_length, 768, dtype=dtype)
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":

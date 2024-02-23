@@ -2,7 +2,6 @@ import argparse
 from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
 from iree import runtime as ireert
-import time
 import torch
 
 parser = argparse.ArgumentParser()
@@ -61,12 +60,6 @@ parser.add_argument(
     help="prompt for clip model",
 )
 parser.add_argument(
-    "--precision",
-    type=str,
-    default="fp32",
-    help="fp16, fp32",
-)
-parser.add_argument(
     "--max_length",
     type=int,
     default=77,
@@ -82,7 +75,6 @@ def run_clip(
     external_weight_path,
     max_length,
     index,
-    benchmark=False,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
@@ -111,12 +103,7 @@ def run_clip(
     )
     example_input = text_input.input_ids
     inp = [ireert.asdevicearray(runner.config.device, example_input)]
-
-    clip_start = time.time()
     results = runner.ctx.modules.compiled_clip["main"](*inp)
-    clip_time = (time.time() - clip_start) * 1000
-    if benchmark:
-        print(f"clip_{index} inference time: {clip_time:.3f} ms")
 
     return results
 
@@ -212,7 +199,6 @@ if __name__ == "__main__":
             args.hf_model_name,
             args.hf_auth_token,
             args.prompt,
-            args.precision,
             args.max_length,
         )
         print(
