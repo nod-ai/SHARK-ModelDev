@@ -5,5 +5,4 @@
 -f https://openxla.github.io/iree/pip-release-links.html
 
 -r pytorch-cpu-requirements.txt
--r torchvision-requirements.txt
 -r iree-requirements.txt

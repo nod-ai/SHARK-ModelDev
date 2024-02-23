@@ -53,6 +53,10 @@ DEFAULT_DECOMPOSITIONS = [
     torch.ops.aten._scaled_dot_product_flash_attention.default,
 ]
 
+if hasattr(torch.ops.aten, "_scaled_dot_product_flash_attention_for_cpu"):
+    DEFAULT_DECOMPOSITIONS.append(
+        torch.ops.aten._scaled_dot_product_flash_attention_for_cpu
+    )
 
 def apply_decompositions(
     gm: torch.fx.GraphModule,

@@ -128,7 +128,7 @@ class HFTransformerBuilder:
 
 if __name__ == "__main__":
     import sys
-    hf_id = sys.argv[-1]
+    hf_id = "google/gemma-7b"
     safe_name = hf_id.replace("/", "_").replace("-", "_")
     inp = torch.zeros(1, 1, dtype=torch.int64)
     model = HFTransformerBuilder(inp, hf_id)

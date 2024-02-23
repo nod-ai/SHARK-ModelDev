@@ -4,7 +4,7 @@ import re
 import json
 from turbine_models.turbine_tank import turbine_tank
 
-os.environ["TORCH_LOGS"] = "dynamic"
+os.environ["TORCH_LOGS"] = "+dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from torch.utils import _pytree as pytree
@@ -150,7 +150,8 @@ def export_transformer_model(
     HEADS = getattr(mod.config, "num_key_value_heads", None)
     if HEADS is None:
         HEADS = mod.config.num_attention_heads
-    HIDDEN_DIM = int(mod.config.hidden_size / mod.config.num_attention_heads)
+    HIDDEN_DIM = 256 #int(mod.config.hidden_size / mod.config.num_attention_heads)
+    print(f"NUM_LAYERS: {NUM_LAYERS}, HEADS: {HEADS}, HIDDEN_DIM: {HIDDEN_DIM}")
     BATCH_SIZE = 1
     MAX_STEP_SEQ = mod.config.max_position_embeddings - 1
     global_pkv = torch.zeros(
