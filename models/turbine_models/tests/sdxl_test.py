@@ -385,18 +385,23 @@ class StableDiffusionXLTest(unittest.TestCase):
 
 
 def parse_args(args):
-    while len(args) > 1:
-        if args[0] in arguments.keys():
-            arguments[args[0]] = args[1]
-        else:
-            print(f"{args[0]} is not in test config")
-        args = args[2:]
+    consume_args = []
+    for idx, arg in enumerate(args):
+        if arg in arguments.keys():
+            try:
+                arguments[arg] = int(args[idx + 1])
+            except:
+                arguments[arg] = args[idx + 1]
+            consume_args.extend([idx + 1, idx + 2])
+    return consume_args
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    parse_args(sys.argv[1:])
+    consume_args = parse_args(sys.argv[1:])[::-1]
     print("Test Config:", arguments)
     assert arguments["device"] in device_list
     assert arguments["rt_device"] in rt_device_list
-    unittest.main(argv=["first-arg-is-ignored"], exit=False)
+    for idx in consume_args:
+        del sys.argv[idx]
+    unittest.main()
