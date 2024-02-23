@@ -1,7 +1,6 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
-import time
 import torch
 
 parser = argparse.ArgumentParser()
@@ -40,6 +39,9 @@ parser.add_argument(
     "--height", type=int, default=1024, help="Height of Stable Diffusion"
 )
 parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
+parser.add_argument(
+    "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
+)
 parser.add_argument("--variant", type=str, default="decode")
 
 
@@ -49,17 +51,10 @@ def run_vae(
     vmfb_path,
     hf_model_name,
     external_weight_path,
-    benchmark=False,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
     inputs = [ireert.asdevicearray(runner.config.device, example_input)]
-
-    vae_start = time.time()
     results = runner.ctx.modules.compiled_vae["main"](*inputs)
-    vae_time = (time.time() - vae_start) * 1000
-    if benchmark:
-        variant = "decode" if "decode" in vmfb_path else "encode"
-        print(f"vae {variant} inference time: {vae_time:.3f} ms")
 
     return results
 
@@ -123,13 +118,17 @@ def run_torch_vae(hf_model_name, custom_vae, variant, example_input):
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    if args.precision == "fp16":
+        dtype = torch.float16
+    else:
+        dtype = torch.float32
     if args.variant == "decode":
         example_input = torch.rand(
-            args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
+            args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
         )
     elif args.variant == "encode":
         example_input = torch.rand(
-            args.batch_size, 3, args.height, args.width, dtype=torch.float32
+            args.batch_size, 3, args.height, args.width, dtype=dtype
         )
     print("generating turbine output:")
     turbine_results = run_vae(
