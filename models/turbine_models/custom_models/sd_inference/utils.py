@@ -66,6 +66,7 @@ def compile_to_vmfb(
                 "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
+        device = "vulkan-spirv"
     elif device == "rocm":
         flags.extend(
             [

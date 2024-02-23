@@ -88,7 +88,7 @@ class VaeModel(torch.nn.Module):
             self.vae.load_state_dict(custom_vae)
 
     def decode_inp(self, inp):
-        inp = inp / 0.13025
+        inp = 1 / 0.13025 * inp
         x = self.vae.decode(inp, return_dict=False)[0]
         return (x / 2 + 0.5).clamp(0, 1)
 
@@ -125,7 +125,12 @@ def export_vae_model(
         sample = (batch_size, 3, height, width)
 
     class CompiledVae(CompiledModule):
-        params = export_parameters(vae_model)
+        if external_weights:
+            params = export_parameters(
+                vae_model, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(vae_model)
 
         def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
             if variant == "decode":
