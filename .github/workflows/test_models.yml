@@ -42,7 +42,7 @@ jobs:
             -r core/pytorch-cpu-requirements.txt \
             -r core/torchvision-requirements.txt          
           pip install --upgrade -r core/requirements.txt
-          pip install -e core[testing, torch-cpu-nightly]
+          pip install -e core[testing,torch-cpu-nightly]
           pip install --upgrade -r models/requirements.txt
           pip install -e models
       
