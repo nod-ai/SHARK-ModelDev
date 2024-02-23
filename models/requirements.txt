@@ -3,5 +3,5 @@ sentencepiece
 shark_turbine
 transformers
 accelerate
-diffusers==0.24.0
+diffusers @ git+https://github.com/nod-ai/diffusers@v0.24.0-release
 brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b
