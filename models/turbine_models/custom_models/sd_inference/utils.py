@@ -38,15 +38,11 @@ def compile_to_vmfb(
     max_alloc,
     safe_name,
     return_path=False,
-    const_eval=False,
+    const_expr_hoisting=False,
 ):
     flags = [
-        "--iree-input-type=torch",
-        "--mlir-print-debuginfo",
-        "--mlir-print-op-on-diagnostic=false",
-        "--iree-stream-resource-index-bits=64",
-        "--iree-vm-target-index-bits=64",
-        "--iree-flow-inline-constants-max-byte-length=1",
+        "--iree-opt-strip-assertions=true",
+        "--verify=false",
     ]
     if device == "cpu":
         flags.extend(
@@ -55,6 +51,7 @@ def compile_to_vmfb(
                 "--iree-llvmcpu-target-cpu-features=host",
                 "--iree-llvmcpu-enable-ukernels=all",
                 "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
+                "--iree-llvmcpu-distribution-size=32",
             ]
         )
         device = "llvm-cpu"
@@ -64,6 +61,9 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=vulkan-spirv",
                 "--iree-vulkan-target-triple=" + target_triple,
                 "--iree-stream-resource-max-allocation-size=" + max_alloc,
+                "--iree-stream-resource-index-bits=64",
+                "--iree-vm-target-index-bits=64",
+                "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
     elif device == "rocm":
@@ -74,7 +74,6 @@ def compile_to_vmfb(
                 "--iree-rocm-link-bc=true",
                 "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
                 "--iree-vm-bytecode-module-strip-source-map=true",
-                "--iree-opt-strip-assertions=true",
                 "--iree-vm-target-truncate-unsupported-floats",
             ]
         )
@@ -89,15 +88,11 @@ def compile_to_vmfb(
         )
     else:
         print("incorrect device: ", device)
-    if const_eval == False:
+    if const_expr_hoisting == False:
         flags.extend(
             [
                 "--iree-opt-const-expr-hoisting=False",
                 "--iree-codegen-linalg-max-constant-fold-elements=9223372036854775807",
-                "--iree-flow-collapse-reduction-dims",
-                "--iree-opt-strip-assertions=true",
-                "--verify=false",
-                "--iree-llvmcpu-distribution-size=32",
             ]
         )
 

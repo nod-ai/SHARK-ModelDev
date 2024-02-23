@@ -48,7 +48,7 @@ parser.add_argument(
     "--iree_target_triple",
     type=str,
     default="",
-    help="Specify vulkan target triple or rocm/cuda target device.",
+    help="Specify llvmcpu/vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument("--variant", type=str, default="decode")
@@ -169,7 +169,8 @@ if __name__ == "__main__":
         args.variant,
     )
     safe_name = utils.create_safe_name(
-        args.hf_model_name, f"-{args.precision}-vae-{args.variant}"
+        args.hf_model_name,
+        f"_{args.height}x{args.width}_{args.precision}_vae_{args.variant}",
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
