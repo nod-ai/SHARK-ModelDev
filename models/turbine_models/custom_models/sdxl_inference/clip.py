@@ -144,7 +144,12 @@ def export_clip_model(
         return None, vmfb_path
     else:
         utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name, const_eval=True
+            module_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name,
+            const_expr_hoisting=True,
         )
 
 
