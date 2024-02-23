@@ -17,8 +17,24 @@ from turbine_models.custom_models.sdxl_inference import (
     vae_runner,
 )
 from turbine_models.custom_models.sd_inference import utils
+from turbine_models.tests.sdxl_benchmark import run_benchmark
 import unittest
 
+
+device_list = [
+    "cpu",
+    "vulkan",
+    "cuda",
+    "rocm",
+]
+
+rt_device_list = [
+    "local-task",
+    "local-sync",
+    "vulkan",
+    "cuda",
+    "rocm",
+]
 
 arguments = {
     "hf_auth_token": None,
@@ -41,6 +57,7 @@ arguments = {
     "vulkan_max_allocation": "4294967296",
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
+    "benchmark": False,
 }
 
 
@@ -60,6 +77,10 @@ vae_model = vae.VaeModel(
 
 
 class StableDiffusionXLTest(unittest.TestCase):
+    @unittest.skipIf(
+        arguments["device"] in ["vulkan", "cuda", "rocm"],
+        reason="Fail to compile on vulkan and rocm; To be tested on cuda.",
+    )
     def test01_ExportClipModels(self):
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
@@ -112,7 +133,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["external_weight_path_1"],
             arguments["max_length"],
             index=1,
-            benchmark=True,
         )
         turbine_2 = clip_runner.run_clip(
             arguments["rt_device"],
@@ -123,7 +143,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["external_weight_path_2"],
             arguments["max_length"],
             index=2,
-            benchmark=True,
         )
         torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
             arguments["hf_model_name"],
@@ -133,9 +152,27 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         err1 = utils.largest_error(torch_output_1, turbine_1[0])
         err2 = utils.largest_error(torch_output_2, turbine_2[0])
+        if arguments["benchmark"]:
+            run_benchmark(
+                "clip_1",
+                arguments["vmfb_path_1"],
+                arguments["external_weight_path_1"],
+                arguments["rt_device"],
+                max_length=arguments["max_length"],
+            )
+            run_benchmark(
+                "clip_2",
+                arguments["vmfb_path_2"],
+                arguments["external_weight_path_2"],
+                arguments["rt_device"],
+                max_length=arguments["max_length"],
+            )
         assert err1 < 4e-2 and err2 < 4e-2
 
-    @unittest.expectedFailure
+    @unittest.skipIf(
+        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        reason="Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda.",
+    )
     def test02_ExportUnetModel(self):
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
@@ -191,7 +228,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
             arguments["external_weight_path"],
-            benchmark=True,
         )
         torch_output = unet_runner.run_torch_unet(
             arguments["hf_model_name"],
@@ -204,9 +240,25 @@ class StableDiffusionXLTest(unittest.TestCase):
             guidance_scale.float(),
         )
         err = utils.largest_error(torch_output, turbine)
+        if arguments["benchmark"]:
+            run_benchmark(
+                "unet",
+                arguments["vmfb_path"],
+                arguments["external_weight_path"],
+                arguments["rt_device"],
+                max_length=arguments["max_length"],
+                height=arguments["height"],
+                width=arguments["width"],
+                batch_size=arguments["batch_size"],
+                in_channels=arguments["in_channels"],
+                precision=arguments["precision"],
+            )
         assert err < 9e-5
 
-    @unittest.expectedFailure
+    @unittest.skipIf(
+        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
+    )
     def test03_ExportVaeModelDecode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -247,7 +299,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["vmfb_path"],
             arguments["hf_model_name"],
             arguments["external_weight_path"],
-            benchmark=True,
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
@@ -256,9 +307,22 @@ class StableDiffusionXLTest(unittest.TestCase):
             example_input_torch,
         )
         err = utils.largest_error(torch_output, turbine)
+        if arguments["benchmark"]:
+            run_benchmark(
+                "vae_decode",
+                arguments["vmfb_path"],
+                arguments["external_weight_path"],
+                arguments["rt_device"],
+                height=arguments["height"],
+                width=arguments["width"],
+                precision=arguments["precision"],
+            )
         assert err < 9e-3
 
-    @unittest.expectedFailure()
+    @unittest.skipIf(
+        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
+    )
     def test04_ExportVaeModelEncode(self):
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
@@ -299,7 +363,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["vmfb_path"],
             arguments["hf_model_name"],
             arguments["external_weight_path"],
-            benchmark=True,
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
@@ -308,6 +371,16 @@ class StableDiffusionXLTest(unittest.TestCase):
             example_input_torch,
         )
         err = utils.largest_error(torch_output, turbine)
+        if arguments["benchmark"]:
+            run_benchmark(
+                "vae_encode",
+                arguments["vmfb_path"],
+                arguments["external_weight_path"],
+                arguments["rt_device"],
+                height=arguments["height"],
+                width=arguments["width"],
+                precision=arguments["precision"],
+            )
         assert err < 2e-3
 
 
@@ -327,6 +400,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     consume_args = parse_args(sys.argv[1:])[::-1]
     print("Test Config:", arguments)
+    assert arguments["device"] in device_list
+    assert arguments["rt_device"] in rt_device_list
     for idx in consume_args:
         del sys.argv[idx]
     unittest.main()

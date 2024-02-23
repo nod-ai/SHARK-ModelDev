@@ -71,16 +71,20 @@ def run_benchmark(args):
     input.append(temp)
     input.append(np.array(args.steps))
 
+    vmfbs = []
+    vmfbs.append(args.llama_vmfb_path)
+    vmfbs.append(args.benchmark_vmfb_path)
+
     if args.external_weight_file:
         results = benchmark_module(
             benchmark_mod,
-            args,
             "run",
+            vmfbs,
             input,
             parameters=f"model={args.external_weight_file}",
         )
     else:
-        results = benchmark_module(benchmark_mod, args, "run", input)
+        results = benchmark_module(benchmark_mod, "run", vmfbs, input)
 
     for benchmark_result in results:
         print(
@@ -146,16 +150,20 @@ def run_forward_benchmark(args):
     input.append(temp)
     input.append(np.array(args.steps))
 
+    vmfbs = []
+    vmfbs.append(args.llama_vmfb_path)
+    vmfbs.append(args.benchmark_vmfb_path)
+
     if args.external_weight_file:
         results = benchmark_module(
             benchmark_mod,
-            args,
             "run",
+            vmfbs,
             input,
             parameters=f"model={args.external_weight_file}",
         )
     else:
-        results = benchmark_module(benchmark_mod, args, "run", input)
+        results = benchmark_module(benchmark_mod, "run", vmfbs, input)
 
     for benchmark_result in results:
         print(
@@ -198,7 +206,7 @@ class BenchmarkTimeoutError(Exception):
 
 
 def benchmark_module(
-    module, bench_args, entry_function=None, inputs=[], timeout=None, **kwargs
+    module, entry_function=None, vmfbs=[], inputs=[], timeout=None, **kwargs
 ):
     funcs = [a for a in module.function_names if a != "__init"]
     if entry_function is None:
@@ -231,8 +239,8 @@ def benchmark_module(
         v = kwargs[k]
         args.append(f"--{k}={v}")
 
-    args.append(f"--module={bench_args.llama_vmfb_path}")
-    args.append(f"--module={bench_args.benchmark_vmfb_path}")
+    for vmfb in vmfbs:
+        args.append(f"--module={vmfb}")
 
     try:
         benchmark_process = subprocess.run(
