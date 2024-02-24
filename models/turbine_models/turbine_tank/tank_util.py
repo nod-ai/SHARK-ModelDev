@@ -1,5 +1,20 @@
+# Copyright 2024 Advanced Micro Devices, Inc
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 import torch
-import numpy as np
+import iree.compiler as ireec
+import torch
+from turbine_models.turbine_tank import tank_util
+from turbine_models.model_runner import vmfbRunner
+from turbine_models.custom_models.sd_inference import utils
+from iree import runtime as ireert
+import os
+from shark_turbine.aot import *
+from iree.compiler.ir import Context
+from turbine_models.turbine_tank import turbine_tank
 
 torch.manual_seed(0)
 
@@ -88,6 +103,7 @@ def get_hf_img_cls_model(name, import_args):
     # print("test_input.shape: ", test_input.shape)
     # test_input.shape:  torch.Size([1, 3, 224, 224])
     test_input = test_input.repeat(int(import_args["batch_size"]), 1, 1, 1)
+    print(f"YOOO TEST INPUT: {test_input.shape}")
     actual_out = model(test_input)
     # actual_out.shape：  torch.Size([1, 1000])
     return model, test_input, actual_out
@@ -118,9 +134,6 @@ class HuggingFaceLanguage(torch.nn.Module):
 
 
 def get_hf_model(name, import_args):
-    from transformers import (
-        BertTokenizer,
-    )
 
     model = HuggingFaceLanguage(name)
     test_input = torch.randint(2, (int(import_args["batch_size"]), 128))
@@ -172,7 +185,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 def prepare_sentence_tokens(hf_model: str, sentence: str):
-    tokenizer = AutoTokenizer.from_pretrained(hf_model)
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model, token="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"
+    )
     return torch.tensor([tokenizer.encode(sentence)])
 
 
@@ -189,6 +204,7 @@ class HFCausalLM(torch.nn.Module):
             output_hidden_states=False,
             torchscript=True,
             trust_remote_code=True,
+            token="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",
         )
         self.model.eval()
 
@@ -258,3 +274,151 @@ def get_vision_model(torch_model, import_args):
     test_input = torch.randn(int(import_args["batch_size"]), 3, *input_image_size)
     actual_out = model(test_input)
     return model, test_input, actual_out
+
+
+def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
+    flags = [
+        "--iree-input-type=torch",
+        "--mlir-print-debuginfo",
+        "--mlir-print-op-on-diagnostic=false",
+        "--iree-llvmcpu-target-cpu-features=host",
+        "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
+        "--iree-stream-resource-index-bits=64",
+        "--iree-vm-target-index-bits=64",
+        "--iree-flow-inline-constants-max-byte-length=1",
+    ]
+    if device == "cpu":
+        flags.append("--iree-llvmcpu-enable-ukernels=all")
+        device = "llvm-cpu"
+    elif device == "vulkan":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=vulkan-spirv",
+                "--iree-vulkan-target-triple=" + target_triple,
+                "--iree-stream-resource-max-allocation-size=" + max_alloc,
+            ]
+        )
+    elif device == "rocm":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=rocm",
+                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-rocm-link-bc=true",
+                "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-opt-strip-assertions=true",
+                "--iree-vm-target-truncate-unsupported-floats",
+            ]
+        )
+    elif device == "cuda":
+        flags.extend(
+            [
+                "--iree-hal-target-backends=cuda",
+                "--iree-hal-cuda-llvm-target-arch=" + target_triple,
+                "--iree-vm-bytecode-module-strip-source-map=true",
+                "--iree-vm-target-truncate-unsupported-floats",
+            ]
+        )
+    else:
+        print("incorrect device: ", device)
+
+    flatbuffer_blob = ireec.compile_str(
+        module_str,
+        target_backends=[device],
+        extra_args=flags,
+    )
+    with open(f"{safe_name}.vmfb", "wb+") as f:
+        f.write(flatbuffer_blob)
+    print("Saved to", safe_name + ".vmfb")
+
+
+def classic_flow(model, model_name, input, out, run_e2e, expected_err):
+    vmfb_name = model_name.replace("/", "_") + ".vmfb"
+    model.get_compiled_module(save_to=vmfb_name)
+
+    # if model is not supposed to run e2e, exit at this point (mlir has been uploaded)
+    if run_e2e is False:
+        assert expected_err > 0
+        return
+
+    # run inference using iree runtime
+    runner = vmfbRunner("local-task", vmfb_name)
+    inputs = [ireert.asdevicearray(runner.config.device, input)]
+    keys = list(runner.ctx.modules)
+    key = keys[len(keys) - 1]
+    results = runner.ctx.modules.__getattr__(key)["main"](*inputs)
+    err = utils.largest_error(out.cpu().detach().numpy(), results)
+    # cleanup
+    os.remove(vmfb_name)
+    # accuracy
+    assert err < expected_err
+
+
+def param_flow(model, model_name, model_type, input, out, run_e2e, expected_err):
+    weight_name = model_name.replace("/", "_") + ".safetensors"
+    mapper = {}
+    utils.save_external_weights(mapper, model.model, "safetensors", weight_name)
+
+    # seq2seq models differs from rest as it take two inputs (input_ids, decoder_input_ids)
+    if model_type == "hf_seq2seq":
+
+        class Seq2SeqModule(CompiledModule):
+            params = export_parameters(
+                model.model, external=True, external_scope="", name_mapper=mapper.get
+            )
+
+            def main(
+                self,
+                inp1=AbstractTensor(*(input[0].shape), dtype=input[0].dtype),
+                inp2=AbstractTensor(*(input[1].shape), dtype=input[1].dtype),
+            ):
+                return jittable(model.model.forward)(inp1, inp2)
+
+        inst = Seq2SeqModule(context=Context(), import_to="IMPORT")
+        module_str = str(CompiledModule.get_mlir_module(inst))
+    else:
+
+        class GlobalModule(CompiledModule):
+            params = export_parameters(
+                model.model, external=True, external_scope="", name_mapper=mapper.get
+            )
+
+            def main(self, inp=AbstractTensor(*input.shape, dtype=input.dtype)):
+                return jittable(model.model.forward)(inp)
+
+        inst = GlobalModule(context=Context(), import_to="IMPORT")
+        module_str = str(CompiledModule.get_mlir_module(inst))
+
+    mlir_name = model_name.replace("/", "_") + ".mlir"
+    with open(mlir_name, "w+") as f:
+        f.write(module_str)
+
+    model_name_upload = model_name.replace("/", "_")
+    turbine_tank.uploadToBlobStorage(
+        str(os.path.abspath(mlir_name)),
+        f"{model_name_upload}/{model_name_upload}-params.mlir",
+    )
+
+    os.remove(mlir_name)
+
+    if run_e2e is False:
+        assert expected_err > 0
+        return
+
+    vmfb_name = model_name.replace("/", "_")
+    tank_util.compile_to_vmfb(module_str, "cpu", "", "", vmfb_name)
+
+    # run inference using iree runtime
+    runner = vmfbRunner("local-task", vmfb_name + ".vmfb", weight_name)
+    inputs = [ireert.asdevicearray(runner.config.device, input)]
+    keys = list(runner.ctx.modules)
+    key = keys[len(keys) - 1]
+    results = runner.ctx.modules.__getattr__(key)["main"](*inputs)
+    err = utils.largest_error(out.cpu().detach().numpy(), results)
+
+    # clean up
+    os.remove(vmfb_name + ".vmfb")
+    os.remove(weight_name)
+
+    # accuracy
+    assert err < expected_err

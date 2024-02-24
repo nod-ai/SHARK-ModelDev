@@ -1,3 +1,9 @@
+# Copyright 2024 Advanced Micro Devices, Inc
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 from azure.storage.blob import BlobServiceClient
 
 import subprocess
@@ -65,7 +71,7 @@ def uploadToBlobStorage(file_path, file_name):
 
 
 def checkAndRemoveIfDownloadedOld(model_name: str, model_dir: str, prefix: str):
-    if os.path.isdir(model_dir) and len(os.listdir(model_dir)) == 1:
+    if os.path.isdir(model_dir) and len(os.listdir(model_dir)) > 0:
         for item in os.listdir(model_dir):
             item_path = os.path.join(model_dir, item)
             # model artifacts already downloaded and up to date
@@ -77,6 +83,12 @@ def checkAndRemoveIfDownloadedOld(model_name: str, model_dir: str, prefix: str):
                 os.path.join(item_path, model_name + ".mlir")
             ):
                 os.remove(os.path.join(item_path, model_name + ".mlir"))
+                os.rmdir(item_path)
+                return False
+            if os.path.isdir(item_path) and os.path.isfile(
+                os.path.join(item_path, model_name + "-param.mlir")
+            ):
+                os.remove(os.path.join(item_path, model_name + "-param.mlir"))
                 os.rmdir(item_path)
                 return False
     # did not downloaded this model artifacts yet
@@ -104,9 +116,11 @@ def download_public_folder(model_name: str, prefix: str, model_dir: str):
         if not os.path.isdir(dest_path):
             os.makedirs(dest_path)
         # download blob into local turbine tank cache
-        with open(
-            file=os.path.join(model_dir, model_name + ".mlir"), mode="wb"
-        ) as sample_blob:
+        if "param" in blob.name:
+            file_path = os.path.join(model_dir, model_name + "-param.mlir")
+        else:
+            file_path = os.path.join(model_dir, model_name + ".mlir")
+        with open(file=file_path, mode="wb") as sample_blob:
             download_stream = blob_client.download_blob()
             sample_blob.write(download_stream.readall())
 

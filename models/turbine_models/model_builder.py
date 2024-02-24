@@ -21,7 +21,7 @@ class HFTransformerBuilder:
     def __init__(
         self,
         example_input: torch.Tensor,
-        hf_id: str,
+        hf_id: str = None,
         auto_model: AutoModel = AutoModel,
         auto_tokenizer: AutoTokenizer = None,
         auto_config: AutoConfig = None,
@@ -50,15 +50,16 @@ class HFTransformerBuilder:
         Builds a PyTorch model using Hugging Face's transformers library.
         """
         # TODO: check cloud storage for existing ir
-        self.model = self.auto_model.from_pretrained(
-            self.hf_id, token=self.hf_auth_token, config=self.auto_config
-        )
-        if self.auto_tokenizer is not None:
-            self.tokenizer = self.auto_tokenizer.from_pretrained(
-                self.hf_id, token=self.hf_auth_token
+        if self.hf_id:
+            self.model = self.auto_model.from_pretrained(
+                self.hf_id, token=self.hf_auth_token, config=self.auto_config
             )
-        else:
-            self.tokenizer = None
+            if self.auto_tokenizer is not None:
+                self.tokenizer = self.auto_tokenizer.from_pretrained(
+                    self.hf_id, token=self.hf_auth_token
+                )
+            else:
+                self.tokenizer = None
 
     def get_compiled_module(self, save_to: str = None) -> aot.CompiledModule:
         """
@@ -74,19 +75,20 @@ class HFTransformerBuilder:
             module = aot.export(self.model, *self.example_input)
         else:
             module = aot.export(self.model, self.example_input)
-        module_str = str(module.mlir_module)
-        safe_name = self.hf_id.split("/")[-1].strip()
-        safe_name = re.sub("-", "_", safe_name)
-        if self.upload_ir:
-            with open(f"{safe_name}.mlir", "w+") as f:
-                f.write(module_str)
-            model_name_upload = self.hf_id.replace("/", "_")
-            turbine_tank.uploadToBlobStorage(
-                str(os.path.abspath(f"{safe_name}.mlir")),
-                f"{model_name_upload}/{model_name_upload}.mlir",
-            )
-            os.remove(f"{safe_name}.mlir")
-        if self.run_e2e is not None and self.run_e2e is False:
-            return
-        compiled_binary = module.compile(save_to=save_to)
-        return compiled_binary
+        if self.hf_id:
+            module_str = str(module.mlir_module)
+            safe_name = self.hf_id.split("/")[-1].strip()
+            safe_name = re.sub("-", "_", safe_name)
+            if self.upload_ir:
+                with open(f"{safe_name}.mlir", "w+") as f:
+                    f.write(module_str)
+                model_name_upload = self.hf_id.replace("/", "_")
+                turbine_tank.uploadToBlobStorage(
+                    str(os.path.abspath(f"{safe_name}.mlir")),
+                    f"{model_name_upload}/{model_name_upload}.mlir",
+                )
+                os.remove(f"{safe_name}.mlir")
+            if self.run_e2e is not None and self.run_e2e is False:
+                return
+            compiled_binary = module.compile(save_to=save_to)
+            return compiled_binary

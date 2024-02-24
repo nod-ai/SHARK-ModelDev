@@ -1,10 +1,12 @@
+# Copyright 2024 Advanced Micro Devices, Inc
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 import pytest
 from turbine_models.turbine_tank import tank_util
 from turbine_models.model_builder import HFTransformerBuilder
-from turbine_models.model_runner import vmfbRunner
-from turbine_models.custom_models.sd_inference import utils
-from iree import runtime as ireert
-import os
 
 
 @pytest.mark.parametrize(
@@ -95,6 +97,7 @@ def test_all_models(model_name, model_type, expected_err, run_e2e):
     import_args = {
         "batch_size": 1,
     }
+
     # Based on the model type, get the appropriate hugging face model, inputs, and output
     if model_type == "vision":
         torch_model, input, out = tank_util.get_vision_model(model_name, import_args)
@@ -112,32 +115,20 @@ def test_all_models(model_name, model_type, expected_err, run_e2e):
         torch_model, input, out = tank_util.get_hf_img_cls_model(
             model_name, import_args
         )
-    # compile model and get vmfb
+
+    # create hugging face transformer model
     model = HFTransformerBuilder(
         example_input=input,
         hf_id=model_name,
-        hf_auth_token="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",
         upload_ir=True,
         model=torch_model,
         model_type=model_type,
         run_e2e=run_e2e,
     )
-    vmfb_name = model_name.replace("/", "_") + ".vmfb"
-    model.get_compiled_module(save_to=vmfb_name)
 
-    # if model is not supposed to run e2e, exit at this point (mlir has been uploaded)
-    if run_e2e is False:
-        assert expected_err > 0
-        return
-
-    # run inference using iree runtime
-    runner = vmfbRunner("local-task", vmfb_name)
-    inputs = [ireert.asdevicearray(runner.config.device, input)]
-    keys = list(runner.ctx.modules)
-    key = keys[len(keys) - 1]
-    results = runner.ctx.modules.__getattr__(key)["main"](*inputs)
-    err = utils.largest_error(out.cpu().detach().numpy(), results)
-    # cleanup
-    os.remove(vmfb_name)
-    # accuracy
-    assert err < expected_err
+    # runs using external params
+    tank_util.param_flow(
+        model, model_name, model_type, input, out, run_e2e, expected_err
+    )
+    # inline weights
+    tank_util.classic_flow(model, model_name, input, out, run_e2e, expected_err)
