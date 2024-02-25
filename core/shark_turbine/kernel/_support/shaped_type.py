@@ -1,5 +1,5 @@
 import typing
-from typing import Optional, Type, TypeVar
+from typing import Optional, Type, TypeVar, cast
 
 from .dtype import DataType
 
@@ -53,7 +53,7 @@ class ShapedType(type):
         new_class = type.__new__(mcls, name, bases, dct)
         return new_class
 
-    def new_subtype(
+    def new_shaped_subtype(
         cls: Type[SubtypeT],
         *,
         symbolic_shape: SymbolicShapeExpr,
@@ -66,7 +66,7 @@ class ShapedType(type):
 
         Subtype.__name__ = cls.__name__
 
-        return Subtype
+        return cast(Type[SubtypeT], Subtype)
 
     def __str__(cls):
         return repr(cls)
@@ -107,7 +107,7 @@ class ShapedDataType(ShapedType):
         new_class = type.__new__(mcls, name, bases, dct)
         return new_class
 
-    def new_subtype(
+    def new_shaped_data_subtype(
         cls: Type[SubtypeT],
         *,
         symbolic_shape: SymbolicShapeExpr,
@@ -123,7 +123,7 @@ class ShapedDataType(ShapedType):
 
         Subtype.__name__ = cls.__name__
 
-        return Subtype
+        return cast(Type[SubtypeT], Subtype)
 
     def __str__(cls):
         return repr(cls)

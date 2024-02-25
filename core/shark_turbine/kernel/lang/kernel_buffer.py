@@ -69,7 +69,7 @@ class _KernelBufferMeta(ShapedDataType):
 
         SubType.__name__ = KernelBufferUsage._type_name(init_usage)
 
-        return SubType
+        return cast(Type[SubtypeT], SubType)
 
 
 class KernelBuffer(metaclass=_KernelBufferMeta):

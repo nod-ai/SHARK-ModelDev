@@ -32,7 +32,7 @@ class Grid(metaclass=ShapedType):
         if not isinstance(symbolic_shape, tuple):
             symbolic_shape = (symbolic_shape,)
 
-        return cls.new_subtype(symbolic_shape=symbolic_shape)
+        return cls.new_shaped_subtype(symbolic_shape=symbolic_shape)
 
     @property
     def shape(self) -> tuple[int, ...]:
