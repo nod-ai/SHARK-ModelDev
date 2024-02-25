@@ -3,6 +3,8 @@ from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
 import torch
 
+torch.random.manual_seed(0)
+
 parser = argparse.ArgumentParser()
 
 # TODO move common runner flags to generic flag file
@@ -187,12 +189,12 @@ if __name__ == "__main__":
         torch_output = run_torch_unet(
             args.hf_model_name,
             args.hf_auth_token,
-            sample,
+            sample.float(),
             timestep,
-            prompt_embeds,
-            text_embeds,
-            time_ids,
-            guidance_scale,
+            prompt_embeds.float(),
+            text_embeds.float(),
+            time_ids.float(),
+            guidance_scale.float(),
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_output)
