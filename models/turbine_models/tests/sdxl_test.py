@@ -20,6 +20,7 @@ from turbine_models.custom_models.sd_inference import utils
 from turbine_models.tests.sdxl_benchmark import run_benchmark
 import unittest
 
+torch.random.manual_seed(0)
 
 device_list = [
     "cpu",
@@ -58,6 +59,7 @@ arguments = {
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
     "benchmark": False,
+    "decomp_attn": False,
 }
 
 
@@ -170,7 +172,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         assert err1 < 4e-2 and err2 < 4e-2
 
     @unittest.skipIf(
-        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        arguments["device"] in ["vulkan", "cuda", "rocm"],
         reason="Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda.",
     )
     def test02_ExportUnetModel(self):
@@ -190,6 +192,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 external_weight_path=f"{arguments['safe_model_name']}_unet.safetensors",
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
+                decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -208,7 +211,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             ),
             dtype=dtype,
         )
-        timestep = torch.zeros((1), dtype=dtype)
+        timestep = torch.zeros((1), dtype=torch.int64)
         prompt_embeds = torch.rand(
             (2 * arguments["batch_size"], arguments["max_length"], 2048), dtype=dtype
         )
@@ -256,7 +259,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         assert err < 9e-5
 
     @unittest.skipIf(
-        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        arguments["device"] in ["vulkan", "cuda", "rocm"],
         reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
     )
     def test03_ExportVaeModelDecode(self):
@@ -275,6 +278,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="decode",
+                decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -320,7 +324,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         assert err < 9e-3
 
     @unittest.skipIf(
-        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
+        arguments["device"] in ["vulkan", "cuda", "rocm"],
         reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
     )
     def test04_ExportVaeModelEncode(self):
@@ -339,6 +343,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="encode",
+                decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -391,6 +396,8 @@ def parse_args(args):
             try:
                 arguments[arg] = int(args[idx + 1])
             except:
+                if args[idx + 1].lower() in ["true", "false"]:
+                    arguments[arg] = bool(args[idx + 1])
                 arguments[arg] = args[idx + 1]
             consume_args.extend([idx + 1, idx + 2])
     return consume_args

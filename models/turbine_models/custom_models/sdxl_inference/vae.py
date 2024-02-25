@@ -11,6 +11,9 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.dynamo.passes import (
+    DEFAULT_DECOMPOSITIONS,
+)
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -52,6 +55,12 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument("--variant", type=str, default="decode")
+parser.add_argument(
+    "--decomp_attn",
+    type=argparse.BooleanOptionalAction,
+    default=False,
+    help="Decompose attention at fx graph level",
+)
 
 
 class VaeModel(torch.nn.Module):
@@ -111,8 +120,17 @@ def export_vae_model(
     target_triple=None,
     max_alloc=None,
     variant="decode",
+    decomp_attn=False,
 ):
     mapper = {}
+    decomp_list = DEFAULT_DECOMPOSITIONS
+    if decomp_attn == True:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     if precision == "fp16":
         vae_model = vae_model.half()
@@ -134,9 +152,9 @@ def export_vae_model(
 
         def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
             if variant == "decode":
-                return jittable(vae_model.decode_inp)(inp)
+                return jittable(vae_model.decode_inp, decompose_ops=decomp_list)(inp)
             elif variant == "encode":
-                return jittable(vae_model.encode_inp)(inp)
+                return jittable(vae_model.encode_inp, decompose_ops=decomp_list)(inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledVae(context=Context(), import_to=import_to)
@@ -172,6 +190,7 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
         args.variant,
+        args.decomp_attn,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name,

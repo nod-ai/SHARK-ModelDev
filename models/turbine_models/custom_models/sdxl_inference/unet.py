@@ -11,6 +11,9 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.dynamo.passes import (
+    DEFAULT_DECOMPOSITIONS,
+)
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -59,6 +62,12 @@ parser.add_argument(
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
+parser.add_argument(
+    "--decomp_attn",
+    type=argparse.BooleanOptionalAction,
+    default=False,
+    help="Decompose attention at fx graph level",
+)
 
 
 class UnetModel(torch.nn.Module):
@@ -127,8 +136,17 @@ def export_unet_model(
     device=None,
     target_triple=None,
     max_alloc=None,
+    decomp_attn=False,
 ):
     mapper = {}
+    decomp_list = DEFAULT_DECOMPOSITIONS
+    if decomp_attn == True:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     if precision == "fp16":
         unet_model = unet_model.half()
@@ -151,13 +169,13 @@ def export_unet_model(
         def main(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
-            timestep=AbstractTensor(1, dtype=dtype),
+            timestep=AbstractTensor(1, dtype=torch.int64),
             prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
             text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
             time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
             guidance_scale=AbstractTensor(1, dtype=dtype),
         ):
-            return jittable(unet_model.forward)(
+            return jittable(unet_model.forward, decompose_ops=decomp_list)(
                 sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
             )
 
@@ -207,6 +225,7 @@ if __name__ == "__main__":
         args.device,
         args.iree_target_triple,
         args.vulkan_max_allocation,
+        args.decomp_attn,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name,
