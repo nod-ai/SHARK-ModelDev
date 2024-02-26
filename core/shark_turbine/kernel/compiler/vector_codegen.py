@@ -357,6 +357,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
         IRProxyValue(proxy_value.ir_value, proxy_value.py_value.cast(sym_index_type)),
     )
 
+
 @handle_op(tkl.to_dtype)
 def _(emitter: ThreadEmitter, node: fx.Node):
     try:
@@ -367,6 +368,7 @@ def _(emitter: ThreadEmitter, node: fx.Node):
     ir_type = cast_dtype(emitter, dtype)
     casted = cast_vector(emitter, val, element_type=ir_type)
     emitter.bind_node_proxy(node, IRProxyValue(casted))
+
 
 @handle_op(ops.kernel_buffer_getitem)
 def _(emitter: ThreadEmitter, node: fx.Node):

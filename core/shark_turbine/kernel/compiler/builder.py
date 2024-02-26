@@ -38,7 +38,7 @@ FLOAT_BITWIDTHS = {
     "f16": 16,
     "f32": 32,
     "f64": 64,
-    #TODO: FP8 types.
+    # TODO: FP8 types.
 }
 
 
@@ -98,7 +98,6 @@ class _ScalarBuilder:
     def get_typeclass(self, t: IrType, index_same_as_integer=False) -> str:
         # If this is a vector type, get the element type.
         if isinstance(t, VectorType):
-
             t = t.element_type
         if self.is_floating_point_type(t):
             return "float"

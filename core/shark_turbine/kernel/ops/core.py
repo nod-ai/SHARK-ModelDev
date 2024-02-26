@@ -29,6 +29,7 @@ def kernel_buffer_setitem(kernel_buffer, key, item) -> None:
 def thread_program_id(axis: int) -> "Index":
     ...
 
+
 @define_op
 def to_dtype(val, dtype: DataType):
     ...
