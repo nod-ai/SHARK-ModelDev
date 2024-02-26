@@ -13,6 +13,7 @@ D_HEAD = tkl.sym.D_HEAD
 BLOCK_N = tkl.sym.BLOCK_N
 BLOCK_M = tkl.sym.BLOCK_M
 
+
 class Test(unittest.TestCase):
     def testFusedAttention(self):
         @tk.gen.thread(N_CTX // BLOCK_M, BATCH * N_HEADS)
@@ -33,7 +34,9 @@ class Test(unittest.TestCase):
             max_stat_init = tkl.constant((BLOCK_M,), tkl.f32, -1e9)
             sum_stat_init = tkl.constant((BLOCK_M,), tkl.f32, 0.0)
 
-            @tkl.for_loop(0, N_CTX, BLOCK_N, init_args=[max_stat_init, sum_stat_init, acc_init])
+            @tkl.for_loop(
+                0, N_CTX, BLOCK_N, init_args=[max_stat_init, sum_stat_init, acc_init]
+            )
             def body(i, old_max, old_sum, old_acc):
                 k = tkl.load(K, (batch, head, i, 0), (BLOCK_N, D_HEAD))
                 kT = tkl.transpose(k, (1, 0))
@@ -42,7 +45,9 @@ class Test(unittest.TestCase):
                 qkT = tkl.dot(q, kT, qkT)
 
                 new_max = tkl.max(qkT, axis=1, acc=old_max)
-                broadcasted_max = tkl.broadcast_in_dim(new_max, (BLOCK_M, BLOCK_N), (0,))
+                broadcasted_max = tkl.broadcast_in_dim(
+                    new_max, (BLOCK_M, BLOCK_N), (0,)
+                )
                 partial_softmax = tkl.exp2(qkT - broadcasted_max)
                 scale_factor = tkl.exp2(old_max - new_max)
                 scaled_old_sum = scale_factor * old_sum
@@ -77,6 +82,7 @@ class Test(unittest.TestCase):
             }
         ):
             fused_attention(Q, K, V, O)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
