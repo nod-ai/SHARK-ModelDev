@@ -32,7 +32,7 @@ from .ir import (
     F64Type,
 )
 
-# TODO: Have a way upstream to check if a floating point type.
+# TODO: Use FloatType from upstream when available.
 FLOAT_BITWIDTHS = {
     "bf16": 16,
     "f16": 16,
@@ -87,6 +87,7 @@ class ModuleBuilder:
 
 class _ScalarBuilder:
     def is_floating_point_type(self, t: IrType) -> bool:
+        # TODO: Use FloatType from upstream when available.
         return str(t) in FLOAT_BITWIDTHS
 
     def is_integer_type(self, t: IrType) -> bool:
