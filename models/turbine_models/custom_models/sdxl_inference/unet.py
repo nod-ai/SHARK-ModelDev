@@ -64,8 +64,8 @@ parser.add_argument(
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 parser.add_argument(
     "--decomp_attn",
-    type=argparse.BooleanOptionalAction,
     default=False,
+    action="store_true",
     help="Decompose attention at fx graph level",
 )
 
