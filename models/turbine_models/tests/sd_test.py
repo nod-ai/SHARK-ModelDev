@@ -262,9 +262,9 @@ class StableDiffusionTest(unittest.TestCase):
                 "cpu",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = (
-            "stable_diffusion_v1_4_scheduler.safetensors"
-        )
+        arguments[
+            "external_weight_path"
+        ] = "stable_diffusion_v1_4_scheduler.safetensors"
         arguments["vmfb_path"] = "stable_diffusion_v1_4_scheduler.vmfb"
         sample = torch.rand(
             arguments["batch_size"],

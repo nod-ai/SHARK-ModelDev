@@ -134,7 +134,6 @@ class HuggingFaceLanguage(torch.nn.Module):
 
 
 def get_hf_model(name, import_args):
-
     model = HuggingFaceLanguage(name)
     test_input = torch.randint(2, (int(import_args["batch_size"]), 128))
     actual_out = model(test_input)
