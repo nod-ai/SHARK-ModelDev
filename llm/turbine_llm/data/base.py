@@ -143,7 +143,10 @@ class Theta:
             last = name_path[-1]
             t = current_ts[str(last)]
         except KeyError:
-            raise KeyError(f"Unknown parameter {name_path}")
+            raise KeyError(
+                f"Unknown parameter {name_path} (in Theta object "
+                f"containing {self.keys})"
+            )
         return t
 
     @property
@@ -266,6 +269,24 @@ class InferenceOps:
             # Treat it as a torch Tensor.
             assert isinstance(rhs, torch.Tensor)
             return _matmul_torch(lhs, rhs, transpose_rhs=transpose_rhs)
+
+    def rms_norm(
+        self,
+        x: torch.Tensor,
+        weight: Union[torch.Tensor, InferenceTensor],
+        *,
+        epsilon: float,
+    ):
+        """Computes the full, unbiased RMS normalization of an input."""
+        if isinstance(weight, InferenceTensor):
+            if isinstance(weight, QuantizedTensor):
+                weight = weight.unpack().dequant(x.dtype)
+            elif isinstance(weight, PrimitiveTensor):
+                weight = weight.as_torch()
+        variance = x.pow(2).mean(-1, keepdim=True)
+        output = x * torch.rsqrt(variance + epsilon)
+        output = output * weight
+        return output
 
 
 def _matmul_torch(
