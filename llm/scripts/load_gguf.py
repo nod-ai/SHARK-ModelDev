@@ -6,7 +6,7 @@
 
 import sys
 
-from turbine_llm.layers import (
+from turbine_llm.data import (
     PrimitiveTensor,
     QuantizedTensor,
     load_gguf_file,
@@ -15,8 +15,8 @@ from turbine_llm.layers import (
 
 def main(args: list[str]):
     config = load_gguf_file(args[0])
-    print(f"HParams:")
-    for key, value in config.hp.items():
+    print(f"Properties:")
+    for key, value in config.properties.items():
         print(f"  {key} = {value} (of {type(value)})")
     print("Tensors:")
     for tensor in config.root_theta.flatten().values():
@@ -24,19 +24,18 @@ def main(args: list[str]):
         if isinstance(tensor, PrimitiveTensor):
             torch_tensor = tensor.as_torch()
             print(
-                f"    torch.Tensor({list(torch_tensor.shape)}, "
-                f"dtype={torch_tensor.dtype}) = "
+                f"  : torch.Tensor({list(torch_tensor.shape)}, "
+                f"dtype={torch_tensor.dtype}) = {tensor.as_torch()}"
             )
-            print(f"      {tensor.as_torch()}")
         else:
             assert isinstance(tensor, QuantizedTensor), f"Got {type(tensor)}"
             raw = tensor.raw
             print(
-                f"    QuantizedTensor({tensor.struct_type.__name__})="
+                f"  : QuantizedTensor({tensor.layout_type.__name__})="
                 f"torch.Tensor({list(raw.shape)}, dtype={raw.dtype})"
             )
             unpacked = tensor.unpack()
-            print(f"    Struct: {unpacked}")
+            print(f"    {unpacked}")
 
 
 if __name__ == "__main__":

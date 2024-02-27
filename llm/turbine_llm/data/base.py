@@ -4,32 +4,29 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from abc import ABC, abstractmethod, abstractproperty
-from typing import Any, Optional, Union, Collection, Iterator, TypeVar, Generic, Type
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Union, Collection, TypeVar, Generic, Type
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 
 __all__ = [
+    "Dataset",
     "InferenceTensor",
     "PrimitiveTensor",
     "QuantizedTensor",
     "Theta",
-    "ThetaModule",
-    "HParams",
-    "InferenceModelConfig",
-    "InferenceModel",
+    "QuantizedLayout",
 ]
 
 
-class UnpackedStruct(ABC):
+class QuantizedLayout(ABC):
     @abstractmethod
     def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         ...
 
 
-UnpackedStructT = TypeVar("UnpackedStructT", bound=UnpackedStruct)
+QuantizedLayoutT = TypeVar("QuantizedLayoutT", bound=QuantizedLayout)
 
 
 class InferenceTensor(ABC):
@@ -42,6 +39,16 @@ class InferenceTensor(ABC):
     def __init__(self, name: str, shape: list[int]):
         self.name = name
         self.shape = shape
+
+    @property
+    @abstractmethod
+    def globals(self) -> dict[str, torch.Tensor]:
+        """Returns a mapping of global name to root tensor.
+
+        The primary accessors on an InferenceTensor access the root tensors in
+        the global set, all of which in a root Theta must have unique names.
+        """
+        ...
 
 
 class PrimitiveTensor(InferenceTensor):
@@ -60,7 +67,27 @@ class PrimitiveTensor(InferenceTensor):
         ...
 
 
-class QuantizedTensor(InferenceTensor, Generic[UnpackedStructT]):
+class DefaultPrimitiveTensor(PrimitiveTensor):
+    """Concrete implementation of a PrimitiveTensor based on a single tensor."""
+
+    def __init__(self, name: str, data: torch.Tensor):
+        super().__init__(name, list(data.shape))
+        self._data = data
+
+    def as_torch(self) -> torch.Tensor:
+        return self._data
+
+    @property
+    def globals(self) -> dict[str, torch.Tensor]:
+        return {
+            self.name: self._data,
+        }
+
+    def __repr__(self):
+        return f"PrimitiveTensor({self.name}, {self.shape})"
+
+
+class QuantizedTensor(InferenceTensor, Generic[QuantizedLayoutT]):
     """An inference tensor that is quantized/packed."""
 
     def __init__(
@@ -68,17 +95,13 @@ class QuantizedTensor(InferenceTensor, Generic[UnpackedStructT]):
         name: str,
         shape: list[int],
         *,
-        struct_type: Type[UnpackedStruct],
+        layout_type: Type[QuantizedLayout],
     ):
         super().__init__(name, shape)
-        self.struct_type = struct_type
+        self.layout_type = layout_type
 
     @abstractmethod
-    def unpack(self) -> UnpackedStructT:
-        ...
-
-    @abstractproperty
-    def raw(self) -> torch.Tensor:
+    def unpack(self) -> QuantizedLayoutT:
         ...
 
 
@@ -162,41 +185,15 @@ def _flat_to_nested_dict(flat: dict[str, Any]) -> dict[str, Any]:
     return nested
 
 
-class HParams(dict[str, Any]):
-    """Model level hyper-parameters.
-
-    HParams are dict objects that can also mix in specific vocabularies for
-    various typed accessors.
-    """
-
-    ...
-
-
-class ThetaModule(nn.Module):
-    """An nn module which operates on parameters contained in a theta object."""
-
-    def __init__(self, theta: Theta):
-        super().__init__()
-        self.theta = theta
-
-
 @dataclass
-class InferenceModelConfig:
+class Dataset:
     """Top level configuration for a model.
 
     This consists of:
 
-    * Model level hyper-parameters (HParams).
+    * Dataset level hyper-parameters (properties).
     * Root theta with materialized parameters (Theta).
     """
 
-    hp: HParams
+    properties: dict[str, Any]
     root_theta: Theta
-
-
-class InferenceModel(ThetaModule):
-    """Top-level inference model."""
-
-    def __init__(self, config: InferenceModelConfig):
-        super().__init__(config.root_theta)
-        self.hp = config.hp

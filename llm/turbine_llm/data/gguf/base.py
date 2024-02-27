@@ -9,14 +9,15 @@ from typing import Any, Union
 import os
 
 import numpy as np
+import torch
 
 from gguf import GGUFReader, GGUFValueType
 
 from ...utils.logging import get_logger
 
 from ..base import (
-    HParams,
-    InferenceModelConfig,
+    Dataset,
+    DefaultPrimitiveTensor,
     InferenceTensor,
     Theta,
 )
@@ -30,21 +31,25 @@ __all__ = [
 logger = get_logger("gguf")
 
 
-class GgufHParams(HParams):
-    def __init__(self, reader: GGUFReader):
-        super().__init__()
-        self._tables: dict[str, Any] = {}
+def _load_properties(reader: GGUFReader) -> dict[str, Any]:
+    # TODO: Figure out what to do with tables.
+    tables: dict[str, Any] = {}
+    properties: dict[str, Any] = {
+        "schema": "GGUF",
+        # "tables": tables,
+    }
 
-        # Extract hyper-parameters. Adapted from gguf-dump.py
-        for field in reader.fields.values():
-            if len(field.types) == 1:
-                curr_type = field.types[0]
-                if curr_type == GGUFValueType.STRING:
-                    self[field.name] = str(bytes(field.parts[-1]), encoding="utf8")
-                elif field.types[0] in reader.gguf_scalar_to_np:
-                    self[field.name] = field.parts[-1][0]
-            else:
-                self._tables[field.name] = field.parts
+    # Extract hyper-parameters. Adapted from gguf-dump.py
+    for field in reader.fields.values():
+        if len(field.types) == 1:
+            curr_type = field.types[0]
+            if curr_type == GGUFValueType.STRING:
+                properties[field.name] = str(bytes(field.parts[-1]), encoding="utf8")
+            elif field.types[0] in reader.gguf_scalar_to_np:
+                properties[field.name] = field.parts[-1][0]
+        else:
+            tables[field.name] = field.parts
+    return properties
 
 
 _quantized_types = {
@@ -62,13 +67,11 @@ def _wrap_tensor(
     # always true.
     logical_shape = list(reversed(logical_shape))
     if type_name in ["F16", "F32", "F64"]:
-        return layouts.GgufPrimitiveTensor(
-            name=name, shape=logical_shape, type_name=type_name, data=data
-        )
+        return DefaultPrimitiveTensor(name, torch.Tensor(data).reshape(logical_shape))
 
     quantized_type = _quantized_types.get(type_name)
     if quantized_type is not None:
-        return quantized_type(name=name, data=data, shape=logical_shape)
+        return quantized_type(name=name, raw=torch.tensor(data), shape=logical_shape)
 
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")
 
@@ -81,7 +84,7 @@ def load_gguf_file(gguf_path: Union[str, os.PathLike]):
         len(reader.fields),
         len(reader.tensors),
     )
-    hp = GgufHParams(reader)
+    properties = _load_properties(reader)
 
     # Extract tensors.
     tensors: dict[str, InferenceTensor] = {}
@@ -94,4 +97,4 @@ def load_gguf_file(gguf_path: Union[str, os.PathLike]):
         )
         tensors[tensor.name] = gguf_tensor
     root_theta = Theta(tensors)
-    return InferenceModelConfig(hp=hp, root_theta=root_theta)
+    return Dataset(properties=properties, root_theta=root_theta)
