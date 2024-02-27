@@ -36,28 +36,28 @@ class LlamaHParams:
     rope_dimension_count: int
     attention_head_count: int
     attention_layer_norm_rms_epsilon: float
-
-    attention_head_count_kv: Optional[int] = None
+    attention_head_count_kv: int
 
     @staticmethod
     def from_gguf_props(p: dict[str, Any]):
+        attention_head_count = _int_prop(p, "llama.attention.head_count")
         return LlamaHParams(
             context_length=_int_prop(p, "llama.context_length"),
             embedding_length=_int_prop(p, "llama.embedding_length"),
             block_count=_int_prop(p, "llama.block_count"),
             feed_forward_length=_int_prop(p, "llama.feed_forward_length"),
             rope_dimension_count=_int_prop(p, "llama.rope.dimension_count"),
-            attention_head_count=_int_prop(p, "llama.attention.head_count"),
+            attention_head_count=attention_head_count,
             attention_layer_norm_rms_epsilon=_float_prop(
                 p, "llama.attention.layer_norm_rms_epsilon"
             ),
             attention_head_count_kv=_optional_int_prop(
-                p, "llama.attention.head_count_kv"
+                p, "llama.attention.head_count_kv", attention_head_count
             ),
         )
 
 
-def _float_prop(p: dict[str, Any], name: str) -> int:
+def _float_prop(p: dict[str, Any], name: str) -> float:
     try:
         return float(p[name])
     except ValueError as e:
@@ -75,10 +75,10 @@ def _int_prop(p: dict[str, Any], name: str) -> int:
         raise KeyError(f"Property '{name}' not found (among keys {p.keys()})")
 
 
-def _optional_int_prop(p: dict[str, Any], name: str) -> Optional[int]:
+def _optional_int_prop(p: dict[str, Any], name: str, default_value: int) -> int:
     value = p[name]
     if value is None:
-        return None
+        return default_value
     try:
         return int(value)
     except ValueError as e:

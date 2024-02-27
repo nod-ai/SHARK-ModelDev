@@ -19,7 +19,7 @@ from .core import (
 )
 
 __all__ = [
-    "LlamaAttentionLayer",
+    "LlamaAttentionBlock",
     "RotaryEmbeddingLayer",
 ]
 
@@ -63,7 +63,7 @@ class RotaryEmbeddingLayer(nn.Module):
         return freqs_cis
 
 
-class LlamaAttentionLayer(ThetaLayer):
+class LlamaAttentionBlock(ThetaLayer):
     """Implements a self attention layer in the style of Llama."""
 
     def __init__(
@@ -84,6 +84,13 @@ class LlamaAttentionLayer(ThetaLayer):
         self.add_module("attn_k", LinearLayer(theta("attn_k")))
         self.add_module("attn_v", LinearLayer(theta("attn_v")))
         self.add_module("attn_output", LinearLayer(theta("attn_output")))
+        self.add_module(
+            "ffn_norm", RMSNormLayer(theta("ffn_norm"), epsilon=rms_epsilon)
+        )
+        self.add_module("ffn_gate", LinearLayer(theta("ffn_gate")))
+        self.add_module("ffn_up", LinearLayer(theta("ffn_up")))
+        self.add_module("ffn_down", LinearLayer(theta("ffn_down")))
+
         self.embedding = embedding
         self.head_count = head_count
         self.head_dim = head_dim
@@ -91,14 +98,14 @@ class LlamaAttentionLayer(ThetaLayer):
 
     def forward(
         self,
-        x: torch.Tensor,
+        h: torch.Tensor,
         *,
         cache_k: torch.Tensor,
         cache_v: torch.Tensor,
         start_index: int,
         attention_mask: Optional[torch.Tensor] = None,
     ):
-        x = self.attn_norm(x)
+        x = self.attn_norm(h)
 
         bs, q_len, feature_dim = x.shape
         kv_seq_len = start_index + q_len
@@ -143,9 +150,20 @@ class LlamaAttentionLayer(ThetaLayer):
             attn_weights = attn_weights + attention_mask
 
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(xq)
-        output = torch.matmul(attn_weights, values)  # (bs, heads, slen, head_dim)
-        output = output.transpose(1, 2).reshape(bs, q_len, -1)
+        attn_output = torch.matmul(attn_weights, values)  # (bs, heads, slen, head_dim)
+        attn_output = attn_output.transpose(1, 2).reshape(bs, q_len, -1)
 
         # Project.
-        output = self.attn_output(output)
-        return output
+        attn_output = self.attn_output(attn_output)
+
+        # Remainder of the block.
+        h = h + attn_output
+
+        # Feed forward network.
+        ff_input = self.ffn_norm(h)
+        ff_gate = F.silu(self.ff_gate(ff_input))
+        ff_up = self.ff_up(ff_input)
+        ff_down = self.ff_down(ff_gate * ff_up)
+        h = h + ff_down
+
+        return h

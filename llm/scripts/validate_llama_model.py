@@ -20,7 +20,7 @@ from turbine_llm.models.llama import *
 def main(args: list[str]):
     config = load_gguf_file(args[0])
     hp = LlamaHParams.from_gguf_props(config.properties)
-    model = LlamaModelV1(config.root_theta, hp)
+    model = DirectCacheLlamaModelV1(config.root_theta, hp)
 
 
 if __name__ == "__main__":
