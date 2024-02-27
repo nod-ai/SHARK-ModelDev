@@ -148,7 +148,7 @@ if __name__ == "__main__":
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
 
-        torch_output = run_torch_vae(args.hf_model_name, args.variant, example_input)
+        torch_output = run_torch_vae(args.hf_model_name, "", args.variant, example_input.float())
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_results)
         print("Largest Error: ", err)
