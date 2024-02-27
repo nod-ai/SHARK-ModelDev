@@ -29,7 +29,7 @@ def main(args: list[str]):
             )
         else:
             assert isinstance(tensor, QuantizedTensor), f"Got {type(tensor)}"
-            raw = tensor.raw
+            raw = tensor.raw  # type: ignore
             print(
                 f"  : QuantizedTensor({tensor.layout_type.__name__})="
                 f"torch.Tensor({list(raw.shape)}, dtype={raw.dtype})"
