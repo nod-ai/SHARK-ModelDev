@@ -103,7 +103,6 @@ def get_hf_img_cls_model(name, import_args):
     # print("test_input.shape: ", test_input.shape)
     # test_input.shape:  torch.Size([1, 3, 224, 224])
     test_input = test_input.repeat(int(import_args["batch_size"]), 1, 1, 1)
-    print(f"YOOO TEST INPUT: {test_input.shape}")
     actual_out = model(test_input)
     # actual_out.shape：  torch.Size([1, 1000])
     return model, test_input, actual_out
