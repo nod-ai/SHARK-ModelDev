@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from ..data import Theta
 from .core import (
+    BaseLayer,
     LinearLayer,
     RMSNormLayer,
     ThetaLayer,
@@ -24,7 +25,7 @@ __all__ = [
 ]
 
 
-class RotaryEmbeddingLayer(nn.Module):
+class RotaryEmbeddingLayer(BaseLayer):
     """Computes a rotary embedding in the style popularized by llama (RoPE)."""
 
     def __init__(self, *, rope_dimension_count: int, max_seqlen: int):
@@ -164,6 +165,4 @@ class LlamaAttentionBlock(ThetaLayer):
         ffn_gate = F.silu(self.ffn_gate(ffn_input))
         ffn_up = self.ffn_up(ffn_input)
         ffn_down = self.ffn_down(ffn_gate * ffn_up)
-        h = h + ffn_down
-
-        return h
+        return h + ffn_down

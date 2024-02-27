@@ -81,11 +81,12 @@ class DirectCacheLlamaModelV1(ThetaLayer):
         start_index: int,
         *,
         return_logits: bool = False,
-        local_kv_cache: list[torch.Tensor]
+        local_kv_cache: list[torch.Tensor],
     ):
         bs, sl = tokens.shape
         h = self.token_embedding(tokens)
         dtype = h.dtype
+        self.trace_tensor("llama.token_embedding", h)
 
         # Compute attention mask.
         attention_mask = None
@@ -104,14 +105,15 @@ class DirectCacheLlamaModelV1(ThetaLayer):
         for block_idx, block in enumerate(self.attn_blocks):
             block_cache_k = local_kv_cache[block_idx]
             block_cache_v = local_kv_cache[block_count + block_idx]
-            block_output = block(
+            self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            h = block(
                 h,
                 cache_k=block_cache_k,
                 cache_v=block_cache_v,
                 start_index=start_index,
                 attention_mask=attention_mask,
             )
-            h = h + block_output
+            self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
 
         h = self.output_norm(h)
         logits = self.output_lm_head(h)

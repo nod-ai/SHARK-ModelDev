@@ -11,6 +11,7 @@ from ..data import (
     InferenceTensor,
     Theta,
 )
+from ..utils import debugging
 
 __all__ = [
     "LinearLayer",
@@ -20,7 +21,14 @@ __all__ = [
 ]
 
 
-class ThetaLayer(nn.Module):
+class BaseLayer(nn.Module):
+    """Base class of all of our layers."""
+
+    def trace_tensor(self, key: str, t: torch.Tensor):
+        debugging.trace_tensor(key, t)
+
+
+class ThetaLayer(BaseLayer):
     "Base class for layers that derive parameters from a Theta object."
 
     def __init__(self, theta: Theta):
