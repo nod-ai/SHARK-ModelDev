@@ -16,6 +16,19 @@ _INT_TYPES = ["i1", "i4", "i8", "i16", "i32", "i64"]
 _FLOAT_TYPES = ["f16", "f32", "f64"]
 _INDEX_TYPES = ["index"]
 
+import torch
+
+_TKL_TO_TORCH_DTYPE = {
+    "f16": torch.half,
+    "f32": torch.float,
+    "f64": torch.double,
+    "i1": torch.bool,
+    "i8": torch.int8,
+    "i16": torch.int16,
+    "i32": torch.int32,
+    "i64": torch.int64,
+}
+
 
 # TODO: this should really be a type.
 class DataType:
@@ -43,6 +56,14 @@ class DataType:
 
     def is_index_asm(self):
         return self._name in _INDEX_TYPES
+
+    def to_torch_type(self):
+        try:
+            return _TKL_TO_TORCH_DTYPE[self._name]
+        except KeyError:
+            print(
+                f"The support for '{self._name}' dtype to torch type isn't implemented."
+            )
 
 
 bool = DataType("bool", "i1")
