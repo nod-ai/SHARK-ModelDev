@@ -108,12 +108,18 @@ class QuantizedTensor(InferenceTensor, Generic[QuantizedLayoutT]):
 class Theta:
     """Subset of parameter tensors used for inference."""
 
-    def __init__(self, tensors: dict[str, InferenceTensor]):
+    def __init__(
+        self,
+        tensors: dict[str, InferenceTensor],
+        *,
+        ops: Optional["InferenceOps"] = None,
+    ):
         assert all(
             isinstance(t, InferenceTensor) for t in tensors.values()
         ), "Must only contain InferenceTensors"
 
         self._tensors = _flat_to_nested_dict(tensors)
+        self.ops = ops if ops is not None else InferenceOps()
 
     def flatten(self) -> dict[str, InferenceTensor]:
         results = {}
@@ -155,7 +161,7 @@ class Theta:
                 current_ts = current_ts[str(part)]
         except KeyError:
             raise KeyError(f"Sub-theta {name_path} not found")
-        return Theta(current_ts)
+        return Theta(current_ts, ops=self.ops)
 
     def __repr__(self):
         return f"Theta({self.keys})"
@@ -197,3 +203,77 @@ class Dataset:
 
     properties: dict[str, Any]
     root_theta: Theta
+
+
+class InferenceOps:
+    """Operations involving InferenceTensors.
+
+    There are really only a handful of operations that are ever done on packed
+    Inference tensors, and we support those here on a default class with a
+    PyTorch whole-tensor based implementation. The default implementation should
+    be correct but can be swapped for more layout/target sensitive subclasses as
+    desired.
+
+    The InferenceOps class can be accessed on any Theta object, which also
+    provides a single place where it can be customized.
+    """
+
+    def matmul(
+        self,
+        lhs: torch.Tensor,
+        rhs: Union[torch.Tensor, InferenceTensor],
+        *,
+        transpose_rhs: bool = True,
+    ) -> torch.Tensor:
+        """Performs a matmul where the RHS may be an InferenceTensor.
+
+        Unlike torch.matmul, this variant is optimized for emission of a fused
+        `matmul(lhs, rhs.T)` and the `transpose_rhs=` defaults to True, indicating
+        the the RHS is expected to have been transposed already (by some outside
+        force). Most inference optimizers will store their weights in this way
+        and assume fusions that operate on them, so we just make it the default.
+
+        Args:
+        lhs: Left hand side tensor. Can have dimensionality > 2 for batch.
+        rhs: Right hand side tensor.
+        transpose_rhs: Whether the right hand side should be transposed prior
+            to matmul.
+        """
+        if transpose_rhs:
+            assert (
+                len(rhs.shape) == 2
+            ), f"Expected 2d rhs for transpose_rhs=True. Got: {rhs.shape}"
+
+        if isinstance(rhs, QuantizedTensor):
+            # By default, unpack and dequantize the rhs. This produces correct results
+            # for Torch but is likely not the right thing for anything else.
+            # TODO: Consult a dispatch table for the engine-specific op to use here.
+            rhs_torch = rhs.unpack().dequant(lhs.dtype)
+            return _matmul_torch(
+                lhs,
+                rhs_torch,
+                transpose_rhs=transpose_rhs,
+            )
+        elif isinstance(rhs, PrimitiveTensor):
+            # Convertible to a Torch tensor without custom layout.
+            rhs_torch = rhs.as_torch()
+            return _matmul_torch(
+                lhs,
+                rhs_torch,
+                transpose_rhs=transpose_rhs,
+            )
+        else:
+            # Treat it as a torch Tensor.
+            assert isinstance(rhs, torch.Tensor)
+            return _matmul_torch(lhs, rhs, transpose_rhs=transpose_rhs)
+
+
+def _matmul_torch(
+    lhs: torch.Tensor,
+    rhs: torch.Tensor,
+    *,
+    transpose_rhs: bool,
+):
+    if transpose_rhs:
+        rhs = rhs.T
+    return torch.matmul(lhs, rhs)
