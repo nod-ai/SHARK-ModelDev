@@ -120,8 +120,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.precision == "fp16":
         dtype = torch.float16
+        custom_vae = "madebyollin/sdxl-vae-fp16-fix"
     else:
         dtype = torch.float32
+        custom_vae = ""
     if args.variant == "decode":
         example_input = torch.rand(
             args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
@@ -148,7 +150,7 @@ if __name__ == "__main__":
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
 
-        torch_output = run_torch_vae(args.hf_model_name, "", args.variant, example_input.float())
+        torch_output = run_torch_vae(args.hf_model_name, custom_vae, args.variant, example_input.float())
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_results)
         print("Largest Error: ", err)
