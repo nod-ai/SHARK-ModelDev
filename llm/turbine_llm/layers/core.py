@@ -12,6 +12,13 @@ from ..data import (
     Theta,
 )
 
+__all__ = [
+    "LinearLayer",
+    "RMSNormLayer",
+    "ThetaLayer",
+    "TokenEmbedding",
+]
+
 
 class ThetaLayer(nn.Module):
     "Base class for layers that derive parameters from a Theta object."
@@ -70,3 +77,17 @@ class RMSNormLayer(ThetaLayer):
 
     def forward(self, x: torch.Tensor):
         return self.theta.ops.rms_norm(x, self.weight, epsilon=self.epsilon)
+
+
+class TokenEmbedding(ThetaLayer):
+    def __init__(
+        self,
+        theta: Theta,
+        *,
+        weight_name: str = "weight",
+    ):
+        super().__init__(theta)
+        self.weight = self.theta_tensor(weight_name)
+
+    def forward(self, input: torch.Tensor):
+        return self.theta.ops.embedding_lookup(input, self.weight)

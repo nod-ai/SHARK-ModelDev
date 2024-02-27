@@ -9,6 +9,7 @@ from typing import Any, Optional, Union, Collection, TypeVar, Generic, Type
 from dataclasses import dataclass
 
 import torch
+import torch.nn.functional as F
 
 __all__ = [
     "Dataset",
@@ -110,15 +111,12 @@ class Theta:
 
     def __init__(
         self,
-        tensors: dict[str, InferenceTensor],
+        tensors: dict,
         *,
         ops: Optional["InferenceOps"] = None,
+        already_nested: bool = False,
     ):
-        assert all(
-            isinstance(t, InferenceTensor) for t in tensors.values()
-        ), "Must only contain InferenceTensors"
-
-        self._tensors = _flat_to_nested_dict(tensors)
+        self._tensors = tensors if already_nested else _flat_to_nested_dict(tensors)
         self.ops = ops if ops is not None else InferenceOps()
 
     def flatten(self) -> dict[str, InferenceTensor]:
@@ -221,6 +219,28 @@ class InferenceOps:
     provides a single place where it can be customized.
     """
 
+    def embedding_lookup(
+        self,
+        input: torch.Tensor,
+        embedding_matrix: Union[torch.Tensor, InferenceTensor],
+    ):
+        """Performs the equivalent of F.embedding(input, embedding_matrix).
+
+        Note that the default algorithm will unquantize the embedding_matrix to
+        do the lookup, which is inefficient. Specializations should decompose
+        this as appropriate for quantized arithmetic.
+        """
+        if isinstance(embedding_matrix, InferenceTensor):
+            if isinstance(embedding_matrix, QuantizedTensor):
+                embedding_matrix = embedding_matrix.unpack().dequant(input.dtype)
+            elif isinstance(embedding_matrix, PrimitiveTensor):
+                embedding_matrix = embedding_matrix.as_torch()
+            else:
+                raise AssertionError(
+                    f"Unsupported InferenceTensor: {type(embedding_matrix)}"
+                )
+        return F.embedding(input, embedding_matrix)  # type: ignore
+
     def matmul(
         self,
         lhs: torch.Tensor,
@@ -283,6 +303,8 @@ class InferenceOps:
                 weight = weight.unpack().dequant(x.dtype)
             elif isinstance(weight, PrimitiveTensor):
                 weight = weight.as_torch()
+            else:
+                raise AssertionError(f"Unsupported InferenceTensor: {type(weight)}")
         variance = x.pow(2).mean(-1, keepdim=True)
         output = x * torch.rsqrt(variance + epsilon)
         output = output * weight
