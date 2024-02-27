@@ -18,9 +18,19 @@ from turbine_llm.models.llama import *
 
 
 def main(args: list[str]):
+    torch.no_grad().__enter__()
     config = load_gguf_file(args[0])
     hp = LlamaHParams.from_gguf_props(config.properties)
     model = DirectCacheLlamaModelV1(config.root_theta, hp)
+
+    kv_cache = model.create_cache(bs=1)
+    start_index = 0
+    next_tokens = [1, 1059, 31871, 1217, 322, 266, 3682, 6075, 31902, 13, 31849, 31871]
+    print(f"Step {start_index}")
+    tokens = model.forward(
+        torch.tensor([next_tokens]), start_index=start_index, local_kv_cache=kv_cache
+    )
+    print(f"  : tokens = {tokens}")
 
 
 if __name__ == "__main__":

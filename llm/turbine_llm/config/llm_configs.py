@@ -17,6 +17,8 @@ When in question, we draw from the vocabulary and normalization they have done
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import torch
+
 __all__ = [
     "LlamaHParams",
 ]
@@ -37,6 +39,8 @@ class LlamaHParams:
     attention_head_count: int
     attention_layer_norm_rms_epsilon: float
     attention_head_count_kv: int
+
+    activation_dtype: torch.dtype = torch.float32
 
     @staticmethod
     def from_gguf_props(p: dict[str, Any]):

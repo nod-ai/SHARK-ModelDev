@@ -223,6 +223,7 @@ class InferenceOps:
         self,
         input: torch.Tensor,
         embedding_matrix: Union[torch.Tensor, InferenceTensor],
+        dtype: torch.dtype,
     ):
         """Performs the equivalent of F.embedding(input, embedding_matrix).
 
@@ -232,9 +233,9 @@ class InferenceOps:
         """
         if isinstance(embedding_matrix, InferenceTensor):
             if isinstance(embedding_matrix, QuantizedTensor):
-                embedding_matrix = embedding_matrix.unpack().dequant(input.dtype)
+                embedding_matrix = embedding_matrix.unpack().dequant(dtype)
             elif isinstance(embedding_matrix, PrimitiveTensor):
-                embedding_matrix = embedding_matrix.as_torch()
+                embedding_matrix = embedding_matrix.as_torch().to(dtype)
             else:
                 raise AssertionError(
                     f"Unsupported InferenceTensor: {type(embedding_matrix)}"

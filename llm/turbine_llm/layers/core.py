@@ -85,9 +85,11 @@ class TokenEmbedding(ThetaLayer):
         theta: Theta,
         *,
         weight_name: str = "weight",
+        dtype: torch.dtype = torch.float32,
     ):
         super().__init__(theta)
         self.weight = self.theta_tensor(weight_name)
+        self.dtype = dtype
 
     def forward(self, input: torch.Tensor):
-        return self.theta.ops.embedding_lookup(input, self.weight)
+        return self.theta.ops.embedding_lookup(input, self.weight, dtype=self.dtype)

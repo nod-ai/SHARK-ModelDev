@@ -119,7 +119,7 @@ class LlamaAttentionBlock(ThetaLayer):
         xk = xk.view(bs, q_len, self.head_count_kv, self.head_dim)
         xv = xv.view(bs, q_len, self.head_count_kv, self.head_dim)
 
-        xq, xk = self.embedding(xq, xk, start_index=start_index)
+        xq, xk = self.embedding(xq=xq, xk=xk, start_index=start_index)
 
         # TODO: Some model variants do some form of kv repetition to expand the
         # count of kv heads to the count of attention heads used by the q.
@@ -160,10 +160,10 @@ class LlamaAttentionBlock(ThetaLayer):
         h = h + attn_output
 
         # Feed forward network.
-        ff_input = self.ffn_norm(h)
-        ff_gate = F.silu(self.ff_gate(ff_input))
-        ff_up = self.ff_up(ff_input)
-        ff_down = self.ff_down(ff_gate * ff_up)
-        h = h + ff_down
+        ffn_input = self.ffn_norm(h)
+        ffn_gate = F.silu(self.ffn_gate(ffn_input))
+        ffn_up = self.ffn_up(ffn_input)
+        ffn_down = self.ffn_down(ffn_gate * ffn_up)
+        h = h + ffn_down
 
         return h

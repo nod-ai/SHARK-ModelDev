@@ -28,7 +28,10 @@ class DirectCacheLlamaModelV1(ThetaLayer):
     def __init__(self, theta: Theta, hp: LlamaHParams):
         super().__init__(theta)
         self.hp = hp
-        self.add_module("token_embedding", TokenEmbedding(theta("token_embd")))
+        self.add_module(
+            "token_embedding",
+            TokenEmbedding(theta("token_embd"), dtype=hp.activation_dtype),
+        )
         self.add_module(
             "attention_embedding",
             RotaryEmbeddingLayer(
@@ -57,6 +60,20 @@ class DirectCacheLlamaModelV1(ThetaLayer):
                 for n in range(hp.block_count)
             ]
         )
+
+    def create_cache(self, bs: int) -> list[torch.Tensor]:
+        return [
+            torch.empty(
+                (
+                    bs,
+                    self.hp.context_length,
+                    self.hp.attention_head_count,
+                    self.hp.rope_dimension_count,
+                ),
+                dtype=self.hp.activation_dtype,
+            )
+            for _ in range(self.hp.block_count * 2)
+        ]
 
     def forward(
         self,
