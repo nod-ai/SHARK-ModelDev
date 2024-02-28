@@ -29,7 +29,7 @@ class HFTransformerBuilder:
         upload_ir=False,
         model=None,
         model_type: str = None,
-        run_e2e: bool = None,
+        compile_to_vmfb: bool = None,
     ) -> None:
         self.example_input = example_input
         self.hf_id = hf_id
@@ -41,7 +41,7 @@ class HFTransformerBuilder:
         self.tokenizer = None
         self.upload_ir = upload_ir
         self.model_type = model_type
-        self.run_e2e = run_e2e
+        self.compile_to_vmfb = compile_to_vmfb
         if self.model == None:
             self.build_model()
 
@@ -88,7 +88,7 @@ class HFTransformerBuilder:
                     f"{model_name_upload}/{model_name_upload}.mlir",
                 )
                 os.remove(f"{safe_name}.mlir")
-            if self.run_e2e is not None and self.run_e2e is False:
+            if self.compile_to_vmfb is not None and self.compile_to_vmfb is False:
                 return
             compiled_binary = module.compile(save_to=save_to)
             return compiled_binary
