@@ -247,6 +247,7 @@ class StableDiffusionTest(unittest.TestCase):
 
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             schedulers.export_scheduler(
                 scheduler_module,
@@ -260,6 +261,7 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 "stable_diffusion_v1_4_scheduler.safetensors",
                 "cpu",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
