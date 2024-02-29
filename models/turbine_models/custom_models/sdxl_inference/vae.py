@@ -173,8 +173,14 @@ def export_vae_model(
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    if args.precision == "fp16":
+        custom_vae = "madebyollin/sdxl-vae-fp16-fix"
+    else:
+        custom_vae = ""
+
     vae_model = VaeModel(
         args.hf_model_name,
+        custom_vae=custom_vae,
     )
     mod_str = export_vae_model(
         vae_model,
