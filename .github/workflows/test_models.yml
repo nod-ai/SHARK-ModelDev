@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Sync source deps
+        # build IREE from source with -DIREE_BUILD_TRACY=ON if getting tracy profile
         run: |
           python -m pip install --upgrade pip
           # Note: We install in three steps in order to satisfy requirements
@@ -55,4 +56,6 @@ jobs:
         run: |
           pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu
           pytest models/turbine_models/tests/sd_test.py
-          pytest models/turbine_models/tests/sdxl_test.py
+          pytest models/turbine_models/tests/sdxl_test.py --device cpu
+          pytest models/turbine_models/tests/sdxl_test.py --device vulkan
+          pytest models/turbine_models/tests/sdxl_test.py --device rocm
