@@ -137,17 +137,36 @@ def run_torch_unet(
     text_embeds,
     time_ids,
     guidance_scale,
+    precision="fp32",
 ):
     from diffusers import UNet2DConditionModel
 
     class UnetModel(torch.nn.Module):
-        def __init__(self, hf_model_name, hf_auth_token):
+        def __init__(self, hf_model_name, hf_auth_token, dtype):
             super().__init__()
-            self.unet = UNet2DConditionModel.from_pretrained(
-                hf_model_name,
-                subfolder="unet",
-                token=hf_auth_token,
-            )
+            if dtype == "fp16":
+                try:
+                    self.unet = UNet2DConditionModel.from_pretrained(
+                        hf_model_name,
+                        subfolder="unet",
+                        auth_token=hf_auth_token,
+                        low_cpu_mem_usage=False,
+                        variant="fp16",
+                    )
+                except:
+                    self.unet = UNet2DConditionModel.from_pretrained(
+                        hf_model_name,
+                        subfolder="unet",
+                        auth_token=hf_auth_token,
+                        low_cpu_mem_usage=False,
+                    )
+            else:
+                self.unet = UNet2DConditionModel.from_pretrained(
+                    hf_model_name,
+                    subfolder="unet",
+                    auth_token=hf_auth_token,
+                    low_cpu_mem_usage=False,
+                )
 
         def forward(
             self,
@@ -180,6 +199,7 @@ def run_torch_unet(
     unet_model = UnetModel(
         hf_model_name,
         hf_auth_token,
+        precision,
     )
     results = unet_model.forward(
         sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
