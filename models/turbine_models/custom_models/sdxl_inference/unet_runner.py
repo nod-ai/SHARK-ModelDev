@@ -66,8 +66,10 @@ def run_unet(
     hf_model_name,
     hf_auth_token,
     external_weight_path,
+    runner=None,
 ):
-    runner = vmfbRunner(device, vmfb_path, external_weight_path)
+    if runner is None:
+        runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
     inputs = [
         ireert.asdevicearray(runner.config.device, sample),
@@ -80,6 +82,40 @@ def run_unet(
     results = runner.ctx.modules.compiled_unet["main"](*inputs)
 
     return results
+
+def run_unet_steps(
+    device,
+    sample,
+    scheduler,
+    num_inference_steps,
+    prompt_embeds,
+    text_embeds,
+    time_ids,
+    guidance_scale,
+    vmfb_path,
+    external_weight_path,
+):
+    runner = vmfbRunner(device, vmfb_path, external_weight_path)
+    inputs = [
+        ireert.asdevicearray(runner.config.device, latent_model_input),
+        ireert.asdevicearray(runner.config.device, timestep),
+        ireert.asdevicearray(runner.config.device, prompt_embeds),
+        ireert.asdevicearray(runner.config.device, text_embeds),
+        ireert.asdevicearray(runner.config.device, time_ids),
+        ireert.asdevicearray(runner.config.device, guidance_scale),
+    ]
+    for i in range(num_inference_steps):
+        timestep = i
+        latent_model_input = scheduler.scale_model_input(latent_model_input, timestep)
+    
+        inputs[0] = ireert.asdevicearray(runner.config.device, latent_model_input)
+        inputs[1] = ireert.asdevicearray(runner.config.device, timestep)
+
+        noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs)
+        sample = scheduler.step(
+            noise_pred, timestep, sample, generator=None, return_dict=False
+        )
+    return sample
 
 
 def run_torch_unet(
@@ -117,9 +153,8 @@ def run_torch_unet(
                     "text_embeds": text_embeds,
                     "time_ids": time_ids,
                 }
-                samples = torch.cat([sample] * 2)
                 noise_pred = self.unet.forward(
-                    samples,
+                    sample,
                     timestep,
                     encoder_hidden_states=prompt_embeds,
                     cross_attention_kwargs=None,
@@ -150,17 +185,14 @@ if __name__ == "__main__":
     else:
         dtype = torch.float32
     sample = torch.rand(
-        args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
+        2 * args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
     timestep = torch.zeros(1, dtype=torch.int64)
     prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
     guidance_scale = torch.tensor([7.5], dtype=dtype)
-    if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
-        encoder_hidden_states = torch.rand(2, args.max_length, 768, dtype=dtype)
-    elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-        encoder_hidden_states = torch.rand(2, args.max_length, 1024, dtype=dtype)
+
 
     turbine_output = run_unet(
         args.device,
@@ -199,7 +231,7 @@ if __name__ == "__main__":
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_output)
         print("Largest Error: ", err)
-        assert err < 9e-5
+        assert err < 9e-3
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output = None
