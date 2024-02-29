@@ -62,7 +62,7 @@ arguments = {
     "iree_target_triple": "x86_64-linux-gnu",
     "vulkan_max_allocation": "4294967296",
     "prompt": "a photograph of an astronaut riding a horse",
-    "negative_prompt" : "blurry, unsaturated, watermark, noisy, grainy, out of focus",
+    "negative_prompt": "blurry, unsaturated, watermark, noisy, grainy, out of focus",
     "in_channels": 4,
     "num_inference_steps": 35,
     "benchmark": False,
@@ -109,7 +109,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 arguments["hf_model_name"],
-                None, # This is a public model, so no auth required
+                None,  # This is a public model, so no auth required
                 arguments["max_length"],
                 arguments["precision"],
                 "vmfb",
@@ -173,8 +173,8 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
             )
-        rtol=4e-2
-        atol=4e-2
+        rtol = 4e-2
+        atol = 4e-2
         np.testing.assert_allclose(torch_output_1, turbine_1[0], rtol, atol)
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
@@ -196,7 +196,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_unet.safetensors",
+                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors",
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 decomp_attn=arguments["decomp_attn"],
@@ -262,8 +262,8 @@ class StableDiffusionXLTest(unittest.TestCase):
                 in_channels=arguments["in_channels"],
                 precision=arguments["precision"],
             )
-        rtol=4e-2
-        atol=4e-2
+        rtol = 4e-2
+        atol = 4e-2
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     @unittest.skipIf(
@@ -328,8 +328,8 @@ class StableDiffusionXLTest(unittest.TestCase):
                 width=arguments["width"],
                 precision=arguments["precision"],
             )
-        rtol=4e-2
-        atol=4e-2
+        rtol = 4e-2
+        atol = 4e-2
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     @unittest.skipIf(
@@ -394,63 +394,55 @@ class StableDiffusionXLTest(unittest.TestCase):
                 width=arguments["width"],
                 precision=arguments["precision"],
             )
-        rtol=4e-2
-        atol=4e-2
+        rtol = 4e-2
+        atol = 4e-2
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
         from diffusers import EulerDiscreteScheduler
+
         arguments[
             "vae_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors"
         arguments[
             "vae_vmfb_path"
         ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
         arguments[
             "unet_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_unet.safetensors"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors"
         arguments[
             "unet_vmfb_path"
         ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
         arguments[
-            "clip_1_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip_1.safetensors"
+            "clip_external_weight_path"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip.safetensors"
         arguments[
-            "clip_2_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip_2.safetensors"
-        arguments[
-            "clip_1_vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_1_{arguments['device']}.vmfb"
-        arguments[
-            "clip_2_vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_2_{arguments['device']}.vmfb"
+            "clip_vmfb_path"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_{arguments['device']}.vmfb"
+
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
 
-        clip_out_1 = clip_runner.run_clip(
+        (
+            prompt_embeds,
+            negative_prompt_embeds,
+            pooled_prompt_embeds,
+            pooled_negative_prompt_embeds,
+        ) = clip_runner.run_clip(
             arguments["rt_device"],
             arguments["prompt"],
-            arguments["clip_1_vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["clip_1_external_weight_path"],
-            arguments["max_length"],
-            index=1,
-        )
-        clip_out_2 = clip_runner.run_clip(
-            arguments["rt_device"],
             arguments["negative_prompt"],
-            arguments["clip_2_vmfb_path"],
+            arguments["clip_vmfb_path"],
             arguments["hf_model_name"],
             arguments["hf_auth_token"],
-            arguments["clip_2_external_weight_path"],
+            arguments["clip_external_weight_path"],
             arguments["max_length"],
-            index=2,
         )
-        prompt_embeds = torch.from_numpy(clip_out_1[0].to_host()).to(dtype)
-        pooled_prompt_embeds = torch.from_numpy(clip_out_1[1].to_host()).to(dtype)
-        negative_prompt_embeds = torch.from_numpy(clip_out_2[0].to_host()).to(dtype)
-        pooled_negative_prompt_embeds = torch.from_numpy(clip_out_2[1].to_host()).to(dtype)
-
+        print(
+            prompt_embeds.shape,
+            pooled_prompt_embeds.shape,
+            negative_prompt_embeds.shape,
+            pooled_negative_prompt_embeds.shape,
+        )
         seed = 1234567
         generator = torch.manual_seed(seed)
         init_latents = torch.randn(
@@ -475,22 +467,23 @@ class StableDiffusionXLTest(unittest.TestCase):
         target_size = (arguments["height"], arguments["width"])
         crops_coords_top_left = (0, 0)
         add_text_embeds = pooled_prompt_embeds
+
         add_time_ids = _get_add_time_ids(
             original_size,
             crops_coords_top_left,
             target_size,
             dtype=prompt_embeds.dtype,
         )
+        negative_add_time_ids = add_time_ids
 
-        prompt_embeds = torch.cat(
-            [negative_prompt_embeds, prompt_embeds], dim=0
-        )
-        add_text_embeds = torch.cat(
-            [pooled_negative_prompt_embeds, add_text_embeds], dim=0
-        )
-        add_time_ids = torch.cat([add_time_ids, add_time_ids], dim=0)
+        do_classifier_free_guidance = True
+        if do_classifier_free_guidance:
+            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
+            add_text_embeds = torch.cat(
+                [pooled_negative_prompt_embeds, add_text_embeds], dim=0
+            )
+            add_time_ids = torch.cat([add_time_ids, negative_add_time_ids], dim=0)
 
-        prompt_embeds = prompt_embeds
         add_text_embeds = add_text_embeds.to(dtype)
         add_time_ids = add_time_ids.repeat(arguments["batch_size"] * 1, 1)
 
@@ -498,13 +491,18 @@ class StableDiffusionXLTest(unittest.TestCase):
         guidance_scale = torch.tensor(7.5).to(dtype)
         prompt_embeds = prompt_embeds.to(dtype)
         add_time_ids = add_time_ids.to(dtype)
+
+        latent_model_input = (
+            torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+        )
+
         unet_out = unet_runner.run_unet_steps(
             device=arguments["rt_device"],
-            sample=init_latents,
+            sample=latent_model_input,
             scheduler=scheduler,
             num_inference_steps=arguments["num_inference_steps"],
             prompt_embeds=prompt_embeds,
-            text_embeds=pooled_prompt_embeds,
+            text_embeds=add_text_embeds,
             time_ids=add_time_ids,
             guidance_scale=guidance_scale,
             vmfb_path=arguments["unet_vmfb_path"],
@@ -517,19 +515,16 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["hf_model_name"],
             arguments["vae_external_weight_path"],
         ).to_host()
-        image = torch.from_numpy(vae_out).cpu().permute(0,2,3,1).float().numpy()
+        image = torch.from_numpy(vae_out).cpu().permute(0, 2, 3, 1).float().numpy()
 
         image = (image * 255).round().astype("uint8")
         pil_image = Image.fromarray(image[:, :, :3])
         pil_image.save("sdxl_image.png")
         assert os.path.exists("sdxl_image.png")
 
-def _get_add_time_ids(
-    original_size, crops_coords_top_left, target_size, dtype
-):
-    add_time_ids = list(
-        original_size + crops_coords_top_left + target_size
-    )
+
+def _get_add_time_ids(original_size, crops_coords_top_left, target_size, dtype):
+    add_time_ids = list(original_size + crops_coords_top_left + target_size)
 
     # self.unet.config.addition_time_embed_dim IS 256.
     # self.text_encoder_2.config.projection_dim IS 1280.
@@ -544,6 +539,7 @@ def _get_add_time_ids(
 
     add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
     return add_time_ids
+
 
 def parse_args(args):
     consume_args = []
