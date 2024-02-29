@@ -5,9 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
-import sys
+import pytest
 import torch
-from transformers import CLIPTextModel
 from turbine_models.custom_models.sdxl_inference import (
     clip,
     clip_runner,
@@ -16,14 +15,13 @@ from turbine_models.custom_models.sdxl_inference import (
     vae,
     vae_runner,
 )
-from turbine_models.custom_models.sd_inference import utils
-from turbine_models.tests.sdxl_benchmark import run_benchmark
+from turbine_models.utils.sdxl_benchmark import run_benchmark
 import unittest
 from tqdm.auto import tqdm
-import time
 from PIL import Image
 import os
 import numpy as np
+
 
 torch.random.manual_seed(0)
 
@@ -42,55 +40,63 @@ rt_device_list = [
     "rocm",
 ]
 
-arguments = {
-    "hf_auth_token": None,
-    "hf_model_name": "stabilityai/stable-diffusion-xl-base-1.0",
-    "safe_model_name": "stable_diffusion_xl_base_1_0",
-    "batch_size": 1,
-    "height": 1024,
-    "width": 1024,
-    "precision": "fp16",
-    "max_length": 64,
-    "guidance_scale": 7.5,
-    "run_vmfb": True,
-    "compile_to": None,
-    "external_weight_path": "",
-    "vmfb_path": "",
-    "external_weights": "safetensors",
-    "device": "cpu",
-    "rt_device": "local-task",
-    "iree_target_triple": "x86_64-linux-gnu",
-    "vulkan_max_allocation": "4294967296",
-    "prompt": "a photograph of an astronaut riding a horse",
-    "negative_prompt": "blurry, unsaturated, watermark, noisy, grainy, out of focus",
-    "in_channels": 4,
-    "num_inference_steps": 2,
-    "benchmark": False,
-    "decomp_attn": False,
-}
+arguments = {}
 
 
-unet_model = unet.UnetModel(
-    # This is a public model, so no auth required
-    arguments["hf_model_name"],
-    precision=arguments["precision"],
-)
-
-vae_model = vae.VaeModel(
-    # This is a public model, so no auth required
-    arguments["hf_model_name"],
-    custom_vae="madebyollin/sdxl-vae-fp16-fix"
-    if arguments["precision"] == "fp16"
-    else None,
-)
-
-
-class StableDiffusionXLTest(unittest.TestCase):
-    @unittest.skipIf(
-        arguments["device"] in ["vulkan", "cuda", "rocm"],
-        reason="Fail to compile on vulkan and rocm; To be tested on cuda.",
+@pytest.fixture(scope="session")
+def command_line_args(request):
+    arguments["hf_auth_token"] = request.config.getoption("--hf_auth_token")
+    arguments["hf_model_name"] = request.config.getoption("--hf_model_name")
+    arguments["safe_model_name"] = request.config.getoption("--safe_model_name")
+    arguments["batch_size"] = request.config.getoption("--batch_size")
+    arguments["height"] = request.config.getoption("--height")
+    arguments["width"] = request.config.getoption("--width")
+    arguments["precision"] = request.config.getoption("--precision")
+    arguments["max_length"] = request.config.getoption("--max_length")
+    arguments["guidance_scale"] = request.config.getoption("--guidance_scale")
+    arguments["run_vmfb"] = request.config.getoption("--run_vmfb")
+    arguments["compile_to"] = request.config.getoption("--compile_to")
+    arguments["vmfb_path"] = request.config.getoption("--vmfb_path")
+    arguments["external_weights"] = request.config.getoption("--external_weights")
+    arguments["external_weight_path"] = request.config.getoption(
+        "--external_weight_path"
     )
+    arguments["device"] = request.config.getoption("--device")
+    arguments["rt_device"] = request.config.getoption("--rt_device")
+    arguments["iree_target_triple"] = request.config.getoption("--iree_target_triple")
+    arguments["vulkan_max_allocation"] = request.config.getoption(
+        "--vulkan_max_allocation"
+    )
+    arguments["prompt"] = request.config.getoption("--prompt")
+    arguments["negative_prompt"] = request.config.getoption("--negative_prompt")
+    arguments["in_channels"] = request.config.getoption("--in_channels")
+    arguments["num_inference_steps"] = request.config.getoption("--num_inference_steps")
+    arguments["benchmark"] = request.config.getoption("--benchmark")
+    arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
+    arguments["tracy_profile"] = request.config.getoption("--tracy_profile")
+
+
+@pytest.mark.usefixtures("command_line_args")
+class StableDiffusionXLTest(unittest.TestCase):
+    def setUp(self):
+        self.unet_model = unet.UnetModel(
+            # This is a public model, so no auth required
+            arguments["hf_model_name"],
+            precision=arguments["precision"],
+        )
+        self.vae_model = vae.VaeModel(
+            # This is a public model, so no auth required
+            arguments["hf_model_name"],
+            custom_vae=(
+                "madebyollin/sdxl-vae-fp16-fix"
+                if arguments["precision"] == "fp16"
+                else None
+            ),
+        )
+
     def test01_ExportClipModels(self):
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+            self.skipTest("Fail to compile on vulkan and rocm; To be tested on cuda.")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 # This is a public model, so no auth required
@@ -100,7 +106,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["precision"],
                 "vmfb",
                 "safetensors",
-                f"{arguments['safe_model_name']}_{arguments['precision']}_clip",
+                arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
                 arguments["device"],
                 arguments["iree_target_triple"],
                 index=1,
@@ -114,24 +120,44 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["precision"],
                 "vmfb",
                 "safetensors",
-                f"{arguments['safe_model_name']}_{arguments['precision']}_clip",
+                arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
                 arguments["device"],
                 arguments["iree_target_triple"],
                 index=2,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path_1"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip_1.safetensors"
-        arguments[
-            "external_weight_path_2"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip_2.safetensors"
-        arguments[
-            "vmfb_path_1"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_1_{arguments['device']}.vmfb"
-        arguments[
-            "vmfb_path_2"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_2_{arguments['device']}.vmfb"
+        arguments["external_weight_path_1"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_clip_1.safetensors"
+        )
+        arguments["external_weight_path_2"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_clip_2.safetensors"
+        )
+        arguments["vmfb_path_1"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["max_length"])
+            + "_"
+            + arguments["precision"]
+            + "_clip_1_"
+            + arguments["device"]
+            + ".vmfb"
+        )
+        arguments["vmfb_path_2"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["max_length"])
+            + "_"
+            + arguments["precision"]
+            + "_clip_2_"
+            + arguments["device"]
+            + ".vmfb"
+        )
         turbine_1 = clip_runner.run_clip(
             arguments["rt_device"],
             arguments["prompt"],
@@ -158,13 +184,14 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["prompt"],
             arguments["max_length"],
         )
-        if arguments["benchmark"]:
+        if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
                 "clip_1",
                 arguments["vmfb_path_1"],
                 arguments["external_weight_path_1"],
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
+                tracy_profile=arguments["tracy_profile"],
             )
             run_benchmark(
                 "clip_2",
@@ -172,20 +199,21 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["external_weight_path_2"],
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
+                tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
         atol = 4e-2
         np.testing.assert_allclose(torch_output_1, turbine_1[0], rtol, atol)
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
-    @unittest.skipIf(
-        arguments["device"] in ["vulkan", "cuda", "rocm"],
-        reason="Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda.",
-    )
     def test02_ExportUnetModel(self):
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+            self.skipTest(
+                "Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda."
+            )
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
-                unet_model,
+                self.unet_model,
                 # This is a public model, so no auth required
                 arguments["hf_model_name"],
                 arguments["batch_size"],
@@ -196,18 +224,32 @@ class StableDiffusionXLTest(unittest.TestCase):
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors",
+                external_weight_path=arguments["safe_model_name"]
+                + "_"
+                + arguments["precision"]
+                + "_unet.safetensors",
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_unet.safetensors"
-        arguments[
-            "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
+        arguments["external_weight_path"] = (
+            arguments["safe_model_name"] + "_unet.safetensors"
+        )
+        arguments["vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["max_length"])
+            + "_"
+            + str(arguments["height"])
+            + "x"
+            + str(arguments["width"])
+            + "_"
+            + arguments["precision"]
+            + "_unet_"
+            + arguments["device"]
+            + ".vmfb"
+        )
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -220,7 +262,8 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         timestep = torch.zeros(1, dtype=torch.int64)
         prompt_embeds = torch.rand(
-            2 * arguments["batch_size"], arguments["max_length"], 2048, dtype=dtype
+            (2 * arguments["batch_size"], arguments["max_length"], 2048),
+            dtype=dtype,
         )
         text_embeds = torch.rand(2 * arguments["batch_size"], 1280, dtype=dtype)
         time_ids = torch.zeros(2 * arguments["batch_size"], 6, dtype=dtype)
@@ -249,7 +292,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             time_ids.float(),
             guidance_scale.float(),
         )
-        if arguments["benchmark"]:
+        if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
                 "unet",
                 arguments["vmfb_path"],
@@ -261,19 +304,24 @@ class StableDiffusionXLTest(unittest.TestCase):
                 batch_size=arguments["batch_size"],
                 in_channels=arguments["in_channels"],
                 precision=arguments["precision"],
+                tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
         atol = 4e-2
+        if arguments["device"] == "cpu":
+            with self.assertRaises(AssertionError):
+                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
+            return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
-    @unittest.skipIf(
-        arguments["device"] in ["vulkan", "cuda", "rocm"],
-        reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
-    )
     def test03_ExportVaeModelDecode(self):
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+            self.skipTest(
+                "Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda."
+            )
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
-                vae_model,
+                self.vae_model,
                 # This is a public model, so no auth required
                 arguments["hf_model_name"],
                 arguments["batch_size"],
@@ -282,19 +330,34 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["precision"],
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors",
+                external_weight_path=arguments["safe_model_name"]
+                + "_"
+                + arguments["precision"]
+                + "_vae_decode.safetensors",
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="decode",
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors"
-        arguments[
-            "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
+        arguments["external_weight_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_vae_decode.safetensors"
+        )
+        arguments["vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["height"])
+            + "x"
+            + str(arguments["width"])
+            + "_"
+            + arguments["precision"]
+            + "_vae_decode_"
+            + arguments["device"]
+            + ".vmfb"
+        )
         example_input = torch.ones(
             arguments["batch_size"],
             4,
@@ -314,11 +377,15 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
-            "madebyollin/sdxl-vae-fp16-fix" if arguments["precision"] == "fp16" else "",
+            (
+                "madebyollin/sdxl-vae-fp16-fix"
+                if arguments["precision"] == "fp16"
+                else ""
+            ),
             "decode",
             example_input_torch,
         )
-        if arguments["benchmark"]:
+        if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
                 "vae_decode",
                 arguments["vmfb_path"],
@@ -327,19 +394,24 @@ class StableDiffusionXLTest(unittest.TestCase):
                 height=arguments["height"],
                 width=arguments["width"],
                 precision=arguments["precision"],
+                tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
         atol = 4e-2
+        if arguments["device"] == "cpu":
+            with self.assertRaises(AssertionError):
+                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
+            return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
-    @unittest.skipIf(
-        arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"],
-        reason="Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda.",
-    )
     def test04_ExportVaeModelEncode(self):
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+            self.skipTest(
+                "Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda."
+            )
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
-                vae_model,
+                self.vae_model,
                 # This is a public model, so no auth required
                 arguments["hf_model_name"],
                 arguments["batch_size"],
@@ -348,19 +420,34 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["precision"],
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors",
+                external_weight_path=arguments["safe_model_name"]
+                + "_"
+                + arguments["precision"]
+                + "_vae_encode.safetensors",
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="encode",
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_encode.safetensors"
-        arguments[
-            "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_encode_{arguments['device']}.vmfb"
+        arguments["external_weight_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_vae_encode.safetensors"
+        )
+        arguments["vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["height"])
+            + "x"
+            + str(arguments["width"])
+            + "_"
+            + arguments["precision"]
+            + "_vae_encode_"
+            + arguments["device"]
+            + ".vmfb"
+        )
         example_input = torch.ones(
             arguments["batch_size"],
             3,
@@ -380,11 +467,15 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             arguments["hf_model_name"],
-            "madebyollin/sdxl-vae-fp16-fix" if arguments["precision"] == "fp16" else "",
+            (
+                "madebyollin/sdxl-vae-fp16-fix"
+                if arguments["precision"] == "fp16"
+                else ""
+            ),
             "encode",
             example_input_torch,
         )
-        if arguments["benchmark"]:
+        if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
                 "vae_encode",
                 arguments["vmfb_path"],
@@ -393,32 +484,73 @@ class StableDiffusionXLTest(unittest.TestCase):
                 height=arguments["height"],
                 width=arguments["width"],
                 precision=arguments["precision"],
+                tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
         atol = 4e-2
+        if arguments["device"] == "cpu":
+            with self.assertRaises(AssertionError):
+                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
+            return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
         from diffusers import EulerDiscreteScheduler
 
-        arguments[
-            "vae_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae.safetensors"
-        arguments[
-            "vae_vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
-        arguments[
-            "unet_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors"
-        arguments[
-            "unet_vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
-        arguments[
-            "clip_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_clip.safetensors"
-        arguments[
-            "clip_vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['precision']}_clip_{arguments['device']}.vmfb"
+        arguments["vae_external_weight_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_vae.safetensors"
+        )
+        arguments["vae_vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["height"])
+            + "x"
+            + str(arguments["width"])
+            + "_"
+            + arguments["precision"]
+            + "_vae_decode_"
+            + arguments["device"]
+            + ".vmfb"
+        )
+        arguments["unet_external_weight_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_unet.safetensors"
+        )
+        arguments["unet_vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["max_length"])
+            + "_"
+            + str(arguments["height"])
+            + "x"
+            + str(arguments["width"])
+            + "_"
+            + arguments["precision"]
+            + "_unet_"
+            + arguments["device"]
+            + ".vmfb"
+        )
+        arguments["clip_external_weight_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_clip.safetensors"
+        )
+        arguments["clip_vmfb_path"] = (
+            arguments["safe_model_name"]
+            + "_"
+            + str(arguments["max_length"])
+            + "_"
+            + arguments["precision"]
+            + "_clip_"
+            + arguments["device"]
+            + ".vmfb"
+        )
 
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
 
@@ -552,26 +684,6 @@ def _get_add_time_ids(original_size, crops_coords_top_left, target_size, dtype):
     return add_time_ids
 
 
-def parse_args(args):
-    consume_args = []
-    for idx, arg in enumerate(args):
-        if arg in arguments.keys():
-            try:
-                arguments[arg] = int(args[idx + 1])
-            except:
-                if args[idx + 1].lower() in ["true", "false"]:
-                    arguments[arg] = bool(args[idx + 1])
-                arguments[arg] = args[idx + 1]
-            consume_args.extend([idx + 1, idx + 2])
-    return consume_args
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    consume_args = parse_args(sys.argv[1:])[::-1]
-    print("Test Config:", arguments)
-    assert arguments["device"] in device_list
-    assert arguments["rt_device"] in rt_device_list
-    for idx in consume_args:
-        del sys.argv[idx]
     unittest.main()
