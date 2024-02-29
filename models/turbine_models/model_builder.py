@@ -71,7 +71,7 @@ class HFTransformerBuilder:
         Returns:
             aot.CompiledModule: The compiled module binary.
         """
-        if self.model_type == "hf_seq2seq":
+        if self.model_type and self.model_type == "hf_seq2seq":
             module = aot.export(self.model, *self.example_input)
         else:
             module = aot.export(self.model, self.example_input)
@@ -88,7 +88,7 @@ class HFTransformerBuilder:
                     f"{model_name_upload}/{model_name_upload}.mlir",
                 )
                 os.remove(f"{safe_name}.mlir")
-            if self.compile_to_vmfb is not None and self.compile_to_vmfb is False:
+            if self.compile_to_vmfb and not self.compile_to_vmfb:
                 return
             compiled_binary = module.compile(save_to=save_to)
             return compiled_binary
