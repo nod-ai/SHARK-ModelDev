@@ -47,7 +47,7 @@ class PagedKVCache:
         attn_head_count: int,
         attn_head_dim: int,
         cache_partition_count: int = 2,
-        block_seq_stride: int = 16
+        block_seq_stride: int = 16,
     ):
         self.transformer_block_count = transformer_block_count
         self.attn_head_count = attn_head_count
@@ -67,7 +67,7 @@ class PagedKVCache:
 
     def unflatten_page_table(self, state: list[torch.Tensor]) -> torch.Tensor:
         """Unflattens the 2D page table to a 6D tensor."""
-        assert len(state) == 1
+        assert len(state) == 1, f"Expected 1-element state. Got: {len(state)}"
         page_slab = state[0]
         return page_slab.reshape(
             [
@@ -84,14 +84,14 @@ class PagedKVCache:
         """Allocates tensor state for a page table for the given capacity in
         pages.
         """
-        return torch.empty([page_count, self.page_slab_flat_dim], dtype=dtype)
+        return [torch.empty([page_count, self.page_slab_flat_dim], dtype=dtype)]
 
     def read(
         self,
         state: list[torch.Tensor],
         *,
         transformer_block_index: int,
-        page_ids: torch.Tensor
+        page_ids: torch.Tensor,
     ):
         """Reads cache partitions from the page table for the given page_ids.
 
@@ -109,11 +109,11 @@ class PagedKVCache:
         """
         page_table = self.unflatten_page_table(state)  # 6D
 
-        bs, batch_seq_len, *_ = page_ids.shape
+        bs, block_seq_len, *_ = page_ids.shape
         # Blocks dim 1,2 according to the configured block stride.
         blocked_shape = [
             bs,
-            batch_seq_len // self.block_seq_stride,
+            block_seq_len,
             self.block_seq_stride,
             self.attn_head_count,
             self.attn_head_dim,
@@ -161,7 +161,7 @@ class PagedKVCache:
         cache_partitions: list[torch.Tensor],
         *,
         transformer_block_index: int,
-        page_ids: torch.Tensor
+        page_ids: torch.Tensor,
     ):
         """Writes cache partitions from a linear layout to the page table.
 
@@ -170,11 +170,11 @@ class PagedKVCache:
         """
         page_table = self.unflatten_page_table(state)  # 6D
 
-        bs, batch_seq_len, *_ = page_ids.shape
+        bs, block_seq_len, *_ = page_ids.shape
         # Blocks dim 1,2 according to the configured block stride.
         blocked_shape = [
             bs,
-            batch_seq_len // self.block_seq_stride,
+            block_seq_len,
             self.block_seq_stride,
             self.attn_head_count,
             self.attn_head_dim,

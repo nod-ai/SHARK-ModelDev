@@ -87,6 +87,11 @@ def main(args: list[str]):
     )
     tokens = model.extract_tokens_from_logits(logits, seq_lens)
     print(f"  : tokens = {tokens}")
+    print(f"  : cache[127] = {cache_state[0][127]}")
+    print(f"  : cache[126] = {cache_state[0][126]}")
+    print(f"  : cache[0] = {cache_state[0][0]}")
+    print(f"  : cache[1] = {cache_state[0][1]}")
+
 
 
 if __name__ == "__main__":

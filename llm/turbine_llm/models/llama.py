@@ -227,6 +227,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
                 start_index=0,
                 attention_mask=attention_mask,
                 cache_state=cache_state,
+                seq_block_ids=seq_block_ids,
             )
             self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
 
@@ -387,8 +388,10 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         h: torch.Tensor,
         *,
         start_index: int,
-        attention_mask: Optional[torch.Tensor] = None,
         cache_state: list[torch.Tensor],
+        # [bs, batch_seq_len // block_seq_stride]
+        seq_block_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
     ):
         x = self.attn_norm(h)
 
@@ -410,6 +413,8 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         # count of kv heads to the count of attention heads used by the q.
         assert self.head_count == self.head_count_kv, "NYI: KV expansion"
 
+        xk_cache_update = xk
+        xv_cache_update = xv
         # TODO: Write into the cache.
         # # Update our positions in the cache.
         # cache_k[:bs, start_index:kv_seq_len] = xk
@@ -448,4 +453,13 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         ffn_gate = F.silu(self.ffn_gate(ffn_input))
         ffn_up = self.ffn_up(ffn_input)
         ffn_down = self.ffn_down(ffn_gate * ffn_up)
-        return h + ffn_down
+        final_output = h + ffn_down
+
+        # Commit the cache.
+        self.cache.write(
+            cache_state,
+            cache_partitions=[xk_cache_update, xv_cache_update],
+            transformer_block_index=self.block_index,
+            page_ids=seq_block_ids,
+        )
+        return final_output
