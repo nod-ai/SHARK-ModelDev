@@ -101,7 +101,7 @@ def export_clip_model(
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(module_str)
         model_name_upload = hf_model_name.replace("/", "_")
-        model_name_upload += "-clip"
+        model_name_upload += "_clip"
         turbine_tank.uploadToBlobStorage(
             str(os.path.abspath(f"{safe_name}.mlir")),
             f"{model_name_upload}/{model_name_upload}.mlir",
