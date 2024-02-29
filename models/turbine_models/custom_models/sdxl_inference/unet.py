@@ -152,7 +152,12 @@ def export_unet_model(
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
-    sample = (2 * batch_size, unet_model.unet.config.in_channels, height // 8, width // 8)
+    sample = (
+        2 * batch_size,
+        unet_model.unet.config.in_channels,
+        height // 8,
+        width // 8,
+    )
     time_ids_shape = (2 * batch_size, 6)
     prompt_embeds_shape = (2 * batch_size, max_length, 2048)
     text_embeds_shape = (2 * batch_size, 1280)
