@@ -53,6 +53,8 @@ class StatelessLlamaChecks(unittest.TestCase):
         For VMFB, quantization can be int4 or None, but right now only using none for compatibility with torch.
         """
 
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+
         llama.export_transformer_model(
             hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             hf_auth_token=None,
@@ -63,9 +65,12 @@ class StatelessLlamaChecks(unittest.TestCase):
             precision=precision,
             device="llvm-cpu",
             target_triple="host",
+            upload_ir=upload_ir_var == "upload",
         )
 
-        torch_str_cache_path = f"models/turbine_models/tests/vmfb_comparison_cached_torch_output_{precision}_{quantization}.txt"
+        torch_str_cache_path = (
+            f"vmfb_comparison_cached_torch_output_{precision}_{quantization}.txt"
+        )
         # if cached, just read
         if os.path.exists(torch_str_cache_path):
             with open(torch_str_cache_path, "r") as f:
@@ -106,7 +111,9 @@ class StatelessLlamaChecks(unittest.TestCase):
             vmfb_path="streaming_llama.vmfb",
         )
 
-        torch_str_cache_path = f"models/turbine_models/tests/vmfb_comparison_cached_torch_output_{precision}_{quantization}.txt"
+        torch_str_cache_path = (
+            f"vmfb_comparison_cached_torch_output_{precision}_{quantization}.txt"
+        )
         # if cached, just read
         if os.path.exists(torch_str_cache_path):
             with open(torch_str_cache_path, "r") as f:

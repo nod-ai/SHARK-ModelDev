@@ -71,6 +71,7 @@ scheduler_module = schedulers.Scheduler(
 
 class StableDiffusionTest(unittest.TestCase):
     def testExportClipModel(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 # This is a public model, so no auth required
@@ -80,6 +81,7 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 f"{arguments['safe_model_name']}_clip.safetensors",
                 "cpu",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -103,6 +105,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove(f"{arguments['safe_model_name']}_clip.vmfb")
 
     def testExportUnetModel(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
                 unet_model,
@@ -118,6 +121,7 @@ class StableDiffusionTest(unittest.TestCase):
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_unet.safetensors",
                 device="cpu",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -161,6 +165,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove(f"{arguments['safe_model_name']}_unet.vmfb")
 
     def testExportVaeModelDecode(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -175,6 +180,7 @@ class StableDiffusionTest(unittest.TestCase):
                 external_weight_path=f"{arguments['safe_model_name']}_vae.safetensors",
                 device="cpu",
                 variant="decode",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -208,6 +214,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove(f"{arguments['safe_model_name']}_vae.vmfb")
 
     def testExportVaeModelEncode(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
@@ -222,6 +229,7 @@ class StableDiffusionTest(unittest.TestCase):
                 external_weight_path=f"{arguments['safe_model_name']}_vae.safetensors",
                 device="cpu",
                 variant="encode",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -256,6 +264,7 @@ class StableDiffusionTest(unittest.TestCase):
 
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             schedulers.export_scheduler(
                 scheduler_module,
@@ -269,6 +278,7 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 "stable_diffusion_v1_4_scheduler.safetensors",
                 "cpu",
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[

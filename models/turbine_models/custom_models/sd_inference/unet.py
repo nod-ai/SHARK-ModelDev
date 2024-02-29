@@ -18,6 +18,7 @@ from diffusers import UNet2DConditionModel
 
 import safetensors
 import argparse
+from turbine_models.turbine_tank import turbine_tank
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -96,6 +97,7 @@ def export_unet_model(
     device=None,
     target_triple=None,
     max_alloc=None,
+    upload_ir=False,
 ):
     mapper = {}
     dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -137,6 +139,15 @@ def export_unet_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = utils.create_safe_name(hf_model_name, "-unet")
+    if upload_ir:
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(module_str)
+        model_name_upload = hf_model_name.replace("/", "-")
+        model_name_upload += "_unet"
+        turbine_tank.uploadToBlobStorage(
+            str(os.path.abspath(f"{safe_name}.mlir")),
+            f"{model_name_upload}/{model_name_upload}.mlir",
+        )
     if compile_to != "vmfb":
         return module_str
     else:

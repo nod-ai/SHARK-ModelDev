@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import json
+from turbine_models.turbine_tank import turbine_tank
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -107,7 +108,14 @@ def export_transformer_model(
     vulkan_max_allocation=None,
     streaming_llm=False,
     vmfb_path=None,
+    upload_ir=False,
 ):
+    tokenizer = AutoTokenizer.from_pretrained(
+        hf_model_name,
+        use_fast=False,
+        token=hf_auth_token,
+    )
+
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
         torch_dtype=torch.float,
@@ -121,11 +129,7 @@ def export_transformer_model(
     if precision == "f16":
         mod = mod.half()
         dtype = torch.float16
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
+
     # TODO: generate these values instead of magic numbers
     NUM_LAYERS = mod.config.num_hidden_layers
     HEADS = getattr(mod.config, "num_key_value_heads", None)
@@ -319,6 +323,14 @@ def export_transformer_model(
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
+    if upload_ir:
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(module_str)
+        model_name_upload = hf_model_name.replace("/", "_")
+        turbine_tank.uploadToBlobStorage(
+            str(os.path.abspath(f"{safe_name}.mlir")),
+            f"{model_name_upload}/{model_name_upload}.mlir",
+        )
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
