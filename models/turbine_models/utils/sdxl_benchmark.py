@@ -1,10 +1,6 @@
-import subprocess
 import sys
-from collections import namedtuple
 from iree import runtime as ireert
-from turbine_models.custom_models.llama_benchmark.stateless_llama_benchmark import (
-    benchmark_module,
-)
+from turbine_models.utils.benchmark import benchmark_module
 
 
 DTYPE_MAP = {
@@ -24,6 +20,7 @@ def run_benchmark(
     batch_size=None,
     in_channels=None,
     precision=None,
+    tracy_profile=False,
 ):
     config = ireert.Config(device)
 
@@ -66,10 +63,11 @@ def run_benchmark(
             "main",
             vmfbs,
             inputs,
+            tracy_profile,
             parameters=f"model={weights_path}",
         )
     else:
-        results = benchmark_module(benchmark_mod, "main", vmfbs, inputs)
+        results = benchmark_module(benchmark_mod, "main", vmfbs, inputs, tracy_profile)
 
     for benchmark_result in results:
         print(
