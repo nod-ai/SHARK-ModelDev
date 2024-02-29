@@ -114,7 +114,6 @@ def run_encode_prompts(
         )
 
         text_input_ids = text_inputs.input_ids
-        print("TEXT INPUT IDS SHAPE:", text_input_ids.shape)
         untruncated_ids = tokenizer(
             prompt, padding="longest", return_tensors="pt"
         ).input_ids
@@ -139,7 +138,6 @@ def run_encode_prompts(
         pooled_prompt_embeds = torch.from_numpy(text_encoder_output[1].to_host())
 
         prompt_embeds_list.append(prompt_embeds)
-    print([prompt.shape for prompt in prompt_embeds_list])
 
     prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
 
@@ -157,7 +155,6 @@ def run_encode_prompts(
         )
 
         uncond_input_ids = uncond_input.input_ids
-        print("UNCOND INPUT IDS SHAPE:", uncond_input_ids.shape)
         uncond_input_ids = [
             ireert.asdevicearray(text_encoder.config.device, uncond_input_ids)
         ]
@@ -171,7 +168,6 @@ def run_encode_prompts(
         )
 
         negative_prompt_embeds_list.append(negative_prompt_embeds)
-    print([prompt.shape for prompt in negative_prompt_embeds_list])
 
     negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
 
