@@ -6,6 +6,8 @@
 
 import sys
 
+import torch
+
 from turbine_llm.config import *
 from turbine_llm.data import *
 from turbine_llm.models.llama import *
