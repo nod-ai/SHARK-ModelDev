@@ -7,6 +7,7 @@ from diffusers import (
     PNDMScheduler,
 )
 
+
 def save_external_weights(
     mapper,
     model,

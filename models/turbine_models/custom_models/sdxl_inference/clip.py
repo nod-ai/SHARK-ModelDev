@@ -51,6 +51,7 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
+
 class ClipModel(torch.nn.Module):
     def __init__(self, hf_model_name, hf_auth_token=None, index=1):
         super().__init__()
@@ -68,7 +69,7 @@ class ClipModel(torch.nn.Module):
             )
 
     def forward(self, input):
-        with torch.no_grad():           
+        with torch.no_grad():
             prompt_embeds = self.text_encoder_model(
                 input,
                 output_hidden_states=True,
@@ -77,6 +78,7 @@ class ClipModel(torch.nn.Module):
             pooled_prompt_embeds = prompt_embeds[0]
             prompt_embeds = prompt_embeds.hidden_states[-2]
         return prompt_embeds, pooled_prompt_embeds
+
 
 def export_clip_model(
     hf_model_name,
@@ -157,7 +159,7 @@ def export_clip_model(
             max_alloc,
             safe_name,
             return_path=True,
-            const_eval=True,
+            const_expr_hoisting=True,
         )
         return None, vmfb_path
     else:

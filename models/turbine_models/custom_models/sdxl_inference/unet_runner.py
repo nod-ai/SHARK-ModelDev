@@ -83,6 +83,7 @@ def run_unet(
 
     return results
 
+
 def run_unet_steps(
     device,
     sample,
@@ -96,24 +97,32 @@ def run_unet_steps(
     external_weight_path,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
+    timestep = torch.zeros(1, dtype=torch.int64)
     inputs = [
-        ireert.asdevicearray(runner.config.device, latent_model_input),
+        ireert.asdevicearray(runner.config.device, sample),
         ireert.asdevicearray(runner.config.device, timestep),
         ireert.asdevicearray(runner.config.device, prompt_embeds),
         ireert.asdevicearray(runner.config.device, text_embeds),
         ireert.asdevicearray(runner.config.device, time_ids),
-        ireert.asdevicearray(runner.config.device, guidance_scale),
+        ireert.asdevicearray(runner.config.device, (guidance_scale,)),
     ]
-    for i in range(num_inference_steps):
-        timestep = i
-        latent_model_input = scheduler.scale_model_input(latent_model_input, timestep)
-    
-        inputs[0] = ireert.asdevicearray(runner.config.device, latent_model_input)
-        inputs[1] = ireert.asdevicearray(runner.config.device, timestep)
+    print(inputs)
+    for i, t in enumerate(scheduler.timesteps):
+        timestep = t
+        latent_model_input = scheduler.scale_model_input(sample, timestep)
 
+        inputs[0] = ireert.asdevicearray(runner.config.device, latent_model_input)
+        inputs[1] = ireert.asdevicearray(
+            runner.config.device, (timestep,), dtype="int64"
+        )
+        print(inputs)
         noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs)
         sample = scheduler.step(
-            noise_pred, timestep, sample, generator=None, return_dict=False
+            torch.from_numpy(noise_pred.to_host()).cpu(),
+            timestep,
+            sample,
+            generator=None,
+            return_dict=False,
         )
     return sample
 
@@ -192,7 +201,6 @@ if __name__ == "__main__":
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
     guidance_scale = torch.tensor([7.5], dtype=dtype)
-
 
     turbine_output = run_unet(
         args.device,

@@ -73,45 +73,127 @@ parser.add_argument(
 )
 
 
-
 def run_clip(
     device,
     prompt,
+    negative_prompt,
     vmfb_path,
     hf_model_name,
     hf_auth_token,
     external_weight_path,
     max_length,
-    index,
 ):
-    runner = vmfbRunner(device, vmfb_path, external_weight_path)
-    if index == 1:
-        tokenizer = CLIPTokenizer.from_pretrained(
-            hf_model_name,
-            subfolder="tokenizer",
-            token=hf_auth_token,
-        )
-    elif index == 2:
-        tokenizer = CLIPTokenizer.from_pretrained(
-            hf_model_name,
-            subfolder="tokenizer_2",
-            token=hf_auth_token,
-        )
-    else:
-        print("Incorrect CLIP model index, please use 1 or 2")
-        exit(1)
-    text_input = tokenizer(
-        prompt,
-        padding="max_length",
-        max_length=max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
-    example_input = text_input.input_ids
-    inp = [ireert.asdevicearray(runner.config.device, example_input)]
-    results = runner.ctx.modules.compiled_clip["main"](*inp)
+    vmfb_path_1 = "_clip_1_".join(vmfb_path.split("_clip_"))
+    vmfb_path_2 = "_clip_2_".join(vmfb_path.split("_clip_"))
+    external_weight_path_1 = "_clip_1".join(external_weight_path.split("_clip"))
+    external_weight_path_2 = "_clip_2".join(external_weight_path.split("_clip"))
+    runner_1 = vmfbRunner(device, vmfb_path_1, external_weight_path_1)
+    runner_2 = vmfbRunner(device, vmfb_path_2, external_weight_path_2)
+    text_encoders = [runner_1, runner_2]
 
-    return results
+    tokenizer_1 = CLIPTokenizer.from_pretrained(
+        hf_model_name,
+        subfolder="tokenizer",
+        token=hf_auth_token,
+    )
+    tokenizer_2 = CLIPTokenizer.from_pretrained(
+        hf_model_name,
+        subfolder="tokenizer_2",
+        token=hf_auth_token,
+    )
+    tokenizers = [tokenizer_1, tokenizer_2]
+    prompt_embeds_list = []
+    prompts = [prompt, prompt]
+    for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
+        text_inputs = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        text_input_ids = text_inputs.input_ids
+        print("TEXT INPUT IDS SHAPE:", text_input_ids.shape)
+        untruncated_ids = tokenizer(
+            prompt, padding="longest", return_tensors="pt"
+        ).input_ids
+
+        if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
+            text_input_ids, untruncated_ids
+        ):
+            removed_text = tokenizer.batch_decode(
+                untruncated_ids[:, max_length - 1 : -1]
+            )
+            print(
+                "The following part of your input was truncated because CLIP can only handle sequences up to"
+                f" {max_length} tokens: {removed_text}"
+            )
+        text_input_ids = [
+            ireert.asdevicearray(text_encoder.config.device, text_input_ids)
+        ]
+        text_encoder_output = text_encoder.ctx.modules.compiled_clip["main"](
+            *text_input_ids
+        )
+        prompt_embeds = torch.from_numpy(text_encoder_output[0].to_host())
+        pooled_prompt_embeds = torch.from_numpy(text_encoder_output[1].to_host())
+
+        prompt_embeds_list.append(prompt_embeds)
+    print([prompt.shape for prompt in prompt_embeds_list])
+
+    prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+
+    uncond_tokens = [negative_prompt, negative_prompt]
+    negative_prompt_embeds_list = []
+    for negative_prompt, tokenizer, text_encoder in zip(
+        uncond_tokens, tokenizers, text_encoders
+    ):
+        uncond_input = tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        uncond_input_ids = uncond_input.input_ids
+        print("UNCOND INPUT IDS SHAPE:", uncond_input_ids.shape)
+        uncond_input_ids = [
+            ireert.asdevicearray(text_encoder.config.device, uncond_input_ids)
+        ]
+
+        text_encoder_output = text_encoder.ctx.modules.compiled_clip["main"](
+            *uncond_input_ids
+        )
+        negative_prompt_embeds = torch.from_numpy(text_encoder_output[0].to_host())
+        negative_pooled_prompt_embeds = torch.from_numpy(
+            text_encoder_output[1].to_host()
+        )
+
+        negative_prompt_embeds_list.append(negative_prompt_embeds)
+    print([prompt.shape for prompt in negative_prompt_embeds_list])
+
+    negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
+
+    do_classifier_free_guidance = True
+
+    bs_embed, seq_len, _ = prompt_embeds.shape
+    prompt_embeds = prompt_embeds.repeat(1, 1, 1)
+    prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
+    if do_classifier_free_guidance:
+        negative_pooled_prompt_embeds = negative_pooled_prompt_embeds.repeat(1, 1).view(
+            1, -1
+        )
+        negative_prompt_embeds = negative_prompt_embeds.repeat(1, 1, 1)
+        negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * 1, seq_len, -1)
+
+    pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(bs_embed * 1, -1)
+    return (
+        prompt_embeds,
+        negative_prompt_embeds,
+        pooled_prompt_embeds,
+        negative_pooled_prompt_embeds,
+    )
 
 
 def run_torch_clip(hf_model_name, hf_auth_token, prompt, max_length=64):
@@ -164,7 +246,6 @@ if __name__ == "__main__":
         args.hf_auth_token,
         args.external_weight_path_1,
         args.max_length,
-        args.precision,
         index=1,
     )
     print(
@@ -182,7 +263,6 @@ if __name__ == "__main__":
         args.hf_auth_token,
         args.external_weight_path_2,
         args.max_length,
-        args.precision,
         index=2,
     )
     print(
@@ -208,9 +288,13 @@ if __name__ == "__main__":
         print(
             "TORCH OUTPUT 2:", torch_output2, torch_output2.shape, torch_output2.dtype
         )
-        rtol=4e-1
-        atol=4e-2
-        np.testing.assert_allclose(torch_output1, turbine_output1[0], rtol, atol, verbose=True)
-        np.testing.assert_allclose(torch_output2, turbine_output2[0], rtol, atol, verbose=True)
+        rtol = 4e-1
+        atol = 4e-2
+        np.testing.assert_allclose(
+            torch_output1, turbine_output1[0], rtol, atol, verbose=True
+        )
+        np.testing.assert_allclose(
+            torch_output2, turbine_output2[0], rtol, atol, verbose=True
+        )
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output1, turbine_output2 = (None, None)
