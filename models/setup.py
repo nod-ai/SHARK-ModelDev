@@ -61,5 +61,7 @@ setup(
         "transformers==4.37.1",
         "accelerate",
         "diffusers==0.24.0",
+        "azure-storage-blob",
+        "einops",
     ],
 )
