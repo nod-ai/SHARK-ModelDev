@@ -73,7 +73,7 @@ parser.add_argument(
 )
 
 
-def run_clip(
+def run_encode_prompts(
     device,
     prompt,
     negative_prompt,
@@ -234,6 +234,48 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt, max_length=64):
     np_torch_output_1 = results_1[0].detach().cpu().numpy().astype(np.float16)
     np_torch_output_2 = results_2[0].detach().cpu().numpy().astype(np.float16)
     return np_torch_output_1, np_torch_output_2
+
+
+def run_clip(
+    device,
+    prompt,
+    vmfb_path,
+    hf_model_name,
+    hf_auth_token,
+    external_weight_path,
+    max_length,
+    index,
+):
+    runner = vmfbRunner(device, vmfb_path, external_weight_path)
+
+    if index == 1:
+        tokenizer = CLIPTokenizer.from_pretrained(
+            hf_model_name,
+            subfolder="tokenizer",
+            token=hf_auth_token,
+        )
+    elif index == 2:
+        tokenizer = CLIPTokenizer.from_pretrained(
+            hf_model_name,
+            subfolder="tokenizer_2",
+            token=hf_auth_token,
+        )
+    else:
+        print("Incorrect CLIP model index, please use 1 or 2")
+        exit(1)
+
+    text_input = tokenizer(
+        prompt,
+        padding="max_length",
+        max_length=max_length,
+        truncation=True,
+        return_tensors="pt",
+    )
+    example_input = text_input.input_ids
+    inp = [ireert.asdevicearray(runner.config.device, example_input)]
+    results = runner.ctx.modules.compiled_clip["main"](*inp)
+
+    return results
 
 
 if __name__ == "__main__":
