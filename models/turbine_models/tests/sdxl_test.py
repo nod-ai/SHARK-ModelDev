@@ -233,6 +233,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
+<<<<<<< HEAD
         arguments["external_weight_path"] = (
             arguments["safe_model_name"] + "_unet.safetensors"
         )
@@ -250,6 +251,14 @@ class StableDiffusionXLTest(unittest.TestCase):
             + arguments["device"]
             + ".vmfb"
         )
+=======
+        arguments[
+            "external_weight_path"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors"
+        arguments[
+            "vmfb_path"
+        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
+>>>>>>> 16f410b (More t2i fixes (file mgmt))
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -291,6 +300,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             text_embeds.float(),
             time_ids.float(),
             guidance_scale.float(),
+            precision=arguments["precision"],
         )
         if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
@@ -613,7 +623,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         add_time_ids = add_time_ids.repeat(arguments["batch_size"] * 1, 1)
 
         # guidance scale as a float32 tensor.
-        guidance_scale = torch.tensor(7.5).to(dtype)
+        guidance_scale = torch.tensor(arguments["guidance_scale"]).to(dtype)
         prompt_embeds = prompt_embeds.to(dtype)
         add_time_ids = add_time_ids.to(dtype)
 

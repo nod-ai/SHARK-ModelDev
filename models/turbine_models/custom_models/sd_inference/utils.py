@@ -49,7 +49,6 @@ def compile_to_vmfb(
             [
                 "--iree-llvmcpu-target-triple=" + target_triple,
                 "--iree-llvmcpu-target-cpu-features=host",
-                "--iree-llvmcpu-enable-ukernels=all",
                 "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
                 "--iree-llvmcpu-distribution-size=32",
             ]
