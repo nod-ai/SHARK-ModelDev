@@ -427,7 +427,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             negative_prompt_embeds,
             pooled_prompt_embeds,
             pooled_negative_prompt_embeds,
-        ) = clip_runner.run_clip(
+        ) = clip_runner.run_encode_prompts(
             arguments["rt_device"],
             arguments["prompt"],
             arguments["negative_prompt"],
