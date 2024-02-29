@@ -415,21 +415,11 @@ class PagedLlamaAttentionBlock(ThetaLayer):
 
         xk_cache_update = xk
         xv_cache_update = xv
-        # TODO: Write into the cache.
-        # # Update our positions in the cache.
-        # cache_k[:bs, start_index:kv_seq_len] = xk
-        # cache_v[:bs, start_index:kv_seq_len] = xv
-
-        # # Derive keys/values from the entirety of the available sequence.
-        # keys = cache_k[:bs, :kv_seq_len]
-        # values = cache_v[:bs, :kv_seq_len]
-        keys = xk
-        values = xv
 
         # Tranpose into [bs, heads, sl, dim]
         xq = xq.transpose(1, 2)
-        keys = keys.transpose(1, 2)
-        values = values.transpose(1, 2)
+        keys = xk.transpose(1, 2)
+        values = xv.transpose(1, 2)
 
         # Flash attention.
         attn_weights = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)

@@ -126,7 +126,7 @@ def main(args: list[str]):
         with open(output_file, "wb") as f:
             importer.module_op.write_bytecode(f)
 
-    save_prefill_module()
+    # save_prefill_module()
 
 
 if __name__ == "__main__":
