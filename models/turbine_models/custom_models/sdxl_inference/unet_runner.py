@@ -2,6 +2,8 @@ import argparse
 from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
 import torch
+import numpy as np
+from tqdm.auto import tqdm
 
 torch.random.manual_seed(0)
 
@@ -88,7 +90,6 @@ def run_unet_steps(
     device,
     sample,
     scheduler,
-    num_inference_steps,
     prompt_embeds,
     text_embeds,
     time_ids,
@@ -106,24 +107,24 @@ def run_unet_steps(
         ireert.asdevicearray(runner.config.device, time_ids),
         ireert.asdevicearray(runner.config.device, (guidance_scale,)),
     ]
-    print(inputs)
-    for i, t in enumerate(scheduler.timesteps):
+    for i, t in tqdm(enumerate(scheduler.timesteps)):
         timestep = t
         latent_model_input = scheduler.scale_model_input(sample, timestep)
 
-        inputs[0] = ireert.asdevicearray(runner.config.device, latent_model_input)
-        inputs[1] = ireert.asdevicearray(
+        inputs[0] = latent_model_input = ireert.asdevicearray(
+            runner.config.device, latent_model_input
+        )
+        inputs[1] = timestep = ireert.asdevicearray(
             runner.config.device, (timestep,), dtype="int64"
         )
-        print(inputs)
-        noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs)
+        noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs).to_host()
         sample = scheduler.step(
-            torch.from_numpy(noise_pred.to_host()).cpu(),
+            torch.from_numpy(noise_pred).cpu(),
             timestep,
             sample,
             generator=None,
             return_dict=False,
-        )
+        )[0]
     return sample
 
 

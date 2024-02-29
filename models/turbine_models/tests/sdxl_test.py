@@ -64,7 +64,7 @@ arguments = {
     "prompt": "a photograph of an astronaut riding a horse",
     "negative_prompt": "blurry, unsaturated, watermark, noisy, grainy, out of focus",
     "in_channels": 4,
-    "num_inference_steps": 35,
+    "num_inference_steps": 2,
     "benchmark": False,
     "decomp_attn": False,
 }
@@ -403,7 +403,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
         arguments[
             "vae_external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae_decode.safetensors"
+        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_vae.safetensors"
         arguments[
             "vae_vmfb_path"
         ] = f"{arguments['safe_model_name']}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_vae_decode_{arguments['device']}.vmfb"
@@ -437,14 +437,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["clip_external_weight_path"],
             arguments["max_length"],
         )
-        print(
-            prompt_embeds.shape,
-            pooled_prompt_embeds.shape,
-            negative_prompt_embeds.shape,
-            pooled_negative_prompt_embeds.shape,
-        )
-        seed = 1234567
-        generator = torch.manual_seed(seed)
+        generator = torch.manual_seed(0)
         init_latents = torch.randn(
             (
                 arguments["batch_size"],
@@ -496,11 +489,10 @@ class StableDiffusionXLTest(unittest.TestCase):
             torch.cat([latents] * 2) if do_classifier_free_guidance else latents
         )
 
-        unet_out = unet_runner.run_unet_steps(
+        latents = unet_runner.run_unet_steps(
             device=arguments["rt_device"],
             sample=latent_model_input,
             scheduler=scheduler,
-            num_inference_steps=arguments["num_inference_steps"],
             prompt_embeds=prompt_embeds,
             text_embeds=add_text_embeds,
             time_ids=add_time_ids,
@@ -508,19 +500,38 @@ class StableDiffusionXLTest(unittest.TestCase):
             vmfb_path=arguments["unet_vmfb_path"],
             external_weight_path=arguments["unet_external_weight_path"],
         )
-        vae_out = vae_runner.run_vae(
-            arguments["rt_device"],
-            unet_out,
-            arguments["vae_vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["vae_external_weight_path"],
-        ).to_host()
-        image = torch.from_numpy(vae_out).cpu().permute(0, 2, 3, 1).float().numpy()
+        all_imgs = []
+        for i in range(0, latents.shape[0], arguments["batch_size"]):
+            vae_out = vae_runner.run_vae(
+                arguments["rt_device"],
+                latents[i : i + arguments["batch_size"]],
+                arguments["vae_vmfb_path"],
+                arguments["hf_model_name"],
+                arguments["vae_external_weight_path"],
+            ).to_host()
+            image = torch.from_numpy(vae_out).cpu().permute(0, 2, 3, 1).float().numpy()
+            all_imgs.append(numpy_to_pil_image(image))
+        for idx, image in enumerate(all_imgs):
+            img_path = "sdxl_test_image_" + str(idx) + ".png"
+            image[0].save(img_path)
+            print(img_path, "saved")
+        assert os.path.exists("sdxl_test_image_0.png")
 
-        image = (image * 255).round().astype("uint8")
-        pil_image = Image.fromarray(image[:, :, :3])
-        pil_image.save("sdxl_image.png")
-        assert os.path.exists("sdxl_image.png")
+
+def numpy_to_pil_image(images):
+    """
+    Convert a numpy image or a batch of images to a PIL image.
+    """
+    if images.ndim == 3:
+        images = images[None, ...]
+    images = (images * 255).round().astype("uint8")
+    if images.shape[-1] == 1:
+        # special case for grayscale (single channel) images
+        pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+    else:
+        pil_images = [Image.fromarray(image) for image in images]
+
+    return pil_images
 
 
 def _get_add_time_ids(original_size, crops_coords_top_left, target_size, dtype):
