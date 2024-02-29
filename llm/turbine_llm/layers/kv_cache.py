@@ -16,6 +16,11 @@ import math
 import torch
 
 
+__all__ = [
+    "PagedKVCache",
+]
+
+
 class PagedKVCache:
     """Implementation of a KV cache on top of a 'page table'.
 

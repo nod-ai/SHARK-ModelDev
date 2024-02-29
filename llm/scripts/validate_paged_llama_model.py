@@ -37,23 +37,42 @@ def main(args: list[str]):
                 0,
                 0,
                 0,
-            ],
-            16 * [0],
-            16 * [0],
-            16 * [0],
+            ]
+            + 48 * [0],
+            [
+                1,
+                1059,
+                31871,
+                1217,
+                322,
+                31871,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ]
+            + 48 * [0],
+            64 * [0],
+            64 * [0],
         ]
     )
     assert next_batch.shape[1] % model.cache.block_seq_stride == 0
     seq_block_ids = torch.tensor(
         [
             [127, 0, 0, 0],
-            [0, 0, 0, 0],
+            [126, 0, 0, 0],
             [0, 0, 0, 0],
             [0, 0, 0, 0],
         ]
     )
 
-    seq_lens = [12, 0, 0, 0]
+    seq_lens = [12, 6, 0, 0]
 
     attention_mask = model.attention_mask(
         model.input_mask(torch.tensor(seq_lens), next_batch.shape[1])
