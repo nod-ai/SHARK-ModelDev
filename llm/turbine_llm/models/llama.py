@@ -183,12 +183,15 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         self,
         h: torch.Tensor,
         *,
-        start_index: int,
+        start_index: Optional[int] = None,
+        embedding_batch_mask: Optional[torch.Tensor] = None,
         cache_state: list[torch.Tensor],
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ):
+        assert bool(start_index is not None) ^ bool(embedding_batch_mask is not None)
+
         x = self.attn_norm(h)
 
         bs, q_len, feature_dim = x.shape
@@ -203,7 +206,14 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         xk = xk.view(bs, q_len, self.head_count_kv, self.head_dim)
         xv = xv.view(bs, q_len, self.head_count_kv, self.head_dim)
 
-        xq, xk = self.embedding(xq=xq, xk=xk, start_index=start_index)
+        # Fast path to start_index based embedding lookup if available.
+        # Falls back to a slower position based index lookup.
+        if start_index is not None:
+            xq, xk = self.embedding.forward(xq=xq, xk=xk, start_index=start_index)
+        else:
+            xq, xk = self.embedding.apply_batched_mask(
+                xq=xq, xk=xk, mask=embedding_batch_mask
+            )
 
         # TODO: Some model variants do some form of kv repetition to expand the
         # count of kv heads to the count of attention heads used by the q.
