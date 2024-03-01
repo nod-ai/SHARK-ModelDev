@@ -38,5 +38,5 @@ def pytest_addoption(parser):
     parser.addoption("--in_channels", action="store", default=4)
     parser.addoption("--num_inference_steps", action="store", default=35)
     parser.addoption("--benchmark", action="store", default=False)
-    parser.addoption("--decomp_attn", action="store", default=False)
+    parser.addoption("--decomp_attn", action="store_true", default=False)
     parser.addoption("--tracy_profile", action="store", default=False)
