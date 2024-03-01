@@ -139,67 +139,12 @@ def run_torch_unet(
     guidance_scale,
     precision="fp32",
 ):
-    from diffusers import UNet2DConditionModel
-
-    class UnetModel(torch.nn.Module):
-        def __init__(self, hf_model_name, hf_auth_token, dtype):
-            super().__init__()
-            if dtype == "fp16":
-                try:
-                    self.unet = UNet2DConditionModel.from_pretrained(
-                        hf_model_name,
-                        subfolder="unet",
-                        auth_token=hf_auth_token,
-                        low_cpu_mem_usage=False,
-                        variant="fp16",
-                    )
-                except:
-                    self.unet = UNet2DConditionModel.from_pretrained(
-                        hf_model_name,
-                        subfolder="unet",
-                        auth_token=hf_auth_token,
-                        low_cpu_mem_usage=False,
-                    )
-            else:
-                self.unet = UNet2DConditionModel.from_pretrained(
-                    hf_model_name,
-                    subfolder="unet",
-                    auth_token=hf_auth_token,
-                    low_cpu_mem_usage=False,
-                )
-
-        def forward(
-            self,
-            sample,
-            timestep,
-            prompt_embeds,
-            text_embeds,
-            time_ids,
-            guidance_scale,
-        ):
-            with torch.no_grad():
-                added_cond_kwargs = {
-                    "text_embeds": text_embeds,
-                    "time_ids": time_ids,
-                }
-                noise_pred = self.unet.forward(
-                    sample,
-                    timestep,
-                    encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=None,
-                    added_cond_kwargs=added_cond_kwargs,
-                    return_dict=False,
-                )[0]
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
-                )
-            return noise_pred
+    from turbine_models.custom_models.sdxl_inference.unet import UnetModel
 
     unet_model = UnetModel(
         hf_model_name,
         hf_auth_token,
-        precision,
+        precision="fp32",
     )
     results = unet_model.forward(
         sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
