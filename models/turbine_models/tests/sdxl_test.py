@@ -233,9 +233,8 @@ class StableDiffusionXLTest(unittest.TestCase):
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
-<<<<<<< HEAD
         arguments["external_weight_path"] = (
-            arguments["safe_model_name"] + "_unet.safetensors"
+            arguments["safe_model_name"] + "_" + arguments["precision"] + "_unet.safetensors"
         )
         arguments["vmfb_path"] = (
             arguments["safe_model_name"]
@@ -251,14 +250,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             + arguments["device"]
             + ".vmfb"
         )
-=======
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_{arguments['precision']}_unet.safetensors"
-        arguments[
-            "vmfb_path"
-        ] = f"{arguments['safe_model_name']}_{str(arguments['max_length'])}_{arguments['height']}x{arguments['width']}_{arguments['precision']}_unet_{arguments['device']}.vmfb"
->>>>>>> 16f410b (More t2i fixes (file mgmt))
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -563,7 +554,18 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
 
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
-
+        for key in [
+            "vae_external_weight_path",
+            "vae_vmfb_path",
+            "unet_external_weight_path",
+            "unet_vmfb_path",
+            "clip_external_weight_path",
+            "clip_vmfb_path",
+        ]:
+            try:
+                assert os.path.exists(arguments[key])
+            except AssertionError:
+                unittest.skip(f"File {arguments[key]} not found")
         (
             prompt_embeds,
             negative_prompt_embeds,

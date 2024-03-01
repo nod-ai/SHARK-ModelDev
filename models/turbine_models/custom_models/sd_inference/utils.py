@@ -99,6 +99,7 @@ def compile_to_vmfb(
     flatbuffer_blob = ireec.compile_str(
         module_str,
         target_backends=[device],
+        input_type="torch",
         extra_args=flags,
     )
     with open(f"{safe_name}.vmfb", "wb+") as f:
