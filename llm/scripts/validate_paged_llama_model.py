@@ -87,7 +87,31 @@ def main(args: list[str]):
         seq_block_ids=seq_block_ids,
         cache_state=cache_state,
     )
-    tokens = model.extract_tokens_from_logits(logits, seq_lens)
+    # TODO: Normalize the output of extract_tokens_from_logits into
+    # tensor [bs, 1].
+    tokens = torch.tensor(model.extract_tokens_from_logits(logits, seq_lens)).unsqueeze(
+        1
+    )
+    print(f"  : tokens = {tokens}")
+    print(f"  : cache[127] = {cache_state[0][127]}")
+    print(f"  : cache[126] = {cache_state[0][126]}")
+    print(f"  : cache[0] = {cache_state[0][0]}")
+    print(f"  : cache[1] = {cache_state[0][1]}")
+
+    # Decode a step.
+    print("Decoding...")
+    print(tokens.shape, tokens)
+    start_positions = torch.tensor([12, 6, 0, 0])
+    logits = model.decode(
+        tokens,
+        start_positions=start_positions,
+        seq_block_ids=seq_block_ids,
+        read_cache_state=cache_state,
+        write_cache_state=cache_state,
+    )
+    tokens = torch.tensor(
+        model.extract_tokens_from_logits(logits, [1, 1, 1, 1])
+    ).unsqueeze(1)
     print(f"  : tokens = {tokens}")
     print(f"  : cache[127] = {cache_state[0][127]}")
     print(f"  : cache[126] = {cache_state[0][126]}")

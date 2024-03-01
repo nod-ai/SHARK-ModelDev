@@ -62,7 +62,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
         self.hp = hp
         # TODO: It doesn't seem like this is the right way to be getting the
         # innermost attention dim.
-        attn_head_dim = hp.rope_dimension_count
+        attn_head_dim = self.attn_head_dim = hp.rope_dimension_count
         self.cache = PagedKVCache(
             transformer_block_count=hp.block_count,
             attn_head_count=hp.attention_head_count_kv,
@@ -126,8 +126,71 @@ class PagedLlamaModelV1(BaseCausalLMModel):
                 h,
                 start_index=0,
                 attention_mask=attention_mask,
-                cache_state=cache_state,
+                write_cache_state=cache_state,
                 seq_block_ids=seq_block_ids,
+            )
+            self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
+
+        h = self.output_norm(h)
+        logits = self.output_lm_head(h)
+        return logits
+
+    def decode(
+        self,
+        # [bs, 1]
+        tokens: torch.Tensor,
+        # [bs] of starting positions
+        start_positions: torch.Tensor,
+        # [bs, batch_seq_len // block_seq_stride]
+        seq_block_ids: torch.Tensor,
+        read_cache_state: list[torch.Tensor],
+        write_cache_state: list[torch.Tensor],
+    ):
+        bs, _ = tokens.shape
+        # Precompute a position based mask for computing rope embeddings
+        # as it is the same for all blocks.
+        embedding_batch_mask = self.attention_embedding.compute_batch_mask(
+            start_positions, batch_seq_len=1
+        )
+        self.trace_tensor("llama.embedding_batch_mask", embedding_batch_mask)
+
+        # Allocate per-block temporary K/V tensors. These temporaries hold
+        # one block's K/V state for the maximum context length.
+        xk_temp = torch.empty(
+            [
+                bs,
+                self.context_length,
+                self.hp.attention_head_count_kv,
+                self.attn_head_dim,
+            ],
+            dtype=self.hp.activation_dtype,
+        )
+        xv_temp = torch.empty(
+            [
+                bs,
+                self.context_length,
+                self.hp.attention_head_count_kv,
+                self.attn_head_dim,
+            ],
+            dtype=self.hp.activation_dtype,
+        )
+
+        h = self.token_embedding(tokens)
+        self.trace_tensor("llama.token_embedding", h)
+
+        # Iterate over attention blocks.
+        for block_idx, block in enumerate(self.attn_blocks):
+            self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            h = block(
+                h,
+                start_positions=start_positions,
+                embedding_batch_mask=embedding_batch_mask,
+                attention_mask=None,
+                read_cache_state=read_cache_state,
+                write_cache_state=write_cache_state,
+                seq_block_ids=seq_block_ids,
+                xk_temp=xk_temp,
+                xv_temp=xv_temp,
             )
             self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
 
@@ -183,28 +246,31 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         self,
         h: torch.Tensor,
         *,
-        start_index: Optional[int] = None,
-        embedding_batch_mask: Optional[torch.Tensor] = None,
-        cache_state: list[torch.Tensor],
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor,
+        start_index: Optional[int] = None,
+        start_positions: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        embedding_batch_mask: Optional[torch.Tensor] = None,
+        write_cache_state: Optional[list[torch.Tensor]] = None,
+        read_cache_state: Optional[list[torch.Tensor]] = None,
+        xk_temp: Optional[torch.Tensor] = None,
+        xv_temp: Optional[torch.Tensor] = None,
     ):
         assert bool(start_index is not None) ^ bool(embedding_batch_mask is not None)
 
         x = self.attn_norm(h)
 
-        bs, q_len, feature_dim = x.shape
-        kv_seq_len = start_index + q_len
+        bs, batch_seq_len, feature_dim = x.shape
         assert feature_dim == self.head_count * self.head_dim
 
         xq = self.attn_q(x)
         xk = self.attn_k(x)
         xv = self.attn_v(x)
 
-        xq = xq.view(bs, q_len, self.head_count, self.head_dim)
-        xk = xk.view(bs, q_len, self.head_count_kv, self.head_dim)
-        xv = xv.view(bs, q_len, self.head_count_kv, self.head_dim)
+        xq = xq.view(bs, batch_seq_len, self.head_count, self.head_dim)
+        xk = xk.view(bs, batch_seq_len, self.head_count_kv, self.head_dim)
+        xv = xv.view(bs, batch_seq_len, self.head_count_kv, self.head_dim)
 
         # Fast path to start_index based embedding lookup if available.
         # Falls back to a slower position based index lookup.
@@ -222,6 +288,60 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         xk_cache_update = xk
         xv_cache_update = xv
 
+        # Restore from the cache.
+        if read_cache_state is None:
+            # If not instructed to read from the cache, we assume this is
+            # prefill and the projected K/V values represent the complete
+            # sequence.
+            pass
+        else:
+            # We need to initialize/read the K/V from the cache for the whole
+            # sequence. Note that at this point, it is possible to fork and
+            # use a memory efficient attention kernel that can do indirect
+            # reads, skipping this materialization. This path is taken for
+            # a decode step.
+            assert start_positions is not None
+            assert xk_temp is not None and xv_temp is not None
+
+            # TODO: Actually restore blocks from the cache.
+
+            # Now restore the newly computed position into the xk/xv view we
+            # are operating on. This will also be done later when updating the
+            # cache, but we separate it here to avoid creating a data
+            # dependency. Since the batch size is static, we do a static loop
+            # in order to simplify indexing and keeps us from needing to
+            # deal with masking.
+            for i in range(bs):
+                row_start_pos = start_positions[i]
+                xk_temp[i, row_start_pos : row_start_pos + 1, :, :] = xk[i, ...]
+                xv_temp[i, row_start_pos : row_start_pos + 1, :, :] = xv[i, ...]
+
+            # We conservatively slice the xk/xv tensors to have a sequence length
+            # of one more than that implied by the number of seq_block_ids.
+            # This ensures that there is always room for the additional (new)
+            # row and that it is aligned to the block seq stride (i.e. 16).
+            # Since we're batching, we have to mask no matter what and might
+            # as well use it to normalize the shapes.
+            kv_seq_len = (seq_block_ids.shape[1] + 1) * self.cache.block_seq_stride
+            xk = xk_temp[:, 0:kv_seq_len, ...]
+            xv = xv_temp[:, 0:kv_seq_len, ...]
+
+        # Commit the cache.
+        if write_cache_state is not None:
+            # TODO: Do a full pages write or a single row write, depending
+            # on whether prefill vs decode.
+            if read_cache_state is None:
+                # Overwrite the whole cache.
+                self.cache.write(
+                    write_cache_state,
+                    cache_partitions=[xk_cache_update, xv_cache_update],
+                    transformer_block_index=self.block_index,
+                    page_ids=seq_block_ids,
+                )
+            else:
+                # Just update the added row.
+                ...
+
         # Tranpose into [bs, heads, sl, dim]
         xq = xq.transpose(1, 2)
         keys = xk.transpose(1, 2)
@@ -236,7 +356,7 @@ class PagedLlamaAttentionBlock(ThetaLayer):
 
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(xq)
         attn_output = torch.matmul(attn_weights, values)  # (bs, heads, slen, head_dim)
-        attn_output = attn_output.transpose(1, 2).reshape(bs, q_len, -1)
+        attn_output = attn_output.transpose(1, 2).reshape(bs, batch_seq_len, -1)
 
         # Project.
         attn_output = self.attn_output(attn_output)
@@ -251,11 +371,4 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         ffn_down = self.ffn_down(ffn_gate * ffn_up)
         final_output = h + ffn_down
 
-        # Commit the cache.
-        self.cache.write(
-            cache_state,
-            cache_partitions=[xk_cache_update, xv_cache_update],
-            transformer_block_index=self.block_index,
-            page_ids=seq_block_ids,
-        )
         return final_output
