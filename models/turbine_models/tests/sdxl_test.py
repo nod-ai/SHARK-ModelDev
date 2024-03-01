@@ -48,12 +48,12 @@ def command_line_args(request):
     arguments["hf_auth_token"] = request.config.getoption("--hf_auth_token")
     arguments["hf_model_name"] = request.config.getoption("--hf_model_name")
     arguments["safe_model_name"] = request.config.getoption("--safe_model_name")
-    arguments["batch_size"] = request.config.getoption("--batch_size")
-    arguments["height"] = request.config.getoption("--height")
-    arguments["width"] = request.config.getoption("--width")
+    arguments["batch_size"] = int(request.config.getoption("--batch_size"))
+    arguments["height"] = int(request.config.getoption("--height"))
+    arguments["width"] = int(request.config.getoption("--width"))
     arguments["precision"] = request.config.getoption("--precision")
-    arguments["max_length"] = request.config.getoption("--max_length")
-    arguments["guidance_scale"] = request.config.getoption("--guidance_scale")
+    arguments["max_length"] = int(request.config.getoption("--max_length"))
+    arguments["guidance_scale"] = float(request.config.getoption("--guidance_scale"))
     arguments["run_vmfb"] = request.config.getoption("--run_vmfb")
     arguments["compile_to"] = request.config.getoption("--compile_to")
     arguments["vmfb_path"] = request.config.getoption("--vmfb_path")
@@ -69,8 +69,10 @@ def command_line_args(request):
     )
     arguments["prompt"] = request.config.getoption("--prompt")
     arguments["negative_prompt"] = request.config.getoption("--negative_prompt")
-    arguments["in_channels"] = request.config.getoption("--in_channels")
-    arguments["num_inference_steps"] = request.config.getoption("--num_inference_steps")
+    arguments["in_channels"] = int(request.config.getoption("--in_channels"))
+    arguments["num_inference_steps"] = int(
+        request.config.getoption("--num_inference_steps")
+    )
     arguments["benchmark"] = request.config.getoption("--benchmark")
     arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
     arguments["tracy_profile"] = request.config.getoption("--tracy_profile")
@@ -95,8 +97,8 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
 
     def test01_ExportClipModels(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest("Fail to compile on vulkan and rocm; To be tested on cuda.")
+        # if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        #     self.skipTest("Fail to compile on vulkan and rocm; To be tested on cuda.")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 # This is a public model, so no auth required
@@ -105,7 +107,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["max_length"],
                 arguments["precision"],
                 "vmfb",
-                "safetensors",
+                arguments["external_weights"],
                 arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
                 arguments["device"],
                 arguments["iree_target_triple"],
@@ -119,7 +121,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["max_length"],
                 arguments["precision"],
                 "vmfb",
-                "safetensors",
+                arguments["external_weights"],
                 arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
                 arguments["device"],
                 arguments["iree_target_triple"],
@@ -130,13 +132,15 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_clip_1.safetensors"
+            + "_clip_1."
+            + arguments["external_weights"]
         )
         arguments["external_weight_path_2"] = (
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_clip_2.safetensors"
+            + "_clip_2."
+            + arguments["external_weights"]
         )
         arguments["vmfb_path_1"] = (
             arguments["safe_model_name"]
@@ -207,10 +211,10 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
     def test02_ExportUnetModel(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest(
-                "Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda."
-            )
+        # if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        #     self.skipTest(
+        #         "Numerics issue on cpu; Fail to compile on vulkan; Runtime issue on rocm; To be tested on cuda."
+        #     )
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
                 self.unet_model,
@@ -223,18 +227,23 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["max_length"],
                 hf_auth_token=None,
                 compile_to="vmfb",
-                external_weights="safetensors",
+                external_weights=arguments["external_weights"],
                 external_weight_path=arguments["safe_model_name"]
                 + "_"
                 + arguments["precision"]
-                + "_unet.safetensors",
+                + "_unet."
+                + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 decomp_attn=arguments["decomp_attn"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
-            arguments["safe_model_name"] + "_" + arguments["precision"] + "_unet.safetensors"
+            arguments["safe_model_name"]
+            + "_"
+            + arguments["precision"]
+            + "_unet."
+            + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
             arguments["safe_model_name"]
@@ -309,17 +318,17 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-2
-        if arguments["device"] == "cpu":
+        if arguments["device"] == "cpu" and arguments["precision"] == "fp16":
             with self.assertRaises(AssertionError):
                 np.testing.assert_allclose(torch_output, turbine, rtol, atol)
             return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test03_ExportVaeModelDecode(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest(
-                "Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda."
-            )
+        # if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        #     self.skipTest(
+        #         "Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda."
+        #     )
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 self.vae_model,
@@ -330,11 +339,12 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["width"],
                 arguments["precision"],
                 compile_to="vmfb",
-                external_weights="safetensors",
+                external_weights=arguments["external_weights"],
                 external_weight_path=arguments["safe_model_name"]
                 + "_"
                 + arguments["precision"]
-                + "_vae_decode.safetensors",
+                + "_vae_decode."
+                + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="decode",
@@ -345,7 +355,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_vae_decode.safetensors"
+            + "_vae_decode."
+            + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
             arguments["safe_model_name"]
@@ -399,14 +410,14 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-2
-        if arguments["device"] == "cpu":
+        if arguments["device"] == "cpu" and arguments["precision"] == "fp16":
             with self.assertRaises(AssertionError):
                 np.testing.assert_allclose(torch_output, turbine, rtol, atol)
             return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test04_ExportVaeModelEncode(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        if arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"]:
             self.skipTest(
                 "Numerics issue on cpu; Fail to compile on vulkan and rocm; To be tested on cuda."
             )
@@ -420,11 +431,12 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["width"],
                 arguments["precision"],
                 compile_to="vmfb",
-                external_weights="safetensors",
+                external_weights=arguments["external_weights"],
                 external_weight_path=arguments["safe_model_name"]
                 + "_"
                 + arguments["precision"]
-                + "_vae_encode.safetensors",
+                + "_vae_encode."
+                + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
                 variant="encode",
@@ -435,7 +447,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_vae_encode.safetensors"
+            + "_vae_encode."
+            + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
             arguments["safe_model_name"]
@@ -502,7 +515,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_vae.safetensors"
+            + "_vae_decode."
+            + arguments["external_weights"]
         )
         arguments["vae_vmfb_path"] = (
             arguments["safe_model_name"]
@@ -520,7 +534,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_unet.safetensors"
+            + "_unet."
+            + arguments["external_weights"]
         )
         arguments["unet_vmfb_path"] = (
             arguments["safe_model_name"]
@@ -540,7 +555,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["safe_model_name"]
             + "_"
             + arguments["precision"]
-            + "_clip.safetensors"
+            + "_clip."
+            + arguments["external_weights"]
         )
         arguments["clip_vmfb_path"] = (
             arguments["safe_model_name"]
