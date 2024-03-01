@@ -15,6 +15,7 @@ import math
 
 import torch
 
+from ..utils.debugging import trace_tensor
 
 __all__ = [
     "PagedKVCache",
@@ -90,6 +91,7 @@ class PagedKVCache:
         self,
         state: list[torch.Tensor],
         *,
+        read_into_partitions: list[torch.Tensor],
         transformer_block_index: int,
         page_ids: torch.Tensor,
     ):
@@ -97,6 +99,7 @@ class PagedKVCache:
 
         Args:
         state: State struct as returned from allocate().
+        read_into_partitions: List of cache partitions to read into in-place.
         transformer_block_index: The index of the transformer block accessing
             the cache.
         page_ids: Tensor of [bs, max_seqlen // block_pos_stride] of page ids
@@ -133,7 +136,7 @@ class PagedKVCache:
             transformer_block_index * transformer_block_stride
         )
 
-        def read_cache_partition(index: int):
+        def read_cache_partition(index: int, into_partition: torch.Tensor):
             subblock_ids = (
                 (base_subblock_ids + index) if index > 0 else base_subblock_ids
             )
@@ -144,16 +147,17 @@ class PagedKVCache:
             # index into the sub-pages, we flatten to do a linear index_select
             # copy of the sub-blocks by collapsing the first two dims so we have
             # a linear list.
-            return (
+            # TODO: Can be rewritten into inplace with out= on index_select.
+            selected = (
                 torch.index_select(subblock_table, 0, subblock_ids.flatten(0, 1))
                 .unflatten(0, blocked_shape[0:2])
                 .flatten(1, 2)
             )
+            # trace_tensor("kv.selected", selected)
+            into_partition[...] = selected
 
-        cache_partitions = self.cache_partition_count * [None]
-        for index in range(self.cache_partition_count):
-            cache_partitions[index] = read_cache_partition(index)
-        return cache_partitions
+        for index, read_into_partition in enumerate(read_into_partitions):
+            read_cache_partition(index, read_into_partition)
 
     def write(
         self,

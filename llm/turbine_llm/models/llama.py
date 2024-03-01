@@ -121,7 +121,8 @@ class PagedLlamaModelV1(BaseCausalLMModel):
 
         # Iterate over attention blocks.
         for block_idx, block in enumerate(self.attn_blocks):
-            self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            if block_idx == 0:
+                self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
             h = block(
                 h,
                 start_index=0,
@@ -139,6 +140,9 @@ class PagedLlamaModelV1(BaseCausalLMModel):
         self,
         # [bs, 1]
         tokens: torch.Tensor,
+        *,
+        # [bs, 1, 1, batch_seq_len]
+        attention_mask: torch.Tensor,
         # [bs] of starting positions
         start_positions: torch.Tensor,
         # [bs, batch_seq_len // block_seq_stride]
@@ -180,12 +184,13 @@ class PagedLlamaModelV1(BaseCausalLMModel):
 
         # Iterate over attention blocks.
         for block_idx, block in enumerate(self.attn_blocks):
-            self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            if block_idx == 0:
+                self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
             h = block(
                 h,
                 start_positions=start_positions,
                 embedding_batch_mask=embedding_batch_mask,
-                attention_mask=None,
+                attention_mask=attention_mask,
                 read_cache_state=read_cache_state,
                 write_cache_state=write_cache_state,
                 seq_block_ids=seq_block_ids,
@@ -288,12 +293,29 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         xk_cache_update = xk
         xv_cache_update = xv
 
-        # Restore from the cache.
+        # Manage the cache.
         if read_cache_state is None:
             # If not instructed to read from the cache, we assume this is
             # prefill and the projected K/V values represent the complete
             # sequence.
-            pass
+            # Commit the whole cache if writing is enabled.
+            if write_cache_state is not None:
+                # TODO: Do a full pages write or a single row write, depending
+                # on whether prefill vs decode.
+                if read_cache_state is None:
+                    # Overwrite the whole cache.
+                    self.cache.write(
+                        write_cache_state,
+                        cache_partitions=[xk_cache_update, xv_cache_update],
+                        transformer_block_index=self.block_index,
+                        page_ids=seq_block_ids,
+                    )
+
+            if self.block_index == 0:
+                self.trace_tensor("prefill.xk", xk)
+                self.trace_tensor("prefill.xv", xv)
+                global DEBUG_PREFILL_XK
+                DEBUG_PREFILL_XK = xk
         else:
             # We need to initialize/read the K/V from the cache for the whole
             # sequence. Note that at this point, it is possible to fork and
@@ -303,8 +325,20 @@ class PagedLlamaAttentionBlock(ThetaLayer):
             assert start_positions is not None
             assert xk_temp is not None and xv_temp is not None
 
-            # TODO: Actually restore blocks from the cache.
+            kv_seq_len = seq_block_ids.shape[1] * self.cache.block_seq_stride
 
+            # Restore from the cache.
+            self.cache.read(
+                read_cache_state,
+                read_into_partitions=[
+                    xk_temp[:, 0:kv_seq_len, ...],
+                    xv_temp[:, 0:kv_seq_len, ...],
+                ],
+                transformer_block_index=self.block_index,
+                page_ids=seq_block_ids,
+            )
+
+            # self.trace_tensor("DECODE.KV.ACTUAL", xk_temp)
             # Now restore the newly computed position into the xk/xv view we
             # are operating on. This will also be done later when updating the
             # cache, but we separate it here to avoid creating a data
@@ -321,25 +355,15 @@ class PagedLlamaAttentionBlock(ThetaLayer):
             # the newly added row (the caller is responsible for ensuring that
             # every block has at least one row left). We'll compute on this
             # ragged view and use an appropriate mask.
-            kv_seq_len = seq_block_ids.shape[1] * self.cache.block_seq_stride
             xk = xk_temp[:, 0:kv_seq_len, ...]
             xv = xv_temp[:, 0:kv_seq_len, ...]
+            # self.trace_tensor("decode.xk", xk)
 
-        # Commit the cache.
-        if write_cache_state is not None:
-            # TODO: Do a full pages write or a single row write, depending
-            # on whether prefill vs decode.
-            if read_cache_state is None:
-                # Overwrite the whole cache.
-                self.cache.write(
-                    write_cache_state,
-                    cache_partitions=[xk_cache_update, xv_cache_update],
-                    transformer_block_index=self.block_index,
-                    page_ids=seq_block_ids,
-                )
-            else:
-                # Just update the added row.
-                ...
+            if self.block_index == 0:
+                self.trace_tensor("decode.xk", xk)
+                self.trace_tensor("decode.xv", xv)
+                global DEBUG_DECODE_XK
+                DEBUG_DECODE_XK = torch.clone(xk)
 
         # Tranpose into [bs, heads, sl, dim]
         xq = xq.transpose(1, 2)
@@ -350,7 +374,9 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         attn_weights = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
 
         # Apply attention mask.
+        self.trace_tensor("attn_weights", attn_weights, values=False)
         if attention_mask is not None:
+            self.trace_tensor("attn_mask", attention_mask)
             attn_weights = attn_weights + attention_mask
 
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(xq)

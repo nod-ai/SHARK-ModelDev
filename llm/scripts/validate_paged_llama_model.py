@@ -74,7 +74,7 @@ def main(args: list[str]):
         ]
     )
 
-    seq_lens = [12, 6, 0, 0]
+    seq_lens = torch.tensor([12, 6, 0, 0])
 
     attention_mask = model.attention_mask(
         model.input_mask(torch.tensor(seq_lens), next_batch.shape[1])
@@ -102,8 +102,16 @@ def main(args: list[str]):
     print("Decoding...")
     print(tokens.shape, tokens)
     start_positions = torch.tensor([12, 6, 0, 0])
+    seq_lens = seq_lens + 1
+    decode_attention_mask = model.decode_attention_mask(
+        model.input_mask(
+            torch.tensor(seq_lens),
+            seq_block_ids.shape[1] * model.cache.block_seq_stride,
+        )
+    )
     logits = model.decode(
         tokens,
+        attention_mask=decode_attention_mask,
         start_positions=start_positions,
         seq_block_ids=seq_block_ids,
         read_cache_state=cache_state,
@@ -117,6 +125,11 @@ def main(args: list[str]):
     print(f"  : cache[126] = {cache_state[0][126]}")
     print(f"  : cache[0] = {cache_state[0][0]}")
     print(f"  : cache[1] = {cache_state[0][1]}")
+
+    # from turbine_llm.models import llama
+    # print(f"+++PREFILL XK = {llama.DEBUG_PREFILL_XK.shape}\n{llama.DEBUG_PREFILL_XK}")
+    # print(f"+++DECODE  XK = {llama.DEBUG_DECODE_XK.shape}\n{llama.DEBUG_DECODE_XK}")
+    # torch.testing.assert_close(llama.DEBUG_PREFILL_XK, llama.DEBUG_DECODE_XK)
 
     def save_prefill_module(model):
         from shark_turbine.importers.fx_importer import FxImporter

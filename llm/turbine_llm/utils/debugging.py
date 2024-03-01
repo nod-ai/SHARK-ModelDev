@@ -69,4 +69,4 @@ def trace_tensor(key: str, t: torch.Tensor, *, values: bool = True):
     if not flags.enable_tensor_trace:
         return
     values_repr = repr(t) if values else "...elided..."
-    print(f"::: TRACE {key}({list(t.shape), t.dtype}) = {values_repr}")
+    print(f"::: TRACE {key}({list(t.shape), t.dtype}) =\n{values_repr}")

@@ -121,9 +121,11 @@ class RotaryEmbeddingLayer(BaseLayer):
         _, sl, _, dim = xq_.shape
 
         # Offset the table based on starting position.
-        freqs_cis = self._table[start_index:sl, :]
+        freqs_cis = self._table[start_index : start_index + sl, :]
         assert freqs_cis.shape[-1] == dim
-        assert freqs_cis.shape[0] >= sl, "Sequence length longer than embedding table"
+        assert (
+            freqs_cis.shape[0] >= sl
+        ), f"Sequence length longer than embedding table ({sl} vs {freqs_cis.shape[0]})"
 
         broadcast_freqs_cis = freqs_cis[None, 0:sl, None, :]
         xq_out = torch.view_as_real(xq_ * broadcast_freqs_cis).flatten(3)

@@ -114,7 +114,8 @@ class DirectCacheLlamaModelV1(ThetaLayer):
         for block_idx, block in enumerate(self.attn_blocks):
             block_cache_k = local_kv_cache[block_idx]
             block_cache_v = local_kv_cache[block_count + block_idx]
-            self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            if block_idx == 0:
+                self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
             h = block(
                 h,
                 cache_k=block_cache_k,

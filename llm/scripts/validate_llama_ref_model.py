@@ -34,6 +34,12 @@ def main(args: list[str]):
     )
     print(f"  : tokens = {tokens}")
 
+    # Decode a step.
+    print("Decoding...")
+    print(tokens.shape, tokens)
+    decode_token = model.forward(tokens, start_index=12, local_kv_cache=kv_cache)
+    print(f"  : decode tokens = {decode_token}")
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
