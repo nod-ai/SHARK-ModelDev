@@ -220,20 +220,40 @@ PY_BUILTIN_TO_TORCH_OP = {
     "gt": torch.ops.aten.gt,
 }
 
-SYMBOLIC_TORCH_OPS = {
-    torch.ops.aten.sym_size,
-    torch.ops.aten.sym_stride,
-    torch.ops.aten.sym_numel,
-}
+if torch.__version__ <= "2.1.0":
+    try:
+        SYMBOLIC_TORCH_OPS = {
+            torch.ops.aten.sym_size,
+            torch.ops.aten.sym_stride,
+            torch.ops.aten.sym_numel,
+        }
 
-SYMBOLIC_OP_TO_TORCH_OP = {
-    (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
-    (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
-    (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
-    (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
-    (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
-}
+        SYMBOLIC_OP_TO_TORCH_OP = {
+            (torch.ops.aten.sym_size, 1): torch.ops.aten.size.default,
+            (torch.ops.aten.sym_size, 2): torch.ops.aten.size.int,
+            (torch.ops.aten.sym_stride, 1): torch.ops.aten.stride.default,
+            (torch.ops.aten.sym_stride, 2): torch.ops.aten.stride.int,
+            (torch.ops.aten.sym_numel, 1): torch.ops.aten.numel.default,
+        }
+    except AttributeError:
+        pass
+else:
+    try:
+        SYMBOLIC_TORCH_OPS = {
+            torch.ops.aten.sym_size.int,
+            torch.ops.aten.sym_stride.int,
+            torch.ops.aten.sym_numel.default,
+        }
 
+        SYMBOLIC_OP_TO_TORCH_OP = {
+            torch.ops.aten.sym_size.default: torch.ops.aten.size.default,
+            torch.ops.aten.sym_size.int : torch.ops.aten.size.int,
+            torch.ops.aten.sym_stride.default : torch.ops.aten.stride.default,
+            torch.ops.aten.sym_stride.int : torch.ops.aten.stride.int,
+            torch.ops.aten.sym_numel.default : torch.ops.aten.numel.default,
+        }
+    except AttributeError:
+        pass
 
 @dataclass(frozen=True)
 class SparsityMeta:
@@ -1105,14 +1125,14 @@ class GraphNodeImporter:
                             raise NotImplementedError(
                                 f"General getitem access to non-multi-result ops"
                             )
-                    elif isinstance(target, TorchOpOverload):
-                        # Dispatch to an ATen op.
-                        self._import_torch_op_overload(loc, node, target)
                     elif target in SYMBOLIC_TORCH_OPS or (
                         is_symbolic(node.meta.get("val"))
                         and is_builtin_function_or_method(target)
                     ):
                         self._import_symbolic_torch_op(loc, node, target)
+                    elif isinstance(target, TorchOpOverload):
+                        # Dispatch to an ATen op.
+                        self._import_torch_op_overload(loc, node, target)
                     else:
                         raise NotImplementedError(
                             f"FIX ME: Unimplemented call_function: target={node.target}, {node.meta}"
@@ -1195,7 +1215,11 @@ class GraphNodeImporter:
             ), f"Unsupported builtin function for symbolic types: {target} with args {node.args}"
             concrete_target = getattr(torch_op, op_overload)
         else:
-            concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get((target, len(node.args)))
+            # print(f"(target, len(node.args), args) : ({target}, {len(node.args)}, {node.args})")
+            if torch.__version__ <= "2.1.0":
+                concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get((target, len(node.args)))
+            else:
+                concrete_target = SYMBOLIC_OP_TO_TORCH_OP.get(target)
 
         assert (
             concrete_target is not None
@@ -1268,7 +1292,12 @@ class GraphNodeImporter:
 
             result_types = []
             for v in node.meta["val"]:
-                result_types.append(self._cc.tensor_metadata_to_type(v))
+                if v is not None:
+                    result_types.append(self._cc.tensor_metadata_to_type(v))
+                else:
+                    # get "!torch.none" for None value type
+                    t = SCALAR_TYPE_TO_TORCH_MLIR_TYPE.get(type(v))
+                    result_types.append(IrType.parse(t, self._c))
             result_types = tuple(result_types)
 
             self._multi_result_nodes.add(node)
