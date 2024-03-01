@@ -75,7 +75,7 @@ def compile_to_vmfb(
                 "--iree-rocm-bc-dir=C:/AMD/ROCm/5.5/amdgcn/bitcode",
                 "--iree-vm-bytecode-module-strip-source-map=true",
                 "--iree-vm-target-truncate-unsupported-floats",
-                "--iree-flow-inline-constants-max-byte-length=1"
+                "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
     elif device == "cuda":

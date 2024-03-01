@@ -79,7 +79,14 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
 class SDXLScheduler(torch.nn.Module):
-    def __init__(self, hf_model_name, num_inference_steps, scheduler, hf_auth_token=None, precision="fp32"):
+    def __init__(
+        self,
+        hf_model_name,
+        num_inference_steps,
+        scheduler,
+        hf_auth_token=None,
+        precision="fp32",
+    ):
         super().__init__()
         self.scheduler = scheduler
         self.scheduler.set_timesteps(num_inference_steps)
@@ -108,9 +115,7 @@ class SDXLScheduler(torch.nn.Module):
                 low_cpu_mem_usage=False,
             )
 
-    def forward(
-        self, sample, prompt_embeds, text_embeds, time_ids
-    ):
+    def forward(self, sample, prompt_embeds, text_embeds, time_ids):
         sample = sample * self.scheduler.init_noise_sigma
         for t in self.scheduler.timesteps:
             with torch.no_grad():
@@ -136,7 +141,9 @@ class SDXLScheduler(torch.nn.Module):
                 noise_pred = noise_pred_uncond + self.guidance_scale * (
                     noise_pred_text - noise_pred_uncond
                 )
-                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[
+                    0
+                ]
         return sample
 
 
@@ -158,7 +165,6 @@ def export_scheduler(
     utils.save_external_weights(
         mapper, scheduler, external_weights, external_weight_path
     )
-
 
     decomp_list = DEFAULT_DECOMPOSITIONS
 
@@ -191,10 +197,12 @@ def export_scheduler(
             self,
             sample=AbstractTensor(*sample, dtype=torch.float32),
             prompt_embeds=AbstractTensor(*prompt_embeds, dtype=torch.float32),
-            text_embeds = AbstractTensor(*text_embeds, dtype=torch.float32), 
-            time_ids = AbstractTensor(*time_ids, dtype=torch.float32),
+            text_embeds=AbstractTensor(*text_embeds, dtype=torch.float32),
+            time_ids=AbstractTensor(*time_ids, dtype=torch.float32),
         ):
-            return jittable(scheduler.forward, decompose_ops=decomp_list)(sample, prompt_embeds, text_embeds, time_ids)
+            return jittable(scheduler.forward, decompose_ops=decomp_list)(
+                sample, prompt_embeds, text_embeds, time_ids
+            )
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)
@@ -217,7 +225,13 @@ if __name__ == "__main__":
     hf_model_name = "stabilityai/stable-diffusion-xl-base-1.0"
     schedulers = utils.get_schedulers(args.hf_model_name)
     scheduler = schedulers[args.scheduler_id]
-    scheduler_module = SDXLScheduler(args.hf_model_name, args.num_inference_steps, scheduler, hf_auth_token=None, precision=args.precision)
+    scheduler_module = SDXLScheduler(
+        args.hf_model_name,
+        args.num_inference_steps,
+        scheduler,
+        hf_auth_token=None,
+        precision=args.precision,
+    )
 
     print("export scheduler begin")
     mod_str = export_scheduler(

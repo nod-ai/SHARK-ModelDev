@@ -1,4 +1,3 @@
-
 # Copyright 2023 Nod Labs, Inc
 #
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
@@ -60,7 +59,9 @@ parser.add_argument(
 parser.add_argument(
     "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
 )
-parser.add_argument("--compile_to", type=str, default="torch", help="torch, linalg, vmfb")
+parser.add_argument(
+    "--compile_to", type=str, default="torch", help="torch, linalg, vmfb"
+)
 parser.add_argument("--external_weight_path", type=str, default="")
 parser.add_argument(
     "--external_weights",
@@ -80,23 +81,25 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
 class SDXLScheduler(torch.nn.Module):
-    def __init__(self, hf_model_name, num_inference_steps, scheduler, hf_auth_token=None, precision="fp32"):
+    def __init__(
+        self,
+        hf_model_name,
+        num_inference_steps,
+        scheduler,
+        hf_auth_token=None,
+        precision="fp32",
+    ):
         super().__init__()
         self.scheduler = scheduler
         self.scheduler.set_timesteps(num_inference_steps)
         self.guidance_scale = 7.5
 
-    def schd_add_init_noise(
-        self, sample
-    ):
+    def schd_add_init_noise(self, sample):
         # print(sample, self.scheduler.init_noise_sigma)
         sample = sample * self.scheduler.init_noise_sigma
         return sample
 
-
-    def schd_scale_model_input(
-        self, sample, t
-    ):
+    def schd_scale_model_input(self, sample, t):
         latent_model_input = torch.cat([sample] * 2)
         t = t.unsqueeze(0)
         # print('UNSQUEEZE T:', t)
@@ -105,17 +108,14 @@ class SDXLScheduler(torch.nn.Module):
         )
         return latent_model_input
 
-
-    def schd_step(
-        self, sample, t, noise_pred
-    ):
+    def schd_step(self, sample, t, noise_pred):
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred = noise_pred_uncond + self.guidance_scale * (
             noise_pred_text - noise_pred_uncond
         )
         sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
         return sample
-        
+
 
 def export_scheduler(
     scheduler,
@@ -136,7 +136,6 @@ def export_scheduler(
         mapper, scheduler, external_weights, external_weight_path
     )
 
-
     decomp_list = DEFAULT_DECOMPOSITIONS
 
     decomp_list.extend(
@@ -152,7 +151,7 @@ def export_scheduler(
     # tensor shapes for tracing
     # sample = torch.randn(1, 4, 128, 128)
     sample = (batch_size, 4, height // 8, width // 8)
-    noise_pred = (batch_size*2, 4, height // 8, width // 8)
+    noise_pred = (batch_size * 2, 4, height // 8, width // 8)
 
     class CompiledScheduler(CompiledModule):
         if external_weights:
@@ -162,29 +161,25 @@ def export_scheduler(
         else:
             params = export_parameters(scheduler)
 
-
         def main_init_noise(
             self,
             sample=AbstractTensor(*sample, dtype=torch.float32),
         ):
             return jittable(scheduler.schd_add_init_noise)(sample)
 
-
         def main_scale_model(
             self,
-            sample=AbstractTensor(*sample, dtype=torch.float32), 
-            t = AbstractTensor(1, dtype=torch.int32),
+            sample=AbstractTensor(*sample, dtype=torch.float32),
+            t=AbstractTensor(1, dtype=torch.int32),
         ):
             return jittable(scheduler.schd_scale_model_input)(sample, t)
-
 
         def main_step(
             self,
             noise_pred=AbstractTensor(*noise_pred, dtype=torch.float32),
-            t = AbstractTensor(1, dtype=torch.int32),
+            t=AbstractTensor(1, dtype=torch.int32),
         ):
             return jittable(scheduler.schd_step)(noise_pred, t)
-
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)
@@ -219,7 +214,7 @@ def export_scheduler(
 # time_ids = (2, 6)
 # sample=AbstractTensor(*sample, dtype=torch.float32),
 # prompt_embeds=AbstractTensor(*prompt_embeds, dtype=torch.float32),
-# text_embeds = AbstractTensor(*text_embeds, dtype=torch.float32), 
+# text_embeds = AbstractTensor(*text_embeds, dtype=torch.float32),
 # time_ids = AbstractTensor(*time_ids, dtype=torch.float32),
 
 # inputs = (sample, prompt_embeds, text_embeds, time_ids,)
@@ -244,8 +239,17 @@ if __name__ == "__main__":
     from diffusers import (
         EulerDiscreteScheduler,
     )
-    scheduler = EulerDiscreteScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
-    scheduler_module = SDXLScheduler(args.hf_model_name, args.num_inference_steps, scheduler, hf_auth_token=None, precision="fp32")
+
+    scheduler = EulerDiscreteScheduler.from_pretrained(
+        hf_model_name, subfolder="scheduler"
+    )
+    scheduler_module = SDXLScheduler(
+        args.hf_model_name,
+        args.num_inference_steps,
+        scheduler,
+        hf_auth_token=None,
+        precision="fp32",
+    )
 
     # sample = torch.randn((1, 4, 128, 128))
     # # sample = (batch_size, 4, height // 8, width // 8)
