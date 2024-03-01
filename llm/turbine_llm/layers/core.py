@@ -25,8 +25,8 @@ __all__ = [
 class BaseLayer(nn.Module):
     """Base class of all of our layers."""
 
-    def trace_tensor(self, key: str, t: torch.Tensor):
-        debugging.trace_tensor(key, t)
+    def trace_tensor(self, key: str, t: torch.Tensor, *, values: bool = True):
+        debugging.trace_tensor(key, t, values=values)
 
 
 class ThetaLayer(BaseLayer):
