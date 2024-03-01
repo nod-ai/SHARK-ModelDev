@@ -68,7 +68,8 @@ parser.add_argument(
     action="store_true",
     help="Decompose attention at fx graph level",
 )
-
+parser.add_argument("--num_inference_steps", type=int, default=30)
+parser.add_argument("--scheduler_id", type=str, default=None)
 
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name, hf_auth_token=None, precision="fp32"):
@@ -118,6 +119,130 @@ class UnetModel(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
         return noise_pred
+
+
+class ScheduledUnetXLModel(torch.nn.Module):
+    def __init__(self, hf_model_name, hf_auth_token, scheduler, num_inference_steps):
+        super().__init__()
+        self.scheduler = scheduler
+        self.scheduler.set_timesteps(2)
+        self.unet = UNet2DConditionModel.from_pretrained(
+            hf_model_name,
+            subfolder="unet",
+            auth_token=hf_auth_token,
+        )
+
+    def forward(self, latents, prompt_embeds, text_embeds, time_ids, guidance_scale):
+        added_cond_kwargs = {
+            "text_embeds": text_embeds,
+            "time_ids": time_ids,
+        }
+        latents = latents * self.scheduler.init_noise_sigma
+        for t in self.scheduler.timesteps:
+            with torch.no_grad():
+                latent_model_input = torch.cat([latents] * 2)
+                t.unsqueeze(0)
+                latent_model_input = self.scheduler.scale_model_input(
+                    latent_model_input, timestep=t
+                )
+                noise_pred = self.unet.forward(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+                    cross_attention_kwargs=None,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+                latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+        return latents
+
+def export_scheduled_unet_model(
+    scheduled_unet_model,
+    hf_model_name,
+    batch_size,
+    height,
+    width,
+    precision="fp32",
+    max_length=77,
+    hf_auth_token=None,
+    compile_to="torch",
+    external_weights=None,
+    external_weight_path=None,
+    device=None,
+    target_triple=None,
+    max_alloc=None,
+    decomp_attn=False,
+    exit_on_vmfb=False,
+):
+    mapper = {}
+    decomp_list = DEFAULT_DECOMPOSITIONS
+    if decomp_attn == True:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    if precision == "fp16":
+        scheduled_unet_model = scheduled_unet_model.half()
+    utils.save_external_weights(
+        mapper, scheduled_unet_model, external_weights, external_weight_path
+    )
+    sample = (
+        batch_size,
+        scheduled_unet_model.unet.config.in_channels,
+        height // 8,
+        width // 8,
+    )
+    time_ids_shape = (2 * batch_size, 6)
+    prompt_embeds_shape = (2 * batch_size, max_length, 2048)
+    text_embeds_shape = (2 * batch_size, 1280)
+
+    class CompiledScheduledUnet(CompiledModule):
+        if external_weights:
+            params = export_parameters(
+                scheduled_unet_model, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(scheduled_unet_model)
+
+        def main(
+            self,
+            sample=AbstractTensor(*sample, dtype=dtype),
+            prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
+            text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
+            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
+            guidance_scale=AbstractTensor(1, dtype=dtype),
+        ):
+            return jittable(scheduled_unet_model.forward, decompose_ops=decomp_list)(
+                sample, prompt_embeds, text_embeds, time_ids, guidance_scale
+            )
+
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+    inst = CompiledScheduledUnet(context=Context(), import_to=import_to)
+
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
+    )
+    if compile_to != "vmfb":
+        return module_str
+    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
+        exit()
+    else:
+        utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            max_alloc,
+            safe_name,
+            return_path=exit_on_vmfb,
+        )
 
 
 def export_unet_model(
@@ -210,31 +335,64 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     args = parser.parse_args()
-    unet_model = UnetModel(
-        args.hf_model_name,
-        args.hf_auth_token,
-    )
-    mod_str = export_unet_model(
-        unet_model,
-        args.hf_model_name,
-        args.batch_size,
-        args.height,
-        args.width,
-        args.precision,
-        args.max_length,
-        args.hf_auth_token,
-        args.compile_to,
-        args.external_weights,
-        args.external_weight_path,
-        args.device,
-        args.iree_target_triple,
-        args.vulkan_max_allocation,
-        args.decomp_attn,
-    )
-    safe_name = utils.create_safe_name(
-        args.hf_model_name,
+    if args.scheduler_id is not None:
+        scheduler = utils.get_schedulers(args.hf_model_name)[args.scheduler_id]
+        scheduled_unet_model = ScheduledUnetXLModel(
+            args.hf_model_name,
+            args.hf_auth_token,
+            scheduler,
+            args.num_inference_steps,
+        )
+        mod_str = export_scheduled_unet_model(
+            scheduled_unet_model,
+            args.hf_model_name,
+            args.batch_size,
+            args.height,
+            args.width,
+            args.precision,
+            args.max_length,
+            args.hf_auth_token,
+            args.compile_to,
+            args.external_weights,
+            args.external_weight_path,
+            args.device,
+            args.iree_target_triple,
+            args.vulkan_max_allocation,
+            args.decomp_attn,
+        )
+        safe_name = utils.create_safe_name(
+        args.hf_model_name + "_" + args.scheduler_id,
         f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+        )
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to", safe_name + ".mlir")
+    else:
+        unet_model = UnetModel(
+            args.hf_model_name,
+            args.hf_auth_token,
+        )
+        mod_str = export_unet_model(
+            unet_model,
+            args.hf_model_name,
+            args.batch_size,
+            args.height,
+            args.width,
+            args.precision,
+            args.max_length,
+            args.hf_auth_token,
+            args.compile_to,
+            args.external_weights,
+            args.external_weight_path,
+            args.device,
+            args.iree_target_triple,
+            args.vulkan_max_allocation,
+            args.decomp_attn,
+        )
+        safe_name = utils.create_safe_name(
+            args.hf_model_name,
+            f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+        )
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to", safe_name + ".mlir")

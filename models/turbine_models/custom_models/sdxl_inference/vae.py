@@ -121,6 +121,7 @@ def export_vae_model(
     max_alloc=None,
     variant="decode",
     decomp_attn=False,
+    exit_on_vmfb=True,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
@@ -165,10 +166,10 @@ def export_vae_model(
     )
     if compile_to != "vmfb":
         return module_str
-    elif os.path.isfile(safe_name + ".vmfb"):
+    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
         exit()
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name, return_path=exit_on_vmfb)
 
 
 if __name__ == "__main__":
