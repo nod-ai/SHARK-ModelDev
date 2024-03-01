@@ -24,7 +24,7 @@ def pytest_addoption(parser):
     parser.addoption("--device", action="store", default="cpu")
     parser.addoption("--rt_device", action="store", default="local-task")
     parser.addoption(
-        "--iree_target_triple", type="str", action="store", default="x86_64-linux-gnu"
+        "--iree_target_triple", type=str, action="store", default="x86_64-linux-gnu"
     )
     parser.addoption(
         "--vulkan_max_allocation", type=int, action="store", default="4294967296"
