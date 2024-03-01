@@ -112,7 +112,6 @@ class SDXLScheduler(torch.nn.Module):
         self, sample, prompt_embeds, text_embeds, time_ids
     ):
         sample = sample * self.scheduler.init_noise_sigma
-        print(self.scheduler.timesteps[0])
         for t in self.scheduler.timesteps:
             with torch.no_grad():
                 added_cond_kwargs = {
@@ -216,11 +215,9 @@ def export_scheduler(
 if __name__ == "__main__":
     args = parser.parse_args()
     hf_model_name = "stabilityai/stable-diffusion-xl-base-1.0"
-    from diffusers import (
-        EulerDiscreteScheduler,
-    )
-    scheduler = EulerDiscreteScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
-    scheduler_module = SDXLScheduler(args.hf_model_name, args.num_inference_steps, scheduler, hf_auth_token=None, precision="fp32")
+    schedulers = utils.get_schedulers(args.hf_model_name)
+    scheduler = schedulers[args.scheduler_id]
+    scheduler_module = SDXLScheduler(args.hf_model_name, args.num_inference_steps, scheduler, hf_auth_token=None, precision=args.precision)
 
     print("export scheduler begin")
     mod_str = export_scheduler(
