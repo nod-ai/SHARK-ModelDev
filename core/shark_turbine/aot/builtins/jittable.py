@@ -214,6 +214,13 @@ class jittable(CallableIntrinsic):
         if "functorch_functionalize" in self._passes:
             transformed_f = functorch_functionalize(transformed_f, *flat_pytorch_args)
 
+        for node in transformed_f.graph.nodes:
+            if node.op == "call_function":
+                if node.target == torch._ops.ops.aten.lift_fresh_copy.default:
+                    print(f"replaced lift_fresh_copy")
+                    node.target = torch._ops.ops.aten.clone.default
+        transformed_f.recompile()
+
         # Ask dynamo to give us an aten graph.
         # TODO: Cache this for repeated calls.
         logger.debug("Performing dynamo.export(constraints=%r)", constraints)
