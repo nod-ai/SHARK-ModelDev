@@ -108,10 +108,23 @@ def run_sdxl_scheduler(
 
 
 def run_torch_scheduler(
-    hf_model_name, scheduler, num_inference_steps, sample, prompt_embeds, text_embeds, time_ids,
+    hf_model_name,
+    scheduler,
+    num_inference_steps,
+    sample,
+    prompt_embeds,
+    text_embeds,
+    time_ids,
 ):
     class SDXLScheduler(torch.nn.Module):
-        def __init__(self, hf_model_name, num_inference_steps, scheduler, hf_auth_token=None, precision="fp32"):
+        def __init__(
+            self,
+            hf_model_name,
+            num_inference_steps,
+            scheduler,
+            hf_auth_token=None,
+            precision="fp32",
+        ):
             super().__init__()
             self.scheduler = scheduler
             self.scheduler.set_timesteps(num_inference_steps)
@@ -140,9 +153,7 @@ def run_torch_scheduler(
                     low_cpu_mem_usage=False,
                 )
 
-        def forward(
-            self, sample, prompt_embeds, text_embeds, time_ids
-        ):
+        def forward(self, sample, prompt_embeds, text_embeds, time_ids):
             sample = sample * self.scheduler.init_noise_sigma
             for t in self.scheduler.timesteps:
                 with torch.no_grad():
@@ -168,11 +179,18 @@ def run_torch_scheduler(
                     noise_pred = noise_pred_uncond + self.guidance_scale * (
                         noise_pred_text - noise_pred_uncond
                     )
-                    sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+                    sample = self.scheduler.step(
+                        noise_pred, t, sample, return_dict=False
+                    )[0]
             return sample
 
-
-    scheduler_module = SDXLScheduler(hf_model_name, num_inference_steps, scheduler, hf_auth_token=None, precision="fp16")
+    scheduler_module = SDXLScheduler(
+        hf_model_name,
+        num_inference_steps,
+        scheduler,
+        hf_auth_token=None,
+        precision="fp16",
+    )
     results = scheduler_module.forward(sample, prompt_embeds, text_embeds, time_ids)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
@@ -224,7 +242,6 @@ if __name__ == "__main__":
             prompt_embeds,
             text_embeds,
             time_ids,
-
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_output)
