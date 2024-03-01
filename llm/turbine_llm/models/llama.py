@@ -316,13 +316,12 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                 xk_temp[i, row_start_pos : row_start_pos + 1, :, :] = xk[i, ...]
                 xv_temp[i, row_start_pos : row_start_pos + 1, :, :] = xv[i, ...]
 
-            # We conservatively slice the xk/xv tensors to have a sequence length
-            # of one more than that implied by the number of seq_block_ids.
-            # This ensures that there is always room for the additional (new)
-            # row and that it is aligned to the block seq stride (i.e. 16).
-            # Since we're batching, we have to mask no matter what and might
-            # as well use it to normalize the shapes.
-            kv_seq_len = (seq_block_ids.shape[1] + 1) * self.cache.block_seq_stride
+            # For computation, we create a subview of the xk/xv tensors to have
+            # a sequence length covering the blocked size. This must include
+            # the newly added row (the caller is responsible for ensuring that
+            # every block has at least one row left). We'll compute on this
+            # ragged view and use an appropriate mask.
+            kv_seq_len = seq_block_ids.shape[1] * self.cache.block_seq_stride
             xk = xk_temp[:, 0:kv_seq_len, ...]
             xv = xv_temp[:, 0:kv_seq_len, ...]
 
