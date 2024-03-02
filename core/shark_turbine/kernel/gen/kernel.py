@@ -10,11 +10,7 @@ import inspect
 
 import torch
 
-from typing import (
-    Type,
-    Callable,
-    Any
-)
+from typing import Type, Callable, Any
 
 from ..lang.kernel_buffer import is_kernel_buffer_meta_derived
 
@@ -43,18 +39,20 @@ from .._support.indexing import IndexingContext
 
 TK_LIBRARY = def_library("tk")
 
-def kernel(*symbolic_shape: IndexExpr):
 
+def kernel(*symbolic_shape: IndexExpr):
     def decorator(f: Callable):
         # Convert all InputBuffer to inputs and OutputBuffers to outputs
         sig = inspect.signature(f)
         params = sig.parameters
-        inputs : list[tuple[str, Any]] = []
-        outputs : list[tuple[str, Any]] = []
+        inputs: list[tuple[str, Any]] = []
+        outputs: list[tuple[str, Any]] = []
         for arg_name, param in params.items():
             # TODO: Implement more input arguements.
             if not is_kernel_buffer_meta_derived(param.annotation):
-                raise NotImplementedError("Only KernelBuffer is supported as input for now")
+                raise NotImplementedError(
+                    "Only KernelBuffer is supported as input for now"
+                )
 
             if param.annotation.usage == InputBuffer.usage:
                 inputs.append((arg_name, param.annotation))
@@ -84,7 +82,9 @@ def kernel(*symbolic_shape: IndexExpr):
                         idxc.bind_shaped(arg_name, arg, list(x.t.shape))
                         i += 1
                     else:
-                        raise NotImplementedError("Only KernelBuffer is supported as input for now")
+                        raise NotImplementedError(
+                            "Only KernelBuffer is supported as input for now"
+                        )
 
                 idxc.finalize()
 
@@ -101,7 +101,9 @@ def kernel(*symbolic_shape: IndexExpr):
                         ksel.result_descs[i].spec_dims = list(x.shape)
                         i += 1
                     else:
-                        raise NotImplementedError("Only KernelBuffer is supported as input for now")
+                        raise NotImplementedError(
+                            "Only KernelBuffer is supported as input for now"
+                        )
 
             def generate(self, ksel: KernelSelection, kb: KernelBuilder):
                 entrypoint = "tk_kernel_" + name
@@ -109,7 +111,9 @@ def kernel(*symbolic_shape: IndexExpr):
                 dispatch = SymbolRefAttr.get([entrypoint, entrypoint])
                 entrypoints = ArrayAttr.get([dispatch])
 
-                result_types = [IrType.parse(x.mlir_type_asm) for x in ksel.result_descs]
+                result_types = [
+                    IrType.parse(x.mlir_type_asm) for x in ksel.result_descs
+                ]
 
                 out = flow_d.DispatchOp(
                     result_types, [], entrypoints, kb.arg_bindings, [], []
@@ -136,5 +140,5 @@ def kernel(*symbolic_shape: IndexExpr):
                     launch_ctx.launch(launchable, args, {})
 
         return TKCustomOp
-    
+
     return decorator

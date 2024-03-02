@@ -101,7 +101,13 @@ class LaunchableThread(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
-    def _trace_and_get_kernel_signature(self, args, kwargs, context: Optional[Context] = None, module_op: Optional[Operation] = None):
+    def _trace_and_get_kernel_signature(
+        self,
+        args,
+        kwargs,
+        context: Optional[Context] = None,
+        module_op: Optional[Operation] = None,
+    ):
         # Trace the function.
         trace = self._trace()
         idxc = IndexingContext.current()

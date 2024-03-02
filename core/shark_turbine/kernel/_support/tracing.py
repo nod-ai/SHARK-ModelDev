@@ -456,10 +456,13 @@ class TestLaunchContext(LaunchContext):
     def launch(self, launchable: Launchable, args, kwargs):
         return launchable.test_execute(args, kwargs)
 
+
 class AOTLaunchContext(LaunchContext):
     module: "Operation"
 
-    def __init__(self, module: "Operation", constant_bindings: Dict[IndexSymbol, int] = {}):
+    def __init__(
+        self, module: "Operation", constant_bindings: Dict[IndexSymbol, int] = {}
+    ):
         self.module = module
         super().__init__(constant_bindings)
 
