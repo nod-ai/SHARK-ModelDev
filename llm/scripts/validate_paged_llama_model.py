@@ -74,10 +74,14 @@ def main(args: list[str]):
         ]
     )
 
-    seq_lens = torch.tensor([12, 6, 0, 0])
+    # Important: Do not use a sequence length of 0 for empty batch slots
+    # as it will cause softmax to nan due to a mask of all -inf. This then
+    # propagates and causes badness.
+    seq_lens = torch.tensor([12, 6, 1, 1])
 
     attention_mask = model.attention_mask(
-        model.input_mask(torch.tensor(seq_lens), next_batch.shape[1])
+        model.input_mask(torch.tensor(seq_lens), next_batch.shape[1]),
+        dtype=torch.float32,
     )
 
     print(f"Step {start_index}")
@@ -107,7 +111,8 @@ def main(args: list[str]):
         model.input_mask(
             torch.tensor(seq_lens),
             seq_block_ids.shape[1] * model.cache.block_seq_stride,
-        )
+        ),
+        dtype=torch.float32,
     )
     logits = model.decode(
         tokens,

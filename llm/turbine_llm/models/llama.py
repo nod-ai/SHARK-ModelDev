@@ -312,8 +312,8 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                     )
 
             if self.block_index == 0:
-                self.trace_tensor("prefill.xk", xk)
-                self.trace_tensor("prefill.xv", xv)
+                # self.trace_tensor("prefill.xk", xk)
+                # self.trace_tensor("prefill.xv", xv)
                 global DEBUG_PREFILL_XK
                 DEBUG_PREFILL_XK = xk
         else:
@@ -360,10 +360,29 @@ class PagedLlamaAttentionBlock(ThetaLayer):
             # self.trace_tensor("decode.xk", xk)
 
             if self.block_index == 0:
-                self.trace_tensor("decode.xk", xk)
-                self.trace_tensor("decode.xv", xv)
+                # self.trace_tensor("decode.xk", xk)
+                # self.trace_tensor("decode.xv", xv)
                 global DEBUG_DECODE_XK
                 DEBUG_DECODE_XK = torch.clone(xk)
+
+            if write_cache_state:
+                # Write our one updated cache row. We currently do this apart
+                # from the linearization step because it lets us have aliased
+                # cache states. We may need to revisit this if we can support
+                # a cache write-read in the same sequence.
+                # In that case, this would go prior to the read.
+                # self.trace_tensor("decode.xk_cache_update", xk_cache_update)
+                # self.trace_tensor("decode.xv_cache_update", xv_cache_update)
+                self.cache.write_timestep(
+                    write_cache_state,
+                    cache_partitions=[
+                        xk_cache_update,
+                        xv_cache_update,
+                    ],
+                    transformer_block_index=self.block_index,
+                    seq_positions=start_positions + 1,
+                    page_ids=seq_block_ids,
+                )
 
         # Tranpose into [bs, heads, sl, dim]
         xq = xq.transpose(1, 2)
@@ -372,11 +391,12 @@ class PagedLlamaAttentionBlock(ThetaLayer):
 
         # Flash attention.
         attn_weights = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+        self.assert_not_nan(attn_weights)
 
         # Apply attention mask.
         self.trace_tensor("attn_weights", attn_weights, values=False)
         if attention_mask is not None:
-            self.trace_tensor("attn_mask", attention_mask)
+            # self.trace_tensor("attn_mask", attention_mask)
             attn_weights = attn_weights + attention_mask
 
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(xq)

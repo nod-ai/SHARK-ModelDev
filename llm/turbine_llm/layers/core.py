@@ -28,6 +28,16 @@ class BaseLayer(nn.Module):
     def trace_tensor(self, key: str, t: torch.Tensor, *, values: bool = True):
         debugging.trace_tensor(key, t, values=values)
 
+    def assert_not_nan(self, *ts: torch.Tensor):
+        """Checks whether tensors have nan values in them.
+
+        Must be enabled via a global switch as this kind of checking is not
+        accelerator or compilation friendly.
+        """
+        for t in ts:
+            if torch.isnan(t).any():
+                raise AssertionError(f"Tensor contains nans! {t}")
+
 
 class ThetaLayer(BaseLayer):
     "Base class for layers that derive parameters from a Theta object."

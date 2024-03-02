@@ -36,6 +36,13 @@ class BaseCausalLMModel(ThetaLayer):
         else:
             self.causal_context_mask = None
 
+    def _maximally_negative_value(self, dtype):
+        """Returns a maximally negative value for the given dtype.
+
+        This can be overriden to decide on a different policy.
+        """
+        return float("-inf")
+
     def generate_causal_context_mask(self) -> torch.Tensor:
         context_length = self.context_length
         causal_context_mask = torch.triu(
@@ -60,17 +67,20 @@ class BaseCausalLMModel(ThetaLayer):
         mask = range_vector >= matrix
         return mask
 
-    def decode_attention_mask(self, boolean_input_mask: torch.Tensor):
-        numeric_mask = torch.zeros_like(
-            boolean_input_mask, dtype=self.hp.activation_dtype
+    def decode_attention_mask(
+        self, boolean_input_mask: torch.Tensor, dtype: torch.dtype
+    ):
+        numeric_mask = torch.zeros_like(boolean_input_mask, dtype=dtype)
+        numeric_mask.masked_fill_(
+            boolean_input_mask, self._maximally_negative_value(dtype)
         )
-        numeric_mask.masked_fill_(boolean_input_mask, float("-inf"))
         return numeric_mask.unsqueeze(1).unsqueeze(1)
 
     def attention_mask(
         self,
         input_mask: torch.Tensor,
         *,
+        dtype: torch.dtype,
         causal_context_mask: Optional[torch.Tensor] = None
     ):
         """Generates a causal attention mask of [1, 1, sl, sl] of activation dtype.
@@ -91,8 +101,8 @@ class BaseCausalLMModel(ThetaLayer):
         _, batch_seq_len = input_mask.shape
         causal_mask = causal_context_mask[:, :, :batch_seq_len, :batch_seq_len]
         boolean_mask = causal_mask + input_mask[:, None, None, :]
-        numeric_mask = torch.zeros_like(boolean_mask, dtype=self.hp.activation_dtype)
-        numeric_mask.masked_fill_(boolean_mask, float("-inf"))
+        numeric_mask = torch.zeros_like(boolean_mask, dtype=dtype)
+        numeric_mask.masked_fill_(boolean_mask, self._maximally_negative_value(dtype))
         return numeric_mask
 
     def extract_tokens_from_logits(
