@@ -93,38 +93,6 @@ DEFINED_OP_NAMES: set[tuple[str, str]] = set()
 UNIQUE_OP_NAME_COUNTER: dict[tuple[str, str], int] = {}
 
 
-def _define_signature_in_library(lib: torch.library.Library, signature: str) -> str:
-    """Helper to define a schema in the library.
-
-    This handles the interlocked process of uniqueing, reserving the name,
-    and calling `lib.define` on the resulting schema.
-    """
-    ns = lib.ns
-    with _CONFIG_LOCK:
-        name, call_args = _split_signature(signature)
-
-        # Unique the name.
-        if "@UNIQUE@" in name:
-            # Uniqueify.
-            unique_key = (ns, name)
-            counter = UNIQUE_OP_NAME_COUNTER.get(unique_key, 0)
-            counter += 1
-            name = name.replace("@UNIQUE@", str(counter))
-            UNIQUE_OP_NAME_COUNTER[unique_key] = counter
-
-        # Define it, recording in the defined op names.
-        key = (lib.ns, name)
-        schema = f"{name}{call_args}"
-        if key in DEFINED_OP_NAMES:
-            raise RuntimeError(
-                f"Duplicate turbine custom op registration: library={lib.ns}, "
-                f"name={name}"
-            )
-        lib.define(schema)
-        DEFINED_OP_NAMES.add(key)
-    return name
-
-
 class CustomOp(ABC):
     """Users subclass this in order to register a turbine custom op."""
 
@@ -816,12 +784,44 @@ def _create_impl_trampoline(op: CustomOp):
     return handler
 
 
-_SIGNATURE_NAME_PATTERN = re.compile(r"^([^(]+)(\(.+\))$")
+def _define_signature_in_library(lib: torch.library.Library, signature: str) -> str:
+    """Helper to define a schema in the library.
+
+    This handles the interlocked process of uniqueing, reserving the name,
+    and calling `lib.define` on the resulting schema.
+    """
+    ns = lib.ns
+    with _CONFIG_LOCK:
+        name, call_args = _split_signature(signature)
+
+        # Unique the name.
+        if "@UNIQUE@" in name:
+            # Uniqueify.
+            unique_key = (ns, name)
+            counter = UNIQUE_OP_NAME_COUNTER.get(unique_key, 0)
+            counter += 1
+            name = name.replace("@UNIQUE@", str(counter))
+            UNIQUE_OP_NAME_COUNTER[unique_key] = counter
+
+        # Define it, recording in the defined op names.
+        key = (lib.ns, name)
+        schema = f"{name}{call_args}"
+        if key in DEFINED_OP_NAMES:
+            raise RuntimeError(
+                f"Duplicate turbine custom op registration: library={lib.ns}, "
+                f"name={name}"
+            )
+        lib.define(schema)
+        DEFINED_OP_NAMES.add(key)
+    return name
+
+
+_SIGNATURE_NAME_PATTERN = re.compile(r"^([^(]+)(\(.+)$")
 
 
 def _split_signature(sig: str) -> tuple[str, str]:
     """Splits a signature into name and call-args parts."""
     m = re.match(_SIGNATURE_NAME_PATTERN, sig)
     if not m:
-        raise ValueError(f"Expected signature of form `name(...) -> (). Got: {sig}")
+        raise ValueError(f"Expected signature of form `name(...) -> type. Got: {sig}")
     return m.group(1), m.group(2)
