@@ -40,8 +40,9 @@ arguments = {
     "external_weight_path": "",
     "vmfb_path": "",
     "external_weights": None,
-    "device": "local-task",
-    "iree_target_triple": "",
+    "device": "cpu",
+    "rt_device": "local-task",
+    "iree_target_triple": "x86_64-linux-gnu",
     "vulkan_max_allocation": "4294967296",
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
@@ -80,7 +81,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "vmfb",
                 "safetensors",
                 f"{arguments['safe_model_name']}_clip.safetensors",
-                "cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
@@ -89,7 +91,7 @@ class StableDiffusionTest(unittest.TestCase):
         ] = f"{arguments['safe_model_name']}_clip.safetensors"
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_clip.vmfb"
         turbine = clip_runner.run_clip(
-            arguments["device"],
+            arguments["rt_device"],
             arguments["prompt"],
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -120,7 +122,9 @@ class StableDiffusionTest(unittest.TestCase):
                 compile_to="vmfb",
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_unet.safetensors",
-                device="cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
+                upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
         arguments[
@@ -140,7 +144,7 @@ class StableDiffusionTest(unittest.TestCase):
         guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
-            arguments["device"],
+            arguments["rt_device"],
             sample,
             timestep,
             encoder_hidden_states,
@@ -177,7 +181,8 @@ class StableDiffusionTest(unittest.TestCase):
                 compile_to="vmfb",
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_vae.safetensors",
-                device="cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
                 variant="decode",
                 upload_ir=upload_ir_var == "upload",
             )
@@ -195,7 +200,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=dtype,
         )
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            arguments["rt_device"],
             example_input,
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -226,7 +231,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "vmfb",
                 external_weights="safetensors",
                 external_weight_path=f"{arguments['safe_model_name']}_vae.safetensors",
-                device="cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
                 variant="encode",
                 upload_ir=upload_ir_var == "upload",
             )
@@ -244,7 +250,7 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=dtype,
         )
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            arguments["rt_device"],
             example_input,
             arguments["vmfb_path"],
             arguments["hf_model_name"],
@@ -276,7 +282,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "vmfb",
                 "safetensors",
                 "stable_diffusion_v1_4_scheduler.safetensors",
-                "cpu",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
@@ -293,7 +300,7 @@ class StableDiffusionTest(unittest.TestCase):
         )
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
         turbine = schedulers_runner.run_scheduler(
-            arguments["device"],
+            arguments["rt_device"],
             sample,
             encoder_hidden_states,
             arguments["vmfb_path"],
