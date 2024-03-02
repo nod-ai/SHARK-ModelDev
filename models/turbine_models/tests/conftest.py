@@ -27,7 +27,7 @@ def pytest_addoption(parser):
         "--iree_target_triple", type=str, action="store", default="x86_64-linux-gnu"
     )
     parser.addoption(
-        "--vulkan_max_allocation", type=int, action="store", default="4294967296"
+        "--vulkan_max_allocation", type=str, action="store", default="4294967296"
     )
     parser.addoption(
         "--prompt",
