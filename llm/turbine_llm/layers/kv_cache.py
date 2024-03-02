@@ -176,14 +176,6 @@ class PagedKVCache:
         Note that this internally loops over the batch size, which cannot be
         dynamic.
         """
-        # [
-        #     -1,
-        #     self.transformer_block_count,
-        #     self.cache_partition_count,
-        #     self.block_seq_stride,
-        #     self.attn_head_count,
-        #     self.attn_head_dim,
-        # ]
         page_table = self.unflatten_page_table(state)  # 6D
         bs, *_ = seq_positions.shape
         assert len(cache_partitions) == self.cache_partition_count
@@ -193,23 +185,9 @@ class PagedKVCache:
             page_offset = position % self.block_seq_stride
             for partition_index in range(self.cache_partition_count):
                 cache_partition = cache_partitions[partition_index]
-                print(
-                    f"WRITE TIMESTEP: {(page_id, transformer_block_index, partition_index, page_offset)}"
-                )
-                page = page_table[
+                page_table[
                     page_id, transformer_block_index, partition_index, page_offset
-                ]
-
-                def dump_page(banner):
-                    print(banner)
-                    for j in range(self.block_seq_stride):
-                        print(
-                            f"  [{j}] = {page_table[page_id, transformer_block_index, partition_index, j]}"
-                        )
-
-                # dump_page("PAGE BEFORE:")
-                page[...] = cache_partition[i, 0]
-                # dump_page("PAGE BEFORE:")
+                ] = cache_partition[i, 0]
 
     def write(
         self,

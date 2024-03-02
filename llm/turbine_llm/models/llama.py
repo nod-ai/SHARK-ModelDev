@@ -310,12 +310,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                         transformer_block_index=self.block_index,
                         page_ids=seq_block_ids,
                     )
-
-            if self.block_index == 0:
-                # self.trace_tensor("prefill.xk", xk)
-                # self.trace_tensor("prefill.xv", xv)
-                global DEBUG_PREFILL_XK
-                DEBUG_PREFILL_XK = xk
         else:
             # We need to initialize/read the K/V from the cache for the whole
             # sequence. Note that at this point, it is possible to fork and
@@ -357,13 +351,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
             # ragged view and use an appropriate mask.
             xk = xk_temp[:, 0:kv_seq_len, ...]
             xv = xv_temp[:, 0:kv_seq_len, ...]
-            # self.trace_tensor("decode.xk", xk)
-
-            if self.block_index == 0:
-                # self.trace_tensor("decode.xk", xk)
-                # self.trace_tensor("decode.xv", xv)
-                global DEBUG_DECODE_XK
-                DEBUG_DECODE_XK = torch.clone(xk)
 
             if write_cache_state:
                 # Write our one updated cache row. We currently do this apart

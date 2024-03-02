@@ -80,7 +80,7 @@ def main(args: list[str]):
     seq_lens = torch.tensor([12, 6, 1, 1])
 
     attention_mask = model.attention_mask(
-        model.input_mask(torch.tensor(seq_lens), next_batch.shape[1]),
+        model.input_mask(seq_lens, next_batch.shape[1]),
         dtype=torch.float32,
     )
 
@@ -109,7 +109,7 @@ def main(args: list[str]):
     seq_lens = seq_lens + 1
     decode_attention_mask = model.decode_attention_mask(
         model.input_mask(
-            torch.tensor(seq_lens),
+            seq_lens,
             seq_block_ids.shape[1] * model.cache.block_seq_stride,
         ),
         dtype=torch.float32,
