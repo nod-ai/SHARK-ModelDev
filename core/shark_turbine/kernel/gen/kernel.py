@@ -10,12 +10,11 @@ import inspect
 
 import torch
 
-from typing import Type, Callable, Any
+from typing import Callable, Any
 
 from ..lang.kernel_buffer import is_kernel_buffer_meta_derived
 
 from ..lang import (
-    KernelBuffer,
     InputBuffer,
     OutputBuffer,
     Grid,
@@ -24,13 +23,18 @@ from ..lang import (
 
 from .thread import LaunchableThread
 
-from ..compiler.ir import StringAttr, SymbolRefAttr, ArrayAttr, flow_d, IrType, Value
+from ..compiler.ir import (
+    SymbolRefAttr,
+    ArrayAttr,
+    flow_d,
+    IrType,
+)
 
 from ...runtime.op_reg import (
+    def_library,
     CustomOp,
     KernelBuilder,
     KernelSelection,
-    def_library,
     TensorArg,
 )
 
@@ -38,6 +42,11 @@ from .._support.tracing import AOTLaunchContext
 from .._support.indexing import IndexingContext
 
 TK_LIBRARY = def_library("tk")
+
+
+__all__ = [
+    "kernel",
+]
 
 
 def kernel(*symbolic_shape: IndexExpr):
@@ -59,13 +68,16 @@ def kernel(*symbolic_shape: IndexExpr):
             elif param.annotation.usage == OutputBuffer.usage:
                 outputs.append((arg_name, param.annotation))
 
-        name = f.__name__
+        name_spec = f"kernel_{f.__name__}__@UNIQUE@"
         input_signature = ["Tensor " + name for name, _ in inputs]
         output_signature = ["Tensor " + name for name, _ in outputs]
 
         @CustomOp.register(library=TK_LIBRARY)
         class TKCustomOp(CustomOp):
-            signature = f"{name}({', '.join(input_signature)}) -> ({', '.join(output_signature)})"
+            signature = (
+                f"{name_spec}({', '.join(input_signature)}) -> "
+                f"({', '.join(output_signature)})"
+            )
 
             def select(self, ksel: KernelSelection):
                 # Infer the result tensor based on the input tensor
@@ -106,7 +118,7 @@ def kernel(*symbolic_shape: IndexExpr):
                         )
 
             def generate(self, ksel: KernelSelection, kb: KernelBuilder):
-                entrypoint = "tk_kernel_" + name
+                entrypoint = f"tk_{self.name}"
                 # Create a flow.dispatch op to the kernel
                 dispatch = SymbolRefAttr.get([entrypoint, entrypoint])
                 entrypoints = ArrayAttr.get([dispatch])
