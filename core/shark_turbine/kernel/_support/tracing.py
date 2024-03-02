@@ -1,25 +1,18 @@
 from abc import ABC, abstractmethod
-import typing
 from typing import (
     Optional,
     TypeVar,
     Callable,
     Type,
     cast,
-    List,
     Dict,
     Tuple,
-    Any,
 )
 
-if typing.TYPE_CHECKING:
-    from ..compiler.ir import Operation
+from ..compiler.ir import Operation
 
 import functools
 import warnings
-import contextlib
-import torch.utils._pytree as pytree
-import random
 
 import torch.fx as fx
 
@@ -36,7 +29,6 @@ from ..lang.grid import Grid
 
 from ..lang.types import (
     Index,
-    Vector,
 )
 
 from .regions import RegionGraph, SubgraphTracer
@@ -458,10 +450,10 @@ class TestLaunchContext(LaunchContext):
 
 
 class AOTLaunchContext(LaunchContext):
-    module: "Operation"
+    module: Operation
 
     def __init__(
-        self, module: "Operation", constant_bindings: Dict[IndexSymbol, int] = {}
+        self, module: Operation, constant_bindings: Dict[IndexSymbol, int] = {}
     ):
         self.module = module
         super().__init__(constant_bindings)

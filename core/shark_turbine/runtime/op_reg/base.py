@@ -745,7 +745,7 @@ def _get_meta_impl(op: CustomOp):
         op.select(sel)
         if logger.isEnabledFor(logging.DEBUG):
             logging.debug(
-                "Meta dispatch on %s for specialization %s", op.name, sel.spec_key
+                "Meta dispatch on %s for specialization %s", op.signature, sel.spec_key
             )
         return sel.generate_meta_returns()
 
