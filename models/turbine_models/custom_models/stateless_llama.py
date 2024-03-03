@@ -80,18 +80,30 @@ def generate_schema(num_layers):
     return json.dumps(schema)
 
 
-def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim, num_layers):
+def slice_up_to_step(k_caches, v_caches, seq_step, heads, hidden_dim, num_layers):
     all_pkv_tensors = []
     for i in range(num_layers * 2):
         # Numpy semantic: sliced = global_pkv[i, 0, 0:seq_step, 0:heads, 0:hidden_dim]
         # Generates tensor<1 x 1 x seq_step x heads x hidden_dim>
-        sliced = IREE.tensor_slice(
-            global_pkv, i, 0, (0, seq_step), (0, heads), (0, hidden_dim)
-        )  # sequence context dim
+        if i % 2 == 0:
+            sliced = IREE.tensor_slice(
+                k_caches["layer_idx"][i // 2],
+                0,
+                (0, seq_step),
+                (0, heads),
+                (0, hidden_dim),
+            )  # sequence context dim
+        else:
+            sliced = IREE.tensor_slice(
+                v_caches["layer_idx"][i // 2],
+                0,
+                (0, seq_step),
+                (0, heads),
+                (0, hidden_dim),
+            )  # sequence context dim
         all_pkv_tensors.append(
             IREE.tensor_reshape(sliced, 1, seq_step, heads, hidden_dim)
         )
-
     return all_pkv_tensors
 
 
@@ -139,7 +151,7 @@ def export_transformer_model(
     BATCH_SIZE = 1
     MAX_STEP_SEQ = mod.config.max_position_embeddings - 1
     global_pkv = torch.zeros(
-        size=(NUM_LAYERS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
+        size=(BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
         dtype=dtype,
     )
 
@@ -156,6 +168,10 @@ def export_transformer_model(
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
 
+    kv_cache_structure = {
+        "layer_idx": [abstractify(global_pkv) for _ in range(NUM_LAYERS)],
+    }
+
     class StateUpdateModule(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -163,10 +179,11 @@ def export_transformer_model(
             )
         else:
             params = export_parameters(mod)
-        global_state = export_global(
-            abstractify(global_pkv), uninitialized=True, mutable=True
-        )
         global_seq_step = export_global(AbstractIndex, mutable=True)
+        global_k_caches = export_global_tree(kv_cache_structure, mutable=True)
+        global_v_caches = export_global_tree(
+            kv_cache_structure, uninitialized=True, mutable=True
+        )
 
         def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
             init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
@@ -174,18 +191,30 @@ def export_transformer_model(
             self.global_seq_step = IREE.tensor_dim(
                 state[0], 1
             )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(NUM_LAYERS * 2):
+            for i in range(NUM_LAYERS):
                 slice_of_state = IREE.tensor_reshape(
-                    state[i], 1, 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                    state[i * 2], 1, self.global_seq_step, HEADS, HIDDEN_DIM
                 )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, slice_of_state, i, 0, 0, 0, 0
+                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_k_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
+                )
+            for i in range(NUM_LAYERS):
+                slice_of_state = IREE.tensor_reshape(
+                    state[i * 2 + 1], 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                )
+                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_v_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
                 )
             return token
 
         def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
             state_arg = slice_up_to_step(
-                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, NUM_LAYERS
+                self.global_k_caches,
+                self.global_v_caches,
+                self.global_seq_step,
+                HEADS,
+                HIDDEN_DIM,
+                NUM_LAYERS,
             )
             forw_const = (
                 [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
@@ -196,19 +225,32 @@ def export_transformer_model(
                 + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
             )
             token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
-            for i in range(NUM_LAYERS * 2):
+            for i in range(NUM_LAYERS):
                 update = IREE.tensor_reshape(
-                    state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
+                    state_update[i * 2], 1, 1, HEADS, HIDDEN_DIM
                 )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, update, i, 0, self.global_seq_step, 0, 0
+                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_k_caches["layer_idx"][i],
+                    update,
+                    0,
+                    self.global_seq_step,
+                    0,
+                    0,
                 )
-
+            for i in range(NUM_LAYERS):
+                update = IREE.tensor_reshape(
+                    state_update[i * 2 + 1], 1, 1, HEADS, HIDDEN_DIM
+                )
+                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_v_caches["layer_idx"][i],
+                    update,
+                    0,
+                    self.global_seq_step,
+                    0,
+                    0,
+                )
             self.global_seq_step = self.global_seq_step + 1
             return token
-
-        def get_global_state(self):
-            return self.global_state
 
         def get_seq_step(self):
             return self.global_seq_step
@@ -239,7 +281,12 @@ def export_transformer_model(
             self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
         ):
             state_arg = slice_up_to_step(
-                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM, NUM_LAYERS
+                self.global_k_caches,
+                self.global_v_caches,
+                self.global_seq_step,
+                HEADS,
+                HIDDEN_DIM,
+                NUM_LAYERS,
             )
             forw_const = (
                 [x.dynamic_dim(1) < MAX_STEP_SEQ]
@@ -256,12 +303,29 @@ def export_transformer_model(
             len_of_new_tokens = IREE.tensor_dim(
                 state[0], 1
             )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(NUM_LAYERS * 2):
+            for i in range(NUM_LAYERS):
                 slice_of_state = IREE.tensor_reshape(
-                    state[i], 1, 1, len_of_new_tokens, HEADS, HIDDEN_DIM
+                    state[i * 2], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
                 )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, slice_of_state, i, 0, self.global_seq_step, 0, 0
+                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_k_caches["layer_idx"][i],
+                    slice_of_state,
+                    0,
+                    self.global_seq_step,
+                    0,
+                    0,
+                )
+            for i in range(NUM_LAYERS):
+                slice_of_state = IREE.tensor_reshape(
+                    state[i * 2 + 1], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
+                )
+                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_v_caches["layer_idx"][i],
+                    slice_of_state,
+                    0,
+                    self.global_seq_step,
+                    0,
+                    0,
                 )
             self.global_seq_step = self.global_seq_step + len_of_new_tokens
             return token
@@ -291,17 +355,37 @@ def export_transformer_model(
             sink_size = 4
             window_size = 252
             most_recent_window = self.global_seq_step + (-window_size)
-            for i in range(NUM_LAYERS * 2):
+            for i in range(NUM_LAYERS):
                 update_window_state = IREE.tensor_slice(
-                    self.global_state,
-                    i,
+                    self.global_k_caches["layer_idx"][i],
                     0,
                     (most_recent_window, window_size),
                     (0, HEADS),
                     (0, HIDDEN_DIM),
                 )  # sequence context dim
-                self.global_state = IREE.tensor_update(
-                    self.global_state, update_window_state, i, 0, sink_size, 0, 0
+                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_k_caches["layer_idx"][i],
+                    update_window_state,
+                    0,
+                    sink_size,
+                    0,
+                    0,
+                )
+            for i in range(NUM_LAYERS):
+                update_window_state = IREE.tensor_slice(
+                    self.global_v_caches["layer_idx"][i],
+                    0,
+                    (most_recent_window, window_size),
+                    (0, HEADS),
+                    (0, HIDDEN_DIM),
+                )  # sequence context dim
+                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                    self.global_v_caches["layer_idx"][i],
+                    update_window_state,
+                    0,
+                    sink_size,
+                    0,
+                    0,
                 )
             self.global_seq_step.set(window_size + sink_size)
             return self.global_seq_step
