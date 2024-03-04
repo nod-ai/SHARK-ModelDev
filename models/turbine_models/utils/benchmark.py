@@ -1,5 +1,7 @@
 import subprocess
 from collections import namedtuple
+import iree.runtime as ireert
+import numpy as np
 
 
 BenchmarkResult = namedtuple(
@@ -19,6 +21,18 @@ class BenchmarkTimeoutError(Exception):
     """Exception raised if the benchmark is cancelled by the user specified timeout."""
 
     pass
+
+
+DTYPE_TO_ABI_TYPE = {
+    np.dtype(np.float32): "f32",
+    np.dtype(np.float16): "f16",
+    np.dtype(np.int32): "i32",
+    np.dtype(np.int64): "i64",
+    np.dtype(np.float64): "f64",
+    np.dtype(np.int16): "i16",
+    np.dtype(np.int8): "i8",
+    np.dtype(np.bool_): "i1",
+}
 
 
 def benchmark_module(
@@ -44,7 +58,7 @@ def benchmark_module(
     if tracy_profile:
         args.append("TRACY_NO_EXIT=1")
         # TODO: run iree-tracy-capture subprocess
-    args.append[ireert.benchmark_exe()]
+    args.append(ireert.benchmark_exe())
     args.append(f"--function={entry_function}")
 
     for inp in inputs:
@@ -58,8 +72,14 @@ def benchmark_module(
             values = str(values[0])
         else:
             values = ",".join([str(v) for v in values])
-
-        args.append(f"--input={shape}x{abitype}={values}")
+        input_arg = f"--input={shape}x{abitype}={values}"
+        if len(input_arg) > 256:
+            print(
+                f"Randomizing {input_arg.split('=')[0]} because it is too long for subprocess.run"
+            )
+            input_arg = f"--input={shape}x{abitype}"
+        args.append(input_arg)
+        print(args)
 
     for k in kwargs:
         v = kwargs[k]
