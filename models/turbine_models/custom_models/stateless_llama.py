@@ -396,6 +396,7 @@ def export_transformer_model(
         inst = StreamingStateUpdateModule(context=Context(), import_to=import_to)
     else:
         inst = StateUpdateModule(context=Context(), import_to=import_to)
+    del mod
     # TODO: Integrate with external parameters to actually be able to run
     # TODO: Make more generalizable to be able to quantize with all  compile_to options
     if quantization == "int4" and not compile_to == "linalg":
