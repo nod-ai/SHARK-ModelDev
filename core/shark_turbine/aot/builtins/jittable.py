@@ -217,10 +217,121 @@ class jittable(CallableIntrinsic):
             pytorch_args, pytorch_kwargs = tree_unflatten(args, args_tree)
             return self.wrapped_f(*pytorch_args, **pytorch_kwargs)
 
+        from datetime import datetime as dt
+        # start = dt.now()
         # Run pre-processing passes.
         transformed_f = flat_wrapped_f
         if "functorch_functionalize" in self._passes:
             transformed_f = functorch_functionalize(transformed_f, *flat_pytorch_args)
+
+        for node in transformed_f.graph.nodes:
+            if node.op == "call_function":
+                if node.target == torch._ops.ops.aten.lift_fresh_copy.default:
+                    print(f"replaced lift_fresh_copy")
+                    node.target = torch._ops.ops.aten.clone.default
+        transformed_f.recompile()
+
+        BREAK_POS = 187
+        DTYPE = torch.float16
+
+        def break_at_pos(fx_g: torch.fx.GraphModule, pos: int):
+            count:int = 0
+
+            # Break at the required position given by the search.
+            for node in fx_g.graph.nodes:
+                if node.op == "call_function":
+                    # TODO: Check here that the node is not of the form of empty tensor etc.
+                    print(f"node {count} : {node.target}")
+                    if count == pos:
+                        with fx_g.graph.inserting_after(node):
+                            fx_g.graph.output(node)
+                            break
+                    count += 1
+
+            fx_g.graph.lint()
+            fx_g.recompile()
+            return fx_g
+        # import pdb; pdb.set_trace()
+        import copy
+        transformed_f = break_at_pos(copy.deepcopy(transformed_f), BREAK_POS)
+
+        # create inputs and save them
+        batch_size = 1
+        max_length = 64
+        dtype = DTYPE
+        dtype_str = 'f32' if dtype == torch.float32 else 'f16'
+        width = 1024
+        height = 1024
+
+
+        import numpy as np
+        def save_tensor(tensor, fname):
+
+            if tensor.dtype == torch.float32:
+                np.save(f"{fname}_f32.npy", tensor)
+                torch.save(tensor, f"{fname}_f32.pt")
+                np.save(f"{fname}_f16.npy", tensor.to(dtype=torch.float16))
+                torch.save(tensor.to(dtype=torch.float16), f"{fname}_f16.pt")
+            else:
+                np.save(f"{fname}.npy", tensor)
+                torch.save(tensor, f"{fname}.pt")
+
+        def load_tensor_by_pattern(filename_pattern, load_as_numpy=False):
+            import glob
+            matching_filenames = glob.glob(filename_pattern)
+
+            if len(matching_filenames) == 1:
+                first_filename = matching_filenames[0]
+                if load_as_numpy:
+                    tensor = np.load(first_filename)
+                    print(f"Loaded np array from file: {first_filename}")
+                else:
+                    tensor = torch.load(first_filename)
+                    print(f"Loaded tensor from file: {first_filename}")
+                return tensor
+            elif len(matching_filenames) > 1:
+                raise RuntimeError(f"Multiple files found matching pattern: {filename_pattern}.")
+            else:
+                raise ValueError(f"No files found matching pattern: {filename_pattern}.")
+
+
+        if dtype == torch.float32:
+            sample = torch.rand(2*batch_size, 4, height // 8, width // 8, dtype=dtype)
+            timestep = torch.zeros(1, dtype=torch.int64)
+            prompt_embeds = torch.rand(2 * batch_size, max_length, 2048, dtype=dtype)
+            text_embeds = torch.rand(2 * batch_size, 1280, dtype=dtype)
+            time_ids = torch.zeros(2 * batch_size, 6, dtype=dtype)
+            guidance_scale = torch.tensor([7.5], dtype=dtype)
+            print(f"SAVING INPUT TENSORS for fp16 and fp32")
+            # save fp32 and fp16 inputs 
+            save_tensor(sample , f"sample_{2*batch_size}x4x{height//8}x{width//8}")
+            save_tensor(timestep, "timestep_1_i64")
+            save_tensor(prompt_embeds , f"promptembeds_{2*batch_size}x{max_length}x2048")
+            save_tensor(text_embeds , f"textembeds_{2*batch_size}x1280")
+            save_tensor(time_ids , f"timeids_{2*batch_size}x6")
+            save_tensor(guidance_scale , f"guidancescale_1")
+            # print(f"LOADING FP32 INPUTS FOR INFERENCE")
+            # sample = load_tensor_by_pattern("sample_*_f32.pt")
+            # timestep = load_tensor_by_pattern("timestep_*.pt")
+            # prompt_embeds = load_tensor_by_pattern("promptembeds_*_f32.pt")
+            # text_embeds = load_tensor_by_pattern("textembeds_*_f32.pt")
+            # time_ids = load_tensor_by_pattern("timeids_*_f32.pt")
+            # guidance_scale = load_tensor_by_pattern("guidancescale_*_f32.pt")
+        else:
+            print(f"LOADING FP16 INPUTS FOR INFERENCE")
+            sample = load_tensor_by_pattern("sample_*_f16.pt")
+            timestep = load_tensor_by_pattern("timestep_*.pt")
+            prompt_embeds = load_tensor_by_pattern("promptembeds_*_f16.pt")
+            text_embeds = load_tensor_by_pattern("textembeds_*_f16.pt")
+            time_ids = load_tensor_by_pattern("timeids_*_f16.pt")
+            guidance_scale = load_tensor_by_pattern("guidancescale_*_f16.pt")
+            
+
+        print(f"{transformed_f}", file=open(f"0_getting_fx_{dtype_str}.fxir", "w"))
+        print(f"{dt.now().strftime('%H:%M:%S.%f')} : transformed_f Saved!")
+        # import pdb; pdb.set_trace()
+        # output = transformed_f(sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale)
+        # print(f"{dt.now().strftime('%H:%M:%S.%f')} : transformed_f OUTPUT COMPUTED!")
 
         # Ask dynamo to give us an aten graph.
         # TODO: Cache this for repeated calls.
@@ -235,6 +346,24 @@ class jittable(CallableIntrinsic):
         logger.debug("Invoking dynamo trace")
         gm, guards = exported_f(*flat_pytorch_args)
         logger.debug("Dyanmo trace complete")
+        print(f"{gm}", file=open(f"1_graphmodule_exported_traced_{dtype_str}.gm", "w"))
+        print(f"{dt.now().strftime('%H:%M:%S.%f')} : graphmodule_exported_traced Saved!")
+
+        # import pdb; pdb.set_trace()
+        output = gm(sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale)
+        print(f"{dt.now().strftime('%H:%M:%S.%f')} : graphModule OUTPUT COMPUTED!")
+        if isinstance(output, torch.Tensor):
+            op_shape = 'x'.join(list(map(lambda s: str(s), list(output.shape))))
+            np.save(f"output_{op_shape}_{dtype_str}", output.detach().numpy())
+            torch.save( output, f"output_{op_shape}_{dtype_str}.pt")
+        else:
+            print(f"{output}", file=open('output.txt','w'))
+
+        # for CPU break here
+        if dtype == torch.float32:
+            from sys import exit
+            exit("CPU FP32 Run only need torch output")
+        # import pdb; pdb.set_trace()
 
         # TODO: Add debug logging for the exported graph module.
         # gm.print_readable()
@@ -257,6 +386,8 @@ class jittable(CallableIntrinsic):
 
         # TODO: Real debugging options
         # print(fx_importer.module, file=sys.stderr)
+        print(fx_importer.module, file=open(f"2_fx_importer_module_{dtype_str}.fxmod", "w"))
+        print(f"{dt.now().strftime('%H:%M:%S.%f')} : fx_importer_module Saved!")
 
         # Splice the converted module into the main module by taking advantage
         # of what we know about the conversion module:
@@ -280,6 +411,7 @@ class jittable(CallableIntrinsic):
         # Uncomment to print the final module.
         # TODO: Real debugging options.
         # print(target_op, file=sys.stderr)
+        print(target_op, file=open(f"3_merged_module_{dtype_str}.targetop", "w"))
 
         # TODO: Debug upstream why iteration over children isn't creating a typed view.
         # This should just be `target_op.function_type`

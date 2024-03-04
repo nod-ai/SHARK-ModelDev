@@ -82,6 +82,7 @@ class UnetModel(torch.nn.Module):
                     low_cpu_mem_usage=False,
                     variant="fp16",
                 )
+                print(f"GOT UNET FP16")
             except:
                 self.unet = UNet2DConditionModel.from_pretrained(
                     hf_model_name,
@@ -89,6 +90,8 @@ class UnetModel(torch.nn.Module):
                     auth_token=hf_auth_token,
                     low_cpu_mem_usage=False,
                 )
+                print(f"GOT UNET FP32")
+
         else:
             self.unet = UNet2DConditionModel.from_pretrained(
                 hf_model_name,
@@ -96,6 +99,7 @@ class UnetModel(torch.nn.Module):
                 auth_token=hf_auth_token,
                 low_cpu_mem_usage=False,
             )
+            print(f"GOT UNET FP32")
 
     def forward(
         self, sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
@@ -139,7 +143,7 @@ def export_unet_model(
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
-    if decomp_attn == True:
+    if True or decomp_attn == True:
         decomp_list.extend(
             [
                 torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
@@ -186,26 +190,26 @@ def export_unet_model(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(module_str)
-    print("Saved mlir to", safe_name + ".mlir")
-    if compile_to != "vmfb":
-        return module_str
-    elif os.path.isfile(safe_name + ".vmfb"):
-        exit()
-    else:
-        utils.compile_to_vmfb(
-            module_str,
-            device,
-            target_triple,
-            max_alloc,
-            safe_name,
-            return_path=False,
-        )
+    # module_str = str(CompiledModule.get_mlir_module(inst))
+    # safe_name = utils.create_safe_name(
+    #     hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
+    # )
+    # with open(f"{safe_name}.mlir", "w+") as f:
+    #     f.write(module_str)
+    # print("Saved mlir to", safe_name + ".mlir")
+    # if compile_to != "vmfb":
+    #     return module_str
+    # elif os.path.isfile(safe_name + ".vmfb"):
+    #     exit()
+    # else:
+    #     utils.compile_to_vmfb(
+    #         module_str,
+    #         device,
+    #         target_triple,
+    #         max_alloc,
+    #         safe_name,
+    #         return_path=False,
+    #     )
 
 
 if __name__ == "__main__":
@@ -234,10 +238,10 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.decomp_attn,
     )
-    safe_name = utils.create_safe_name(
-        args.hf_model_name,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+    # safe_name = utils.create_safe_name(
+    #     args.hf_model_name,
+    #     f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+    # )
+    # with open(f"{safe_name}.mlir", "w+") as f:
+    #     f.write(mod_str)
+    # print("Saved to", safe_name + ".mlir")

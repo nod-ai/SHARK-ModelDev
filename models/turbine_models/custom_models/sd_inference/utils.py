@@ -68,6 +68,7 @@ def compile_to_vmfb(
         )
         device = "vulkan-spirv"
     elif device == "rocm":
+                # "--iree-flow-inline-constants-max-byte-length=1",
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
@@ -76,6 +77,15 @@ def compile_to_vmfb(
                 "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
                 "--iree-vm-bytecode-module-strip-source-map=true",
                 "--iree-vm-target-truncate-unsupported-floats",
+                "--iree-hal-dump-executable-files-to=haldump",
+                "--iree-flow-dump-dispatch-graph",
+                "--iree-global-opt-propagate-transposes=true",
+                "--iree-opt-outer-dim-concat=true",
+                "--iree-opt-const-eval=false",
+                "--iree-codegen-gpu-native-math-precision=true",
+                "--iree-rocm-waves-per-eu=2",
+                "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
+                "--iree-codegen-transform-dialect-library=/home/pbarwari/attention_mfma_transform_64_spec.mlir",
             ]
         )
     elif device == "cuda":
