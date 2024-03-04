@@ -19,6 +19,56 @@ import torch
 import torch._dynamo as dynamo
 from diffusers import UNet2DConditionModel
 
+import safetensors
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    help="HF model name",
+    default="stabilityai/stable-diffusion-xl-base-1.0",
+)
+parser.add_argument(
+    "--batch_size", type=int, default=1, help="Batch size for inference"
+)
+parser.add_argument(
+    "--height", type=int, default=1024, help="Height of Stable Diffusion"
+)
+parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
+parser.add_argument(
+    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
+)
+parser.add_argument(
+    "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
+)
+parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
+parser.add_argument("--external_weight_path", type=str, default="")
+parser.add_argument(
+    "--external_weights",
+    type=str,
+    default=None,
+    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
+)
+parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
+# TODO: Bring in detection for target triple
+parser.add_argument(
+    "--iree_target_triple",
+    type=str,
+    default="",
+    help="Specify vulkan target triple or rocm/cuda target device.",
+)
+parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
+parser.add_argument(
+    "--decomp_attn",
+    default=False,
+    action="store_true",
+    help="Decompose attention at fx graph level",
+)
+
 
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name, hf_auth_token=None, precision="fp32"):
@@ -32,6 +82,7 @@ class UnetModel(torch.nn.Module):
                     low_cpu_mem_usage=False,
                     variant="fp16",
                 )
+                print(f"GOT UNET FP16")
             except:
                 self.unet = UNet2DConditionModel.from_pretrained(
                     hf_model_name,
@@ -39,6 +90,8 @@ class UnetModel(torch.nn.Module):
                     auth_token=hf_auth_token,
                     low_cpu_mem_usage=False,
                 )
+                print(f"GOT UNET FP32")
+
         else:
             self.unet = UNet2DConditionModel.from_pretrained(
                 hf_model_name,
@@ -46,6 +99,7 @@ class UnetModel(torch.nn.Module):
                 auth_token=hf_auth_token,
                 low_cpu_mem_usage=False,
             )
+            print(f"GOT UNET FP32")
 
     def forward(
         self, sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
@@ -55,9 +109,8 @@ class UnetModel(torch.nn.Module):
                 "text_embeds": text_embeds,
                 "time_ids": time_ids,
             }
-            latent_model_input = torch.cat([sample] * 2)
             noise_pred = self.unet.forward(
-                latent_model_input,
+                sample,
                 timestep,
                 encoder_hidden_states=prompt_embeds,
                 cross_attention_kwargs=None,
@@ -85,37 +138,9 @@ def export_unet_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
-    ireec_flags=None,
+    max_alloc=None,
     decomp_attn=False,
-    exit_on_vmfb=False,
-    attn_spec=None,
-    input_mlir=None,
-    weights_only=False,
 ):
-    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-        )
-    elif decomp_attn:
-        attn_spec = None
-
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
-    )
-
-    if input_mlir:
-        vmfb_path = utils.compile_to_vmfb(
-            input_mlir,
-            device,
-            target_triple,
-            ireec_flags,
-            safe_name,
-            mlir_source="file",
-            return_path=not exit_on_vmfb,
-            attn_spec=attn_spec,
-        )
-        return vmfb_path
-
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
     if decomp_attn == True:
@@ -126,19 +151,13 @@ def export_unet_model(
             ]
         )
     dtype = torch.float16 if precision == "fp16" else torch.float32
-
     if precision == "fp16":
         unet_model = unet_model.half()
-
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
-
-    if weights_only:
-        return external_weight_path
-
     sample = (
-        batch_size,
+        2 * batch_size,
         unet_model.unet.config.in_channels,
         height // 8,
         width // 8,
@@ -171,42 +190,37 @@ def export_unet_model(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        args.hf_model_name,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(module_str)
-    print("Saved mlir to", safe_name + ".mlir")
-    if compile_to != "vmfb":
-        return module_str
-    else:
-        utils.compile_to_vmfb(
-            module_str,
-            device,
-            target_triple,
-            ireec_flags,
-            safe_name,
-            return_path=False,
-            attn_spec=attn_spec,
-        )
+    # module_str = str(CompiledModule.get_mlir_module(inst))
+    # safe_name = utils.create_safe_name(
+    #     hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
+    # )
+    # with open(f"{safe_name}.mlir", "w+") as f:
+    #     f.write(module_str)
+    # print("Saved mlir to", safe_name + ".mlir")
+    # if compile_to != "vmfb":
+    #     return module_str
+    # elif os.path.isfile(safe_name + ".vmfb"):
+    #     exit()
+    # else:
+    #     utils.compile_to_vmfb(
+    #         module_str,
+    #         device,
+    #         target_triple,
+    #         max_alloc,
+    #         safe_name,
+    #         return_path=False,
+    #     )
 
 
 if __name__ == "__main__":
     import logging
 
     logging.basicConfig(level=logging.DEBUG)
-    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-
-    if args.input_mlir:
-        unet_model = None
-    else:
-        unet_model = UnetModel(
-            args.hf_model_name,
-            args.hf_auth_token,
-            args.precision,
-        )
+    args = parser.parse_args()
+    unet_model = UnetModel(
+        args.hf_model_name,
+        args.hf_auth_token,
+    )
     mod_str = export_unet_model(
         unet_model,
         args.hf_model_name,
@@ -221,17 +235,13 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags + args.attn_flags + args.unet_flags,
+        args.vulkan_max_allocation,
         args.decomp_attn,
-        attn_spec=args.attn_spec,
-        input_mlir=args.input_mlir,
     )
-    if args.input_mlir:
-        exit()
-    safe_name = utils.create_safe_name(
-        args.hf_model_name,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+    # safe_name = utils.create_safe_name(
+    #     args.hf_model_name,
+    #     f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+    # )
+    # with open(f"{safe_name}.mlir", "w+") as f:
+    #     f.write(mod_str)
+    # print("Saved to", safe_name + ".mlir")
