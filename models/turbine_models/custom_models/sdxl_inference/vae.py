@@ -166,17 +166,18 @@ def export_vae_model(
     )
     if compile_to != "vmfb":
         return module_str
-    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
+    elif os.path.isfile(safe_name + ".vmfb"):
         exit()
     else:
-        utils.compile_to_vmfb(
+        vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
             target_triple,
             max_alloc,
             safe_name,
-            return_path=exit_on_vmfb,
+            return_path=not exit_on_vmfb,
         )
+        return None, vmfb_path
 
 
 if __name__ == "__main__":
