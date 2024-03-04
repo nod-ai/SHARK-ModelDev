@@ -165,7 +165,8 @@ def export_transformer_model(
             for name in mod_params:
                 mapper["params." + name] = name
             if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
+                if os.path.exists(external_weight_file) == False:
+                    safetensors.torch.save_file(mod_params, external_weight_file)
 
         elif external_weights == "gguf":
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
