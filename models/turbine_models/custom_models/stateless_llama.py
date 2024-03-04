@@ -154,6 +154,9 @@ def export_transformer_model(
         size=(BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
         dtype=dtype,
     )
+    kv_cache_structure = {
+        "layer_idx": [abstractify(global_pkv) for _ in range(NUM_LAYERS)],
+    }
 
     mapper = {}
     if external_weights is not None:
@@ -167,10 +170,6 @@ def export_transformer_model(
         elif external_weights == "gguf":
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
-
-    kv_cache_structure = {
-        "layer_idx": [abstractify(global_pkv) for _ in range(NUM_LAYERS)],
-    }
 
     class StateUpdateModule(CompiledModule):
         if external_weights:
