@@ -151,26 +151,17 @@ def export_clip_model(
         return module_str, tokenizer
     elif os.path.isfile(safe_name + ".vmfb"):
         exit()
-    elif exit_on_vmfb == False:
+    else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
             target_triple,
             max_alloc,
             safe_name,
-            return_path=True,
+            return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
         )
         return None, vmfb_path
-    else:
-        utils.compile_to_vmfb(
-            module_str,
-            device,
-            target_triple,
-            max_alloc,
-            safe_name,
-            const_expr_hoisting=True,
-        )
 
 
 if __name__ == "__main__":
