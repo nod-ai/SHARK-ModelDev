@@ -180,7 +180,9 @@ def export_transformer_model(
         else:
             params = export_parameters(mod)
         global_seq_step = export_global(AbstractIndex, mutable=True)
-        global_k_caches = export_global_tree(kv_cache_structure, mutable=True)
+        global_k_caches = export_global_tree(
+            kv_cache_structure, uninitialized=True, mutable=True
+        )
         global_v_caches = export_global_tree(
             kv_cache_structure, uninitialized=True, mutable=True
         )
