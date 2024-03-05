@@ -21,6 +21,7 @@ from tqdm.auto import tqdm
 from PIL import Image
 import os
 import numpy as np
+import time
 
 
 torch.random.manual_seed(0)
@@ -256,7 +257,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
-                2 * arguments["batch_size"],
+                arguments["batch_size"],
                 arguments["in_channels"],
                 arguments["height"] // 8,
                 arguments["width"] // 8,
@@ -580,6 +581,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 assert os.path.exists(arguments[key])
             except AssertionError:
                 unittest.skip(f"File {arguments[key]} not found")
+        start = time.time()
         (
             prompt_embeds,
             negative_prompt_embeds,
@@ -612,7 +614,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         scheduler.set_timesteps(arguments["num_inference_steps"])
         scheduler.is_scale_input_called = True
-        latents = init_latents * scheduler.init_noise_sigma
+        sample = init_latents * scheduler.init_noise_sigma
 
         original_size = (arguments["height"], arguments["width"])
         target_size = (arguments["height"], arguments["width"])
@@ -642,14 +644,9 @@ class StableDiffusionXLTest(unittest.TestCase):
         guidance_scale = torch.tensor(arguments["guidance_scale"]).to(dtype)
         prompt_embeds = prompt_embeds.to(dtype)
         add_time_ids = add_time_ids.to(dtype)
-
-        latent_model_input = (
-            torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-        )
-
         latents = unet_runner.run_unet_steps(
             device=arguments["rt_device"],
-            sample=latent_model_input,
+            sample=sample,
             scheduler=scheduler,
             prompt_embeds=prompt_embeds,
             text_embeds=add_text_embeds,
@@ -668,11 +665,16 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["vae_external_weight_path"],
             ).to_host()
             image = torch.from_numpy(vae_out).cpu().permute(0, 2, 3, 1).float().numpy()
+            if i == 0:
+                end = time.time()
+                print(f"Total time taken by SD pipeline: {end-start}")
             all_imgs.append(numpy_to_pil_image(image))
         for idx, image in enumerate(all_imgs):
             img_path = "sdxl_test_image_" + str(idx) + ".png"
             image[0].save(img_path)
             print(img_path, "saved")
+        with open("e2e_time.txt", "w") as f:
+            f.write(f"{end-start} per batch\n")
         assert os.path.exists("sdxl_test_image_0.png")
 
 

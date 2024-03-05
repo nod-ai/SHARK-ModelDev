@@ -55,8 +55,9 @@ class UnetModel(torch.nn.Module):
                 "text_embeds": text_embeds,
                 "time_ids": time_ids,
             }
+            latent_model_input = torch.cat([sample] * 2)
             noise_pred = self.unet.forward(
-                sample,
+                latent_model_input,
                 timestep,
                 encoder_hidden_states=prompt_embeds,
                 cross_attention_kwargs=None,
@@ -97,7 +98,7 @@ def export_unet_model(
         mapper, unet_model, external_weights, external_weight_path
     )
     sample = (
-        2 * batch_size,
+        batch_size,
         unet_model.unet.config.in_channels,
         height // 8,
         width // 8,
