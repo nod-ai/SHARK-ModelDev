@@ -7,6 +7,7 @@
 from pathlib import Path
 import tempfile
 
+import pytest
 import torch
 
 from shark_turbine.aot import (
@@ -16,6 +17,9 @@ from shark_turbine.aot import (
 
 
 def test_save_load():
+    if torch.__version__ < "2.3.0.dev1":
+        pytest.skip("Unsupported PyTorch version")
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
