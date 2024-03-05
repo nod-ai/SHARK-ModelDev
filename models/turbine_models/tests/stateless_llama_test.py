@@ -41,6 +41,7 @@ tokenizer = AutoTokenizer.from_pretrained(
 mod = AutoModelForCausalLM.from_pretrained(
     "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
     torch_dtype=torch.float,
+    device_map="auto",
 )
 
 
@@ -137,6 +138,7 @@ class StatelessLlamaChecks(unittest.TestCase):
         )
         # if cached, just read
         if os.path.exists(torch_str_cache_path):
+            print("CACHED TORCH STR")
             with open(torch_str_cache_path, "r") as f:
                 torch_str = f.read()
         else:
@@ -182,6 +184,7 @@ class StatelessLlamaChecks(unittest.TestCase):
         check_output_string(torch_str, rotated_torch_str)
 
     def test_kvcachce_schema(self):
+        print("HIIII")
         json_schema_16 = """[1, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}]}]"""
         num_layers = 8
         auto_schema_16 = llama.generate_schema(num_layers)
@@ -194,6 +197,7 @@ class StatelessLlamaChecks(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    print("HIIII")
     tracemalloc.start()
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()

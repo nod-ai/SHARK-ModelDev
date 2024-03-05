@@ -51,7 +51,7 @@ jobs:
 
       - name: Run stateless_llama tests
         run: |
-          pytest models/turbine_models/tests/stateless_llama_test.py -s -v
+          pytest models/turbine_models/tests/stateless_llama_test.py -s
 
       - name: Run sd tests
         run: |
