@@ -113,7 +113,7 @@ if __name__ == "__main__":
     else:
         dtype = torch.float32
     sample = torch.rand(
-        2 * args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
+        args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
     timestep = torch.zeros(1, dtype=torch.int64)
     prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
