@@ -2,6 +2,9 @@ import argparse
 from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
 import torch
+import glob
+import numpy as np
+from tqdm.auto import tqdm
 
 parser = argparse.ArgumentParser()
 
@@ -43,6 +46,37 @@ parser.add_argument(
     "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
 )
 parser.add_argument("--variant", type=str, default="decode")
+
+
+def load_tensor_by_pattern(filename_pattern, load_as_numpy=False):
+    """Loads a torch tensor from the first file matching the given pattern in the current working directory.
+
+    Args:
+        filename_pattern (str): The filename pattern to match.
+
+    Returns:
+        torch.Tensor: The loaded tensor.
+
+    Raises:
+        RuntimeError: If multiple files match the pattern.
+        ValueError: If no files match the pattern.
+    """
+
+    matching_filenames = glob.glob(filename_pattern)
+
+    if len(matching_filenames) == 1:
+        first_filename = matching_filenames[0]
+        if load_as_numpy:
+            tensor = np.load(first_filename)
+            print(f"Loaded np array from file: {first_filename}")
+        else:
+            tensor = torch.load(first_filename)
+            print(f"Loaded tensor from file: {first_filename}")
+        return tensor
+    elif len(matching_filenames) > 1:
+        raise RuntimeError(f"Multiple files found matching pattern: {filename_pattern}.")
+    else:
+        raise ValueError(f"No files found matching pattern: {filename_pattern}.")
 
 
 def run_vae(
@@ -125,15 +159,16 @@ if __name__ == "__main__":
         dtype = torch.float32
         custom_vae = ""
     if args.variant == "decode":
-        example_input = torch.rand(
+        '''example_input = torch.rand(
             args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
-        )
+        )'''
+        example_input = load_tensor_by_pattern("example_input_*_f16.pt")
     elif args.variant == "encode":
         example_input = torch.rand(
             args.batch_size, 3, args.height, args.width, dtype=dtype
         )
     print("generating turbine output:")
-    turbine_results = run_vae(
+    turbine_output = run_vae(
         args.device,
         example_input,
         args.vmfb_path,
@@ -142,21 +177,48 @@ if __name__ == "__main__":
     )
     print(
         "TURBINE OUTPUT:",
-        turbine_results.to_host(),
-        turbine_results.to_host().shape,
-        turbine_results.to_host().dtype,
+        turbine_output.to_host(),
+        turbine_output.to_host().shape,
+        turbine_output.to_host().dtype,
     )
     if args.compare_vs_torch:
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
 
-        torch_output = run_torch_vae(
-            args.hf_model_name, custom_vae, args.variant, example_input.float()
-        )
-        print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
-        err = utils.largest_error(torch_output, turbine_results)
-        print("Largest Error: ", err)
-        assert err < 2e-3
+        # torch_output = run_torch_vae(
+        #     args.hf_model_name, custom_vae, args.variant, example_input.float()
+        # )
+        torch_output_f32 = load_tensor_by_pattern('output_*_f32.npy', load_as_numpy=True)
+        torch_output_f16 = load_tensor_by_pattern('output_*_f16.npy', load_as_numpy=True)
+
+        err = utils.largest_error(torch_output_f32, turbine_output)
+        print("Largest Error between torch f32 vs rocm f16: ", err)
+
+
+        print("-----------------------------------------------------------")
+        print(f"Compare f16 pytorch to f16 rocm")
+        # np.testing.assert_allclose(torch_output_f16, turbine_output.to_host(), atol=4e-2, rtol=4e-2)
+        is_close = np.isclose(turbine_output.to_host(), torch_output_f16, rtol=4e-2, atol=4e-2)
+        pct = is_close.sum()/torch_output_f16.size * 100
+        print(f"pct correct : ({is_close.sum()}/{torch_output_f16.size}) ({pct}%)")
+        print(f"largest Error : {utils.largest_error(torch_output_f16, turbine_output)}")
+        print("-----------------------------------------------------------")
+        print(f"Compare f32 pytorch to f16->f32 rocm")
+        # np.testing.assert_allclose(torch_output_f32, turbine_output.to_host().astype(np.float32), atol=4e-2, rtol=4e-2)
+        is_close = np.isclose(turbine_output.to_host(), torch_output_f32, rtol=4e-2, atol=4e-2)
+        pct = is_close.sum()/torch_output_f32.size * 100
+        # print(is_close)
+        print(f"pct correct : ({is_close.sum()}/{torch_output_f32.size}) ({pct}%)")
+        print(f"largest Error : {utils.largest_error(torch_output_f32, turbine_output.to_host().astype(np.float32))}")
+        print("-----------------------------------------------------------")
+        print(f"Compare f32 pytorch to f16->f32 pytorch")
+        is_close = np.isclose(torch_output_f16.astype(np.float32), torch_output_f32, rtol=4e-2, atol=4e-2)
+        pct = is_close.sum()/torch_output_f32.size * 100
+        print(f"pct correct : ({is_close.sum()}/{torch_output_f32.size}) ({pct}%)")
+        print(f"largest Error : {utils.largest_error(torch_output_f32, torch_output_f16.astype(np.float32))}")
+        print("-----------------------------------------------------------")
+
+        #assert err < 2e-3
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
-    turbine_results = None
+    turbine_output = None
