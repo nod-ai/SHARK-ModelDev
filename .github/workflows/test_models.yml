@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-amdgpu-w7900-x86-64]
+        os: [nodai-ubuntu-builder-large]
 
     runs-on: ${{matrix.os}}
     steps:
@@ -51,7 +51,7 @@ jobs:
 
       - name: Run stateless_llama tests
         run: |
-          pytest models/turbine_models/tests/stateless_llama_test.py
+          pytest models/turbine_models/tests/stateless_llama_test.py -s -v
 
       - name: Run sd tests
         run: |
