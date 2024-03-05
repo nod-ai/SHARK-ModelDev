@@ -222,7 +222,7 @@ class jittable(CallableIntrinsic):
                     node.target = torch._ops.ops.aten.clone.default
         transformed_f.recompile()  # type: ignore
 
-        BREAK_POS = 187
+        BREAK_POS = 10
         DTYPE = torch.float16
 
         def break_at_pos(fx_g: torch.fx.GraphModule, pos: int):
@@ -287,20 +287,25 @@ class jittable(CallableIntrinsic):
 
 
         if dtype == torch.float32:
-            sample = torch.rand(batch_size, 4, height // 8, width // 8, dtype=dtype)
+            '''sample = torch.rand(batch_size, 4, height // 8, width // 8, dtype=dtype)
             timestep = torch.zeros(1, dtype=torch.int64)
             prompt_embeds = torch.rand(2 * batch_size, max_length, 2048, dtype=dtype)
             text_embeds = torch.rand(2 * batch_size, 1280, dtype=dtype)
             time_ids = torch.zeros(2 * batch_size, 6, dtype=dtype)
-            guidance_scale = torch.tensor([7.5], dtype=dtype)
+            guidance_scale = torch.tensor([7.5], dtype=dtype)'''
+            #### VAE INPUT ###
+            example_input = torch.rand(
+                batch_size, 4, height // 8, width // 8, dtype=dtype
+            )
             print(f"SAVING INPUT TENSORS for fp16 and fp32")
             # save fp32 and fp16 inputs 
-            save_tensor(sample , f"sample_{2*batch_size}x4x{height//8}x{width//8}")
+            '''save_tensor(sample , f"sample_{batch_size}x4x{height//8}x{width//8}")
             save_tensor(timestep, "timestep_1_i64")
             save_tensor(prompt_embeds , f"promptembeds_{2*batch_size}x{max_length}x2048")
             save_tensor(text_embeds , f"textembeds_{2*batch_size}x1280")
             save_tensor(time_ids , f"timeids_{2*batch_size}x6")
-            save_tensor(guidance_scale , f"guidancescale_1")
+            save_tensor(guidance_scale , f"guidancescale_1")'''
+            save_tensor(example_input, f"example_input_{batch_size}x4x{height//8}x{width//8}")
             # print(f"LOADING FP32 INPUTS FOR INFERENCE")
             # sample = load_tensor_by_pattern("sample_*_f32.pt")
             # timestep = load_tensor_by_pattern("timestep_*.pt")
@@ -310,12 +315,13 @@ class jittable(CallableIntrinsic):
             # guidance_scale = load_tensor_by_pattern("guidancescale_*_f32.pt")
         else:
             print(f"LOADING FP16 INPUTS FOR INFERENCE")
-            sample = load_tensor_by_pattern("sample_*_f16.pt")
+            '''sample = load_tensor_by_pattern("sample_*_f16.pt")
             timestep = load_tensor_by_pattern("timestep_*.pt")
             prompt_embeds = load_tensor_by_pattern("promptembeds_*_f16.pt")
             text_embeds = load_tensor_by_pattern("textembeds_*_f16.pt")
             time_ids = load_tensor_by_pattern("timeids_*_f16.pt")
-            guidance_scale = load_tensor_by_pattern("guidancescale_*_f16.pt")
+            guidance_scale = load_tensor_by_pattern("guidancescale_*_f16.pt")'''
+            example_input = load_tensor_by_pattern("example_input_*_f16.pt")
             
 
         print(f"{transformed_f}", file=open(f"0_getting_fx_{dtype_str}.fxir", "w"))
@@ -341,7 +347,8 @@ class jittable(CallableIntrinsic):
         print(f"{dt.now().strftime('%H:%M:%S.%f')} : graphmodule_exported_traced Saved!")
 
         # import pdb; pdb.set_trace()
-        output = gm(sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale)
+        #output = gm(sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale)
+        output = gm(example_input)
         print(f"{dt.now().strftime('%H:%M:%S.%f')} : graphModule OUTPUT COMPUTED!")
         if isinstance(output, torch.Tensor):
             op_shape = 'x'.join(list(map(lambda s: str(s), list(output.shape))))
