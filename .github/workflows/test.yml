@@ -57,7 +57,12 @@ jobs:
         run: |
           pytest -n 4 serving/
 
-      - name: MyPy Type Checking
+      - name: MyPy Type Checking Core
         if: ${{ !cancelled() }}
         run: |
-          mypy serving/
+          (cd core && mypy)
+
+      - name: MyPy Type Checking Serving
+        if: ${{ !cancelled() }}
+        run: |
+          (cd serving && mypy)
