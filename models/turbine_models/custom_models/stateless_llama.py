@@ -475,6 +475,7 @@ def export_transformer_model(
         )
         if vmfb_path is None:
             vmfb_path = f"{safe_name}.vmfb"
+        print("RIGHT BEFORE SAVE TO VMFB")
         with open(vmfb_path, "wb+") as f:
             f.write(flatbuffer_blob)
         print("saved to ", safe_name + ".vmfb")
