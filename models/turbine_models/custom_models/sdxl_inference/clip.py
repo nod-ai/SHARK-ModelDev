@@ -100,12 +100,14 @@ def export_clip_model(
             hf_model_name,
             subfolder="tokenizer",
             token=hf_auth_token,
+            model_max_length=max_length,
         )
     elif index == 2:
         tokenizer = CLIPTokenizer.from_pretrained(
             hf_model_name,
             subfolder="tokenizer_2",
             token=hf_auth_token,
+            model_max_length=max_length,
         )
     text_encoder_model = ClipModel(hf_model_name, hf_auth_token, index=index)
     if compile_to == "tokenizer_only":
