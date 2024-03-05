@@ -16,7 +16,7 @@ from shark_turbine.aot import (
 )
 
 
-def test_save_load():
+def test_save_load_dynamic_shapes():
     if torch.__version__ < "2.3.0.dev1":
         pytest.skip("Unsupported PyTorch version")
 
@@ -60,6 +60,53 @@ def test_save_load():
 
     prog_0 = new_programs.programs["dynamic_batch"]
     prog_1 = new_programs.programs["bs1"]
+
+    for key, value_0 in prog_0.state_dict.items():
+        value_1 = prog_1.state_dict[key]
+        assert value_0 is value_1, f"State dict item {key} was not aliased on load"
+
+    for key, value_0 in prog_0.constants.items():
+        value_1 = prog_1.constants[key]
+        assert value_0 is value_1, f"Constant item {key} was not aliased on load"
+
+
+def test_save_load_static_shapes():
+    class M(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+
+            self.branch1 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn.ReLU())
+            self.branch2 = torch.nn.Sequential(
+                torch.nn.Linear(128, 64), torch.nn.ReLU()
+            )
+            self.buffer = torch.ones(32)
+
+        def forward(self, x1, x2):
+            out1 = self.branch1(x1)
+            out2 = self.branch2(x2)
+            return (out1 + self.buffer, out2)
+
+    example_args_bs32 = (torch.randn(32, 64), torch.randn(32, 128))
+    example_args_bs64 = (torch.randn(64, 64), torch.randn(64, 128))
+
+    fxb = FxProgramsBuilder(M())
+
+    @fxb.export_program(args=example_args_bs32)
+    def bs32(module: M, x1, x2):
+        return module.forward(x1, x2)
+
+    @fxb.export_program(args=example_args_bs64)
+    def bs64(module: M, x1, x2):
+        return module.forward(x1, x2)
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "branchy.json"
+        dedup_count = fxb.save(p)
+        assert dedup_count == 5  # Two sets of weights/bias and one constant
+        new_programs = FxPrograms.load(p)
+
+    prog_0 = new_programs.programs["bs32"]
+    prog_1 = new_programs.programs["bs64"]
 
     for key, value_0 in prog_0.state_dict.items():
         value_1 = prog_1.state_dict[key]

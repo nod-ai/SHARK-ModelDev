@@ -20,6 +20,9 @@ import functools
 import torch
 import torch.nn as nn
 
+# The dynamic_shapes support showed up in the Torch 2.3 timeframe.
+_supports_dynamic_shapes = hasattr(torch.export, "Dim")
+
 
 class FxPrograms:
     """Represents a named set of ExportedPrograms.
@@ -211,8 +214,15 @@ class FxProgramsBuilder(FxPrograms):
         lambda_module = LambdaModule()
 
         # Export our franken-module.
+        extra_kwargs = {}
+        if dynamic_shapes:
+            if not _supports_dynamic_shapes:
+                raise ValueError(
+                    f"torch.export with dynamic_shapes= not supported for this version of torch"
+                )
+            extra_kwargs["dynamic_shapes"] = dynamic_shapes
         program = torch.export.export(
-            lambda_module, args=args, kwargs=kwargs, dynamic_shapes=dynamic_shapes
+            lambda_module, args=args, kwargs=kwargs, **extra_kwargs
         )
         fx_builder.programs[name] = program
         return program
