@@ -169,7 +169,6 @@ def run_llm(
     chat_mode=False,
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
 ):
-    print("STARTING RUN LLM")
     tokenizer = AutoTokenizer.from_pretrained(
         hf_model_name,
         use_fast=False,
@@ -181,7 +180,6 @@ def run_llm(
         external_weight_path=external_weight_path,
         streaming_llm=streaming_llm,
     )
-    print("INITIALIZATION COMPLETE")
     if not chat_mode:
         prompt = append_user_prompt(chat_sys_prompt, prompt)
         initial_input = tokenizer(prompt, return_tensors="pt")
