@@ -86,13 +86,14 @@ class FxPrograms:
             # disable since we are violating the spec.
             ep._validate()
             orig_state_dict = dict(ep.state_dict)
-            orig_constants = dict(ep.constants)
+            constants_dict = _get_optional_constants(ep)
+            orig_constants = dict(constants_dict)
 
             try:
                 # Now unmerge the state_dict and constants by knocking it up against
                 # our running shared state dict.
                 count_deduped += _sharify_state_dict(shared_state_dict, ep.state_dict)
-                count_deduped += _sharify_state_dict(shared_constants, ep.constants)
+                count_deduped += _sharify_state_dict(shared_constants, constants_dict)
 
                 # And save our hacked program.
                 save_path = program_files[program_name]
@@ -100,8 +101,8 @@ class FxPrograms:
             finally:
                 ep.state_dict.clear()
                 ep.state_dict.update(orig_state_dict)
-                ep.constants.clear()
-                ep.constants.update(orig_constants)
+                constants_dict.clear()
+                constants_dict.update(orig_constants)
 
         # Save the descriptor.
         with open(path, "wt") as f:
@@ -122,7 +123,7 @@ class FxPrograms:
             program_file_name = descriptor["program_files"][program_name]
             ep = torch.export.load(path.parent / program_file_name)
             _unsharify_state_dict(shared_state_dict, ep.state_dict)
-            _unsharify_state_dict(shared_constants, ep.constants)
+            _unsharify_state_dict(shared_constants, _get_optional_constants(ep))
             instance.programs[program_name] = ep
         return instance
 
@@ -300,3 +301,15 @@ def _unsharify_state_dict(shared_dict: dict, local_dict: dict):
         else:
             # Remember this one for later.
             shared_dict[key] = local_value
+
+
+def _get_optional_constants(ep: torch.export.ExportedProgram) -> dict[str, Any]:
+    """Constants showed up in early 2.3 timeframe.
+
+    Returns an empty dict if not supported.
+    """
+    try:
+        return ep.constants  # type: ignore
+    except AttributeError:
+        assert torch.__version__ < "2.3.dev1", "Constants should be available"
+        return dict()
