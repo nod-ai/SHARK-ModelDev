@@ -84,7 +84,7 @@ def export_unet_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
-    max_alloc=None,
+    ireec_flags=None,
     decomp_attn=False,
 ):
     mapper = {}
@@ -143,7 +143,7 @@ def export_unet_model(
             module_str,
             device,
             target_triple,
-            max_alloc,
+            ireec_flags,
             safe_name,
             return_path=False,
         )
@@ -173,7 +173,7 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.vulkan_max_allocation,
+        args.ireec_flags,
         args.decomp_attn,
     )
     safe_name = utils.create_safe_name(
