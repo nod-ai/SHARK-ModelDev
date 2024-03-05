@@ -49,7 +49,7 @@ def test_save_load_dynamic_shapes():
         return module.forward(x1, x2)
 
     @fxb.export_program(args=example_args)
-    def bs1(module: M, x1, x2):
+    def bs32(module: M, x1, x2):
         return module.forward(x1, x2)
 
     with tempfile.TemporaryDirectory() as d:
@@ -59,7 +59,7 @@ def test_save_load_dynamic_shapes():
         new_programs = FxPrograms.load(p)
 
     prog_0 = new_programs.programs["dynamic_batch"]
-    prog_1 = new_programs.programs["bs1"]
+    prog_1 = new_programs.programs["bs32"]
 
     for key, value_0 in prog_0.state_dict.items():
         value_1 = prog_1.state_dict[key]
