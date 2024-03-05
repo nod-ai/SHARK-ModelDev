@@ -65,7 +65,8 @@ class DebugFlags:
 flags = DebugFlags.parse_from_env()
 
 
-def trace_tensor(key: str, t: torch.Tensor):
+def trace_tensor(key: str, t: torch.Tensor, *, values: bool = True):
     if not flags.enable_tensor_trace:
         return
-    print(f"::: TRACE {key}({list(t.shape), t.dtype}) = {t}")
+    values_repr = repr(t) if values else "...elided..."
+    print(f"::: TRACE {key}({list(t.shape), t.dtype}) =\n{values_repr}")

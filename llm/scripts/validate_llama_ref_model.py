@@ -12,9 +12,11 @@
 
 import sys
 
+import torch
+
 from turbine_llm.config import *
 from turbine_llm.data import *
-from turbine_llm.models.llama import *
+from turbine_llm.models.llama_ref import *
 
 
 def main(args: list[str]):
@@ -31,6 +33,12 @@ def main(args: list[str]):
         torch.tensor([next_tokens]), start_index=start_index, local_kv_cache=kv_cache
     )
     print(f"  : tokens = {tokens}")
+
+    # Decode a step.
+    print("Decoding...")
+    print(tokens.shape, tokens)
+    decode_token = model.forward(tokens, start_index=12, local_kv_cache=kv_cache)
+    print(f"  : decode tokens = {decode_token}")
 
 
 if __name__ == "__main__":

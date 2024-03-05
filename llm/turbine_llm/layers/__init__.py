@@ -4,5 +4,5 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from .kv_cache import *
 from .core import *
-from .attention import *

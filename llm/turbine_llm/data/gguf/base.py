@@ -76,7 +76,7 @@ def _wrap_tensor(
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")
 
 
-def load_gguf_file(gguf_path: Union[str, os.PathLike]):
+def load_gguf_file(gguf_path: Union[str, os.PathLike]) -> Dataset:
     reader = GGUFReader(gguf_path)
     logger.info(
         "Loading gguf file %s (%d fields, %d tensors)",
