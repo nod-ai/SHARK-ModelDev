@@ -9,6 +9,9 @@ import turbine_models.custom_models.stateless_llama as llama
 import os
 import unittest
 import difflib
+import tracemalloc
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from shark_turbine.aot import *
@@ -29,6 +32,16 @@ gen_external_params(
 DEFAULT_PROMPT = """<s>[INST] <<SYS>>
 Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
 """
+
+tokenizer = AutoTokenizer.from_pretrained(
+        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        use_fast=False,
+    )
+
+mod = AutoModelForCausalLM.from_pretrained(
+    "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+    torch_dtype=torch.float,
+)
 
 
 def check_output_string(reference, output):
@@ -66,6 +79,8 @@ class StatelessLlamaChecks(unittest.TestCase):
             device="llvm-cpu",
             target_triple="host",
             upload_ir=upload_ir_var == "upload",
+            mod=mod,
+            tokenizer=tokenizer,
         )
 
         torch_str_cache_path = (
@@ -77,7 +92,11 @@ class StatelessLlamaChecks(unittest.TestCase):
                 torch_str = f.read()
         else:
             torch_str = llm_runner.run_torch_llm(
-                "Trelis/Llama-2-7b-chat-hf-function-calling-v2", None, DEFAULT_PROMPT
+                "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+                None,
+                DEFAULT_PROMPT,
+                model=mod,
+                tokenizer=tokenizer,
             )
 
             with open(torch_str_cache_path, "w") as f:
@@ -109,6 +128,8 @@ class StatelessLlamaChecks(unittest.TestCase):
             target_triple="host",
             streaming_llm=True,
             vmfb_path="streaming_llama.vmfb",
+            mod=mod,
+            tokenizer=tokenizer,
         )
 
         torch_str_cache_path = (
@@ -124,6 +145,8 @@ class StatelessLlamaChecks(unittest.TestCase):
                 None,
                 DEFAULT_PROMPT,
                 streaming_llm=True,
+                model=mod,
+                tokenizer=tokenizer,
             )
 
             with open(torch_str_cache_path, "w") as f:
@@ -145,12 +168,16 @@ class StatelessLlamaChecks(unittest.TestCase):
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             DEFAULT_PROMPT,
+            model=mod,
+            tokenizer=tokenizer
         )
         rotated_torch_str = llm_runner.run_torch_llm(
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             DEFAULT_PROMPT,
             streaming_llm=True,
+            model=mod,
+            tokenizer=tokenizer,
         )
         check_output_string(torch_str, rotated_torch_str)
 
@@ -167,5 +194,11 @@ class StatelessLlamaChecks(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    tracemalloc.start()
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
+    # displaying the memory
+    print("STORAGEE: " + str(tracemalloc.get_traced_memory()))
+    
+    # stopping the library
+    tracemalloc.stop()

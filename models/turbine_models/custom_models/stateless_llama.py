@@ -121,18 +121,21 @@ def export_transformer_model(
     streaming_llm=False,
     vmfb_path=None,
     upload_ir=False,
+    mod=None,
+    tokenizer=None,
 ):
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
-
-    mod = AutoModelForCausalLM.from_pretrained(
-        hf_model_name,
-        torch_dtype=torch.float,
-        token=hf_auth_token,
-    )
+    if tokenizer == None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            hf_model_name,
+            use_fast=False,
+            token=hf_auth_token,
+        )
+    if mod == None:
+        mod = AutoModelForCausalLM.from_pretrained(
+            hf_model_name,
+            torch_dtype=torch.float,
+            token=hf_auth_token,
+        )
     schema_json = generate_schema(mod.config.num_hidden_layers)
     state_schema = pytree.treespec_loads(schema_json)
     if streaming_llm:

@@ -204,17 +204,31 @@ def run_torch_llm(
     prompt,
     streaming_llm=False,
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
+    model=None,
+    tokenizer=None,
 ):
     from turbine_models.model_builder import HFTransformerBuilder
     from transformers import AutoModelForCausalLM
 
-    model_builder = HFTransformerBuilder(
-        example_input=None,
-        hf_id=hf_model_name,
-        auto_model=AutoModelForCausalLM,
-        hf_auth_token=hf_auth_token,
-        auto_tokenizer=AutoTokenizer,
-    )
+    if model == None:
+        model_builder = HFTransformerBuilder(
+            example_input=None,
+            hf_id=hf_model_name,
+            auto_model=AutoModelForCausalLM,
+            hf_auth_token=hf_auth_token,
+            auto_tokenizer=AutoTokenizer,
+        )
+    else:
+        model_builder = HFTransformerBuilder(
+            example_input=None,
+            hf_id=hf_model_name,
+            auto_model=AutoModelForCausalLM,
+            hf_auth_token=hf_auth_token,
+            auto_tokenizer=AutoTokenizer,
+            model=model,
+            tokenizer=tokenizer,
+        )
+        
     if streaming_llm is True:
         enable_llama_pos_shift_attention(model_builder.model)
 
