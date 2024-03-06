@@ -80,6 +80,7 @@ class HFTransformerBuilder:
         self.model = self.auto_model.from_pretrained(
             self.hf_id, token=self.hf_auth_token, torch_dtype=torch.float, trust_remote_code=True
         )
+<<<<<<< HEAD
         #if self.auto_tokenizer is not None:
         #    self.tokenizer = self.auto_tokenizer.from_pretrained(
         #        self.hf_id, token=self.hf_auth_token, use_fast=False
@@ -87,6 +88,14 @@ class HFTransformerBuilder:
         #else:
         self.tokenizer = None
 >>>>>>> f47990f (vllm check)
+=======
+        if self.auto_tokenizer is not None:
+            self.tokenizer = self.auto_tokenizer.from_pretrained(
+                self.hf_id, token=self.hf_auth_token, use_fast=False
+            )
+        else:
+            self.tokenizer = None
+>>>>>>> 52ef4cf (changes for gemma)
 
     def get_compiled_module(self, save_to: str = None) -> aot.CompiledModule:
         """

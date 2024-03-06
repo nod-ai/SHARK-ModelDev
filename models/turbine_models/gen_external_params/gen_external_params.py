@@ -83,6 +83,11 @@ def quantize(model, quantization, dtype):
                 int_weights[f"{prefix}.weight"] = exporter.int_weight
                 int_weights[f"{prefix}.weight_scale"] = exporter.scale
                 int_weights[f"{prefix}.weight_zp"] = exporter.zero_point
+            else:
+                if "embed" in prefix:
+                    print(f"layer type: {type(layer)}")
+                    print(f"not exporting layer: {prefix}")
+                    print(layer)
 
     all_weights = dict(model.named_parameters())
     for k in list(all_weights.keys()):

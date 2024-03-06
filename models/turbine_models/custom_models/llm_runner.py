@@ -216,8 +216,14 @@ def run_torch_llm(
     def get_token_from_logits(logits):
         return torch.argmax(logits[:, -1, :], dim=1)
 
+<<<<<<< HEAD
     prompt = append_user_prompt(chat_sys_prompt, prompt)
     initial_input = tokenizer(prompt, return_tensors="pt")
+=======
+    #prompt = append_user_prompt(chat_sys_prompt, prompt)
+
+    initial_input = model_builder.tokenizer(prompt, return_tensors="pt")
+>>>>>>> 52ef4cf (changes for gemma)
     example_input_id = initial_input.input_ids
 
     model_results = model.forward(example_input_id)

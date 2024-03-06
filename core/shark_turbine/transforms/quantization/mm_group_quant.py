@@ -51,7 +51,7 @@ class TransposedMMMatcher(NamedOpMatcher[TransposedMMResult]):
         if not weight_transpose:
             return None
         weight_load = GlobalLoadMatcher(self.globals)(weight_transpose.input)
-        if not weight_load or not weight_load.resolved_global:
+        if not weight_load or not weight_load.resolved_global or "embed_tokens" in weight_load.global_ref:
             return None
 
         m, n = self.builder.get_tensor_dims(op.operands[0].type)
