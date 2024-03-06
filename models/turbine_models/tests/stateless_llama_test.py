@@ -40,17 +40,16 @@ tokenizer = AutoTokenizer.from_pretrained(
     use_fast=False,
 )
 
-# mod = AutoModelForCausalLM.from_pretrained(
-#     "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-#     torch_dtype=torch.float,
-#     device_map="auto",
-# )
-config = AutoConfig.from_pretrained("Trelis/Llama-2-7b-chat-hf-function-calling-v2")
-with init_empty_weights():
-    mod = AutoModelForCausalLM.from_config(config)
-with tempfile.TemporaryDirectory() as tmp_dir:
-    mod.save_pretrained(tmp_dir, max_shard_size="200MB")
-    load_sharded_checkpoint(mod, tmp_dir)
+# The model is first created on the Meta device (with empty weights) and the state dict
+# is then loaded inside it (shard by shard in the case of a sharded checkpoint).
+# This avoids using twice the size of model with creating whole model with random weights,
+# then loading pretrained weights.
+mod = AutoModelForCausalLM.from_pretrained(
+    "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+    torch_dtype=torch.float,
+    low_cpu_mem_usage=True,
+    device_map="auto",
+)
 
 
 def check_output_string(reference, output):

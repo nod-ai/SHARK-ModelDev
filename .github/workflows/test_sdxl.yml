@@ -1,4 +1,4 @@
-name: SD/SDXL Models Nightly
+name: SDXL Models Nightly
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
         run: |
           free -mh
 
-      - name: Run sd/sdxl tests
+      - name: Run sdxl tests
         run: |
           pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu
           pytest models/turbine_models/tests/sdxl_test.py --device cpu --rt_device local-task --iree_target_triple x86_64-linux-gnu
