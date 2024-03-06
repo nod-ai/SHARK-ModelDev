@@ -37,15 +37,8 @@ class SDXLScheduledUnet(torch.nn.Module):
         super().__init__()
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
-        original_size = (height, width)
-        target_size = (height, width)
-        crops_coords_top_left = (0, 0)
-
-        add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids, add_time_ids], dtype=self.dtype)
-        self.add_time_ids = add_time_ids.repeat(batch_size * 1, 1)
         self.scheduler.set_timesteps(num_inference_steps)
-        self._timesteps = self.scheduler.timesteps
+        self.scheduler.is_scale_input_called = True
 
         if precision == "fp16":
             try:
@@ -72,18 +65,28 @@ class SDXLScheduledUnet(torch.nn.Module):
             )
 
     def initialize(self, sample):
-        return sample * self.scheduler.init_noise_sigma
+        height = sample.shape[-2] * 8
+        width = sample.shape[-1] * 8
+        original_size = (height, width)
+        target_size = (height, width)
+        crops_coords_top_left = (0, 0)
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids])
+        add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+        add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+        timesteps = self.scheduler.timesteps
+        step_indexes = torch.tensor(len(timesteps))
+        return sample * self.scheduler.init_noise_sigma, add_time_ids, step_indexes
 
-    def forward(self, sample, prompt_embeds, text_embeds, guidance_scale, step_index):
+    def forward(self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index):
         with torch.no_grad():
             added_cond_kwargs = {
                 "text_embeds": text_embeds,
-                "time_ids": self.add_time_ids,
+                "time_ids": time_ids,
             }
-            t = self._timesteps[step_index]
-            print(t)
+            t = self.scheduler.timesteps[step_index]
+            sample = self.scheduler.scale_model_input(sample, t)
             latent_model_input = torch.cat([sample] * 2)
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             noise_pred = self.unet.forward(
                 latent_model_input,
                 t,
@@ -92,12 +95,13 @@ class SDXLScheduledUnet(torch.nn.Module):
                 added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
+
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond
             )
             sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-        return noise_pred
+        return sample
 
 
 def export_scheduled_unet_model(
@@ -149,6 +153,7 @@ def export_scheduled_unet_model(
     )
     prompt_embeds_shape = (2 * batch_size, max_length, 2048)
     text_embeds_shape = (2 * batch_size, 1280)
+    time_ids_shape = (2 * batch_size, 6)
 
     class CompiledScheduledUnet(CompiledModule):
         if external_weights:
@@ -165,19 +170,19 @@ def export_scheduled_unet_model(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
         ):
-            sample = jittable(scheduled_unet_model.initialize)(sample)
-            return sample
+            return jittable(scheduled_unet_model.initialize)(sample)
 
         def run_forward(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
             prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
             text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
+            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
             guidance_scale=AbstractTensor(1, dtype=dtype),
             step_index=AbstractTensor(1, dtype=torch.int64),
         ):
             return jittable(scheduled_unet_model.forward, decompose_ops=decomp_list)(
-                sample, prompt_embeds, text_embeds, guidance_scale, step_index
+                sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
             )
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
@@ -194,20 +199,32 @@ def export_scheduled_unet_model(
         return module_str
     elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
         exit()
-    else:
-        utils.compile_to_vmfb(
+    elif compile_to == "vmfb":
+        vmfb = utils.compile_to_vmfb(
             module_str,
             device,
             iree_target_triple,
             ireec_flags,
             safe_name,
-            return_path=not exit_on_vmfb,
+            return_path=True,
         )
+        if exit_on_vmfb:
+            exit()
+        return vmfb
 
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-    scheduled_unet_model = SDXLScheduledUnet(args)
+    scheduled_unet_model = SDXLScheduledUnet(
+        args.hf_model_name,
+        args.scheduler_id,
+        args.height,
+        args.width,
+        args.batch_size,
+        args.hf_auth_token,
+        args.precision,
+        args.num_inference_steps,
+    )
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
         args.scheduler_id,

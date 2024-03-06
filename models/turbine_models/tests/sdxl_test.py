@@ -100,7 +100,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["device"],
                 arguments["iree_target_triple"],
                 index=1,
-                max_alloc=arguments["vulkan_max_allocation"],
+                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         with self.assertRaises(SystemExit) as cm:
@@ -115,7 +115,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 arguments["device"],
                 arguments["iree_target_triple"],
                 index=2,
-                max_alloc=arguments["vulkan_max_allocation"],
+                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path_1"] = (
@@ -229,8 +229,8 @@ class StableDiffusionXLTest(unittest.TestCase):
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
-                max_alloc=arguments["vulkan_max_allocation"],
                 decomp_attn=arguments["decomp_attn"],
+                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
@@ -342,9 +342,9 @@ class StableDiffusionXLTest(unittest.TestCase):
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
-                max_alloc=arguments["vulkan_max_allocation"],
                 variant="decode",
                 decomp_attn=arguments["decomp_attn"],
+                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
@@ -435,9 +435,9 @@ class StableDiffusionXLTest(unittest.TestCase):
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
-                max_alloc=arguments["vulkan_max_allocation"],
                 variant="encode",
                 decomp_attn=arguments["decomp_attn"],
+                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (

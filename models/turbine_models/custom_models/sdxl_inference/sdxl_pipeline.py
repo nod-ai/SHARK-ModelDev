@@ -107,7 +107,6 @@ def export_submodel(args, submodel):
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
             )
-            breakpoint()
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
             return vae.export_vae_model(
@@ -174,6 +173,7 @@ def export_submodel(args, submodel):
                 const_expr_hoisting=False,
                 mlir_source="file"
             )
+            breakpoint()
             return pipeline_vmfb, None
 
 def generate_images(args, vmfbs: dict, weights: dict):
@@ -231,7 +231,6 @@ def generate_images(args, vmfbs: dict, weights: dict):
         ireert.asdevicearray(pipe_runner.config.device, prompt_embeds),
         ireert.asdevicearray(pipe_runner.config.device, add_text_embeds),
         ireert.asdevicearray(pipe_runner.config.device, np.asarray([args.guidance_scale]), dtype="float32" if args.precision == "fp32" else "float16"),
-        args.num_inference_steps,
     ]
     latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
         *unet_inputs,
@@ -288,7 +287,9 @@ def is_prepared(args, vmfbs, weights):
             continue
         elif vmfbs[key] == None and os.path.exists(default_filepath):
             vmfbs[key] = default_filepath
-        else: 
+        elif val is None: 
+            missing.append(key + ".vmfb")
+        else:
             missing.append(val + ".vmfb")
     for w_key in weights:
         if w_key == "pipeline":
