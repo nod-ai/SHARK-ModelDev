@@ -56,13 +56,27 @@ p.add_argument(
 ##############################################################################
 
 p.add_argument(
+    "--prompt",
+    type=str,
+    default="A very fast car leaving a trail of fire as it screams along a mountain road, old school racing animation, retro 1980s anime style, 4k",
+    help="Prompt input to stable diffusion.",
+)
+
+p.add_argument(
+    "--negative_prompt",
+    type=str,
+    default="Watermark, blurry, oversaturated, low resolution, pollution",
+    help="Negative prompt input to stable diffusion.",
+)
+
+p.add_argument(
     "--num_inference_steps", type=int, default=30, help="Number of UNet inference steps"
 )
 
 p.add_argument(
     "--guidance_scale",
     type=float,
-    default=30,
+    default=7.5,
     help="Scale by which to adjust prompt guidance to the unconditional noise prediction output of UNet after each iteration.",
 )
 
@@ -78,7 +92,7 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--external_weight_dir",
+    "--external_weights_dir",
     type=str,
     default="",
     help="Directory containing external weights for a job that requires more than one weights file. When importing, this is used to specify where to save the model weights, and at runtime, this is used to specify where to load the model weights from. Files will then be saved according to the parameters that make them unique, i.e. <hf_model_name>_<precision>_<submodel>_<submodel-specific>.<external_weights>",
@@ -89,14 +103,7 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--scheduled_unet_vmfb_path",
-    type=str,
-    default="",
-    help="path to vmfb containing compiled module",
-)
-
-p.add_argument(
-    "--benchmark_vmfb_path",
+    "--pipeline_vmfb_path",
     type=str,
     default="",
     help="path to vmfb containing compiled meta-module",
@@ -107,6 +114,13 @@ p.add_argument(
     type=str,
     default=None,
     help="Path to external weights, used in benchmark scripts.",
+)
+
+p.add_argument(
+    "--pipeline_dir",
+    type=str,
+    default=None,
+    help="Directory to save pipeline artifacts",
 )
 
 ##############################################################################
@@ -135,7 +149,7 @@ p.add_argument(
 p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
 
 ##############################################################################
-# SDXL exporter script options.
+# SDXL script general options.
 ##############################################################################
 
 p.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
@@ -162,10 +176,10 @@ p.add_argument(
     help="Decompose attention at fx graph level",
 )
 p.add_argument(
-    "--save_mlir",
-    default=False,
-    action="store_true",
-    help="When compiling to vmfb, also save mlir after completion. Prevents program exit on vmfb compilation completion.",
+    "--exit_on_vmfb",
+    default=True,
+    action="store_false",
+    help="Exit program on vmfb compilation completion. Most scripts will also save .mlir if this is disabled.",
 )
 
 ##############################################################################
@@ -190,7 +204,11 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--ireec_flags", type=str, default=None, help="extra iree-compile options"
+    "--ireec_flags", type=str, default="", help="extra iree-compile options"
+)
+
+p.add_argument(
+    "--attn_flags", type=str, default="", help="extra iree-compile options for models with iree_linalg_ext.attention ops."
 )
 
 

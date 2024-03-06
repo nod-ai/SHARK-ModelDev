@@ -14,42 +14,7 @@ import numpy as np
 from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
-import torch._dynamo as dynamo
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
-
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
-)
-parser.add_argument("--max_length", type=int, default=77)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument(
-    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
-)
-parser.add_argument("--external_weight_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
-)
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-# TODO: Bring in detection for target triple
-parser.add_argument(
-    "--iree_target_triple",
-    type=str,
-    default="",
-    help="Specify vulkan target triple or rocm/cuda target device.",
-)
-parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
 class ClipModel(torch.nn.Module):
@@ -90,9 +55,10 @@ def export_clip_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
+    ireec_flags=None,
     index=1,
-    max_alloc=None,
     exit_on_vmfb=True,
+    pipeline_dir=None,
 ):
     # Load the tokenizer and text encoder to tokenize and encode the text.
     if index == 1:
@@ -146,30 +112,33 @@ def export_clip_model(
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
-    )
+
+    if pipeline_dir not in [None, ""]:
+        safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
+        )
     if compile_to != "vmfb":
         return module_str, tokenizer
-    elif os.path.isfile(safe_name + ".vmfb"):
+    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
         exit()
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
             target_triple,
-            max_alloc,
+            ireec_flags,
             safe_name,
-            return_path=not exit_on_vmfb,
+            return_path=True,
             const_expr_hoisting=True,
         )
         return None, vmfb_path
 
 
 if __name__ == "__main__":
-    import re
-
-    args = parser.parse_args()
+    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+    
     mod_1_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
@@ -180,9 +149,10 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
+        args.ireec_flags,
         1,
-        args.vulkan_max_allocation,
         exit_on_vmfb=False,
+        pipeline_dir=args.pipeline_dir,
     )
     mod_2_str, _ = export_clip_model(
         args.hf_model_name,
@@ -194,9 +164,10 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
+        args.ireec_flags,
         2,
-        args.vulkan_max_allocation,
         exit_on_vmfb=True,
+        pipeline_dir=args.pipeline_dir,
     )
     safe_name_1 = safe_name = utils.create_safe_name(
         args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_1"
