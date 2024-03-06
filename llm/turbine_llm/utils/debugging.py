@@ -26,6 +26,7 @@ SETTING_PART_PATTERN = re.compile(r"""^([\\+\\-])?([^=]+)(=(.*))?$""")
 @dataclass
 class DebugFlags:
     enable_tensor_trace: bool = False
+    enable_nan_checks: bool = False
 
     def set(self, part: str):
         m = re.match(SETTING_PART_PATTERN, part)
@@ -38,6 +39,8 @@ class DebugFlags:
 
         if name == "tensor_trace":
             self.enable_tensor_trace = logical_sense
+        elif name == "enable_nan_checks":
+            self.enable_nan_checks = logical_sense
         else:
             logger.warn("Unrecognized %s flag: '%s'", FLAGS_ENV_NAME, name)
 

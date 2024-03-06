@@ -34,11 +34,10 @@ class BaseLayer(nn.Module):
         Must be enabled via a global switch as this kind of checking is not
         accelerator or compilation friendly.
         """
-        # TODO: Make conditional.
-        return
-        for t in ts:
-            if torch.isnan(t).any():
-                raise AssertionError(f"Tensor contains nans! {t}")
+        if debugging.flags.enable_nan_checks:
+            for t in ts:
+                if torch.isnan(t).any():
+                    raise AssertionError(f"Tensor contains nans! {t}")
 
 
 class ThetaLayer(BaseLayer):
