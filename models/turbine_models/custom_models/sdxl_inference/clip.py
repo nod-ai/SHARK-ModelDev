@@ -130,7 +130,7 @@ def export_clip_model(
             target_triple,
             ireec_flags,
             safe_name,
-            return_path=True,
+            return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
         )
         return None, vmfb_path
