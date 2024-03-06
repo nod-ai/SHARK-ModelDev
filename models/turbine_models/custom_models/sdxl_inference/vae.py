@@ -18,49 +18,6 @@ from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from diffusers import AutoencoderKL
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
-)
-parser.add_argument(
-    "--batch_size", type=int, default=1, help="Batch size for inference"
-)
-parser.add_argument(
-    "--height", type=int, default=1024, help="Height of Stable Diffusion"
-)
-parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
-parser.add_argument(
-    "--precision", type=str, default="fp16", help="Precision of Stable Diffusion"
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument("--external_weight_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
-)
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-# TODO: Bring in detection for target triple
-parser.add_argument(
-    "--iree_target_triple",
-    type=str,
-    default="",
-    help="Specify llvmcpu/vulkan target triple or rocm/cuda target device.",
-)
-parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-parser.add_argument("--variant", type=str, default="decode")
-parser.add_argument(
-    "--decomp_attn",
-    default=False,
-    action="store_true",
-    help="Decompose attention at fx graph level",
-)
 
 
 class VaeModel(torch.nn.Module):
@@ -118,10 +75,11 @@ def export_vae_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
-    max_alloc=None,
+    ireec_flags=None,
     variant="decode",
     decomp_attn=False,
-    exit_on_vmfb=True,
+    exit_on_vmfb=False,
+    pipeline_dir=None,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
@@ -161,19 +119,23 @@ def export_vae_model(
     inst = CompiledVae(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"_{height}x{width}_{precision}_vae_{variant}_{device}"
-    )
+
+    if pipeline_dir:
+        safe_name = os.path.join(pipeline_dir, "vae_" + variant)
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"_{height}x{width}_{precision}_vae_{variant}_{device}"
+        )
     if compile_to != "vmfb":
         return module_str
-    elif os.path.isfile(safe_name + ".vmfb"):
+    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
         exit()
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
             target_triple,
-            max_alloc,
+            ireec_flags,
             safe_name,
             return_path=not exit_on_vmfb,
         )
@@ -181,7 +143,8 @@ def export_vae_model(
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+    
     if args.precision == "fp16":
         custom_vae = "madebyollin/sdxl-vae-fp16-fix"
     else:
@@ -203,8 +166,8 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.vulkan_max_allocation,
-        args.variant,
+        args.ireec_flags,
+        args.vae_variant,
         args.decomp_attn,
     )
     safe_name = utils.create_safe_name(

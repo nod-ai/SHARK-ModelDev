@@ -22,61 +22,6 @@ from shark_turbine.dynamo.passes import (
 )
 
 import safetensors
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_auth_token",
-    type=str,
-    help="The Hugging Face auth token, required",
-    default=None,
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
-)
-parser.add_argument(
-    "--scheduler_id",
-    type=str,
-    help="Scheduler ID",
-    default="PNDM",
-)
-parser.add_argument(
-    "--num_inference_steps", type=int, default=30, help="Number of inference steps"
-)
-parser.add_argument(
-    "--batch_size", type=int, default=1, help="Batch size for inference"
-)
-parser.add_argument(
-    "--height", type=int, default=1024, help="Height of Stable Diffusion"
-)
-parser.add_argument("--width", type=int, default=1024, help="Width of Stable Diffusion")
-parser.add_argument(
-    "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
-)
-parser.add_argument(
-    "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument("--external_weight_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
-)
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-# TODO: Bring in detection for target triple
-parser.add_argument(
-    "--iree_target_triple",
-    type=str,
-    default="",
-    help="Specify vulkan target triple or rocm/cuda target device.",
-)
-parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-
 
 class SDXLScheduler(torch.nn.Module):
     def __init__(
@@ -159,7 +104,7 @@ def export_scheduler(
     external_weight_path=None,
     device=None,
     target_triple=None,
-    max_alloc=None,
+    ireec_flags=None,
 ):
     mapper = {}
     utils.save_external_weights(
@@ -217,11 +162,12 @@ def export_scheduler(
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        utils.compile_to_vmfb(module_str, device, target_triple, ireec_flags, safe_name)
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     hf_model_name = "stabilityai/stable-diffusion-xl-base-1.0"
     schedulers = utils.get_schedulers(args.hf_model_name)
     scheduler = schedulers[args.scheduler_id]
@@ -246,7 +192,7 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.vulkan_max_allocation,
+        args.ireec_flags,
     )
     print("export scheduler complete")
     safe_name = utils.create_safe_name(args.hf_model_name, "-scheduler")

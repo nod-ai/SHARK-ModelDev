@@ -5,88 +5,19 @@ from iree import runtime as ireert
 import torch
 import numpy as np
 
-parser = argparse.ArgumentParser()
-
-# TODO move common runner flags to generic flag file
-parser.add_argument(
-    "--vmfb_path_1",
-    type=str,
-    default="",
-    help="path to vmfb containing compiled module",
-)
-parser.add_argument(
-    "--external_weight_path_1",
-    type=str,
-    default="",
-    help="path to external weight parameters if model compiled without them",
-)
-parser.add_argument(
-    "--vmfb_path_2",
-    type=str,
-    default="",
-    help="path to vmfb containing compiled module",
-)
-parser.add_argument(
-    "--external_weight_path_2",
-    type=str,
-    default="",
-    help="path to external weight parameters if model compiled without them",
-)
-parser.add_argument(
-    "--compare_vs_torch",
-    action="store_true",
-    help="Runs both turbine vmfb and a torch model to compare results",
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
-)
-parser.add_argument(
-    "--hf_auth_token",
-    type=str,
-    help="The Hugging face auth token, required for some models",
-)
-parser.add_argument(
-    "--device",
-    type=str,
-    default="local-task",
-    help="local-sync, local-task, cuda, vulkan, rocm",
-)
-parser.add_argument(
-    "--prompt",
-    type=str,
-    default="a photograph of an astronaut riding a horse",
-    help="prompt for clip model",
-)
-parser.add_argument(
-    "--max_length",
-    type=int,
-    default=77,
-)
-parser.add_argument(
-    "--precision",
-    type=str,
-    default="fp16",
-    help="Precision of CLIP inputs, as expected by your .vmfb",
-)
-
 
 def run_encode_prompts(
     device,
     prompt,
     negative_prompt,
-    vmfb_path,
+    vmfb_path_1,
+    vmfb_path_2,
     hf_model_name,
     hf_auth_token,
-    external_weight_path,
+    external_weight_path_1,
+    external_weight_path_2,
     max_length,
 ):
-    vmfb_path_1 = "_clip_1_".join(vmfb_path.split("_clip_"))
-    vmfb_path_2 = "_clip_2_".join(vmfb_path.split("_clip_"))
-    external_weight_path_1 = "_clip_1".join(external_weight_path.split("_clip"))
-    external_weight_path_2 = "_clip_2".join(external_weight_path.split("_clip"))
     runner_1 = vmfbRunner(device, vmfb_path_1, external_weight_path_1)
     runner_2 = vmfbRunner(device, vmfb_path_2, external_weight_path_2)
     text_encoders = [runner_1, runner_2]
@@ -275,14 +206,18 @@ def run_clip(
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+    vmfb_path_1 = "_clip_1".join(args.vmfb_path.split("_clip"))
+    vmfb_path_2 = "_clip_2".join(args.vmfb_path.split("_clip"))
+    external_weight_path_1 = "_clip_1".join(args.external_weight_path.split("_clip"))
+    external_weight_path_2 = "_clip_2".join(args.external_weight_path.split("_clip"))
     turbine_output1 = run_clip(
         args.device,
         args.prompt,
-        args.vmfb_path_1,
+        vmfb_path_1,
         args.hf_model_name,
         args.hf_auth_token,
-        args.external_weight_path_1,
+        external_weight_path_1,
         args.max_length,
         index=1,
     )
@@ -296,10 +231,10 @@ if __name__ == "__main__":
     turbine_output2 = run_clip(
         args.device,
         args.prompt,
-        args.vmfb_path_2,
+        vmfb_path_2,
         args.hf_model_name,
         args.hf_auth_token,
-        args.external_weight_path_2,
+        external_weight_path_2,
         args.max_length,
         index=2,
     )

@@ -72,7 +72,6 @@ class SDXLScheduledUnet(torch.nn.Module):
             )
 
     def initialize(self, sample):
-        sample = sample * self.scheduler.init_noise_sigma
         return sample * self.scheduler.init_noise_sigma
 
     def forward(self, sample, prompt_embeds, text_embeds, guidance_scale, step_index):
@@ -82,6 +81,7 @@ class SDXLScheduledUnet(torch.nn.Module):
                 "time_ids": self.add_time_ids,
             }
             t = self._timesteps[step_index]
+            print(t)
             latent_model_input = torch.cat([sample] * 2)
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             noise_pred = self.unet.forward(
@@ -102,20 +102,24 @@ class SDXLScheduledUnet(torch.nn.Module):
 
 def export_scheduled_unet_model(
     scheduled_unet_model,
+    scheduler_id,
+    num_inference_steps,
     hf_model_name,
     batch_size,
     height,
     width,
-    max_length,
     precision,
-    compile_to="torch",
-    external_weights=None,
-    external_weight_path=None,
-    device=None,
-    target_triple=None,
-    ireec_flags=None,
-    decomp_attn=False,
-    exit_on_vmfb=True,
+    max_length,
+    hf_auth_token,
+    compile_to,
+    external_weights,
+    external_weight_path,
+    device,
+    iree_target_triple,
+    ireec_flags = None,
+    decomp_attn = False,
+    exit_on_vmfb = False,
+    pipeline_dir = None,
 ):
     mapper = {}
 
@@ -180,9 +184,12 @@ def export_scheduled_unet_model(
     inst = CompiledScheduledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
-    )
+    if pipeline_dir:
+        safe_name = os.path.join(pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}")
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}"
+        )
     if compile_to != "vmfb":
         return module_str
     elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
@@ -191,35 +198,27 @@ def export_scheduled_unet_model(
         utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            iree_target_triple,
             ireec_flags,
             safe_name,
-            return_path=exit_on_vmfb,
+            return_path=not exit_on_vmfb,
         )
 
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-
-    exit_on_vmfb = not args.save_mlir
-    scheduled_unet_model = SDXLScheduledUnet(
-        args.hf_model_name,
-        args.scheduler_id,
-        args.height,
-        args.width,
-        args.batch_size,
-        args.hf_auth_token,
-        args.precision,
-        args.num_inference_steps,
-    )
+    scheduled_unet_model = SDXLScheduledUnet(args)
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
+        args.scheduler_id,
+        args.num_inference_steps,
         args.hf_model_name,
         args.batch_size,
         args.height,
         args.width,
-        args.max_length,
         args.precision,
+        args.max_length,
+        args.hf_auth_token,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,
@@ -227,7 +226,8 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.ireec_flags,
         args.decomp_attn,
-        exit_on_vmfb,
+        args.exit_on_vmfb,
+        args.pipeline_dir,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name + "_" + args.scheduler_id,
