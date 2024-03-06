@@ -8,7 +8,7 @@ import logging
 import unittest
 from typing import List
 
-from shark_turbine.importers.fx_importer import FxImporter
+from iree.compiler.extras import fx_importer
 import torch
 import torch._dynamo as dynamo
 from torch._dynamo.backends.common import aot_autograd

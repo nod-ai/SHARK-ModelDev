@@ -26,18 +26,11 @@ from torch.utils._pytree import (
     tree_unflatten,
 )
 
-# TODO: Switch to upstream fx_importer vs local fork when ready.
-# from iree.compiler.extras.fx_importer import (
-#     GraphNodeImporter,
-#     FxImporter,
-#     FxImporterHooks,
-# )
-
-from ...importers.fx_importer import (
-    GraphNodeImporter,
-    FxImporter,
-    FxImporterHooks,
-)
+from iree.compiler.extras.fx_importer import (
+     GraphNodeImporter,
+     FxImporter,
+     FxImporterHooks,
+ )
 
 from ...dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
