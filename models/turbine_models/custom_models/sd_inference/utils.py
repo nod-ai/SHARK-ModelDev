@@ -78,7 +78,6 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-rocm-link-bc=true",
-                "--iree-rocm-bc-dir=C:/AMD/ROCm/5.5/amdgcn/bitcode",
                 "--iree-vm-bytecode-module-strip-source-map=true",
                 "--iree-vm-target-truncate-unsupported-floats",
                 "--iree-flow-inline-constants-max-byte-length=1",
