@@ -7,6 +7,7 @@
 import logging
 import pytest
 import torch
+from turbine_models.custom_models.sd_inference.utils import create_safe_name
 from turbine_models.custom_models.sdxl_inference import (
     clip,
     clip_runner,
@@ -33,40 +34,46 @@ arguments = {}
 def command_line_args(request):
     arguments["hf_auth_token"] = request.config.getoption("--hf_auth_token")
     arguments["hf_model_name"] = request.config.getoption("--hf_model_name")
-    arguments["safe_model_name"] = request.config.getoption("--safe_model_name")
+    arguments["scheduler_id"] = request.config.getoption("--scheduler_id")
+    arguments["prompt"] = request.config.getoption("--prompt")
+    arguments["negative_prompt"] = request.config.getoption("--negative_prompt")
+    arguments["num_inference_steps"] = int(
+        request.config.getoption("--num_inference_steps")
+    )
+    arguments["guidance_scale"] = float(request.config.getoption("--guidance_scale"))
+    arguments["seed"] = float(request.config.getoption("--seed"))
+    arguments["vmfb_path"] = request.config.getoption("--vmfb_path")
+    arguments["external_weight_path"] = request.config.getoption(
+        "--external_weight_path"
+    )
+    arguments["external_weight_dir"] = request.config.getoption("--external_weight_dir")
+    arguments["external_weight_file"] = request.config.getoption(
+        "--external_weight_file"
+    )
+    arguments["pipeline_dir"] = request.config.getoption("--pipeline_dir")
     arguments["batch_size"] = int(request.config.getoption("--batch_size"))
     arguments["height"] = int(request.config.getoption("--height"))
     arguments["width"] = int(request.config.getoption("--width"))
     arguments["precision"] = request.config.getoption("--precision")
     arguments["max_length"] = int(request.config.getoption("--max_length"))
-    arguments["guidance_scale"] = float(request.config.getoption("--guidance_scale"))
     arguments["run_vmfb"] = request.config.getoption("--run_vmfb")
     arguments["compile_to"] = request.config.getoption("--compile_to")
-    arguments["vmfb_path"] = request.config.getoption("--vmfb_path")
     arguments["external_weights"] = request.config.getoption("--external_weights")
-    arguments["external_weight_path"] = request.config.getoption(
-        "--external_weight_path"
-    )
+    arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
     arguments["device"] = request.config.getoption("--device")
     arguments["rt_device"] = request.config.getoption("--rt_device")
     arguments["iree_target_triple"] = request.config.getoption("--iree_target_triple")
-    arguments["vulkan_max_allocation"] = request.config.getoption(
-        "--vulkan_max_allocation"
-    )
-    arguments["prompt"] = request.config.getoption("--prompt")
-    arguments["negative_prompt"] = request.config.getoption("--negative_prompt")
+    arguments["ireec_flags"] = request.config.getoption("--ireec_flags")
+    arguments["attn_flags"] = request.config.getoption("--attn_flags")
     arguments["in_channels"] = int(request.config.getoption("--in_channels"))
-    arguments["num_inference_steps"] = int(
-        request.config.getoption("--num_inference_steps")
-    )
     arguments["benchmark"] = request.config.getoption("--benchmark")
-    arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
     arguments["tracy_profile"] = request.config.getoption("--tracy_profile")
 
 
 @pytest.mark.usefixtures("command_line_args")
 class StableDiffusionXLTest(unittest.TestCase):
     def setUp(self):
+        self.safe_model_name = create_safe_name(arguments["hf_model_name"], "")
         self.unet_model = unet.UnetModel(
             # This is a public model, so no auth required
             arguments["hf_model_name"],
@@ -90,50 +97,60 @@ class StableDiffusionXLTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 # This is a public model, so no auth required
-                arguments["hf_model_name"],
-                None,
-                arguments["max_length"],
-                arguments["precision"],
-                "vmfb",
-                arguments["external_weights"],
-                arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
-                arguments["device"],
-                arguments["iree_target_triple"],
+                hf_model_name=arguments["hf_model_name"],
+                hf_auth_token=None,
+                max_length=arguments["max_length"],
+                precision=arguments["precision"],
+                compile_to="vmfb",
+                external_weights=arguments["external_weights"],
+                external_weight_path=self.safe_model_name
+                + "_"
+                + arguments["precision"]
+                + "_clip",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
+                ireec_flags=arguments["ireec_flags"],
                 index=1,
                 exit_on_vmfb=True,
+                pipeline_dir=arguments["pipeline_dir"],
             )
         self.assertEqual(cm.exception.code, None)
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                arguments["hf_model_name"],
-                None,  # This is a public model, so no auth required
-                arguments["max_length"],
-                arguments["precision"],
-                "vmfb",
-                arguments["external_weights"],
-                arguments["safe_model_name"] + "_" + arguments["precision"] + "_clip",
-                arguments["device"],
-                arguments["iree_target_triple"],
+                hf_model_name=arguments["hf_model_name"],
+                hf_auth_token=None,  # This is a public model, so no auth required
+                max_length=arguments["max_length"],
+                precision=arguments["precision"],
+                compile_to="vmfb",
+                external_weights=arguments["external_weights"],
+                external_weight_path=self.safe_model_name
+                + "_"
+                + arguments["precision"]
+                + "_clip",
+                device=arguments["device"],
+                target_triple=arguments["iree_target_triple"],
+                ireec_flags=arguments["ireec_flags"],
                 index=2,
                 exit_on_vmfb=True,
+                pipeline_dir=arguments["pipeline_dir"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path_1"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_clip_1."
             + arguments["external_weights"]
         )
         arguments["external_weight_path_2"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_clip_2."
             + arguments["external_weights"]
         )
         arguments["vmfb_path_1"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["max_length"])
             + "_"
@@ -143,7 +160,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             + ".vmfb"
         )
         arguments["vmfb_path_2"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["max_length"])
             + "_"
@@ -211,37 +228,37 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
-                self.unet_model,
+                unet_model=self.unet_model,
                 # This is a public model, so no auth required
-                arguments["hf_model_name"],
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
-                arguments["precision"],
-                arguments["max_length"],
+                hf_model_name=arguments["hf_model_name"],
+                batch_size=arguments["batch_size"],
+                height=arguments["height"],
+                width=arguments["width"],
+                precision=arguments["precision"],
+                max_length=arguments["max_length"],
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights=arguments["external_weights"],
-                external_weight_path=arguments["safe_model_name"]
+                external_weight_path=self.safe_model_name
                 + "_"
                 + arguments["precision"]
                 + "_unet."
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
+                ireec_flags=arguments["ireec_flags"],
                 decomp_attn=arguments["decomp_attn"],
-                exit_on_vmfb=True,
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_unet."
             + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["max_length"])
             + "_"
@@ -326,36 +343,38 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
-                self.vae_model,
+                vae_model=self.vae_model,
                 # This is a public model, so no auth required
-                arguments["hf_model_name"],
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
-                arguments["precision"],
+                hf_model_name=arguments["hf_model_name"],
+                batch_size=arguments["batch_size"],
+                height=arguments["height"],
+                width=arguments["width"],
+                precision=arguments["precision"],
                 compile_to="vmfb",
                 external_weights=arguments["external_weights"],
-                external_weight_path=arguments["safe_model_name"]
+                external_weight_path=self.safe_model_name
                 + "_"
                 + arguments["precision"]
                 + "_vae_decode."
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
+                ireec_flags=arguments["ireec_flags"],
                 variant="decode",
                 decomp_attn=arguments["decomp_attn"],
                 exit_on_vmfb=True,
+                pipeline_dir=arguments["pipeline_dir"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_vae_decode."
             + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["height"])
             + "x"
@@ -419,36 +438,38 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
-                self.vae_model,
+                vae_model=self.vae_model,
                 # This is a public model, so no auth required
-                arguments["hf_model_name"],
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
-                arguments["precision"],
+                hf_model_name=arguments["hf_model_name"],
+                batch_size=arguments["batch_size"],
+                height=arguments["height"],
+                width=arguments["width"],
+                precision=arguments["precision"],
                 compile_to="vmfb",
                 external_weights=arguments["external_weights"],
-                external_weight_path=arguments["safe_model_name"]
+                external_weight_path=self.safe_model_name
                 + "_"
                 + arguments["precision"]
                 + "_vae_encode."
                 + arguments["external_weights"],
                 device=arguments["device"],
                 target_triple=arguments["iree_target_triple"],
+                ireec_flags=arguments["ireec_flags"],
                 variant="encode",
                 decomp_attn=arguments["decomp_attn"],
                 exit_on_vmfb=True,
+                pipeline_dir=arguments["pipeline_dir"],
             )
         self.assertEqual(cm.exception.code, None)
         arguments["external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_vae_encode."
             + arguments["external_weights"]
         )
         arguments["vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["height"])
             + "x"
@@ -511,14 +532,14 @@ class StableDiffusionXLTest(unittest.TestCase):
         from diffusers import EulerDiscreteScheduler
 
         arguments["vae_external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_vae_decode."
             + arguments["external_weights"]
         )
         arguments["vae_vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["height"])
             + "x"
@@ -530,14 +551,14 @@ class StableDiffusionXLTest(unittest.TestCase):
             + ".vmfb"
         )
         arguments["unet_external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_unet."
             + arguments["external_weights"]
         )
         arguments["unet_vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["max_length"])
             + "_"
@@ -551,14 +572,14 @@ class StableDiffusionXLTest(unittest.TestCase):
             + ".vmfb"
         )
         arguments["clip_external_weight_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + arguments["precision"]
             + "_clip."
             + arguments["external_weights"]
         )
         arguments["clip_vmfb_path"] = (
-            arguments["safe_model_name"]
+            self.safe_model_name
             + "_"
             + str(arguments["max_length"])
             + "_"
