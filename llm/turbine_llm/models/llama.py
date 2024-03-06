@@ -95,7 +95,6 @@ class PagedLlamaModelV1(BaseCausalLMModel):
                     theta("blk", n),
                     block_index=n,
                     cache=self.cache,
-                    embedding=self.attention_embedding,
                     head_count=hp.attention_head_count,
                     head_dim=attn_head_dim,
                     head_count_kv=hp.attention_head_count_kv,
@@ -125,6 +124,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
                 self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
             h = block(
                 h,
+                embedding=self.attention_embedding,
                 start_index=0,
                 attention_mask=attention_mask,
                 write_cache_state=cache_state,
@@ -189,6 +189,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
             h = block(
                 h,
                 start_positions=start_positions,
+                embedding=self.attention_embedding,
                 embedding_batch_mask=embedding_batch_mask,
                 attention_mask=attention_mask,
                 read_cache_state=read_cache_state,
@@ -222,7 +223,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         head_count: int,
         head_dim: int,
         head_count_kv: int,
-        embedding: RotaryEmbeddingLayer,
         rms_epsilon: float,
     ):
         super().__init__(theta)
@@ -242,7 +242,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
 
         self.block_index = block_index
         self.cache = cache
-        self.embedding = embedding
         self.head_count = head_count
         self.head_dim = head_dim
         self.head_count_kv = head_count_kv
@@ -251,6 +250,7 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         self,
         h: torch.Tensor,
         *,
+        embedding: RotaryEmbeddingLayer,
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor,
         start_index: Optional[int] = None,
@@ -280,9 +280,9 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         # Fast path to start_index based embedding lookup if available.
         # Falls back to a slower position based index lookup.
         if start_index is not None:
-            xq, xk = self.embedding.forward(xq=xq, xk=xk, start_index=start_index)
+            xq, xk = embedding.forward(xq=xq, xk=xk, start_index=start_index)
         else:
-            xq, xk = self.embedding.apply_batched_mask(
+            xq, xk = embedding.apply_batched_mask(
                 xq=xq, xk=xk, mask=embedding_batch_mask
             )
 
@@ -321,6 +321,19 @@ class PagedLlamaAttentionBlock(ThetaLayer):
 
             kv_seq_len = seq_block_ids.shape[1] * self.cache.block_seq_stride
 
+            if write_cache_state:
+                # Write our one updated cache row into the cache.
+                self.cache.write_timestep(
+                    write_cache_state,
+                    cache_partitions=[
+                        xk_cache_update,
+                        xv_cache_update,
+                    ],
+                    transformer_block_index=self.block_index,
+                    seq_positions=start_positions + 1,
+                    page_ids=seq_block_ids,
+                )
+
             # Restore from the cache.
             self.cache.read(
                 read_cache_state,
@@ -332,18 +345,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                 page_ids=seq_block_ids,
             )
 
-            # self.trace_tensor("DECODE.KV.ACTUAL", xk_temp)
-            # Now restore the newly computed position into the xk/xv view we
-            # are operating on. This will also be done later when updating the
-            # cache, but we separate it here to avoid creating a data
-            # dependency. Since the batch size is static, we do a static loop
-            # in order to simplify indexing and keeps us from needing to
-            # deal with masking.
-            for i in range(bs):
-                row_start_pos = start_positions[i]
-                xk_temp[i, row_start_pos : row_start_pos + 1, :, :] = xk[i, ...]
-                xv_temp[i, row_start_pos : row_start_pos + 1, :, :] = xv[i, ...]
-
             # For computation, we create a subview of the xk/xv tensors to have
             # a sequence length covering the blocked size. This must include
             # the newly added row (the caller is responsible for ensuring that
@@ -351,25 +352,6 @@ class PagedLlamaAttentionBlock(ThetaLayer):
             # ragged view and use an appropriate mask.
             xk = xk_temp[:, 0:kv_seq_len, ...]
             xv = xv_temp[:, 0:kv_seq_len, ...]
-
-            if write_cache_state:
-                # Write our one updated cache row. We currently do this apart
-                # from the linearization step because it lets us have aliased
-                # cache states. We may need to revisit this if we can support
-                # a cache write-read in the same sequence.
-                # In that case, this would go prior to the read.
-                # self.trace_tensor("decode.xk_cache_update", xk_cache_update)
-                # self.trace_tensor("decode.xv_cache_update", xv_cache_update)
-                self.cache.write_timestep(
-                    write_cache_state,
-                    cache_partitions=[
-                        xk_cache_update,
-                        xv_cache_update,
-                    ],
-                    transformer_block_index=self.block_index,
-                    seq_positions=start_positions + 1,
-                    page_ids=seq_block_ids,
-                )
 
         # Tranpose into [bs, heads, sl, dim]
         xq = xq.transpose(1, 2)
