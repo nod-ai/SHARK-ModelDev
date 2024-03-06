@@ -78,7 +78,9 @@ class SDXLScheduledUnet(torch.nn.Module):
         step_indexes = torch.tensor(len(timesteps))
         return sample * self.scheduler.init_noise_sigma, add_time_ids, step_indexes
 
-    def forward(self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index):
+    def forward(
+        self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
+    ):
         with torch.no_grad():
             added_cond_kwargs = {
                 "text_embeds": text_embeds,
@@ -120,10 +122,10 @@ def export_scheduled_unet_model(
     external_weight_path,
     device,
     iree_target_triple,
-    ireec_flags = None,
-    decomp_attn = False,
-    exit_on_vmfb = False,
-    pipeline_dir = None,
+    ireec_flags=None,
+    decomp_attn=False,
+    exit_on_vmfb=False,
+    pipeline_dir=None,
 ):
     mapper = {}
 
@@ -190,10 +192,13 @@ def export_scheduled_unet_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}")
+        safe_name = os.path.join(
+            pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
+        )
     else:
         safe_name = utils.create_safe_name(
-            hf_model_name, f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}"
+            hf_model_name,
+            f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
         )
     if compile_to != "vmfb":
         return module_str
@@ -215,6 +220,7 @@ def export_scheduled_unet_model(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     scheduled_unet_model = SDXLScheduledUnet(
         args.hf_model_name,
         args.scheduler_id,

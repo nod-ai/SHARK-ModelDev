@@ -2,6 +2,7 @@ import argparse
 import sys
 from iree import runtime as ireert
 
+
 class vmfbRunner:
     def __init__(self, device, vmfb_path, external_weight_path=None):
         self.config = ireert.Config(device)
