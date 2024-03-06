@@ -107,7 +107,6 @@ def compile_to_vmfb(
             ireec_flags = ireec_flags.split(",")
 
     for i, flag in enumerate(ireec_flags):
-        breakpoint()
         k = flag.strip().split("=")[0]
         for idx, default in enumerate(flags):
             if k == default.split("=")[0]:
