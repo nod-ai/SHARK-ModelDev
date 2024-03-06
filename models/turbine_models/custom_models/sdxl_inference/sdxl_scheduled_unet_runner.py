@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 
 torch.random.manual_seed(0)
 
+
 def run_unet_hybrid(
     sample,
     prompt_embeds,
@@ -18,7 +19,9 @@ def run_unet_hybrid(
     init_inp = [
         ireert.asdevicearray(runner.config.device, sample),
     ]
-    sample, time_ids, steps = runner.ctx.modules.compiled_scheduled_unet["run_initialize"](
+    sample, time_ids, steps = runner.ctx.modules.compiled_scheduled_unet[
+        "run_initialize"
+    ](
         *init_inp,
     )
     dtype = "float16" if args.precision == "fp16" else "float32"
@@ -27,12 +30,16 @@ def run_unet_hybrid(
         ireert.asdevicearray(runner.config.device, prompt_embeds),
         ireert.asdevicearray(runner.config.device, text_embeds),
         time_ids,
-        ireert.asdevicearray(runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype),
+        ireert.asdevicearray(
+            runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
+        ),
         None,
     ]
     for i in range(0, steps.to_host()):
         inputs[0] = sample
-        inputs[5] = ireert.asdevicearray(runner.config.device, torch.tensor([i]), dtype="int64")
+        inputs[5] = ireert.asdevicearray(
+            runner.config.device, torch.tensor([i]), dtype="int64"
+        )
         sample = runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
     return sample
 
@@ -44,6 +51,7 @@ def run_torch_scheduled_unet(
     args,
 ):
     from diffusers import UNet2DConditionModel
+
     class ScheduledUnetModel(torch.nn.Module):
         def __init__(
             self,
@@ -97,7 +105,9 @@ def run_torch_scheduled_unet(
             sample = sample * self.scheduler.init_noise_sigma
             return sample * self.scheduler.init_noise_sigma
 
-        def forward(self, sample, prompt_embeds, text_embeds, guidance_scale, step_index):
+        def forward(
+            self, sample, prompt_embeds, text_embeds, guidance_scale, step_index
+        ):
             with torch.no_grad():
                 added_cond_kwargs = {
                     "text_embeds": text_embeds,
@@ -105,7 +115,9 @@ def run_torch_scheduled_unet(
                 }
                 t = self._timesteps[step_index]
                 latent_model_input = torch.cat([sample] * 2)
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                latent_model_input = self.scheduler.scale_model_input(
+                    latent_model_input, t
+                )
                 noise_pred = self.unet.forward(
                     latent_model_input,
                     t,
@@ -118,9 +130,11 @@ def run_torch_scheduled_unet(
                 noise_pred = noise_pred_uncond + guidance_scale * (
                     noise_pred_text - noise_pred_uncond
                 )
-                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[
+                    0
+                ]
             return sample
-        
+
     unet_model = ScheduledUnetModel(
         args.hf_model_name,
         args.scheduler_id,
@@ -135,7 +149,11 @@ def run_torch_scheduled_unet(
     for i, t in tqdm(enumerate(unet_model.scheduler.timesteps)):
         timestep = t
         sample = unet_model.forward(
-            sample.float(), prompt_embeds.float(), text_embeds.float(), args.guidance_scale, i
+            sample.float(),
+            prompt_embeds.float(),
+            text_embeds.float(),
+            args.guidance_scale,
+            i,
         )
     return sample
 
@@ -146,13 +164,19 @@ def run_scheduled_unet(
     text_embeds,
     args,
 ):
-    pipe_runner = vmfbRunner(args.rt_device, [args.vmfb_path, args.pipeline_vmfb_path], [args.external_weight_path, None])
+    pipe_runner = vmfbRunner(
+        args.rt_device,
+        [args.vmfb_path, args.pipeline_vmfb_path],
+        [args.external_weight_path, None],
+    )
     dtype = "float16" if args.precision == "fp16" else "float32"
     inputs = [
         ireert.asdevicearray(pipe_runner.config.device, sample),
         ireert.asdevicearray(pipe_runner.config.device, prompt_embeds),
         ireert.asdevicearray(pipe_runner.config.device, text_embeds),
-        ireert.asdevicearray(pipe_runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype),
+        ireert.asdevicearray(
+            pipe_runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
+        ),
     ]
     print(inputs)
     latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
@@ -196,7 +220,12 @@ def run_torch_diffusers_loop(
 
         latent_model_input = scheduler.scale_model_input(sample, timestep)
         noise_pred = unet_model.forward(
-            latent_model_input, timestep, prompt_embeds, text_embeds, add_time_ids, args.guidance_scale
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+            text_embeds,
+            add_time_ids,
+            args.guidance_scale,
         )
         sample = scheduler.step(
             noise_pred,
@@ -210,6 +239,7 @@ def run_torch_diffusers_loop(
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
     import numpy as np
+
     if args.precision == "fp16":
         dtype = torch.float16
     else:
@@ -236,6 +266,7 @@ if __name__ == "__main__":
 
     if args.compare_vs_torch:
         from turbine_models.custom_models.sd_inference import utils
+
         print("generating output with python/torch scheduling unet: ")
         hybrid_output = run_unet_hybrid(
             sample,
@@ -257,18 +288,29 @@ if __name__ == "__main__":
             text_embeds,
             args,
         )
-        print("diffusers-like OUTPUT:", diff_output, diff_output.shape, diff_output.dtype)
+        print(
+            "diffusers-like OUTPUT:", diff_output, diff_output.shape, diff_output.dtype
+        )
         print("torch OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
-        
-        print("HYBRID OUTPUT:", hybrid_output.to_host(), hybrid_output.to_host().shape, hybrid_output.to_host().dtype)
+
+        print(
+            "HYBRID OUTPUT:",
+            hybrid_output.to_host(),
+            hybrid_output.to_host().shape,
+            hybrid_output.to_host().dtype,
+        )
         print("Comparing... \n(turbine pipelined unet to torch unet): ")
         try:
-            np.testing.assert_allclose(turbine_output, torch_output, rtol=1e-2, atol=1e-4)
+            np.testing.assert_allclose(
+                turbine_output, torch_output, rtol=1e-2, atol=1e-4
+            )
         except AssertionError as err:
             print(err)
         print("\n(turbine pipelined unet to hybrid unet): ")
         try:
-            np.testing.assert_allclose(hybrid_output, turbine_output, rtol=1e-2, atol=1e-4)
+            np.testing.assert_allclose(
+                hybrid_output, turbine_output, rtol=1e-2, atol=1e-4
+            )
             print("passed!")
         except AssertionError as err:
             print(err)
@@ -280,7 +322,9 @@ if __name__ == "__main__":
             print(err)
         print("\n(turbine loop to diffusers loop): ")
         try:
-            np.testing.assert_allclose(turbine_output, diff_output, rtol=1e-2, atol=1e-4)
+            np.testing.assert_allclose(
+                turbine_output, diff_output, rtol=1e-2, atol=1e-4
+            )
             print("passed!")
         except AssertionError as err:
             print(err)
@@ -290,10 +334,6 @@ if __name__ == "__main__":
             print("passed!")
         except AssertionError as err:
             print(err)
-
-
-
-        
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output = None

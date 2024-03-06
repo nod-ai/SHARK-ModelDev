@@ -203,12 +203,13 @@ p.add_argument(
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 
-p.add_argument(
-    "--ireec_flags", type=str, default="", help="extra iree-compile options"
-)
+p.add_argument("--ireec_flags", type=str, default="", help="extra iree-compile options")
 
 p.add_argument(
-    "--attn_flags", type=str, default="", help="extra iree-compile options for models with iree_linalg_ext.attention ops."
+    "--attn_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
 )
 
 

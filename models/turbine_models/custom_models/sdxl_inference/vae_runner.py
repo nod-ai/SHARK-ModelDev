@@ -3,6 +3,7 @@ from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
 import torch
 
+
 def run_vae(
     device,
     example_input,
@@ -75,9 +76,8 @@ def run_torch_vae(hf_model_name, custom_vae, variant, example_input):
 
 
 if __name__ == "__main__":
-
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-    
+
     if args.precision == "fp16":
         dtype = torch.float16
         custom_vae = "madebyollin/sdxl-vae-fp16-fix"

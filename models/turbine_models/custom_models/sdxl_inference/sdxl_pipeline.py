@@ -40,52 +40,68 @@ rt_device_list = [
     "rocm",
 ]
 
+
 def get_torch_models(args):
-        scheduled_unet_torch = sdxl_scheduled_unet.SDXLScheduledUnet(
-            # This is a public model, so no auth required
-            args.hf_model_name,
-            args.scheduler_id,
-            args.height,
-            args.width,
-            args.batch_size,
-            None,
-            precision=args.precision,
-            num_inference_steps=args.num_inference_steps,
-        )
-        vae_torch = vae.VaeModel(
-            # This is a public model, so no auth required
-            args.hf_model_name,
-            custom_vae=(
-                "madebyollin/sdxl-vae-fp16-fix"
-                if args.precision == "fp16"
-                else None
-            ),
-        )
-        return scheduled_unet_torch, vae_torch
+    scheduled_unet_torch = sdxl_scheduled_unet.SDXLScheduledUnet(
+        # This is a public model, so no auth required
+        args.hf_model_name,
+        args.scheduler_id,
+        args.height,
+        args.width,
+        args.batch_size,
+        None,
+        precision=args.precision,
+        num_inference_steps=args.num_inference_steps,
+    )
+    vae_torch = vae.VaeModel(
+        # This is a public model, so no auth required
+        args.hf_model_name,
+        custom_vae=(
+            "madebyollin/sdxl-vae-fp16-fix" if args.precision == "fp16" else None
+        ),
+    )
+    return scheduled_unet_torch, vae_torch
+
 
 def export_submodel(args, submodel):
     scheduled_unet_torch, vae_torch = get_torch_models(args)
     if args.external_weights_dir:
         if not os.path.exists(args.external_weights_dir):
             os.makedirs(args.external_weights_dir, exist_ok=True)
-        vae_external_weight_path = os.path.join(args.external_weights_dir, "vae_decode" + args.external_weights)
-        unet_external_weight_path = os.path.join(args.external_weights_dir, "scheduled_unet." + args.external_weights)
-        clip_external_weight_path = os.path.join(args.external_weights_dir, "clip" + args.external_weights)
+        vae_external_weight_path = os.path.join(
+            args.external_weights_dir, "vae_decode." + args.external_weights
+        )
+        unet_external_weight_path = os.path.join(
+            args.external_weights_dir, "scheduled_unet." + args.external_weights
+        )
+        clip_external_weight_path = os.path.join(
+            args.external_weights_dir, "clip." + args.external_weights
+        )
     elif args.external_weights is None:
-        print("No external weights type specified using --external_weights, weights for imported .mlir files will not be externalized.")
+        print(
+            "No external weights type specified using --external_weights, weights for imported .mlir files will not be externalized."
+        )
         vae_external_weight_path = None
         unet_external_weight_path = None
         clip_external_weight_path = None
     else:
-        print(f"No external weights directory specified using --external_weights_dir, we assume you have your own weights in {args.pipeline_dir}.")
+        print(
+            f"No external weights directory specified using --external_weights_dir, we assume you have your own weights in {args.pipeline_dir}."
+        )
         args.external_weights_dir = args.pipeline_dir
         if not os.path.exists(args.pipeline_dir):
             os.makedirs(args.pipeline_dir, exist_ok=True)
-        vae_external_weight_path = os.path.join(args.pipeline_dir, "vae_decode." + args.external_weights)
-        unet_external_weight_path = os.path.join(args.pipeline_dir, "scheduled_unet." + args.external_weights)
-        clip_external_weight_path = os.path.join(args.pipeline_dir, "clip." + args.external_weights)
+        vae_external_weight_path = os.path.join(
+            args.pipeline_dir, "vae_decode." + args.external_weights
+        )
+        unet_external_weight_path = os.path.join(
+            args.pipeline_dir, "scheduled_unet." + args.external_weights
+        )
+        clip_external_weight_path = os.path.join(
+            args.pipeline_dir, "clip." + args.external_weights
+        )
     match submodel:
-        case "scheduled_unet":    
+        case "scheduled_unet":
             unet_vmfb = sdxl_scheduled_unet.export_scheduled_unet_model(
                 scheduled_unet_torch,
                 args.scheduler_id,
@@ -109,24 +125,27 @@ def export_submodel(args, submodel):
             )
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
-            return vae.export_vae_model(
-                vae_torch,
-                args.hf_model_name,
-                args.batch_size,
-                args.height,
-                args.width,
-                args.precision,
-                "vmfb",
-                args.external_weights,
+            return (
+                vae.export_vae_model(
+                    vae_torch,
+                    args.hf_model_name,
+                    args.batch_size,
+                    args.height,
+                    args.width,
+                    args.precision,
+                    "vmfb",
+                    args.external_weights,
+                    vae_external_weight_path,
+                    args.device,
+                    args.iree_target_triple,
+                    args.ireec_flags + args.attn_flags,
+                    "decode",
+                    args.decomp_attn,
+                    exit_on_vmfb=False,
+                    pipeline_dir=args.pipeline_dir,
+                ),
                 vae_external_weight_path,
-                args.device,
-                args.iree_target_triple,
-                args.ireec_flags + args.attn_flags,
-                "decode",
-                args.decomp_attn,
-                exit_on_vmfb=False,
-                pipeline_dir=args.pipeline_dir,
-            ), vae_external_weight_path
+            )
         case "clip_1":
             clip_1_vmfb, _ = clip.export_clip_model(
                 args.hf_model_name,
@@ -162,19 +181,24 @@ def export_submodel(args, submodel):
             )
             return clip_2_vmfb, clip_external_weight_path
         case "pipeline":
-            pipeline_file = "sdxl_sched_unet_bench_" + "f32" if args.precision == "fp32" else "f16"
+            pipeline_file = (
+                "sdxl_sched_unet_bench_" + "f32" if args.precision == "fp32" else "f16"
+            )
             pipeline_vmfb = utils.compile_to_vmfb(
-                os.path.join(os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"),
+                os.path.join(
+                    os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
+                ),
                 args.device,
                 args.iree_target_triple,
                 args.ireec_flags,
                 os.path.join(args.pipeline_dir, "pipeline"),
                 return_path=True,
                 const_expr_hoisting=False,
-                mlir_source="file"
+                mlir_source="file",
             )
             breakpoint()
             return pipeline_vmfb, None
+
 
 def generate_images(args, vmfbs: dict, weights: dict):
     pipe_start = time.time()
@@ -193,8 +217,14 @@ def generate_images(args, vmfbs: dict, weights: dict):
         dtype=dtype,
     )
 
-    pipe_runner = vmfbRunner(args.rt_device, [vmfbs["scheduled_unet"], vmfbs["pipeline"]],[weights["scheduled_unet"], None])
-    vae_decode_runner = vmfbRunner(args.rt_device, vmfbs["vae_decode"], weights["vae_decode"])
+    pipe_runner = vmfbRunner(
+        args.rt_device,
+        [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
+        [weights["scheduled_unet"], None],
+    )
+    vae_decode_runner = vmfbRunner(
+        args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
+    )
     clip_start = time.time()
     (
         prompt_embeds,
@@ -217,9 +247,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
     add_text_embeds = pooled_prompt_embeds
     # Assumes that we're doing the equivalent of diffusers 'do_classifier_free_guidance' here
     prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-    add_text_embeds = torch.cat(
-        [pooled_negative_prompt_embeds, add_text_embeds], dim=0
-    )
+    add_text_embeds = torch.cat([pooled_negative_prompt_embeds, add_text_embeds], dim=0)
 
     add_text_embeds = add_text_embeds.to(dtype)
     prompt_embeds = prompt_embeds.to(dtype)
@@ -230,7 +258,11 @@ def generate_images(args, vmfbs: dict, weights: dict):
         ireert.asdevicearray(pipe_runner.config.device, rand_sample),
         ireert.asdevicearray(pipe_runner.config.device, prompt_embeds),
         ireert.asdevicearray(pipe_runner.config.device, add_text_embeds),
-        ireert.asdevicearray(pipe_runner.config.device, np.asarray([args.guidance_scale]), dtype="float32" if args.precision == "fp32" else "float16"),
+        ireert.asdevicearray(
+            pipe_runner.config.device,
+            np.asarray([args.guidance_scale]),
+            dtype="float32" if args.precision == "fp32" else "float16",
+        ),
     ]
     latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
         *unet_inputs,
@@ -241,7 +273,9 @@ def generate_images(args, vmfbs: dict, weights: dict):
 
     pipe_end = time.time()
 
-    image = torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
+    image = (
+        torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
+    )
 
     image = numpy_to_pil_image(image)
     timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -252,8 +286,12 @@ def generate_images(args, vmfbs: dict, weights: dict):
     print("Total time: ", pipe_end - pipe_start, "sec")
     print("Loading time: ", clip_start - pipe_start, "sec")
     print("Clip time: ", unet_start - clip_start, "sec")
-    print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start , "sec,")
-    print("Unet average time: ", (vae_start - unet_start) / args.num_inference_steps, "sec")
+    print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
+    print(
+        "Unet average time: ",
+        (vae_start - unet_start) / args.num_inference_steps,
+        "sec",
+    )
     print("VAE time: ", pipe_end - vae_start, "sec")
     assert os.path.exists(img_path)
 
@@ -287,7 +325,7 @@ def is_prepared(args, vmfbs, weights):
             continue
         elif vmfbs[key] == None and os.path.exists(default_filepath):
             vmfbs[key] = default_filepath
-        elif val is None: 
+        elif val is None:
             missing.append(key + ".vmfb")
         else:
             missing.append(val + ".vmfb")
@@ -296,10 +334,12 @@ def is_prepared(args, vmfbs, weights):
             continue
         if weights[w_key] is not None and os.path.exists(weights[w_key]):
             continue
-        default_name = os.path.join(args.external_weights_dir, w_key + "." + args.external_weights)
+        default_name = os.path.join(
+            args.external_weights_dir, w_key + "." + args.external_weights
+        )
         if weights[w_key] is None and os.path.exists(default_name):
             weights[w_key] = os.path.join(default_name)
-        else: 
+        else:
             missing.append(w_key + "." + args.external_weights)
     if len(missing) > 0:
         print(f"Missing files: " + ", ".join(missing))
@@ -307,8 +347,10 @@ def is_prepared(args, vmfbs, weights):
     else:
         return True, vmfbs, weights
 
+
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     vmfbs = {
         "vae_decode": None,
         "clip_1": None,
@@ -340,7 +382,9 @@ if __name__ == "__main__":
         args.external_weights_dir = args.pipeline_dir
     ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
     if not ready:
-        do_continue = input(f"\nIt seems you are missing some necessary files. Would you like to generate them now? (y/n)")
+        do_continue = input(
+            f"\nIt seems you are missing some necessary files. Would you like to generate them now? (y/n)"
+        )
         if do_continue.lower() != "y":
             exit()
         elif do_continue == "y":

@@ -138,7 +138,7 @@ def export_clip_model(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-    
+
     mod_1_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,

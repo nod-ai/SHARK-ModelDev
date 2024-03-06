@@ -40,14 +40,16 @@ def compile_to_vmfb(
     return_path=False,
     const_expr_hoisting=False,
     mlir_source="str",
-    max_alloc="4294967296"
+    max_alloc="4294967296",
 ):
     flags = [
         "--iree-opt-strip-assertions=true",
         "--verify=false",
     ]
     if target_triple in ["", None] and "triple" not in ireec_flags:
-        raise ValueError("target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI.")
+        raise ValueError(
+            "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
+        )
     if device == "cpu":
         flags.extend(
             [
@@ -105,12 +107,13 @@ def compile_to_vmfb(
             ireec_flags = ireec_flags.split(",")
 
     for i, flag in enumerate(ireec_flags):
+        breakpoint()
         k = flag.strip().split("=")[0]
         for idx, default in enumerate(flags):
             if k == default.split("=")[0]:
                 flags[idx] = flag
                 ireec_flags[i] = ""
-        flags.extend(flag)
+        flags.append(flag)
 
     print("Compiling to", device, "with flags:", flags)
 

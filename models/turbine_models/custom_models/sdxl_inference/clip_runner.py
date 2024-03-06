@@ -207,6 +207,7 @@ def run_clip(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     vmfb_path_1 = "_clip_1".join(args.vmfb_path.split("_clip"))
     vmfb_path_2 = "_clip_2".join(args.vmfb_path.split("_clip"))
     external_weight_path_1 = "_clip_1".join(args.external_weight_path.split("_clip"))

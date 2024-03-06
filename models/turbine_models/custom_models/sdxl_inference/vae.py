@@ -144,7 +144,7 @@ def export_vae_model(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-    
+
     if args.precision == "fp16":
         custom_vae = "madebyollin/sdxl-vae-fp16-fix"
     else:
