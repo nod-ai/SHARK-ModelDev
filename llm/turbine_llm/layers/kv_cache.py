@@ -181,13 +181,19 @@ class PagedKVCache:
         assert len(cache_partitions) == self.cache_partition_count
         for i in range(bs):
             position = seq_positions[i]
-            page_id = page_ids[i, position // self.block_seq_stride]
+            # TODO: Let's clamp to the allowable range so that we don't need
+            # an assert.
+            page_id = page_ids[i, :].index_select(0, position // self.block_seq_stride)
             page_offset = position % self.block_seq_stride
             for partition_index in range(self.cache_partition_count):
                 cache_partition = cache_partitions[partition_index]
-                page_table[
-                    page_id, transformer_block_index, partition_index, page_offset
-                ] = cache_partition[i, 0]
+                indices = (
+                    page_id,
+                    torch.tensor([transformer_block_index]),
+                    torch.tensor([partition_index]),
+                    page_offset.unsqueeze(0),
+                )
+                page_table.index_put_(indices=indices, values=cache_partition[i, 0])
 
     def write(
         self,
