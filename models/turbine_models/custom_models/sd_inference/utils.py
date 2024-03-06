@@ -35,15 +35,19 @@ def compile_to_vmfb(
     module_str,
     device,
     target_triple,
-    max_alloc,
+    ireec_flags,
     safe_name,
     return_path=False,
     const_expr_hoisting=False,
+    mlir_source="str",
+    max_alloc="4294967296"
 ):
     flags = [
         "--iree-opt-strip-assertions=true",
         "--verify=false",
     ]
+    if target_triple in ["", None] and "triple" not in ireec_flags:
+        raise ValueError("target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI.")
     if device == "cpu":
         flags.extend(
             [
@@ -96,13 +100,36 @@ def compile_to_vmfb(
                 "--iree-codegen-linalg-max-constant-fold-elements=9223372036854775807",
             ]
         )
+    if isinstance(ireec_flags, str):
+        if ireec_flags != "":
+            ireec_flags = ireec_flags.split(",")
 
-    flatbuffer_blob = ireec.compile_str(
-        module_str,
-        target_backends=[device],
-        input_type="torch",
-        extra_args=flags,
-    )
+    for i, flag in enumerate(ireec_flags):
+        k = flag.strip().split("=")[0]
+        for idx, default in enumerate(flags):
+            if k == default.split("=")[0]:
+                flags[idx] = flag
+                ireec_flags[i] = ""
+        flags.extend(flag)
+
+    print("Compiling to", device, "with flags:", flags)
+
+    if mlir_source == "file":
+        flatbuffer_blob = ireec.compile_file(
+            module_str,
+            target_backends=[device],
+            input_type="torch",
+            extra_args=flags,
+        )
+    elif mlir_source == "str":
+        flatbuffer_blob = ireec.compile_str(
+            module_str,
+            target_backends=[device],
+            input_type="torch",
+            extra_args=flags,
+        )
+    else:
+        raise ValueError("mlir_source must be either 'file' or 'str'")
     with open(f"{safe_name}.vmfb", "wb+") as f:
         f.write(flatbuffer_blob)
     print("Saved to", safe_name + ".vmfb")

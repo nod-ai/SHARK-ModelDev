@@ -7,13 +7,10 @@
 
 import numpy as np
 import torch
-import os
-import re
 import sys
 
 from iree import runtime as ireert
 from turbine_models.utils.benchmark import benchmark_module
-
 
 def run_benchmark(args):
     config = ireert.Config(args.rt_device)
@@ -61,7 +58,6 @@ def run_benchmark(args):
         )
     else:
         results = benchmark_module(benchmark_mod, "produce_image_latents", vmfbs, input)
-
     for benchmark_result in results:
         print(
             f"benchmark_name: {benchmark_result.benchmark_name}, time: {benchmark_result.time}, cpu_time: {benchmark_result.cpu_time}, iterations: {benchmark_result.iterations}, user_counters: {benchmark_result.user_counters}"
