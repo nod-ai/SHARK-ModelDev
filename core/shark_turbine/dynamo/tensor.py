@@ -51,9 +51,13 @@ from iree.runtime import (
 from iree.compiler.api import Session, Output
 from iree.compiler.passmanager import PassManager
 
-from ..importers.fx_importer import FxImporter
+from iree.compiler.extras.fx_importer import FxImporter
 
-DEFAULT_COMPILER_FLAGS = ("--iree-input-type=torch",)
+DEFAULT_COMPILER_FLAGS = (
+    # Enable asynchronous calling convention.
+    "--iree-execution-model=async-external",
+    "--iree-input-type=torch",
+)
 
 ###############################################################################
 # Factories and device enablement
@@ -67,8 +71,8 @@ class TurbineMode(TorchFunctionMode):
     it can be enabled globally via the `enable()` function.
     """
 
-    IMPLEMENTATIONS: dict = {}
-    CACHED_IMPLEMENTATIONS: dict = {}
+    IMPLEMENTATIONS = {}
+    CACHED_IMPLEMENTATIONS = {}
     COMPUTE_METHODS = set((torch.add, torch.sub, torch.mul, torch.abs))
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
@@ -159,7 +163,6 @@ def _parse_device(device_arg) -> Optional[Device]:
             return Device.current()
         elif device_arg.startswith(_TURBINE_PREFIX):
             return Device(device_arg[len(_TURBINE_PREFIX) :])
-    return None
 
 
 ###############################################################################
@@ -416,8 +419,8 @@ def _parse_to(super_fn, *args, **kwargs):
 @device_factory(torch.empty)
 def _empty(*size, device: Device, dtype=torch.float32):
     # Turbine empty.
-    norm_size = _normalize_size(size)
-    return DeviceTensor._async_create_empty(norm_size, device=device, dtype=dtype)
+    size = _normalize_size(size)
+    return DeviceTensor._async_create_empty(size, device=device, dtype=dtype)
 
 
 @device_factory(torch.zeros)
