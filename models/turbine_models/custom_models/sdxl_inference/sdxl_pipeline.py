@@ -182,7 +182,9 @@ def export_submodel(args, submodel):
             return clip_2_vmfb, clip_external_weight_path
         case "pipeline":
             pipeline_file = (
-                "sdxl_sched_unet_bench_" + "f32" if args.precision == "fp32" else "f16"
+                "sdxl_sched_unet_bench_" + "f32"
+                if args.precision == "fp32"
+                else "sdxl_sched_unet_bench" + "f16"
             )
             pipeline_vmfb = utils.compile_to_vmfb(
                 os.path.join(
@@ -196,7 +198,6 @@ def export_submodel(args, submodel):
                 const_expr_hoisting=False,
                 mlir_source="file",
             )
-            breakpoint()
             return pipeline_vmfb, None
 
 
