@@ -109,6 +109,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
+            tokenizer=tokenizer
         )
         check_output_string(torch_str, turbine_str)
 
@@ -160,6 +161,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
             streaming_llm=True,
+            tokenizer=tokenizer
         )
         check_output_string(torch_str, turbine_str)
 
