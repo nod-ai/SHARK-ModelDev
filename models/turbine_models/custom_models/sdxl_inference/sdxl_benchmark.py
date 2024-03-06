@@ -12,6 +12,7 @@ import sys
 from iree import runtime as ireert
 from turbine_models.utils.benchmark import benchmark_module
 
+
 def run_benchmark(args):
     config = ireert.Config(args.rt_device)
 

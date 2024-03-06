@@ -23,6 +23,7 @@ from shark_turbine.dynamo.passes import (
 
 import safetensors
 
+
 class SDXLScheduler(torch.nn.Module):
     def __init__(
         self,
