@@ -9,8 +9,11 @@ import turbine_models.custom_models.stateless_llama as llama
 import os
 import unittest
 import difflib
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 import torch
+from accelerate import init_empty_weights
+from transformers.modeling_utils import load_sharded_checkpoint
+import tempfile
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from shark_turbine.aot import *
@@ -33,15 +36,21 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
 """
 
 tokenizer = AutoTokenizer.from_pretrained(
-        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-        use_fast=False,
-    )
-
-mod = AutoModelForCausalLM.from_pretrained(
     "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-    torch_dtype=torch.float,
-    device_map="auto",
+    use_fast=False,
 )
+
+# mod = AutoModelForCausalLM.from_pretrained(
+#     "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+#     torch_dtype=torch.float,
+#     device_map="auto",
+# )
+config = AutoConfig.from_pretrained("Trelis/Llama-2-7b-chat-hf-function-calling-v2")
+with init_empty_weights():
+    mod = AutoModelForCausalLM.from_config(config)
+with tempfile.TemporaryDirectory() as tmp_dir:
+    mod.save_pretrained(tmp_dir, max_shard_size="200MB")
+    load_sharded_checkpoint(mod, tmp_dir)
 
 
 def check_output_string(reference, output):
@@ -109,7 +118,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
         )
         check_output_string(torch_str, turbine_str)
 
@@ -161,7 +170,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
             streaming_llm=True,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
         )
         check_output_string(torch_str, turbine_str)
 
@@ -171,7 +180,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             None,
             DEFAULT_PROMPT,
             model=mod,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
         )
         rotated_torch_str = llm_runner.run_torch_llm(
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",

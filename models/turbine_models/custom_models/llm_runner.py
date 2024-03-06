@@ -208,7 +208,7 @@ def run_torch_llm(
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
     model=None,
     tokenizer=None,
-):  
+):
     if streaming_llm is True:
         enable_llama_pos_shift_attention(model)
 

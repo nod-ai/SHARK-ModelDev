@@ -46,7 +46,6 @@ class HFTransformerBuilder:
         if self.model == None:
             self.build_model()
 
-
     def build_model(self) -> None:
         """
         Builds a PyTorch model using Hugging Face's transformers library.
