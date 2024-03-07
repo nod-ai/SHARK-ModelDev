@@ -76,7 +76,8 @@ class SDXLScheduledUnet(torch.nn.Module):
         add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
         step_indexes = torch.tensor(len(timesteps))
-        return sample * self.scheduler.init_noise_sigma, add_time_ids, step_indexes
+        sample = sample * self.scheduler.init_noise_sigma
+        return sample.type(self.dtype), add_time_ids, step_indexes
 
     def forward(
         self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
@@ -103,7 +104,7 @@ class SDXLScheduledUnet(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
             sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-        return sample
+        return sample.type(self.dtype)
 
 
 def export_scheduled_unet_model(

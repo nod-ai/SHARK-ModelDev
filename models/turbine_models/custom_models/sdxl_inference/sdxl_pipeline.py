@@ -270,6 +270,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
             dtype=iree_dtype,
         ),
     ]
+    print(unet_inputs)
     latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
         *unet_inputs,
     )
@@ -289,7 +290,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
     image[0].save(img_path)
     print(img_path, "saved")
     print("Pipeline arguments: ", args)
-    print("Total time: ", pipe_end - pipe_start, "sec")
+    print("Total time: ", pipe_end - clip_start, "sec")
     print("Loading time: ", clip_start - pipe_start, "sec")
     print("Clip time: ", unet_start - clip_start, "sec")
     print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
