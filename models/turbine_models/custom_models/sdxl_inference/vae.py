@@ -139,7 +139,7 @@ def export_vae_model(
             safe_name,
             return_path=not exit_on_vmfb,
         )
-        return None, vmfb_path
+        return vmfb_path
 
 
 if __name__ == "__main__":
