@@ -125,7 +125,7 @@ def export_submodel(args, submodel):
             )
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
-            vae_decode_vmfb, vae_external_weight_path = vae.export_vae_model(
+            vae_decode_vmfb = vae.export_vae_model(
                 vae_torch,
                 args.hf_model_name,
                 args.batch_size,
