@@ -222,7 +222,6 @@ def generate_images(args, vmfbs: dict, weights: dict):
         [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
         [weights["scheduled_unet"], None],
     )
-    breakpoint()
     vae_decode_runner = vmfbRunner(
         args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
     )
