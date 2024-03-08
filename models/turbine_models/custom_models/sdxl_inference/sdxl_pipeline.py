@@ -52,6 +52,7 @@ def get_torch_models(args):
         None,
         precision=args.precision,
         num_inference_steps=args.num_inference_steps,
+        return_index=args.return_index,
     )
     vae_torch = vae.VaeModel(
         # This is a public model, so no auth required
