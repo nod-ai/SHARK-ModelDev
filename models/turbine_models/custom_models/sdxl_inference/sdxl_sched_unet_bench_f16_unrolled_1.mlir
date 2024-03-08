@@ -7,15 +7,8 @@ module @sdxl_compiled_pipeline {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %step_int = arith.index_cast %c0 : index to i64
-    %step_inc_int = arith.index_cast %c1 : index to i64
     %step_0 = tensor.from_elements %step_int : tensor<1xi64>
-    %step_inc = tensor.from_elements %step_inc_int : tensor<1xi64>
     %sample_1 = func.call @compiled_scheduled_unet.run_forward(%sample_0, %p_embeds, %t_embeds, %time_ids, %guidance_scale, %step_0) : (tensor<1x4x128x128xf16>, tensor<2x64x2048xf16>, tensor<2x1280xf16>, tensor<2x6xf16>, tensor<1xf16>, tensor<1xi64>) -> tensor<1x4x128x128xf16>
-    %step_1 = arith.addi %step_0, %step_inc : tensor<1xi64>
-    %sample_2 = func.call @compiled_scheduled_unet.run_forward(%sample_1, %p_embeds, %t_embeds, %time_ids, %guidance_scale, %step_1) : (tensor<1x4x128x128xf16>, tensor<2x64x2048xf16>, tensor<2x1280xf16>, tensor<2x6xf16>, tensor<1xf16>, tensor<1xi64>) -> tensor<1x4x128x128xf16>
-    %step_2 = arith.addi %step_1, %step_inc : tensor<1xi64>
-    %sample_3 = func.call @compiled_scheduled_unet.run_forward(%sample_2, %p_embeds, %t_embeds, %time_ids, %guidance_scale, %step_2) : (tensor<1x4x128x128xf16>, tensor<2x64x2048xf16>, tensor<2x1280xf16>, tensor<2x6xf16>, tensor<1xf16>, tensor<1xi64>) -> tensor<1x4x128x128xf16>
-    %step_3 = arith.addi %step_2, %step_inc : tensor<1xi64>
-    return %sample_3 : tensor<1x4x128x128xf16>
+    return %sample_1 : tensor<1x4x128x128xf16>
   } 
 }
