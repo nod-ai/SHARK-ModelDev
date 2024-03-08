@@ -147,7 +147,11 @@ p.add_argument(
     "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
 )
 p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
-
+p.add_argument(
+    "--return_index",
+    action="store_true",
+    help="Make scheduled unet compiled module return the step index.",
+)
 ##############################################################################
 # SDXL script general options.
 ##############################################################################

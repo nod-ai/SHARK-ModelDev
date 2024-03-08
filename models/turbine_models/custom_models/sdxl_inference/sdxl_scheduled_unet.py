@@ -33,12 +33,14 @@ class SDXLScheduledUnet(torch.nn.Module):
         hf_auth_token=None,
         precision="fp32",
         num_inference_steps=1,
+        return_index=False,
     ):
         super().__init__()
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
+        self.return_index = return_index
 
         if precision == "fp16":
             try:
@@ -104,7 +106,11 @@ class SDXLScheduledUnet(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
             sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-        return sample.type(self.dtype)
+            step_index = step_index + 1
+        if self.return_index:
+            return sample.type(self.dtype), step_index
+        else:
+            return sample.type(self.dtype)
 
 
 def export_scheduled_unet_model(
@@ -231,6 +237,7 @@ if __name__ == "__main__":
         args.hf_auth_token,
         args.precision,
         args.num_inference_steps,
+        args.return_index,
     )
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
