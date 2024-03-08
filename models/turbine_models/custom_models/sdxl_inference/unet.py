@@ -90,7 +90,13 @@ def export_unet_model(
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
-
+    if decomp_attn == True:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     if precision == "fp16":
         unet_model = unet_model.half()
