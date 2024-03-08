@@ -1,7 +1,6 @@
 name: SDXL Models Nightly
 
 on:
-  workflow_dispatch:
   pull_request:
   schedule:
     - cron:  '30 6 * * *'
