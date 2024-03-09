@@ -43,8 +43,6 @@ def compile_to_vmfb(
     max_alloc="4294967296",
 ):
     flags = [
-        "--iree-opt-strip-assertions=true",
-        "--verify=false",
     ]
     if target_triple in ["", None] and "triple" not in ireec_flags:
         raise ValueError(
@@ -78,8 +76,6 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-rocm-link-bc=true",
-                "--iree-vm-target-truncate-unsupported-floats",
-                "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
     elif device == "cuda":
@@ -87,7 +83,6 @@ def compile_to_vmfb(
             [
                 "--iree-hal-target-backends=cuda",
                 "--iree-hal-cuda-llvm-target-arch=" + target_triple,
-                "--iree-vm-bytecode-module-strip-source-map=true",
                 "--iree-vm-target-truncate-unsupported-floats",
             ]
         )
