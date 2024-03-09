@@ -38,7 +38,7 @@ def compile_to_vmfb(
     ireec_flags,
     safe_name,
     return_path=False,
-    const_expr_hoisting=False,
+    const_expr_hoisting=True,
     mlir_source="str",
     max_alloc="4294967296",
 ):
