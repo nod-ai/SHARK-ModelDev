@@ -77,7 +77,7 @@ class SDXLScheduledUnet(torch.nn.Module):
         add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
         add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
-        step_indexes = torch.tensor(len(timesteps))
+        step_indexes = torch.tensor(len(timesteps) - 1)
         sample = sample * self.scheduler.init_noise_sigma
         return sample.type(self.dtype), add_time_ids, step_indexes
 
