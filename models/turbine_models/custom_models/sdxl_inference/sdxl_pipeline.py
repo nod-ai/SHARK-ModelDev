@@ -67,6 +67,10 @@ def get_torch_models(args):
 
 
 def export_submodel(args, submodel):
+
+    if not os.path.exists(args.pipeline_dir):
+        os.makedirs(args.pipeline_dir)
+
     scheduled_unet_torch, vae_torch = get_torch_models(args)
     if args.external_weights_dir:
         if not os.path.exists(args.external_weights_dir):
@@ -259,6 +263,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
 
     encode_prompts_start = time.time()
 
+
     for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
         text_inputs = tokenizer(
             prompt,
@@ -294,9 +299,8 @@ def generate_images(args, vmfbs: dict, weights: dict):
 
         prompt_embeds_list.append(prompt_embeds)
 
-    encode_prompts_end = time.time()
 
-    prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+    
 
     for negative_prompt, tokenizer, text_encoder in zip(
         uncond_tokens, tokenizers, text_encoders
@@ -324,7 +328,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
 
         negative_prompt_embeds_list.append(negative_prompt_embeds)
 
-    encode_neg_prompts_end = time.time()
+    prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
 
     negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
 
@@ -333,41 +337,45 @@ def generate_images(args, vmfbs: dict, weights: dict):
     bs_embed, seq_len, _ = prompt_embeds.shape
     prompt_embeds = prompt_embeds.repeat(1, 1, 1)
     prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
+    pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(bs_embed * 1, -1)
+    add_text_embeds = pooled_prompt_embeds
+
     if do_classifier_free_guidance:
         negative_pooled_prompt_embeds = negative_pooled_prompt_embeds.repeat(1, 1).view(
             1, -1
         )
         negative_prompt_embeds = negative_prompt_embeds.repeat(1, 1, 1)
         negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * 1, seq_len, -1)
-
-    pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(bs_embed * 1, -1)
-
-    add_text_embeds = pooled_prompt_embeds
-    # Assumes that we're doing the equivalent of diffusers 'do_classifier_free_guidance' here
-    prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-    add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
+        prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
+        add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
 
     add_text_embeds = add_text_embeds.to(torch_dtype)
     prompt_embeds = prompt_embeds.to(torch_dtype)
+
+    encode_prompts_end = time.time()
+
+    unet_inputs = [
+        ireert.asdevicearray(pipe_runner.config.device, samples[i], dtype=iree_dtype),
+        ireert.asdevicearray(
+            pipe_runner.config.device, prompt_embeds, dtype=iree_dtype
+        ),
+        ireert.asdevicearray(
+            pipe_runner.config.device, add_text_embeds, dtype=iree_dtype
+        ),
+        ireert.asdevicearray(
+            pipe_runner.config.device,
+            np.asarray([args.guidance_scale]),
+            dtype=iree_dtype,
+        ),
+    ]
+
+    send_unet_inputs = time.time()
 
     numpy_images = []
     for i in range(args.batch_count):
         unet_start = time.time()
 
-        unet_inputs = [
-            ireert.asdevicearray(pipe_runner.config.device, samples[i], dtype=iree_dtype),
-            ireert.asdevicearray(
-                pipe_runner.config.device, prompt_embeds, dtype=iree_dtype
-            ),
-            ireert.asdevicearray(
-                pipe_runner.config.device, add_text_embeds, dtype=iree_dtype
-            ),
-            ireert.asdevicearray(
-                pipe_runner.config.device,
-                np.asarray([args.guidance_scale]),
-                dtype=iree_dtype,
-            ),
-        ]
+ 
         latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
             *unet_inputs,
         )
@@ -390,11 +398,10 @@ def generate_images(args, vmfbs: dict, weights: dict):
             "sec",
         )
         print("VAE time: ", pipe_end - vae_start, "sec")
+        print(f"\nTotal time (txt2img, batch #{str(i+1)}): ", (send_unet_inputs - encode_prompts_start) + (pipe_end - unet_start), "sec\n")
     end = time.time()
-    print("\nEncode Prompts:", encode_prompts_end - encode_prompts_start, "sec")
-    print("Encode Negative Prompts:", encode_neg_prompts_end - encode_prompts_end, "sec")
-    print("Total CLIP + Tokenizer time:", encode_neg_prompts_end - encode_prompts_start, "sec")
-
+    print("Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec")
+    print("Send UNet inputs to device:", send_unet_inputs - encode_prompts_end, "sec")
     print("Loading time: ", encode_prompts_start - pipe_start, "sec")
     print(f"Total inference time ({args.batch_count} batch(es)):", end - encode_prompts_start, "sec")
 
