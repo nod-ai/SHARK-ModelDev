@@ -5,7 +5,28 @@ from iree import runtime as ireert
 
 class vmfbRunner:
     def __init__(self, device, vmfb_path, external_weight_path=None):
-        self.config = ireert.Config(device)
+        flags = []
+        haldriver = ireert.get_driver(device)
+        if "://" in device:
+            try:
+                device_idx = int(device.split("://")[-1])
+                device_uri = None
+            except:
+                device_idx = None
+                device_uri = device.split("://")[-1]
+        else:
+            device_idx = 0
+            device_uri = None
+        if device_uri:
+            haldevice = haldriver.create_device_by_uri(device_uri, allocators=["caching"])
+        else:
+            hal_device_id = haldriver.query_available_devices()[device_idx][
+                "device_id"
+            ]
+            haldevice = haldriver.create_device(
+                hal_device_id, allocators=["caching"]
+            )
+        self.config = ireert.Config(device=haldevice)
         mods = []
         if not isinstance(vmfb_path, list):
             vmfb_path = [vmfb_path]

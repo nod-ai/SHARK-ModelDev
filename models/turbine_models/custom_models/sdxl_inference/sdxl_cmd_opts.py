@@ -74,6 +74,10 @@ p.add_argument(
 )
 
 p.add_argument(
+    "--batch_count", type=int, default=1, help="Number of batches to run for a single prompt"
+)
+
+p.add_argument(
     "--guidance_scale",
     type=float,
     default=7.5,

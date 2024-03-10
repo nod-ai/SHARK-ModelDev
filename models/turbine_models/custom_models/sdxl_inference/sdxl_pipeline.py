@@ -18,6 +18,8 @@ import iree.runtime as ireert
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.utils.sdxl_benchmark import run_benchmark
 from turbine_models.model_runner import vmfbRunner
+from transformers import CLIPTokenizer
+
 import unittest
 from PIL import Image
 import os
@@ -201,22 +203,29 @@ def export_submodel(args, submodel):
 
 
 def generate_images(args, vmfbs: dict, weights: dict):
+    print("Pipeline arguments: ", args)
+    #TODO: implement case where this is false e.g. in SDXL Turbo
+    do_classifier_free_guidance = True
     pipe_start = time.time()
     iree_dtype = "float32" if args.precision == "fp32" else "float16"
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
 
     all_imgs = []
-    generator = torch.manual_seed(0)
-    rand_sample = torch.randn(
-        (
-            args.batch_size,
-            4,
-            args.height // 8,
-            args.width // 8,
-        ),
-        generator=generator,
-        dtype=torch_dtype,
-    )
+    
+    samples = []
+    for i in range(args.batch_count):
+        generator = torch.manual_seed(0)
+        rand_sample = torch.randn(
+            (
+                args.batch_size,
+                4,
+                args.height // 8,
+                args.width // 8,
+            ),
+            generator=generator,
+            dtype=torch_dtype,
+        )
+        samples.append(rand_sample)
 
     pipe_runner = vmfbRunner(
         args.rt_device,
@@ -226,80 +235,176 @@ def generate_images(args, vmfbs: dict, weights: dict):
     vae_decode_runner = vmfbRunner(
         args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
     )
-    clip_start = time.time()
-    (
-        prompt_embeds,
-        negative_prompt_embeds,
-        pooled_prompt_embeds,
-        pooled_negative_prompt_embeds,
-    ) = clip_runner.run_encode_prompts(
-        args.rt_device,
-        args.prompt,
-        args.negative_prompt,
-        vmfbs["clip_1"],
-        vmfbs["clip_2"],
+    clip_runner_1 = vmfbRunner(args.rt_device, vmfbs["clip_1"], weights["clip_1"])
+    clip_runner_2 = vmfbRunner(args.rt_device, vmfbs["clip_2"], weights["clip_2"])
+    text_encoders = [clip_runner_1, clip_runner_2]
+    tokenizer_1 = CLIPTokenizer.from_pretrained(
         args.hf_model_name,
-        None,
-        weights["clip_1"],
-        weights["clip_2"],
-        args.max_length,
+        subfolder="tokenizer",
+        token=args.hf_auth_token,
     )
+    tokenizer_2 = CLIPTokenizer.from_pretrained(
+        args.hf_model_name,
+        subfolder="tokenizer_2",
+        token=args.hf_auth_token,
+    )
+    tokenizers = [tokenizer_1, tokenizer_2]
+    prompts = [args.prompt, args.prompt]
+    uncond_tokens = [args.negative_prompt, args.negative_prompt]
+    prompt_embeds_list = []
+    negative_prompt_embeds_list = []
+
+
+    max_length = args.max_length
+
+    encode_prompts_start = time.time()
+
+    for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
+        text_inputs = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        text_input_ids = text_inputs.input_ids
+        untruncated_ids = tokenizer(
+            prompt, padding="longest", return_tensors="pt"
+        ).input_ids
+
+        if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
+            text_input_ids, untruncated_ids
+        ):
+            removed_text = tokenizer.batch_decode(
+                untruncated_ids[:, max_length - 1 : -1]
+            )
+            print(
+                "The following part of your input was truncated because CLIP can only handle sequences up to"
+                f" {max_length} tokens: {removed_text}"
+            )
+        text_input_ids = [
+            ireert.asdevicearray(text_encoder.config.device, text_input_ids)
+        ]
+        text_encoder_output = text_encoder.ctx.modules.compiled_clip["main"](
+            *text_input_ids
+        )
+        prompt_embeds = torch.from_numpy(text_encoder_output[0].to_host())
+        pooled_prompt_embeds = torch.from_numpy(text_encoder_output[1].to_host())
+
+        prompt_embeds_list.append(prompt_embeds)
+
+    encode_prompts_end = time.time()
+
+    prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+
+    for negative_prompt, tokenizer, text_encoder in zip(
+        uncond_tokens, tokenizers, text_encoders
+    ):
+        uncond_input = tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        uncond_input_ids = uncond_input.input_ids
+        uncond_input_ids = [
+            ireert.asdevicearray(text_encoder.config.device, uncond_input_ids)
+        ]
+
+        text_encoder_output = text_encoder.ctx.modules.compiled_clip["main"](
+            *uncond_input_ids
+        )
+        negative_prompt_embeds = torch.from_numpy(text_encoder_output[0].to_host())
+        negative_pooled_prompt_embeds = torch.from_numpy(
+            text_encoder_output[1].to_host()
+        )
+
+        negative_prompt_embeds_list.append(negative_prompt_embeds)
+
+    encode_neg_prompts_end = time.time()
+
+    negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
+
+    do_classifier_free_guidance = True
+
+    bs_embed, seq_len, _ = prompt_embeds.shape
+    prompt_embeds = prompt_embeds.repeat(1, 1, 1)
+    prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
+    if do_classifier_free_guidance:
+        negative_pooled_prompt_embeds = negative_pooled_prompt_embeds.repeat(1, 1).view(
+            1, -1
+        )
+        negative_prompt_embeds = negative_prompt_embeds.repeat(1, 1, 1)
+        negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * 1, seq_len, -1)
+
+    pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(bs_embed * 1, -1)
 
     add_text_embeds = pooled_prompt_embeds
     # Assumes that we're doing the equivalent of diffusers 'do_classifier_free_guidance' here
     prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-    add_text_embeds = torch.cat([pooled_negative_prompt_embeds, add_text_embeds], dim=0)
+    add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
 
     add_text_embeds = add_text_embeds.to(torch_dtype)
     prompt_embeds = prompt_embeds.to(torch_dtype)
 
-    unet_start = time.time()
+    numpy_images = []
+    for i in range(args.batch_count):
+        unet_start = time.time()
 
-    unet_inputs = [
-        ireert.asdevicearray(pipe_runner.config.device, rand_sample, dtype=iree_dtype),
-        ireert.asdevicearray(
-            pipe_runner.config.device, prompt_embeds, dtype=iree_dtype
-        ),
-        ireert.asdevicearray(
-            pipe_runner.config.device, add_text_embeds, dtype=iree_dtype
-        ),
-        ireert.asdevicearray(
-            pipe_runner.config.device,
-            np.asarray([args.guidance_scale]),
-            dtype=iree_dtype,
-        ),
-    ]
-    print(unet_inputs)
-    latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
-        *unet_inputs,
-    )
+        unet_inputs = [
+            ireert.asdevicearray(pipe_runner.config.device, samples[i], dtype=iree_dtype),
+            ireert.asdevicearray(
+                pipe_runner.config.device, prompt_embeds, dtype=iree_dtype
+            ),
+            ireert.asdevicearray(
+                pipe_runner.config.device, add_text_embeds, dtype=iree_dtype
+            ),
+            ireert.asdevicearray(
+                pipe_runner.config.device,
+                np.asarray([args.guidance_scale]),
+                dtype=iree_dtype,
+            ),
+        ]
+        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
+            *unet_inputs,
+        )
 
-    vae_start = time.time()
-    vae_out = vae_decode_runner.ctx.modules.compiled_vae["main"](latents)
+        vae_start = time.time()
+        vae_out = vae_decode_runner.ctx.modules.compiled_vae["main"](latents)
 
-    pipe_end = time.time()
+        pipe_end = time.time()
 
-    image = (
-        torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
-    )
+        image = (
+            torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
+        )
 
-    image = numpy_to_pil_image(image)
-    timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
-    img_path = "sdxl_output_" + timestamp + ".png"
-    image[0].save(img_path)
-    print(img_path, "saved")
-    print("Pipeline arguments: ", args)
-    print("Total time: ", pipe_end - clip_start, "sec")
-    print("Loading time: ", clip_start - pipe_start, "sec")
-    print("Clip time: ", unet_start - clip_start, "sec")
-    print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
-    print(
-        "Unet average time: ",
-        (vae_start - unet_start) / args.num_inference_steps,
-        "sec",
-    )
-    print("VAE time: ", pipe_end - vae_start, "sec")
-    assert os.path.exists(img_path)
+        numpy_images.append(image)
+        print("Batch #", i+1, "\n")
+        print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
+        print(
+            "Unet average step latency: ",
+            (vae_start - unet_start) / args.num_inference_steps,
+            "sec",
+        )
+        print("VAE time: ", pipe_end - vae_start, "sec")
+    end = time.time()
+    print("\nEncode Prompts:", encode_prompts_end - encode_prompts_start, "sec")
+    print("Encode Negative Prompts:", encode_neg_prompts_end - encode_prompts_end, "sec")
+    print("Total CLIP + Tokenizer time:", encode_neg_prompts_end - encode_prompts_start, "sec")
+
+    print("Loading time: ", encode_prompts_start - pipe_start, "sec")
+    print(f"Total inference time ({args.batch_count} batch(es)):", end - encode_prompts_start, "sec")
+
+    for image in numpy_images:
+        image = numpy_to_pil_image(image)
+        timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+        img_path = "sdxl_output_" + timestamp + ".png"
+        image[0].save(img_path)
+        print(img_path, "saved")
+
 
 
 def numpy_to_pil_image(images):
