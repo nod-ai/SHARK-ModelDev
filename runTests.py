@@ -4,11 +4,11 @@ from datetime import datetime as dt
 import torch
 
 # Assuming BREAK_POS_F32, DTYPE_F32, BREAK_POS_F16, DTYPE_F16 are defined elsewhere
-PATH_TO_SHARK_TURBINE='/home/avsharma/SHARK-Turbine'
+PATH_TO_SHARK_TURBINE='/home/pbarwari/SHARK-Turbine'
 PATH_TO_JITTABLE=f"{PATH_TO_SHARK_TURBINE}/core/shark_turbine/aot/builtins/jittable.py"
 HF_AUTH_KEY = None
 
-def replace_values_in_file(path_to_file, new_break_pos, new_dtype):
+def replace_values_in_file(path_to_file, new_break_pos, new_dtype, new_model):
     """
     Replaces BREAK_POS and DTYPE values in a file with user-specified values at the same line,
     preserving original indentation.
@@ -33,6 +33,8 @@ def replace_values_in_file(path_to_file, new_break_pos, new_dtype):
                 modified_lines.append(indentation * " " + f"BREAK_POS = {new_break_pos}\n")
             elif "DTYPE = " in line:
                 modified_lines.append(indentation * " " + f"DTYPE = {new_dtype}\n")
+            elif "MODEL = " in line:
+                modified_lines.append(indentation * " " + f"MODEL = '{new_model}'\n")
             else:
                 modified_lines.append(line)
 
@@ -53,7 +55,7 @@ def unet(BREAK_POS_F16, BREAK_POS_F32 ):
     os.chdir(folder_name)
 
     # Replace values for FP32
-    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F32, DTYPE_F32)
+    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F32, DTYPE_F32, "unet")
 
     start = dt.now()
     print(f"{start.strftime('%H:%M:%S.%f')} : F32 Start")
@@ -68,12 +70,12 @@ def unet(BREAK_POS_F16, BREAK_POS_F32 ):
     print(f"{end.strftime('%H:%M:%S.%f')} : F32 end\nElapsed{str(end-start)}")
 
     # Replace values for FP16
-    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F16, DTYPE_F16)
+    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F16, DTYPE_F16, "unet")
 
     start = dt.now() 
     print(f"{start.strftime('%H:%M:%S.%f')} : F16 Start")
     # Run FP16 command
-    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet.py --hf_auth_token={HF_AUTH_KEY} --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --max_length=64 --decomp_attn
+    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet.py --hf_auth_token={HF_AUTH_KEY} --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --max_length=64
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     with open("report_run_f16.txt", "w") as f:
@@ -103,7 +105,7 @@ def vae(BREAK_POS_F16, BREAK_POS_F32 ):
     os.chdir(folder_name)
 
     # Replace values for FP32
-    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F32, DTYPE_F32)
+    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F32, DTYPE_F32, "vae")
 
     start = dt.now()
     print(f"{start.strftime('%H:%M:%S.%f')} : F32 Start")
@@ -118,12 +120,12 @@ def vae(BREAK_POS_F16, BREAK_POS_F32 ):
     print(f"{end.strftime('%H:%M:%S.%f')} : F32 end\nElapsed{str(end-start)}")
 
     # Replace values for FP16
-    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F16, DTYPE_F16)
+    replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F16, DTYPE_F16, "vae")
 
     start = dt.now() 
     print(f"{start.strftime('%H:%M:%S.%f')} : F16 Start")
     # Run FP16 command
-    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae.py --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_vae_decode.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --decomp_attn
+    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae.py --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_vae_decode.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     with open("report_run_f16.txt", "w") as f:
@@ -153,5 +155,6 @@ if __name__ == "__main__":
     # unet(189, 186)
     # unet(187, 184)
     # transpose_4, transpose_5, transpose_6
+    unet(6,6)
 
-    vae(10, 10)
+    # vae(11, 11)
