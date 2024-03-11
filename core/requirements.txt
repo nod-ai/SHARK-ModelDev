@@ -7,3 +7,6 @@
 -r pytorch-cpu-requirements.txt
 -r torchvision-requirements.txt
 -r iree-requirements.txt
+
+# Can't be bundled as part of torch requirments due to nonexistence in the index-url
+mpmath==1.3.0
