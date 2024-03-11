@@ -148,6 +148,10 @@ def export_unet_model(
             str(os.path.abspath(f"{safe_name}.mlir")),
             f"{model_name_upload}/{model_name_upload}.mlir",
         )
+    with open(f"{safe_name}.mlir", "w+") as f:
+        f.write(module_str)
+    print("Saved to", safe_name + ".mlir")
+
     if compile_to != "vmfb":
         return module_str
     else:

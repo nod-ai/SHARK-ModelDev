@@ -4,7 +4,7 @@ from datetime import datetime as dt
 import torch
 
 # Assuming BREAK_POS_F32, DTYPE_F32, BREAK_POS_F16, DTYPE_F16 are defined elsewhere
-PATH_TO_SHARK_TURBINE='/home/pbarwari/SHARK-Turbine'
+PATH_TO_SHARK_TURBINE=None
 PATH_TO_JITTABLE=f"{PATH_TO_SHARK_TURBINE}/core/shark_turbine/aot/builtins/jittable.py"
 HF_AUTH_KEY = None
 
@@ -46,12 +46,26 @@ def replace_values_in_file(path_to_file, new_break_pos, new_dtype, new_model):
         print(f"Error: File not found at {path_to_file}")
 
 
-def unet(BREAK_POS_F16, BREAK_POS_F32 ):
+def create_next_test_dir(init_folder_name):
+    i = 0
+    while (os.path.isdir(f"{init_folder_name}_{i:02}")):
+        i+=1
+    folder_name = f"{init_folder_name}_{i:02}"
+    os.mkdir(f"{folder_name}")
+    print(f"dir created - {folder_name}")
+    return folder_name
+
+
+def write_subprocess_result_to_file(result, file_name):
+    with open(file_name, "w") as f:
+        print(result.stdout, file=f)
+        print(result.stderr, file=f)
+
+
+def unet(BREAK_POS_F16, BREAK_POS_F32):
     DTYPE_F32 = torch.float32
     DTYPE_F16 = torch.float16
-    folder_name = f"small_unet_graphs_rocm_{BREAK_POS_F16}_1"
-    os.mkdir(folder_name)
-    print(f"dir created - {folder_name}")
+    folder_name = create_next_test_dir(f"small_unet_graphs_rocm_{BREAK_POS_F16}")
     os.chdir(folder_name)
 
     # Replace values for FP32
@@ -63,9 +77,7 @@ def unet(BREAK_POS_F16, BREAK_POS_F32 ):
     command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet_cpu_f32_torch.py --hf_auth_token={HF_AUTH_KEY} --compile_to=torch --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet_fp32.safetensors --device=cpu --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=x86_64-unknown-unknown-eabi-elf --max_length=64 --precision="fp32"
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    with open("report_run_f32.txt", "w") as f:
-        print(result.stdout, file=f)
-        print(result.stderr, file=f)
+    write_subprocess_result_to_file(result, "report_run_f32.txt")
     end = dt.now()
     print(f"{end.strftime('%H:%M:%S.%f')} : F32 end\nElapsed{str(end-start)}")
 
@@ -75,33 +87,27 @@ def unet(BREAK_POS_F16, BREAK_POS_F32 ):
     start = dt.now() 
     print(f"{start.strftime('%H:%M:%S.%f')} : F16 Start")
     # Run FP16 command
-    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet.py --hf_auth_token={HF_AUTH_KEY} --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --max_length=64
+    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet.py --hf_auth_token={HF_AUTH_KEY} --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --max_length=64 --precision="fp16"
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    with open("report_run_f16.txt", "w") as f:
-        print(result.stdout, file=f)
-        print(result.stderr, file=f)
+    write_subprocess_result_to_file(result, "report_run_f16.txt")
     end = dt.now()
-    print(f"{end.strftime('%H:%M:%S.%f')} : F16 end\nElapsed{str(end-start)}")
+    print(f"{end.strftime('%H:%M:%S.%f')} : F16 end\nElapsed {str(end-start)}")
 
     # Run final command and save output/error to report.txt
     command = f"""python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/unet_runner.py --vmfb_path=stable_diffusion_xl_base_1_0_64_1024x1024_fp16_unet_rocm.vmfb --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xlv1p0_unet.safetensors --compare_vs_torch --hf_auth_token={HF_AUTH_KEY} --device=rocm --precision=fp16 --max_length=64
 """
-    print(result.stdout)
-    with open("report.txt", "w") as f:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        f.write(result.stdout)
-        f.write(result.stderr)
-    
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    write_subprocess_result_to_file(result, "report.txt")
+
     os.chdir("../")
 
 
-def vae(BREAK_POS_F16, BREAK_POS_F32 ):
+def vae(BREAK_POS_F16, BREAK_POS_F32):
     DTYPE_F32 = torch.float32
     DTYPE_F16 = torch.float16
-    folder_name = f"small_vae_graphs_rocm_{BREAK_POS_F16}_1"
-    os.mkdir(folder_name)
-    print(f"dir created - {folder_name}")
+    folder_name = create_next_test_dir(f"small_vae_graphs_rocm_{BREAK_POS_F16}")
+    # folder_name = create_next_test_dir(f"/mnt/dcgpuval/<your folder>/small_vae_graphs_rocm_{BREAK_POS_F16}")
     os.chdir(folder_name)
 
     # Replace values for FP32
@@ -113,11 +119,9 @@ def vae(BREAK_POS_F16, BREAK_POS_F32 ):
     command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae_cpu_f32_torch.py --compile_to=torch --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_fp32_vae_decode.safetensors --device=cpu --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=x86_64-unknown-unknown-eabi-elf --precision="fp32"
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    with open("report_run_f32.txt", "w") as f:
-        print(result.stdout, file=f)
-        print(result.stderr, file=f)
+    write_subprocess_result_to_file(result, "report_run_f32.txt")
     end = dt.now()
-    print(f"{end.strftime('%H:%M:%S.%f')} : F32 end\nElapsed{str(end-start)}")
+    print(f"{end.strftime('%H:%M:%S.%f')} : F32 end\nElapsed {str(end-start)}")
 
     # Replace values for FP16
     replace_values_in_file(PATH_TO_JITTABLE, BREAK_POS_F16, DTYPE_F16, "vae")
@@ -125,23 +129,18 @@ def vae(BREAK_POS_F16, BREAK_POS_F32 ):
     start = dt.now() 
     print(f"{start.strftime('%H:%M:%S.%f')} : F16 Start")
     # Run FP16 command
-    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae.py --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_vae_decode.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940
+    command = f"""time python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae.py --compile_to=vmfb --external_weights=safetensors --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_vae_decode.safetensors --device=rocm --hf_model_name="stabilityai/stable-diffusion-xl-base-1.0" --iree_target_triple=gfx940 --precision="fp16"
 """
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    with open("report_run_f16.txt", "w") as f:
-        print(result.stdout, file=f)
-        print(result.stderr, file=f)
+    write_subprocess_result_to_file(result, "report_run_f16.txt")
     end = dt.now()
-    print(f"{end.strftime('%H:%M:%S.%f')} : F16 end\nElapsed{str(end-start)}")
+    print(f"{end.strftime('%H:%M:%S.%f')} : F16 end\nElapsed {str(end-start)}")
 
     # Run final command and save output/error to report.txt
     command = f"""python {PATH_TO_SHARK_TURBINE}/models/turbine_models/custom_models/sdxl_inference/vae_runner.py --vmfb_path=stable_diffusion_xl_base_1_0_1024x1024_fp16_vae_decode_rocm.vmfb --external_weight_path={PATH_TO_SHARK_TURBINE}/stable_diffusion_xl_base_1_0_vae_decode.safetensors --compare_vs_torch --device=rocm --precision=fp16
 """
-    print(result.stdout)
-    with open("report.txt", "w") as f:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        f.write(result.stdout)
-        f.write(result.stderr)
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    write_subprocess_result_to_file(result, "report.txt")
     
     os.chdir("../")
 
@@ -154,7 +153,12 @@ if __name__ == "__main__":
     # unet(191, 188)
     # unet(189, 186)
     # unet(187, 184)
-    # transpose_4, transpose_5, transpose_6
-    unet(6,6)
+    # unet(195, 192)
 
-    # vae(11, 11)
+    # vae(36,36) #=> mm
+    vae(33, 33) # transpose
+    vae(41, 41) # mm
+    vae(46, 46) # mm
+    vae(43, 43) # add after mm
+    vae(48, 48) # add after mm
+    vae(38, 38) # add after mm 

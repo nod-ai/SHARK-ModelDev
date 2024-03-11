@@ -120,12 +120,12 @@ if __name__ == "__main__":
     else:
         dtype = torch.float32
         custom_vae = ""
-    if args.variant == "decode":
+    if args.vae_variant == "decode":
         '''example_input = torch.rand(
             args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
         )'''
         example_input = load_tensor_by_pattern("example_input_*_f16.pt")
-    elif args.variant == "encode":
+    elif args.vae_variant == "encode":
         example_input = torch.rand(
             args.batch_size, 3, args.height, args.width, dtype=dtype
         )
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         from turbine_models.custom_models.sd_inference import utils
 
         # torch_output = run_torch_vae(
-        #     args.hf_model_name, custom_vae, args.variant, example_input.float()
+        #     args.hf_model_name, custom_vae, args.vae_variant, example_input.float()
         # )
         torch_output_f32 = load_tensor_by_pattern('output_*_f32.npy', load_as_numpy=True)
         torch_output_f16 = load_tensor_by_pattern('output_*_f16.npy', load_as_numpy=True)
