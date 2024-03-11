@@ -63,7 +63,6 @@ def get_torch_models(args):
 
 
 def export_submodel(args, submodel):
-
     if not os.path.exists(args.pipeline_dir):
         os.makedirs(args.pipeline_dir)
 
@@ -186,12 +185,12 @@ def export_submodel(args, submodel):
 
 def generate_images(args, vmfbs: dict, weights: dict):
     print("Pipeline arguments: ", args)
-    #TODO: implement case where this is false e.g. in SDXL Turbo
+    # TODO: implement case where this is false e.g. in SDXL Turbo
 
     do_classifier_free_guidance = True
     iree_dtype = "float32" if args.precision == "fp32" else "float16"
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
-    
+
     pipe_start = time.time()
 
     pipe_runner = vmfbRunner(
@@ -202,7 +201,9 @@ def generate_images(args, vmfbs: dict, weights: dict):
     vae_decode_runner = vmfbRunner(
         args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
     )
-    prompt_encoder_runner = vmfbRunner(args.rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"])
+    prompt_encoder_runner = vmfbRunner(
+        args.rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
+    )
     tokenizer_1 = CLIPTokenizer.from_pretrained(
         args.hf_model_name,
         subfolder="tokenizer",
@@ -230,7 +231,11 @@ def generate_images(args, vmfbs: dict, weights: dict):
             generator=generator,
             dtype=torch_dtype,
         )
-        samples.append(ireert.asdevicearray(pipe_runner.config.device, rand_sample, dtype=iree_dtype))
+        samples.append(
+            ireert.asdevicearray(
+                pipe_runner.config.device, rand_sample, dtype=iree_dtype
+            )
+        )
 
     guidance_scale = ireert.asdevicearray(
         pipe_runner.config.device,
@@ -258,29 +263,33 @@ def generate_images(args, vmfbs: dict, weights: dict):
             max_length=max_length,
             truncation=True,
             return_tensors="pt",
-        )        
+        )
         text_input_ids = text_inputs.input_ids
         uncond_input_ids = uncond_input.input_ids
 
-        text_input_ids_list.extend([
-            ireert.asdevicearray(prompt_encoder_runner.config.device, text_input_ids)
-        ])
-        uncond_input_ids_list.extend([
-            ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids)
-        ])
+        text_input_ids_list.extend(
+            [ireert.asdevicearray(prompt_encoder_runner.config.device, text_input_ids)]
+        )
+        uncond_input_ids_list.extend(
+            [
+                ireert.asdevicearray(
+                    prompt_encoder_runner.config.device, uncond_input_ids
+                )
+            ]
+        )
 
-    prompt_embeds, add_text_embeds = prompt_encoder_runner.ctx.modules.compiled_clip["main"](
-        *text_input_ids_list, *uncond_input_ids_list
-    )
+    prompt_embeds, add_text_embeds = prompt_encoder_runner.ctx.modules.compiled_clip[
+        "main"
+    ](*text_input_ids_list, *uncond_input_ids_list)
 
     encode_prompts_end = time.time()
     numpy_images = []
     for i in range(args.batch_count):
         unet_start = time.time()
- 
-        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
-            samples[i], prompt_embeds, add_text_embeds, guidance_scale
-        )
+
+        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline[
+            "produce_image_latents"
+        ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
 
         vae_start = time.time()
         vae_out = vae_decode_runner.ctx.modules.compiled_vae["main"](latents)
@@ -288,23 +297,43 @@ def generate_images(args, vmfbs: dict, weights: dict):
         pipe_end = time.time()
 
         image = (
-            torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
+            torch.from_numpy(vae_out.to_host())
+            .cpu()
+            .permute(0, 2, 3, 1)
+            .float()
+            .numpy()
         )
 
         numpy_images.append(image)
-        print("Batch #", i+1, "\n")
-        print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
+        print("Batch #", i + 1, "\n")
+        print(
+            "UNet time(",
+            args.num_inference_steps,
+            "): ",
+            vae_start - unet_start,
+            "sec,",
+        )
         print(
             "Unet average step latency: ",
             (vae_start - unet_start) / args.num_inference_steps,
             "sec",
         )
         print("VAE time: ", pipe_end - vae_start, "sec")
-        print(f"\nTotal time (txt2img, batch #{str(i+1)}): ", (encode_prompts_end - encode_prompts_start) + (pipe_end - unet_start), "sec\n")
+        print(
+            f"\nTotal time (txt2img, batch #{str(i+1)}): ",
+            (encode_prompts_end - encode_prompts_start) + (pipe_end - unet_start),
+            "sec\n",
+        )
     end = time.time()
-    print("Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec")
+    print(
+        "Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec"
+    )
     print("Loading time: ", encode_prompts_start - pipe_start, "sec")
-    print(f"Total inference time ({args.batch_count} batch(es)):", end - encode_prompts_start, "sec")
+    print(
+        f"Total inference time ({args.batch_count} batch(es)):",
+        end - encode_prompts_start,
+        "sec",
+    )
 
     for image in numpy_images:
         image = numpy_to_pil_image(image)
@@ -312,7 +341,6 @@ def generate_images(args, vmfbs: dict, weights: dict):
         img_path = "sdxl_output_" + timestamp + ".png"
         image[0].save(img_path)
         print(img_path, "saved")
-
 
 
 def numpy_to_pil_image(images):
@@ -365,7 +393,8 @@ def is_prepared(args, vmfbs, weights):
         return False, vmfbs, weights
     else:
         return True, vmfbs, weights
-    
+
+
 def check_prepared(args, vmfbs, weights):
     ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
     if not ready:
@@ -391,6 +420,7 @@ def check_prepared(args, vmfbs, weights):
     else:
         print("All necessary files found. Generating images.")
     return vmfbs, weights
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args

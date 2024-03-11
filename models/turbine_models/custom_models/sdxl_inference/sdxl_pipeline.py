@@ -67,7 +67,6 @@ def get_torch_models(args):
 
 
 def export_submodel(args, submodel):
-
     if not os.path.exists(args.pipeline_dir):
         os.makedirs(args.pipeline_dir)
 
@@ -208,14 +207,14 @@ def export_submodel(args, submodel):
 
 def generate_images(args, vmfbs: dict, weights: dict):
     print("Pipeline arguments: ", args)
-    #TODO: implement case where this is false e.g. in SDXL Turbo
+    # TODO: implement case where this is false e.g. in SDXL Turbo
     do_classifier_free_guidance = True
     pipe_start = time.time()
     iree_dtype = "float32" if args.precision == "fp32" else "float16"
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
 
     all_imgs = []
-    
+
     samples = []
     for i in range(args.batch_count):
         generator = torch.manual_seed(args.seed + i)
@@ -258,11 +257,9 @@ def generate_images(args, vmfbs: dict, weights: dict):
     prompt_embeds_list = []
     negative_prompt_embeds_list = []
 
-
     max_length = args.max_length
 
     encode_prompts_start = time.time()
-
 
     for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
         text_inputs = tokenizer(
@@ -298,9 +295,6 @@ def generate_images(args, vmfbs: dict, weights: dict):
         pooled_prompt_embeds = torch.from_numpy(text_encoder_output[1].to_host())
 
         prompt_embeds_list.append(prompt_embeds)
-
-
-    
 
     for negative_prompt, tokenizer, text_encoder in zip(
         uncond_tokens, tokenizers, text_encoders
@@ -347,7 +341,9 @@ def generate_images(args, vmfbs: dict, weights: dict):
         negative_prompt_embeds = negative_prompt_embeds.repeat(1, 1, 1)
         negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * 1, seq_len, -1)
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-        add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
+        add_text_embeds = torch.cat(
+            [negative_pooled_prompt_embeds, add_text_embeds], dim=0
+        )
 
     add_text_embeds = add_text_embeds.to(torch_dtype)
     prompt_embeds = prompt_embeds.to(torch_dtype)
@@ -375,8 +371,9 @@ def generate_images(args, vmfbs: dict, weights: dict):
     for i in range(args.batch_count):
         unet_start = time.time()
 
- 
-        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
+        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline[
+            "produce_image_latents"
+        ](
             *unet_inputs,
         )
 
@@ -386,24 +383,44 @@ def generate_images(args, vmfbs: dict, weights: dict):
         pipe_end = time.time()
 
         image = (
-            torch.from_numpy(vae_out.to_host()).cpu().permute(0, 2, 3, 1).float().numpy()
+            torch.from_numpy(vae_out.to_host())
+            .cpu()
+            .permute(0, 2, 3, 1)
+            .float()
+            .numpy()
         )
 
         numpy_images.append(image)
-        print("Batch #", i+1, "\n")
-        print("UNet time(", args.num_inference_steps, "): ", vae_start - unet_start, "sec,")
+        print("Batch #", i + 1, "\n")
+        print(
+            "UNet time(",
+            args.num_inference_steps,
+            "): ",
+            vae_start - unet_start,
+            "sec,",
+        )
         print(
             "Unet average step latency: ",
             (vae_start - unet_start) / args.num_inference_steps,
             "sec",
         )
         print("VAE time: ", pipe_end - vae_start, "sec")
-        print(f"\nTotal time (txt2img, batch #{str(i+1)}): ", (send_unet_inputs - encode_prompts_start) + (pipe_end - unet_start), "sec\n")
+        print(
+            f"\nTotal time (txt2img, batch #{str(i+1)}): ",
+            (send_unet_inputs - encode_prompts_start) + (pipe_end - unet_start),
+            "sec\n",
+        )
     end = time.time()
-    print("Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec")
+    print(
+        "Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec"
+    )
     print("Send UNet inputs to device:", send_unet_inputs - encode_prompts_end, "sec")
     print("Loading time: ", encode_prompts_start - pipe_start, "sec")
-    print(f"Total inference time ({args.batch_count} batch(es)):", end - encode_prompts_start, "sec")
+    print(
+        f"Total inference time ({args.batch_count} batch(es)):",
+        end - encode_prompts_start,
+        "sec",
+    )
 
     for image in numpy_images:
         image = numpy_to_pil_image(image)
@@ -411,7 +428,6 @@ def generate_images(args, vmfbs: dict, weights: dict):
         img_path = "sdxl_output_" + timestamp + ".png"
         image[0].save(img_path)
         print(img_path, "saved")
-
 
 
 def numpy_to_pil_image(images):
@@ -465,6 +481,7 @@ def is_prepared(args, vmfbs, weights):
     else:
         return True, vmfbs, weights
 
+
 def check_prepared(args, vmfbs, weights):
     ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
     if not ready:
@@ -490,6 +507,7 @@ def check_prepared(args, vmfbs, weights):
     else:
         print("All necessary files found. Generating images.")
     return vmfbs, weights
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args

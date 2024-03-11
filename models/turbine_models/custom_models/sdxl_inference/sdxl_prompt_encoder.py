@@ -70,8 +70,10 @@ class PromptEncoderModule(torch.nn.Module):
     #         return_tensors="pt",
     #     ).input_ids
     #     return text_input_ids_1, uncond_input_ids_1, text_input_ids_2, uncond_input_ids_2
-    
-    def forward(self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2):
+
+    def forward(
+        self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
+    ):
         with torch.no_grad():
             prompt_embeds_1 = self.text_encoder_model_1(
                 text_input_ids_1,
@@ -93,8 +95,14 @@ class PromptEncoderModule(torch.nn.Module):
             pooled_prompt_embeds = prompt_embeds_2[0]
             neg_pooled_prompt_embeds = neg_prompt_embeds_2[0]
 
-            prompt_embeds_list = [prompt_embeds_1.hidden_states[-2], prompt_embeds_2.hidden_states[-2]]
-            neg_prompt_embeds_list = [neg_prompt_embeds_1.hidden_states[-2], neg_prompt_embeds_2.hidden_states[-2]]
+            prompt_embeds_list = [
+                prompt_embeds_1.hidden_states[-2],
+                prompt_embeds_2.hidden_states[-2],
+            ]
+            neg_prompt_embeds_list = [
+                neg_prompt_embeds_1.hidden_states[-2],
+                neg_prompt_embeds_2.hidden_states[-2],
+            ]
 
             prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
             neg_prompt_embeds = torch.concat(neg_prompt_embeds_list, dim=-1)
@@ -103,16 +111,18 @@ class PromptEncoderModule(torch.nn.Module):
 
             prompt_embeds = prompt_embeds.repeat(1, 1, 1)
             prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
-            pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(bs_embed * 1, -1)
+            pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
+                bs_embed * 1, -1
+            )
             add_text_embeds = pooled_prompt_embeds
 
-            neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
-                1, -1
-            )
+            neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(1, -1)
             neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
             neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
             prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
-            add_text_embeds = torch.cat([neg_pooled_prompt_embeds, add_text_embeds], dim=0)
+            add_text_embeds = torch.cat(
+                [neg_pooled_prompt_embeds, add_text_embeds], dim=0
+            )
 
             add_text_embeds = add_text_embeds.to(self.torch_dtype)
             prompt_embeds = prompt_embeds.to(self.torch_dtype)
@@ -168,13 +178,15 @@ def export_prompt_encoder(
             params = export_parameters(prompt_encoder_module)
 
         def main(
-                self,
-                t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
-                t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
-                uc_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
-                uc_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
-            ):
-            return jittable(prompt_encoder_module.forward)(t_ids_1, t_ids_2, uc_ids_1, uc_ids_2)
+            self,
+            t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
+            t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
+            uc_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
+            uc_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
+        ):
+            return jittable(prompt_encoder_module.forward)(
+                t_ids_1, t_ids_2, uc_ids_1, uc_ids_2
+            )
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
