@@ -1,7 +1,6 @@
 name: SDXL Models Nightly
 
 on:
-  pull_request:
   schedule:
     - cron:  '30 6 * * *'
 
