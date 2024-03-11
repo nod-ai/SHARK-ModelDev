@@ -219,7 +219,7 @@ def generate_images(args, vmfbs: dict, weights: dict):
 
     samples = []
     for i in range(args.batch_count):
-        generator = torch.manual_seed(0)
+        generator = torch.manual_seed(args.seed + i)
         rand_sample = torch.randn(
             (
                 args.batch_size,
