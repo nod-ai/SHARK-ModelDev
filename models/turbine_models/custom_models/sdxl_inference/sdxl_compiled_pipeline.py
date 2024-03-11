@@ -147,7 +147,7 @@ def export_submodel(args, submodel):
             )
             return vae_decode_vmfb, vae_external_weight_path
         case "prompt_encoder":
-            prompt_encoder_vmfb, _ = sdxl_prompt_encoder.export_prompt_encoder(
+            _, prompt_encoder_vmfb = sdxl_prompt_encoder.export_prompt_encoder(
                 args.hf_model_name,
                 None,
                 args.max_length,
