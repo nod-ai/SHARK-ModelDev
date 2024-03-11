@@ -465,6 +465,31 @@ def is_prepared(args, vmfbs, weights):
     else:
         return True, vmfbs, weights
 
+def check_prepared(args, vmfbs, weights):
+    ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
+    if not ready:
+        do_continue = input(
+            f"\nIt seems you are missing some necessary files. Would you like to generate them now? (y/n)"
+        )
+        if do_continue.lower() != "y":
+            exit()
+        elif do_continue == "y":
+            for submodel in vmfbs.keys():
+                if vmfbs[submodel] == None:
+                    vmfb, weight = export_submodel(args, submodel)
+                    vmfbs[submodel] = vmfb
+                    if weights[submodel] is None:
+                        weights[submodel] = weight
+            ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
+            if ready:
+                print("All necessary files found. Generating images.")
+                return vmfbs, weights
+            else:
+                print("There was an error generating the necessary files.")
+                exit()
+    else:
+        print("All necessary files found. Generating images.")
+    return vmfbs, weights
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
@@ -498,19 +523,6 @@ if __name__ == "__main__":
         )
     if not args.external_weights_dir and args.external_weights:
         args.external_weights_dir = args.pipeline_dir
-    ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
-    if not ready:
-        do_continue = input(
-            f"\nIt seems you are missing some necessary files. Would you like to generate them now? (y/n)"
-        )
-        if do_continue.lower() != "y":
-            exit()
-        elif do_continue == "y":
-            for submodel in vmfbs.keys():
-                if vmfbs[submodel] == None:
-                    vmfb, weight = export_submodel(args, submodel)
-                    vmfbs[submodel] = vmfb
-                    if weights[submodel] is None:
-                        weights[submodel] = weight
+    vmfbs, weights = check_prepared(args, vmfbs, weights)
     generate_images(args, vmfbs, weights)
     print("Image generation complete.")
