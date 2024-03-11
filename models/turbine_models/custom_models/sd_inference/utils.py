@@ -42,8 +42,7 @@ def compile_to_vmfb(
     mlir_source="str",
     max_alloc="4294967296",
 ):
-    flags = [
-    ]
+    flags = []
     if target_triple in ["", None] and "triple" not in ireec_flags:
         raise ValueError(
             "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
