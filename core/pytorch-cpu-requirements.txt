@@ -1,2 +1,2 @@
 --pre
-torch==2.3.0.dev20240306+cpu
+torch==2.3.0.dev20240306
