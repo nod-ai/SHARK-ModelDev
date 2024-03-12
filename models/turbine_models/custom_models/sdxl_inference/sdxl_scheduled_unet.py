@@ -38,9 +38,13 @@ class SDXLScheduledUnet(torch.nn.Module):
         super().__init__()
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
+        if scheduler_id == "PNDM":
+            num_inference_steps = num_inference_steps - 1
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
         self.return_index = return_index
+        if "Euler" in scheduler_id:
+            self.scheduler._step_index = torch.tensor(0, dtype=torch.float16)
 
         if precision == "fp16":
             try:
@@ -77,7 +81,7 @@ class SDXLScheduledUnet(torch.nn.Module):
         add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
         add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
-        step_indexes = torch.tensor(len(timesteps) - 1)
+        step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.scheduler.init_noise_sigma
         return sample.type(self.dtype), add_time_ids, step_indexes
 
@@ -106,10 +110,6 @@ class SDXLScheduledUnet(torch.nn.Module):
                 noise_pred_text - noise_pred_uncond
             )
             sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-            step_index = step_index + 1
-        if self.return_index:
-            return sample.type(self.dtype), step_index
-        else:
             return sample.type(self.dtype)
 
 
