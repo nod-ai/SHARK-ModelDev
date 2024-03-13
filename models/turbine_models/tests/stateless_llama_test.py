@@ -23,34 +23,6 @@ from turbine_models.gen_external_params.gen_external_params import (
     gen_external_params,
 )
 
-quantization = "unquantized"
-precision = "f32"
-gen_external_params(
-    hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-    quantization=quantization,
-    hf_auth_token=None,
-    precision=precision,
-)
-DEFAULT_PROMPT = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
-"""
-
-tokenizer = AutoTokenizer.from_pretrained(
-    "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-    use_fast=False,
-)
-
-# The model is first created on the Meta device (with empty weights) and the state dict
-# is then loaded inside it (shard by shard in the case of a sharded checkpoint).
-# This avoids using twice the size of model with creating whole model with random weights,
-# then loading pretrained weights.
-mod = AutoModelForCausalLM.from_pretrained(
-    "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-    torch_dtype=torch.float,
-    low_cpu_mem_usage=True,
-    device_map="auto",
-)
-
 
 def check_output_string(reference, output):
     # Calculate and print diff
@@ -64,7 +36,45 @@ def check_output_string(reference, output):
     assert reference == output, "".join(diff)
 
 
+quantization = "unquantized"
+precision = "f32"
+
+DEFAULT_PROMPT = """<s>[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
+"""
+
+
 class StatelessLlamaChecks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        gen_external_params(
+            hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+            quantization=quantization,
+            hf_auth_token=None,
+            precision=precision,
+        )
+
+        cls.tokenizer = AutoTokenizer.from_pretrained(
+            "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+            use_fast=False,
+        )
+
+        # The model is first created on the Meta device (with empty weights) and the state dict
+        # is then loaded inside it (shard by shard in the case of a sharded checkpoint).
+        # This avoids using twice the size of model with creating whole model with random weights,
+        # then loading pretrained weights.
+        cls.mod = AutoModelForCausalLM.from_pretrained(
+            "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+            torch_dtype=torch.float,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tokenizer = None
+        cls.mod = None
+
     def test_vmfb_comparison(self):
         """
         Test that the vmfb model produces the same output as the torch model
@@ -87,8 +97,8 @@ class StatelessLlamaChecks(unittest.TestCase):
             device="llvm-cpu",
             target_triple="host",
             upload_ir=upload_ir_var == "upload",
-            mod=mod,
-            tokenizer=tokenizer,
+            mod=self.mod,
+            tokenizer=self.tokenizer,
         )
 
         torch_str_cache_path = (
@@ -102,9 +112,9 @@ class StatelessLlamaChecks(unittest.TestCase):
             torch_str = llm_runner.run_torch_llm(
                 "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
                 None,
-                DEFAULT_PROMPT,
-                model=mod,
-                tokenizer=tokenizer,
+                self.DEFAULT_PROMPT,
+                model=self.mod,
+                tokenizer=self.tokenizer,
             )
 
             with open(torch_str_cache_path, "w") as f:
@@ -117,7 +127,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
-            tokenizer=tokenizer,
+            tokenizer=self.tokenizer,
         )
         check_output_string(torch_str, turbine_str)
 
@@ -137,8 +147,8 @@ class StatelessLlamaChecks(unittest.TestCase):
             target_triple="host",
             streaming_llm=True,
             vmfb_path="streaming_llama.vmfb",
-            mod=mod,
-            tokenizer=tokenizer,
+            mod=self.mod,
+            tokenizer=self.tokenizer,
         )
 
         torch_str_cache_path = (
@@ -154,8 +164,8 @@ class StatelessLlamaChecks(unittest.TestCase):
                 None,
                 DEFAULT_PROMPT,
                 streaming_llm=True,
-                model=mod,
-                tokenizer=tokenizer,
+                model=self.mod,
+                tokenizer=self.tokenizer,
             )
 
             with open(torch_str_cache_path, "w") as f:
@@ -169,7 +179,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             None,
             f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
             streaming_llm=True,
-            tokenizer=tokenizer,
+            tokenizer=self.tokenizer,
         )
         check_output_string(torch_str, turbine_str)
 
@@ -178,16 +188,16 @@ class StatelessLlamaChecks(unittest.TestCase):
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             DEFAULT_PROMPT,
-            model=mod,
-            tokenizer=tokenizer,
+            model=self.mod,
+            tokenizer=self.tokenizer,
         )
         rotated_torch_str = llm_runner.run_torch_llm(
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             None,
             DEFAULT_PROMPT,
             streaming_llm=True,
-            model=mod,
-            tokenizer=tokenizer,
+            model=self.mod,
+            tokenizer=self.tokenizer,
         )
         check_output_string(torch_str, rotated_torch_str)
 
