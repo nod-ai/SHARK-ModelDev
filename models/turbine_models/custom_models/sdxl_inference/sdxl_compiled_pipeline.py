@@ -334,11 +334,10 @@ def generate_images(args, vmfbs: dict, weights: dict):
         end - encode_prompts_start,
         "sec",
     )
-
-    for image in numpy_images:
+    timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+    for idx, image in enumerate(numpy_images):
         image = numpy_to_pil_image(image)
-        timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
-        img_path = "sdxl_output_" + timestamp + ".png"
+        img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
         image[0].save(img_path)
         print(img_path, "saved")
 

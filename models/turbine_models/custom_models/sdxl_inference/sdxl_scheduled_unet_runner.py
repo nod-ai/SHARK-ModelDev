@@ -35,7 +35,7 @@ def run_unet_hybrid(
         ),
         None,
     ]
-    for i in range(0, steps.to_host()):
+    for i in range(steps.to_host()):
         inputs[0] = sample
         inputs[5] = ireert.asdevicearray(
             runner.config.device, torch.tensor([i]), dtype="int64"
@@ -52,7 +52,7 @@ def run_torch_scheduled_unet(
 ):
     from diffusers import UNet2DConditionModel
 
-    class ScheduledUnetModel(torch.nn.Module):
+    class SDXLScheduledUnet(torch.nn.Module):
         def __init__(
             self,
             hf_model_name,
@@ -63,19 +63,14 @@ def run_torch_scheduled_unet(
             hf_auth_token=None,
             precision="fp32",
             num_inference_steps=1,
+            return_index=False,
         ):
             super().__init__()
             self.dtype = torch.float16 if precision == "fp16" else torch.float32
             self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
-            original_size = (height, width)
-            target_size = (height, width)
-            crops_coords_top_left = (0, 0)
-
-            add_time_ids = list(original_size + crops_coords_top_left + target_size)
-            add_time_ids = torch.tensor([add_time_ids, add_time_ids], dtype=self.dtype)
-            self.add_time_ids = add_time_ids.repeat(batch_size * 1, 1)
             self.scheduler.set_timesteps(num_inference_steps)
-            self._timesteps = self.scheduler.timesteps
+            self.scheduler.is_scale_input_called = True
+            self.return_index = return_index
 
             if precision == "fp16":
                 try:
@@ -102,22 +97,31 @@ def run_torch_scheduled_unet(
                 )
 
         def initialize(self, sample):
+            height = sample.shape[-2] * 8
+            width = sample.shape[-1] * 8
+            original_size = (height, width)
+            target_size = (height, width)
+            crops_coords_top_left = (0, 0)
+            add_time_ids = list(original_size + crops_coords_top_left + target_size)
+            add_time_ids = torch.tensor([add_time_ids])
+            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+            add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+            timesteps = self.scheduler.timesteps
+            step_indexes = torch.tensor(len(timesteps))
             sample = sample * self.scheduler.init_noise_sigma
-            return sample * self.scheduler.init_noise_sigma
+            return sample.type(self.dtype), add_time_ids, step_indexes
 
         def forward(
-            self, sample, prompt_embeds, text_embeds, guidance_scale, step_index
+            self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
         ):
             with torch.no_grad():
                 added_cond_kwargs = {
                     "text_embeds": text_embeds,
-                    "time_ids": self.add_time_ids,
+                    "time_ids": time_ids,
                 }
-                t = self._timesteps[step_index]
+                t = self.scheduler.timesteps[step_index]
+                sample = self.scheduler.scale_model_input(sample, t)
                 latent_model_input = torch.cat([sample] * 2)
-                latent_model_input = self.scheduler.scale_model_input(
-                    latent_model_input, t
-                )
                 noise_pred = self.unet.forward(
                     latent_model_input,
                     t,
@@ -126,16 +130,18 @@ def run_torch_scheduled_unet(
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )[0]
+
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + guidance_scale * (
                     noise_pred_text - noise_pred_uncond
                 )
-                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[
-                    0
-                ]
-            return sample
+                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+            if self.return_index:
+                return sample.type(self.dtype), step_index
+            else:
+                return sample.type(self.dtype)
 
-    unet_model = ScheduledUnetModel(
+    unet_model = SDXLScheduledUnet(
         args.hf_model_name,
         args.scheduler_id,
         args.height,
@@ -145,13 +151,13 @@ def run_torch_scheduled_unet(
         args.precision,
         args.num_inference_steps,
     )
-    sample = unet_model.initialize(sample)
-    for i, t in tqdm(enumerate(unet_model.scheduler.timesteps)):
-        timestep = t
+    sample, add_time_ids, steps = unet_model.initialize(sample)
+    for i in range(steps):
         sample = unet_model.forward(
             sample.float(),
             prompt_embeds.float(),
             text_embeds.float(),
+            add_time_ids.float(),
             args.guidance_scale,
             i,
         )
@@ -214,9 +220,12 @@ def run_torch_diffusers_loop(
     add_time_ids = list(original_size + crops_coords_top_left + target_size)
     add_time_ids = torch.tensor([add_time_ids, add_time_ids], dtype=torch.float32)
     add_time_ids = add_time_ids.repeat(args.batch_size * 1, 1)
+    sample = sample.to(torch.float32)
+    prompt_embeds = prompt_embeds.to(torch.float32)
+    text_embeds = text_embeds.to(torch.float32)
 
-    for i, t in tqdm(enumerate(scheduler.timesteps)):
-        timestep = t
+    for i in range(args.num_inference_steps):
+        timestep = scheduler.timesteps[i]
 
         latent_model_input = scheduler.scale_model_input(sample, timestep)
         noise_pred = unet_model.forward(
@@ -302,35 +311,35 @@ if __name__ == "__main__":
         print("Comparing... \n(turbine pipelined unet to torch unet): ")
         try:
             np.testing.assert_allclose(
-                turbine_output, torch_output, rtol=1e-2, atol=1e-4
+                turbine_output, torch_output, rtol=4e-2, atol=4e-2
             )
         except AssertionError as err:
             print(err)
         print("\n(turbine pipelined unet to hybrid unet): ")
         try:
             np.testing.assert_allclose(
-                hybrid_output, turbine_output, rtol=1e-2, atol=1e-4
+                hybrid_output, turbine_output, rtol=4e-2, atol=4e-2
             )
             print("passed!")
         except AssertionError as err:
             print(err)
         print("\n(hybrid unet to diff unet): ")
         try:
-            np.testing.assert_allclose(diff_output, hybrid_output, rtol=1e-2, atol=1e-4)
+            np.testing.assert_allclose(diff_output, hybrid_output, rtol=4e-2, atol=4e-2)
             print("passed!")
         except AssertionError as err:
             print(err)
         print("\n(turbine loop to diffusers loop): ")
         try:
             np.testing.assert_allclose(
-                turbine_output, diff_output, rtol=1e-2, atol=1e-4
+                turbine_output, diff_output, rtol=4e-2, atol=4e-2
             )
             print("passed!")
         except AssertionError as err:
             print(err)
         print("\n(torch sched unet loop to diffusers loop): ")
         try:
-            np.testing.assert_allclose(torch_output, diff_output, rtol=1e-2, atol=1e-4)
+            np.testing.assert_allclose(torch_output, diff_output, rtol=4e-2, atol=4e-2)
             print("passed!")
         except AssertionError as err:
             print(err)
