@@ -58,7 +58,7 @@ p.add_argument(
 p.add_argument(
     "--prompt",
     type=str,
-    default="A very fast car leaving a trail of fire as it screams along a mountain road, old school racing animation, retro 1980s anime style, 4k",
+    default="A very fast car leaving a trail of fire as it screams along a mountain road, old school racing animation, retro 1980s anime style, 4k, motion blur, action shot, semi-realistic, nightwave, neon, tokyo",
     help="Prompt input to stable diffusion.",
 )
 
