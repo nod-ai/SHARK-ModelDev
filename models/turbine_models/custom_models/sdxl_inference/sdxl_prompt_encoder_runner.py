@@ -63,9 +63,9 @@ def run_prompt_encoder(
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[1]),
     ]
-    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip[
-        "main"
-    ](*prompt_encoder_inputs)
+    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip["main"](
+        *prompt_encoder_inputs
+    )
     del prompt_encoder_inputs
     return encoded_outputs
 
@@ -108,31 +108,39 @@ if __name__ == "__main__":
 
         text_input_ids_list.extend([text_input_ids])
         uncond_input_ids_list.extend([uncond_input_ids])
-    
+
     turbine_output1, turbine_output2 = run_prompt_encoder(
         args,
         text_input_ids_list,
         uncond_input_ids_list,
     )
     print(
-        "TURBINE OUTPUT 1:", turbine_output1, turbine_output1.shape, turbine_output1.dtype
+        "TURBINE OUTPUT 1:",
+        turbine_output1,
+        turbine_output1.shape,
+        turbine_output1.dtype,
     )
 
     print(
-        "TURBINE OUTPUT 2:", turbine_output2, turbine_output2.shape, turbine_output2.dtype
+        "TURBINE OUTPUT 2:",
+        turbine_output2,
+        turbine_output2.shape,
+        turbine_output2.dtype,
     )
 
     if args.compare_vs_torch:
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
-        from turbine_models.custom_models.sdxl_inference.sdxl_prompt_encoder import PromptEncoderModule
+        from turbine_models.custom_models.sdxl_inference.sdxl_prompt_encoder import (
+            PromptEncoderModule,
+        )
 
         torch_encoder_model = PromptEncoderModule(
-            args.hf_model_name,
-            args.precision,
-            args.hf_auth_token
+            args.hf_model_name, args.precision, args.hf_auth_token
         )
-        torch_output1, torch_output2 = torch_encoder_model.forward(*text_input_ids_list, *uncond_input_ids_list)
+        torch_output1, torch_output2 = torch_encoder_model.forward(
+            *text_input_ids_list, *uncond_input_ids_list
+        )
         np.save("torch_output1.npy", torch_output1)
         np.save("torch_output2.npy", torch_output2)
         print(
