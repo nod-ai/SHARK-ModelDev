@@ -87,8 +87,34 @@ def export_unet_model(
     target_triple=None,
     ireec_flags=None,
     decomp_attn=False,
+    exit_on_vmfb=False,
     attn_spec=None,
+    input_mlir=None,
 ):
+    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+        )
+    elif decomp_attn:
+        attn_spec = None
+
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
+    )
+
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            mlir_source="file",
+            return_path=not exit_on_vmfb,
+            attn_spec=attn_spec,
+        )
+        return vmfb_path
+
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
     if decomp_attn == True:
@@ -138,21 +164,10 @@ def export_unet_model(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
 
-    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-    )
-    elif decomp_attn:
-        attn_spec = None
-
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
-    )
+
     if compile_to != "vmfb":
         return module_str
-    elif os.path.isfile(safe_name + ".vmfb"):
-        exit()
     else:
         utils.compile_to_vmfb(
             module_str,

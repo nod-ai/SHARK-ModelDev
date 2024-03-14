@@ -142,7 +142,26 @@ def export_prompt_encoder(
     ireec_flags=None,
     exit_on_vmfb=True,
     pipeline_dir=None,
+    input_mlir=None,
 ):
+    if pipeline_dir not in [None, ""]:
+        safe_name = os.path.join(pipeline_dir, "prompt_encoder")
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"-{str(max_length)}-{precision}-prompt-encoder-{device}"
+        )
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            mlir_source="file",
+            return_path=not exit_on_vmfb,
+            const_expr_hoisting=True,
+        )
+        return vmfb_path
     # Load the tokenizer and text encoder to tokenize and encode the text.
     tokenizer_1 = CLIPTokenizer.from_pretrained(
         hf_model_name,
@@ -193,16 +212,8 @@ def export_prompt_encoder(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
 
-    if pipeline_dir not in [None, ""]:
-        safe_name = os.path.join(pipeline_dir, "prompt_encoder")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, f"-{str(max_length)}-{precision}-prompt-encoder-{device}"
-        )
     if compile_to != "vmfb":
         return module_str, tokenizers
-    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
-        exit()
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,

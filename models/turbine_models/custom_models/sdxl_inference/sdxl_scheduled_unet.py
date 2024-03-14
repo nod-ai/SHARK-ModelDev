@@ -134,7 +134,37 @@ def export_scheduled_unet_model(
     exit_on_vmfb=False,
     pipeline_dir=None,
     attn_spec=None,
+    input_mlir=None,
 ):
+    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+        )
+    elif decomp_attn:
+        attn_spec = None
+
+    if pipeline_dir:
+        safe_name = os.path.join(
+            pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
+        )
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name,
+            f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
+        )
+
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            iree_target_triple,
+            ireec_flags,
+            safe_name,
+            return_path=not exit_on_vmfb,
+            attn_spec=attn_spec,
+        )
+        return vmfb_path
+
     mapper = {}
 
     decomp_list = DEFAULT_DECOMPOSITIONS
@@ -200,26 +230,8 @@ def export_scheduled_unet_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
 
-    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-    )
-    elif decomp_attn:
-        attn_spec = None
-
-    if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
-        )
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
-        )
     if compile_to != "vmfb":
         return module_str
-    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
-        exit()
     elif compile_to == "vmfb":
         vmfb = utils.compile_to_vmfb(
             module_str,

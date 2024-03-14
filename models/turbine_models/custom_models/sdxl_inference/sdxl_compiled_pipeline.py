@@ -62,11 +62,11 @@ def get_torch_models(args):
     return scheduled_unet_torch, vae_torch
 
 
-def export_submodel(args, submodel):
+def export_submodel(args, submodel, input_mlir):
     if not os.path.exists(args.pipeline_dir):
         os.makedirs(args.pipeline_dir)
-
-    scheduled_unet_torch, vae_torch = get_torch_models(args)
+    if input_mlir is None and submodel in ["scheduled_unet", "vae_decode"]:
+        scheduled_unet_torch, vae_torch = get_torch_models(args)
     if args.external_weights_dir:
         if not os.path.exists(args.external_weights_dir):
             os.makedirs(args.external_weights_dir, exist_ok=True)
@@ -125,6 +125,7 @@ def export_submodel(args, submodel):
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
                 attn_spec=args.attn_spec,
+                input_mlir=mlirs["scheduled_unet"],
             )
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
@@ -146,6 +147,7 @@ def export_submodel(args, submodel):
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
                 attn_spec=args.attn_spec,
+                input_mlir=mlirs["vae_decode"],
             )
             return vae_decode_vmfb, vae_external_weight_path
         case "prompt_encoder":
@@ -162,6 +164,7 @@ def export_submodel(args, submodel):
                 args.ireec_flags + args.clip_flags,
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
+                input_mlir=mlirs["prompt_encoder"],
             )
             return prompt_encoder_vmfb, prompt_encoder_external_weight_path
         case "pipeline":
@@ -396,7 +399,7 @@ def is_prepared(args, vmfbs, weights):
         return True, vmfbs, weights
 
 
-def check_prepared(args, vmfbs, weights):
+def check_prepared(args, vmfbs, weights, mlirs):
     ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
     if not ready:
         do_continue = input(
@@ -406,8 +409,11 @@ def check_prepared(args, vmfbs, weights):
             exit()
         elif do_continue.lower() == "y":
             for submodel in vmfbs.keys():
+                mlir_path = os.path.join(args.pipeline_dir, submodel + ".mlir")
                 if vmfbs[submodel] == None:
-                    vmfb, weight = export_submodel(args, submodel)
+                    vmfb, weight = export_submodel(
+                        args, submodel, input_mlir=mlirs[submodel]
+                    )
                     vmfbs[submodel] = vmfb
                     if weights[submodel] is None:
                         weights[submodel] = weight
@@ -425,9 +431,28 @@ def check_prepared(args, vmfbs, weights):
     return vmfbs, weights
 
 
+def get_mlir_from_turbine_tank(args, submodel, container_name):
+    from turbine_models.turbine_tank import downloadModelArtifacts
+
+    safe_name = utils.create_safe_name(
+        args.hf_model_name,
+        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_{submodel}.mlir",
+    )
+    mlir_path = downloadModelArtifacts(
+        safe_name,
+        container_name,
+    )
+    return mlir_path
+
+
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
 
+    mlirs = {
+        "vae_decode": None,
+        "prompt_encoder": None,
+        "scheduled_unet": None,
+    }
     vmfbs = {
         "vae_decode": None,
         "prompt_encoder": None,
@@ -440,6 +465,7 @@ if __name__ == "__main__":
         "scheduled_unet": None,
         "pipeline": None,
     }
+
     if not args.pipeline_dir:
         pipe_id_list = [
             "sdxl_1_0",
@@ -453,9 +479,23 @@ if __name__ == "__main__":
             ".",
             "_".join(pipe_id_list),
         )
+
+    user_mlir_list = args.input_mlir.split(",")
+    for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
+        if submodel_id in mlir_path:
+            mlirs[submodel_id] = mlir_path
+        elif args.download_mlir:
+            if args.container_name not in [None, ""]:
+                container_name = args.container_name
+            else:
+                container_name = os.environ.get("AZURE_CONTAINER_NAME")
+            mlirs[submodel_id] = get_mlir_from_turbine_tank(
+                args, submodel_id, container_name
+            )
+
     if not args.external_weights_dir and args.external_weights:
         args.external_weights_dir = args.pipeline_dir
-    vmfbs, weights = check_prepared(args, vmfbs, weights)
+    vmfbs, weights = check_prepared(args, mlirs, vmfbs, weights)
 
     generate_images(args, vmfbs, weights)
     print("Image generation complete.")
