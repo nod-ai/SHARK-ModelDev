@@ -152,7 +152,7 @@ if __name__ == "__main__":
         )
         rtol = 4e-2
         atol = 4e-2
-        breakpoint()
+
         np.testing.assert_allclose(
             torch_output1, turbine_output1.to_host(), rtol, atol, verbose=True
         )
