@@ -80,6 +80,7 @@ def export_vae_model(
     decomp_attn=False,
     exit_on_vmfb=False,
     pipeline_dir=None,
+    attn_spec=None,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
@@ -176,6 +177,7 @@ if __name__ == "__main__":
         args.ireec_flags + args.attn_flags + args.vae_flags,
         args.vae_variant,
         args.decomp_attn,
+        args.attn_spec,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name,
