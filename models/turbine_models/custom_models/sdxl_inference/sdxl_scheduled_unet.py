@@ -133,6 +133,7 @@ def export_scheduled_unet_model(
     decomp_attn=False,
     exit_on_vmfb=False,
     pipeline_dir=None,
+    attn_spec=None,
 ):
     mapper = {}
 
@@ -198,6 +199,14 @@ def export_scheduled_unet_model(
     inst = CompiledScheduledUnet(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
+
+    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+    )
+    elif decomp_attn:
+        attn_spec = None
+        
     if pipeline_dir:
         safe_name = os.path.join(
             pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
@@ -259,6 +268,7 @@ if __name__ == "__main__":
         args.decomp_attn,
         args.exit_on_vmfb,
         args.pipeline_dir,
+        args.attn_spec,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name + "_" + args.scheduler_id,

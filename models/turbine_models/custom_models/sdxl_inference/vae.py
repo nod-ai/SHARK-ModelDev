@@ -120,6 +120,13 @@ def export_vae_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
 
+    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+    )
+    elif decomp_attn:
+        attn_spec = None
+
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, "vae_" + variant)
     else:

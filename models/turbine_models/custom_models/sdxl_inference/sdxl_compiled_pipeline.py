@@ -102,6 +102,10 @@ def export_submodel(args, submodel):
         prompt_encoder_external_weight_path = os.path.join(
             args.pipeline_dir, "prompt_encoder." + args.external_weights
         )
+    if (args.attn_spec in ["default", "", None]) and (args.decomp_attn is not None):
+        args.attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+        )
     match submodel:
         case "scheduled_unet":
             unet_vmfb = sdxl_scheduled_unet.export_scheduled_unet_model(
@@ -124,6 +128,7 @@ def export_submodel(args, submodel):
                 args.decomp_attn,
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
+                attn_spec=args.attn_spec,
             )
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
@@ -144,6 +149,7 @@ def export_submodel(args, submodel):
                 args.decomp_attn,
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
+                attn_spec=args.attn_spec,
             )
             return vae_decode_vmfb, vae_external_weight_path
         case "prompt_encoder":

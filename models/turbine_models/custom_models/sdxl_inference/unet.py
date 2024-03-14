@@ -87,6 +87,7 @@ def export_unet_model(
     target_triple=None,
     ireec_flags=None,
     decomp_attn=False,
+    attn_spec=None,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
@@ -136,6 +137,13 @@ def export_unet_model(
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledUnet(context=Context(), import_to=import_to)
+
+    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+    )
+    elif decomp_attn:
+        attn_spec = None
 
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = utils.create_safe_name(
