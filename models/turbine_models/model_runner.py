@@ -8,7 +8,7 @@ class vmfbRunner:
         flags = []
         haldriver = ireert.get_driver(device)
         if "cpu" in device:
-            allocators = ["vm"]
+            allocators = ["caching"]
         else:
             allocators = ["caching"]
         if "://" in device:
