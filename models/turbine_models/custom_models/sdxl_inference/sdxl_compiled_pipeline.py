@@ -399,7 +399,7 @@ def is_prepared(args, vmfbs, weights):
         return True, vmfbs, weights
 
 
-def check_prepared(args, vmfbs, weights, mlirs):
+def check_prepared(args, mlirs, vmfbs, weights):
     ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
     if not ready:
         do_continue = input(
@@ -452,6 +452,7 @@ if __name__ == "__main__":
         "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
+        "pipeline": None,
     }
     vmfbs = {
         "vae_decode": None,
@@ -479,8 +480,10 @@ if __name__ == "__main__":
             ".",
             "_".join(pipe_id_list),
         )
-
-    user_mlir_list = args.input_mlir.split(",")
+    if args.input_mlir:
+        user_mlir_list = args.input_mlir.split(",")
+    else:
+        user_mlir_list = []
     for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
         if submodel_id in mlir_path:
             mlirs[submodel_id] = mlir_path
