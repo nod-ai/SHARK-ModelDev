@@ -7,6 +7,10 @@ class vmfbRunner:
     def __init__(self, device, vmfb_path, external_weight_path=None):
         flags = []
         haldriver = ireert.get_driver(device)
+        if "cpu" in device:
+            allocators = ["vm"]
+        else:
+            allocators = ["caching"]
         if "://" in device:
             try:
                 device_idx = int(device.split("://")[-1])
@@ -19,11 +23,11 @@ class vmfbRunner:
             device_uri = None
         if device_uri:
             haldevice = haldriver.create_device_by_uri(
-                device_uri, allocators=["caching"]
+                device_uri, allocators=allocators
             )
         else:
             hal_device_id = haldriver.query_available_devices()[device_idx]["device_id"]
-            haldevice = haldriver.create_device(hal_device_id, allocators=["caching"])
+            haldevice = haldriver.create_device(hal_device_id, allocators=allocators)
         self.config = ireert.Config(device=haldevice)
         mods = []
         if not isinstance(vmfb_path, list):

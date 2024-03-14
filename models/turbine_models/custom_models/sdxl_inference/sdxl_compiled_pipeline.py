@@ -402,7 +402,7 @@ def check_prepared(args, vmfbs, weights):
         )
         if do_continue.lower() != "y":
             exit()
-        elif do_continue == "y":
+        elif do_continue.lower() == "y":
             for submodel in vmfbs.keys():
                 if vmfbs[submodel] == None:
                     vmfb, weight = export_submodel(args, submodel)
