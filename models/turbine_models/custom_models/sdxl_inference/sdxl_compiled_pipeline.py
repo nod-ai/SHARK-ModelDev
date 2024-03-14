@@ -417,8 +417,9 @@ def check_prepared(args, mlirs, vmfbs, weights):
                     vmfbs[submodel] = vmfb
                     if weights[submodel] is None:
                         weights[submodel] = weight
-                elif weights[submodel] is None:
-                    _, weight = export_submodel(args, submodel)
+                # elif weights[submodel] is None:
+                #     _, weight = export_submodel(args, submodel, input_mlir=mlirs[submodel])
+                #     weights[submodel] = weight
             ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
             if ready:
                 print("All necessary files found. Generating images.")
