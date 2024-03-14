@@ -161,6 +161,7 @@ def export_unet_model(
             ireec_flags,
             safe_name,
             return_path=False,
+            attn_spec=attn_spec,
         )
 
 
