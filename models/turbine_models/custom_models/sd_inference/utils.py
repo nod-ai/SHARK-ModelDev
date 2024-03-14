@@ -15,18 +15,24 @@ gfx94X_flags = {
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
         "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
     ],
     "clip": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
+        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
     ],
     "vae": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
         "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
     ],
 }
@@ -78,6 +84,7 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-rocm-link-bc=true",
+                "--verify=false",
             ]
         )
     elif device == "cuda":
@@ -108,7 +115,7 @@ def compile_to_vmfb(
                 flags[idx] = flag
                 ireec_flags[i] = ""
         flags.append(flag)
-        
+
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
         if "unet" in safe_name:
             flags.extend(gfx94X_flags["unet"])
@@ -117,9 +124,7 @@ def compile_to_vmfb(
         if "vae" in safe_name:
             flags.extend(gfx94X_flags["vae"])
     if attn_spec is not None:
-        flags.extend(
-            ["--iree-codegen-transform-dialect-library=" + attn_spec]
-        )
+        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     print("Compiling to", device, "with flags:", flags)
 
     if mlir_source == "file":

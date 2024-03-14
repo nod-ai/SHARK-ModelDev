@@ -59,7 +59,26 @@ def export_clip_model(
     index=1,
     exit_on_vmfb=True,
     pipeline_dir=None,
+    input_mlir=None,
 ):
+    if pipeline_dir not in [None, ""]:
+        safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
+        )
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            mlir_source="file",
+            return_path=not exit_on_vmfb,
+            const_expr_hoisting=True,
+        )
+        return vmfb_path
     # Load the tokenizer and text encoder to tokenize and encode the text.
     if index == 1:
         tokenizer = CLIPTokenizer.from_pretrained(
@@ -113,16 +132,8 @@ def export_clip_model(
 
     module_str = str(CompiledModule.get_mlir_module(inst))
 
-    if pipeline_dir not in [None, ""]:
-        safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
-        )
     if compile_to != "vmfb":
         return module_str, tokenizer
-    elif os.path.isfile(safe_name + ".vmfb") and exit_on_vmfb:
-        exit()
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,

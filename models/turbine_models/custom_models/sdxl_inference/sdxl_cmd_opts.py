@@ -192,6 +192,24 @@ p.add_argument(
     action="store_false",
     help="Exit program on vmfb compilation completion. Most scripts will also save .mlir if this is disabled.",
 )
+p.add_argument(
+    "--input_mlir",
+    type=str,
+    default=None,
+    help="Path to input mlir file to compile. Comma-separate paths to provide more than one input to pipelines.",
+)
+p.add_argument(
+    "--download_mlir",
+    default=False,
+    action="store_true",
+    help="Download missing mlir files from Azure storage.",
+)
+p.add_argument(
+    "--container_name",
+    type=str,
+    default=None,
+    help="Azure storage container name to download mlir files from.",
+)
 
 ##############################################################################
 # IREE Compiler Options
