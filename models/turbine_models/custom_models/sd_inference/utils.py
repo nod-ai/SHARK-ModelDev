@@ -114,7 +114,8 @@ def compile_to_vmfb(
             if k == default.split("=")[0]:
                 flags[idx] = flag
                 ireec_flags[i] = ""
-        flags.append(flag)
+        if flag not in [None, "", " "]:
+            flags.append(flag)
 
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
         if "unet" in safe_name:
