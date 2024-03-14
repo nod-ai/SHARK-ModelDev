@@ -224,6 +224,13 @@ p.add_argument(
 )
 
 p.add_argument(
+    "--attn_spec",
+    type=str,
+    default=None,
+    help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
+)
+
+p.add_argument(
     "--clip_flags",
     type=str,
     default="",
