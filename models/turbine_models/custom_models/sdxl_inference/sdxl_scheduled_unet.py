@@ -206,7 +206,7 @@ def export_scheduled_unet_model(
     )
     elif decomp_attn:
         attn_spec = None
-        
+
     if pipeline_dir:
         safe_name = os.path.join(
             pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
@@ -228,6 +228,7 @@ def export_scheduled_unet_model(
             ireec_flags,
             safe_name,
             return_path=True,
+            attn_spec=attn_spec,
         )
         if exit_on_vmfb:
             exit()

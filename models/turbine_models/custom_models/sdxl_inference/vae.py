@@ -146,6 +146,7 @@ def export_vae_model(
             ireec_flags,
             safe_name,
             return_path=not exit_on_vmfb,
+            attn_spec=attn_spec,
         )
         return vmfb_path
 
