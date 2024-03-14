@@ -159,5 +159,6 @@ if __name__ == "__main__":
         np.testing.assert_allclose(
             torch_output2, turbine_output2.to_host(), rtol, atol, verbose=True
         )
+        print("Passed!")
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output1, turbine_output2 = (None, None)
