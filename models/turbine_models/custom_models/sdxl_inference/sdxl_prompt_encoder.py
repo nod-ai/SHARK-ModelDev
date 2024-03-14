@@ -229,7 +229,7 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags,
+        args.ireec_flags + args.clip_flags,
         exit_on_vmfb=True,
         pipeline_dir=args.pipeline_dir,
     )

@@ -166,13 +166,13 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags,
+        args.ireec_flags + args.attn_flags + args.vae_flags,
         args.vae_variant,
         args.decomp_attn,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name,
-        f"_{args.height}x{args.width}_{args.precision}_vae_{args.variant}",
+        f"_{args.height}x{args.width}_{args.precision}_vae_{args.vae_variant}",
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
