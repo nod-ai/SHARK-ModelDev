@@ -191,7 +191,7 @@ module attributes { transform.with_named_sequence } {
     %contract1, %contract2 = transform.split_handle %contracts : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 
     %layout16x16x16 = transform.param.constant #layout -> !transform.any_param
-    transform.iree.set_contraction_layout_attributes %contract1, %layout16x16x16 : !transform.any_op, !transform.any_param
+    transform.iree.set_contraction_layout_attributes %contract1, %layout16x16x16 { read_layout_indices = array<i64: 0, 1> } : !transform.any_op, !transform.any_param
     transform.iree.set_contraction_layout_attributes %contract2, %layout16x16x16 : !transform.any_op, !transform.any_param
 
     %distribute_func = transform.structured.match ops{["func.func"]} in %variant_op_3 : (!transform.any_op) -> !transform.any_op
@@ -589,6 +589,26 @@ module attributes { transform.with_named_sequence } {
     transform.yield %matmul, %config : !transform.any_op, !transform.any_param
   }
 
+  transform.named_sequence @match_mmt_8192x640x2560(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+    transform.iree.match.cast_compatible_type %lhs = tensor<8192x2560xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %rhs = tensor<640x2560xf16> : !transform.any_value
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[64, 160, 64]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 2,
+          subgroup_m_tile_count = 2,
+          subgroup_n_tile_count = 5,
+          subgroup_k_tile_count = 4>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
+    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+  }
+
   transform.named_sequence @match_mmt_8192x5120x640(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
     %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
     %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
@@ -609,6 +629,25 @@ module attributes { transform.with_named_sequence } {
     transform.yield %matmul, %config : !transform.any_op, !transform.any_param
   }
 
+  transform.named_sequence @match_mmt_128x640x2048(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+    transform.iree.match.cast_compatible_type %lhs = tensor<128x2048xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %rhs = tensor<640x2048xf16> : !transform.any_value
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[32, 16, 512]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 1,
+          subgroup_m_tile_count = 1,
+          subgroup_n_tile_count = 1,
+          subgroup_k_tile_count = 32>}>,
+      workgroup_size = [64, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
+    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+  }
 
 //===----------------------------------------------------------------------===//
 // Entry point
@@ -618,11 +657,13 @@ module attributes { transform.with_named_sequence } {
     transform.foreach_match in %variant_op
         @match_attention_len_512 -> @custom_attention_len_512,
         @match_attention -> @custom_attention,
-        // @match_mmt_2048x10240x1280 -> @apply_mmt_config,
-        // @match_mmt_2048x1280x1280 -> @apply_mmt_config,
-        // @match_mmt_2048x1280x5120 -> @apply_mmt_config
-        @match_mmt_128x1280x2048 -> @apply_mmt_config
-        // @match_mmt_8192x5120x640 -> @apply_mmt_config
+        @match_mmt_2048x10240x1280 -> @apply_mmt_config,
+        @match_mmt_2048x1280x1280 -> @apply_mmt_config,
+        @match_mmt_2048x1280x5120 -> @apply_mmt_config,
+        @match_mmt_128x1280x2048 -> @apply_mmt_config,
+        @match_mmt_128x640x2048 -> @apply_mmt_config,
+        @match_mmt_8192x640x2560 -> @apply_mmt_config,
+        @match_mmt_8192x5120x640 -> @apply_mmt_config
       : (!transform.any_op) -> (!transform.any_op)
     transform.yield
   }

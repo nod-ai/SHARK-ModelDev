@@ -145,6 +145,7 @@ if __name__ == "__main__":
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
 
+        # comment out .float for fp16... sorry.
         torch_output = run_torch_unet(
             args.hf_model_name,
             args.hf_auth_token,
@@ -154,6 +155,7 @@ if __name__ == "__main__":
             text_embeds.float(),
             time_ids.float(),
             guidance_scale.float(),
+            # precision="fp16",
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_output)
