@@ -112,7 +112,13 @@ def run_torch_scheduled_unet(
             return sample.type(self.dtype), add_time_ids, step_indexes
 
         def forward(
-            self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
+            self,
+            sample,
+            prompt_embeds,
+            text_embeds,
+            time_ids,
+            guidance_scale,
+            step_index,
         ):
             with torch.no_grad():
                 added_cond_kwargs = {
@@ -135,7 +141,9 @@ def run_torch_scheduled_unet(
                 noise_pred = noise_pred_uncond + guidance_scale * (
                     noise_pred_text - noise_pred_uncond
                 )
-                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[
+                    0
+                ]
             if self.return_index:
                 return sample.type(self.dtype), step_index
             else:
