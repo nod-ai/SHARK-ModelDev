@@ -120,7 +120,7 @@ def export_submodel(args, submodel):
                 unet_external_weight_path,
                 args.device,
                 args.iree_target_triple,
-                args.ireec_flags + args.attn_flags,
+                args.ireec_flags + args.attn_flags + args.unet_flags,
                 args.decomp_attn,
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
@@ -139,7 +139,7 @@ def export_submodel(args, submodel):
                 vae_external_weight_path,
                 args.device,
                 args.iree_target_triple,
-                args.ireec_flags + args.attn_flags,
+                args.ireec_flags + args.attn_flags + args.vae_flags,
                 "decode",
                 args.decomp_attn,
                 exit_on_vmfb=False,
@@ -157,7 +157,7 @@ def export_submodel(args, submodel):
                 prompt_encoder_external_weight_path,
                 args.device,
                 args.iree_target_triple,
-                args.ireec_flags,
+                args.ireec_flags + args.clip_flags,
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
             )
@@ -409,6 +409,8 @@ def check_prepared(args, vmfbs, weights):
                     vmfbs[submodel] = vmfb
                     if weights[submodel] is None:
                         weights[submodel] = weight
+                elif weights[submodel] is None:
+                    _, weight = export_submodel(args, submodel)
             ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
             if ready:
                 print("All necessary files found. Generating images.")

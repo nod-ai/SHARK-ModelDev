@@ -255,7 +255,7 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags,
+        args.ireec_flags + args.attn_flags + args.unet_flags,
         args.decomp_attn,
         args.exit_on_vmfb,
         args.pipeline_dir,

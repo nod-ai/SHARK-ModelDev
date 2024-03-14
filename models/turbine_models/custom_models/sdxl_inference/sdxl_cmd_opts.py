@@ -223,5 +223,26 @@ p.add_argument(
     help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
 )
 
+p.add_argument(
+    "--clip_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling CLIP/prompt_encoder. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
+p.add_argument(
+    "--vae_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling VAE. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
+p.add_argument(
+    "--unet_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
 
 args, unknown = p.parse_known_args()

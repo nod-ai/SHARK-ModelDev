@@ -8,27 +8,30 @@ from diffusers import (
 )
 
 
-def save_external_weights(
-    mapper,
-    model,
-    external_weights=None,
-    external_weight_file=None,
-):
-    if external_weights is not None:
-        if external_weights == "safetensors":
-            mod_params = dict(model.named_parameters())
-            for name in mod_params:
-                mapper["params." + name] = name
-            if external_weight_file and not os.path.isfile(external_weight_file):
-                safetensors.torch.save_file(mod_params, external_weight_file)
-                print("Saved params to", external_weight_file)
-
-
-def largest_error(array1, array2):
-    absolute_diff = np.abs(array1 - array2)
-    max_error = np.max(absolute_diff)
-    print("Max error:", max_error)
-    return max_error
+# If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
+gfx94X_flags = {
+    "unet": [
+        "--iree-global-opt-propagate-transposes=true",
+        "--iree-opt-const-eval=false",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
+    ],
+    "clip": [
+        "--iree-global-opt-propagate-transposes=true",
+        "--iree-opt-const-eval=false",
+        "--iree-opt-outer-dim-concat=true",
+    ],
+    "vae": [
+        "--iree-global-opt-propagate-transposes=true",
+        "--iree-opt-const-eval=false",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
+    ],
+}
 
 
 def compile_to_vmfb(
@@ -41,6 +44,7 @@ def compile_to_vmfb(
     const_expr_hoisting=True,
     mlir_source="str",
     max_alloc="4294967296",
+    save_mlir=False,
 ):
     flags = []
     if target_triple in ["", None] and "triple" not in ireec_flags:
@@ -105,6 +109,13 @@ def compile_to_vmfb(
                 flags[idx] = flag
                 ireec_flags[i] = ""
         flags.append(flag)
+    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
+        if "unet" in safe_name:
+            flags.extend(gfx94X_flags["unet"])
+        if any(x in safe_name for x in ["clip", "prompt_encoder"]):
+            flags.extend(gfx94X_flags["clip"])
+        if "vae" in safe_name:
+            flags.extend(gfx94X_flags["vae"])
 
     print("Compiling to", device, "with flags:", flags)
 
@@ -116,6 +127,10 @@ def compile_to_vmfb(
             extra_args=flags,
         )
     elif mlir_source == "str":
+        if save_mlir:
+            with open(f"{safe_name}.mlir", "w+") as f:
+                f.write(module_str)
+            print("Saved to", safe_name + ".mlir")
         flatbuffer_blob = ireec.compile_str(
             module_str,
             target_backends=[device],
@@ -138,6 +153,29 @@ def create_safe_name(hf_model_name, model_name_str):
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)
     return safe_name
+
+
+def save_external_weights(
+    mapper,
+    model,
+    external_weights=None,
+    external_weight_file=None,
+):
+    if external_weights is not None:
+        if external_weights == "safetensors":
+            mod_params = dict(model.named_parameters())
+            for name in mod_params:
+                mapper["params." + name] = name
+            if external_weight_file and not os.path.isfile(external_weight_file):
+                safetensors.torch.save_file(mod_params, external_weight_file)
+                print("Saved params to", external_weight_file)
+
+
+def largest_error(array1, array2):
+    absolute_diff = np.abs(array1 - array2)
+    max_error = np.max(absolute_diff)
+    print("Max error:", max_error)
+    return max_error
 
 
 def get_schedulers(model_id):
