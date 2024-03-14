@@ -13,7 +13,6 @@ gfx94X_flags = {
     "unet": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
-        "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-opt-outer-dim-concat=true",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
@@ -26,7 +25,6 @@ gfx94X_flags = {
     "vae": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
-        "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-opt-outer-dim-concat=true",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
