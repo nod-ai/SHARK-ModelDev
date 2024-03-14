@@ -10,7 +10,7 @@ is intended to be a general purpose model compilation and execution tool.
 Turbine provides three primary tools:
 
 * *AOT Export*: For compiling one or more `nn.Module`s to compiled, deployment
-  ready artifacts. This operates via both a simple one-shot export API (Already upstream to [torch-mlir](https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir/extras/fx_importer.py))
+  ready artifacts. This operates via both a simple one-shot export API (Already upstreamed to [torch-mlir](https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir/extras/fx_importer.py))
   for simple models and an underlying [advanced API](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/shark_turbine/aot/compiled_module.py) for complicated models
   and accessing the full features of the runtime.
 * *Eager Execution*: A `torch.compile` backend is provided and a Turbine Tensor/Device
@@ -39,7 +39,7 @@ please reach out to us on the `#turbine` channel of the
 
 ```
 pip install shark-turbine
-# Or editable: pip install -e core
+# Or for editable: see instructions under developers
 ```
 
 The above does install some unecessary cuda/cudnn packages for cpu use. To avoid this you

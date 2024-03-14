@@ -30,6 +30,7 @@ class HFTransformerBuilder:
         model=None,
         model_type: str = None,
         compile_to_vmfb: bool = None,
+        tokenizer=None,
     ) -> None:
         self.example_input = example_input
         self.hf_id = hf_id
@@ -38,7 +39,7 @@ class HFTransformerBuilder:
         self.auto_config = auto_config
         self.hf_auth_token = hf_auth_token
         self.model = model
-        self.tokenizer = None
+        self.tokenizer = tokenizer
         self.upload_ir = upload_ir
         self.model_type = model_type
         self.compile_to_vmfb = compile_to_vmfb
