@@ -43,6 +43,7 @@ def compile_to_vmfb(
     mlir_source="str",
     max_alloc="4294967296",
     save_mlir=False,
+    attn_spec=None,
 ):
     flags = []
     if target_triple in ["", None] and "triple" not in ireec_flags:
@@ -107,6 +108,7 @@ def compile_to_vmfb(
                 flags[idx] = flag
                 ireec_flags[i] = ""
         flags.append(flag)
+        
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
         if "unet" in safe_name:
             flags.extend(gfx94X_flags["unet"])
@@ -114,7 +116,10 @@ def compile_to_vmfb(
             flags.extend(gfx94X_flags["clip"])
         if "vae" in safe_name:
             flags.extend(gfx94X_flags["vae"])
-
+    if attn_spec is not None:
+        flags.extend(
+            ["--iree-codegen-transform-dialect-library=" + attn_spec]
+        )
     print("Compiling to", device, "with flags:", flags)
 
     if mlir_source == "file":
