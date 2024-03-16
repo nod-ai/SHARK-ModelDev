@@ -105,7 +105,7 @@ def export_unet_model(
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
-            module_str,
+            input_mlir,
             device,
             target_triple,
             ireec_flags,
