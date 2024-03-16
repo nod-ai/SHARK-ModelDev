@@ -90,6 +90,7 @@ def export_unet_model(
     exit_on_vmfb=False,
     attn_spec=None,
     input_mlir=None,
+    weights_only=False,
 ):
     if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
         attn_spec = os.path.join(
@@ -125,11 +126,17 @@ def export_unet_model(
             ]
         )
     dtype = torch.float16 if precision == "fp16" else torch.float32
+
     if precision == "fp16":
         unet_model = unet_model.half()
+
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
+
+    if weights_only:
+        return external_weight_path
+
     sample = (
         batch_size,
         unet_model.unet.config.in_channels,
@@ -189,6 +196,7 @@ if __name__ == "__main__":
     unet_model = UnetModel(
         args.hf_model_name,
         args.hf_auth_token,
+        args.precision,
     )
     mod_str = export_unet_model(
         unet_model,

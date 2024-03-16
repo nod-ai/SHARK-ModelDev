@@ -86,9 +86,9 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_clip.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_clip.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_clip.vmfb"
         turbine = clip_runner.run_clip(
             arguments["rt_device"],
@@ -127,9 +127,9 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_unet.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_unet.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_unet.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
@@ -187,9 +187,9 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_vae.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
@@ -237,9 +237,9 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = f"{arguments['safe_model_name']}_vae.safetensors"
+        arguments["external_weight_path"] = (
+            f"{arguments['safe_model_name']}_vae.safetensors"
+        )
         arguments["vmfb_path"] = f"{arguments['safe_model_name']}_vae.vmfb"
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         example_input = torch.rand(
@@ -287,9 +287,9 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = "stable_diffusion_v1_4_scheduler.safetensors"
+        arguments["external_weight_path"] = (
+            "stable_diffusion_v1_4_scheduler.safetensors"
+        )
         arguments["vmfb_path"] = "stable_diffusion_v1_4_scheduler.vmfb"
         sample = torch.rand(
             arguments["batch_size"],
