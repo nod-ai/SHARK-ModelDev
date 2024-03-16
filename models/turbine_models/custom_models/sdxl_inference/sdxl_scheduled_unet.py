@@ -254,17 +254,20 @@ def export_scheduled_unet_model(
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
 
-    scheduled_unet_model = SDXLScheduledUnet(
-        args.hf_model_name,
-        args.scheduler_id,
-        args.height,
-        args.width,
-        args.batch_size,
-        args.hf_auth_token,
-        args.precision,
-        args.num_inference_steps,
-        args.return_index,
-    )
+    if args.input_mlir:
+        scheduled_unet_model = None
+    else:
+        scheduled_unet_model = SDXLScheduledUnet(
+            args.hf_model_name,
+            args.scheduler_id,
+            args.height,
+            args.width,
+            args.batch_size,
+            args.hf_auth_token,
+            args.precision,
+            args.num_inference_steps,
+            args.return_index,
+        )
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
         args.scheduler_id,
@@ -286,7 +289,10 @@ if __name__ == "__main__":
         args.exit_on_vmfb,
         args.pipeline_dir,
         args.attn_spec,
+        args.input_mlir,
     )
+    if args.input_mlir:
+        exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name + "_" + args.scheduler_id,
         f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet_{str(args.num_inference_steps)}",

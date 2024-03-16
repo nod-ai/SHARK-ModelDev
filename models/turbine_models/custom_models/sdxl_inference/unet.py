@@ -192,12 +192,14 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
-
-    unet_model = UnetModel(
-        args.hf_model_name,
-        args.hf_auth_token,
-        args.precision,
-    )
+    if args.input_mlir:
+        unet_model = None
+    else:
+        unet_model = UnetModel(
+            args.hf_model_name,
+            args.hf_auth_token,
+            args.precision,
+        )
     mod_str = export_unet_model(
         unet_model,
         args.hf_model_name,
@@ -217,6 +219,8 @@ if __name__ == "__main__":
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
     )
+    if args.input_mlir:
+        exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,
         f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
