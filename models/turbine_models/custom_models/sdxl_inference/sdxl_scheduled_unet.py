@@ -251,6 +251,25 @@ def export_scheduled_unet_model(
             exit()
         return vmfb
 
+def export_pipeline_module(args):
+    pipeline_file = (
+        "sdxl_sched_unet_bench_" + "f32"
+        if args.precision == "fp32"
+        else "sdxl_sched_unet_bench_" + "f16"
+    )
+    pipeline_vmfb_path = utils.compile_to_vmfb(
+        os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
+        ),
+        args.device,
+        args.iree_target_triple,
+        args.ireec_flags,
+        "sdxl_pipeline_" + args.precision + "_" + args.iree_target_triple,
+        return_path=True,
+        const_expr_hoisting=False,
+        mlir_source="file",
+    )
+    return pipeline_vmfb_path
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
@@ -269,6 +288,7 @@ if __name__ == "__main__":
             args.num_inference_steps,
             args.return_index,
         )
+    pipeline_vmfb_path = export_pipeline_module(args)
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
         args.scheduler_id,
