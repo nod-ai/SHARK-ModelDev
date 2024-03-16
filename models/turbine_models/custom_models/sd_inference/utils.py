@@ -20,6 +20,7 @@ gfx94X_flags = {
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
         "--iree-codegen-log-swizzle-tile=4",
+        "--iree-codegen-winograd-use-forall",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [

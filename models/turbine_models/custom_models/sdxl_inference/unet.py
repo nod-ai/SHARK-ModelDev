@@ -215,6 +215,7 @@ if __name__ == "__main__":
         args.ireec_flags + args.attn_flags + args.unet_flags,
         args.decomp_attn,
         attn_spec=args.attn_spec,
+        input_mlir=args.input_mlir,
     )
     safe_name = utils.create_safe_name(
         args.hf_model_name,
