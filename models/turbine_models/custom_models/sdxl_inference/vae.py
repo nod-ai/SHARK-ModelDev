@@ -179,26 +179,25 @@ if __name__ == "__main__":
             args.hf_model_name,
             custom_vae=custom_vae,
         )
-    
     mod_str = export_vae_model(
         vae_model,
         args.hf_model_name,
         args.batch_size,
-        args.height,
-        args.width,
-        args.precision,
-        args.compile_to,
-        args.external_weights,
-        args.external_weight_path,
-        args.device,
-        args.iree_target_triple,
-        args.ireec_flags + args.attn_flags + args.vae_flags,
-        args.vae_variant,
-        args.decomp_attn,
-        args.attn_spec,
-        args.input_mlir,
+        height=args.height,
+        width=args.width,
+        precision=args.precision,
+        compile_to=args.compile_to,
+        external_weights=args.external_weights,
+        external_weight_path=args.external_weight_path,
+        device=args.device,
+        target_triple=args.iree_target_triple,
+        ireec_flags=args.ireec_flags + args.attn_flags + args.vae_flags,
+        variant=args.vae_variant,
+        decomp_attn=args.decomp_attn,
+        attn_spec=args.attn_spec,
+        input_mlir=args.input_mlir,
     )
-    if args.input_mlir:
+    if args.input_mlir or (args.compile_to == "vmfb"):
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,

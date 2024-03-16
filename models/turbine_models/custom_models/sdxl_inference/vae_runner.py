@@ -3,6 +3,7 @@ from turbine_models.model_runner import vmfbRunner
 from iree import runtime as ireert
 import torch
 
+torch.random.manual_seed(0)
 
 def run_vae(
     device,
