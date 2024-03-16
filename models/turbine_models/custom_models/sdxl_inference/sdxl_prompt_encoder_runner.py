@@ -51,7 +51,7 @@ def run_prompt_encoder(
     uncond_input_ids,
 ):
     prompt_encoder_runner = vmfbRunner(
-        args.rt_device, args.vmfb_path, args.external_weight_path
+        args.device, args.vmfb_path, args.external_weight_path
     )
     np.save("input0.npy", input_ids[0].numpy())
     np.save("input1.npy", input_ids[1].numpy())

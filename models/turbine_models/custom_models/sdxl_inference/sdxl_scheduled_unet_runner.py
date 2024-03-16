@@ -15,7 +15,7 @@ def run_unet_hybrid(
     text_embeds,
     args,
 ):
-    runner = vmfbRunner(args.rt_device, args.vmfb_path, args.external_weight_path)
+    runner = vmfbRunner(args.device, args.vmfb_path, args.external_weight_path)
     init_inp = [
         ireert.asdevicearray(runner.config.device, sample),
     ]
@@ -179,7 +179,7 @@ def run_scheduled_unet(
     args,
 ):
     pipe_runner = vmfbRunner(
-        args.rt_device,
+        args.device,
         [args.vmfb_path, args.pipeline_vmfb_path],
         [args.external_weight_path, None],
     )
