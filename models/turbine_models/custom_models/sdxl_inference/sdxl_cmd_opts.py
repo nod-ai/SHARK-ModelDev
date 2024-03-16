@@ -163,7 +163,7 @@ p.add_argument(
 # SDXL script general options.
 ##############################################################################
 
-p.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
+p.add_argument("--compile_to", type=str, default="mlir", help="torch, linalg, vmfb")
 
 p.add_argument(
     "--external_weights",
