@@ -161,6 +161,7 @@ def export_scheduled_unet_model(
             iree_target_triple,
             ireec_flags,
             safe_name,
+            mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )
