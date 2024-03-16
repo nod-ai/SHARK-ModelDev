@@ -523,7 +523,7 @@ module attributes { transform.with_named_sequence } {
           subgroup_m_count = 2, subgroup_n_count = 2,
           subgroup_m_tile_count = 4,
           subgroup_n_tile_count = 4,
-          subgroup_k_tile_count = 2>}>,
+          subgroup_k_tile_count = 2>, no_reorder_workgroups}>,
       workgroup_size = [128, 2, 1], subgroup_size = 64
      > -> !transform.any_param
     transform.yield %matmul, %config : !transform.any_op, !transform.any_param
