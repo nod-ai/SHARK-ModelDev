@@ -14,7 +14,6 @@ gfx94X_flags = {
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
@@ -24,6 +23,7 @@ gfx94X_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
+        "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
     ],
     "clip": [
@@ -31,6 +31,7 @@ gfx94X_flags = {
         "--iree-global-opt-only-sink-transposes=true",
     ],
     "vae": [
+        "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-global-opt-only-sink-transposes=true",
     ],
