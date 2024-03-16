@@ -116,14 +116,14 @@ if __name__ == "__main__":
     )
     print(
         "TURBINE OUTPUT 1:",
-        turbine_output1,
+        turbine_output1.to_host(),
         turbine_output1.shape,
         turbine_output1.dtype,
     )
 
     print(
         "TURBINE OUTPUT 2:",
-        turbine_output2,
+        turbine_output2.to_host(),
         turbine_output2.shape,
         turbine_output2.dtype,
     )
