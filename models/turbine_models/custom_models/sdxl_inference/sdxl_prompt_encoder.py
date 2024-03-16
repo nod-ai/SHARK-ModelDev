@@ -250,7 +250,11 @@ if __name__ == "__main__":
         args.ireec_flags + args.clip_flags,
         exit_on_vmfb=True,
         pipeline_dir=args.pipeline_dir,
+        input_mlir=args.input_mlir,
+        attn_spec=args.attn_spec,
     )
+    if args.input_mlir:
+        exit()
     safe_name_1 = safe_name = utils.create_safe_name(
         args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_prompt_encoder"
     )

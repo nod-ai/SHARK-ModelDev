@@ -172,10 +172,14 @@ if __name__ == "__main__":
     else:
         custom_vae = ""
 
-    vae_model = VaeModel(
-        args.hf_model_name,
-        custom_vae=custom_vae,
-    )
+    if args.input_mlir:
+        vae_model = None
+    else:
+        vae_model = VaeModel(
+            args.hf_model_name,
+            custom_vae=custom_vae,
+        )
+    
     mod_str = export_vae_model(
         vae_model,
         args.hf_model_name,
@@ -192,7 +196,10 @@ if __name__ == "__main__":
         args.vae_variant,
         args.decomp_attn,
         args.attn_spec,
+        args.input_mlir,
     )
+    if args.input_mlir:
+        exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,
         f"_{args.height}x{args.width}_{args.precision}_vae_{args.vae_variant}",
