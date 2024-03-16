@@ -62,7 +62,7 @@ def get_torch_models(args):
     return scheduled_unet_torch, vae_torch
 
 
-def export_submodel(args, submodel, input_mlir):
+def export_submodel(args, submodel, input_mlir, weights_only=False):
     if not os.path.exists(args.pipeline_dir):
         os.makedirs(args.pipeline_dir)
     if input_mlir is None and submodel in ["scheduled_unet", "vae_decode"]:
@@ -126,6 +126,7 @@ def export_submodel(args, submodel, input_mlir):
                 pipeline_dir=args.pipeline_dir,
                 attn_spec=args.attn_spec,
                 input_mlir=mlirs["scheduled_unet"],
+                weights_only=weights_only,
             )
             return unet_vmfb, unet_external_weight_path
         case "vae_decode":
@@ -148,6 +149,7 @@ def export_submodel(args, submodel, input_mlir):
                 pipeline_dir=args.pipeline_dir,
                 attn_spec=args.attn_spec,
                 input_mlir=mlirs["vae_decode"],
+                weights_only=weights_only,
             )
             return vae_decode_vmfb, vae_external_weight_path
         case "prompt_encoder":
@@ -165,6 +167,7 @@ def export_submodel(args, submodel, input_mlir):
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
                 input_mlir=mlirs["prompt_encoder"],
+                weights_only=weights_only,
             )
             return prompt_encoder_vmfb, prompt_encoder_external_weight_path
         case "pipeline":
@@ -417,9 +420,9 @@ def check_prepared(args, mlirs, vmfbs, weights):
                     vmfbs[submodel] = vmfb
                     if weights[submodel] is None:
                         weights[submodel] = weight
-                # elif weights[submodel] is None:
-                #     _, weight = export_submodel(args, submodel, input_mlir=mlirs[submodel])
-                #     weights[submodel] = weight
+                elif weights[submodel] is None:
+                    _, weight = export_submodel(args, submodel, weights_only=True)
+                    weights[submodel] = weight
             ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
             if ready:
                 print("All necessary files found. Generating images.")

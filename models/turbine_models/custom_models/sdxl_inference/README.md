@@ -11,10 +11,17 @@ export HF_HOME=/data/huggingface-cache        #banff
  - make sure you have ROCM working with IREE, check `iree-run-module --dump_devices`
  - make a file called "mfma_spec.mlir" and drop in the contents of the TD script https://github.com/nod-ai/2024-q1-sdxl-sprint/tree/main/specs.
 
-### Newest pipeline command, weights (as of [SHARK-Turbine@ean-sd-fp16:824f43e](https://github.com/nod-ai/SHARK-Turbine/commit/824f43e83a53d49307ddfe0b829da22c69ac2ddd)):
+### Newest pipeline command, weights (as of [SHARK-Turbine@ean-sd-fp16:6251fbef9233c406093dab056a08cd42cfc54a0b](https://github.com/nod-ai/SHARK-Turbine/commit/6251fbef9233c406093dab056a08cd42cfc54a0b)):
 
+
+gfx940:
 ```
-python SHARK-Turbine/models/turbine_models/custom_models/sdxl_inference/sdxl_compiled_pipeline.py --precision=fp16 --external_weights=safetensors --device=rocm --rt_device=rocm --iree_target_triple=gfx942 --scheduler_id=PNDM --num_inference_steps=30 --pipeline_dir=./sdxl_fp16_1024x1024_gfx942/ --external_weights_dir=./weights_fp16/
+python SHARK-Turbine/models/turbine_models/custom_models/sdxl_inference/sdxl_compiled_pipeline.py --precision=fp16 --external_weights=safetensors --device=rocm --rt_device=rocm --iree_target_triple=gfx942 --scheduler_id=PNDM --num_inference_steps=30 --pipeline_dir=./sdxl_fp16_1024x1024_gfx940/ --external_weights_dir=./weights_fp16/ --attn_spec=default
+```
+
+gfx942:
+```
+python SHARK-Turbine/models/turbine_models/custom_models/sdxl_inference/sdxl_compiled_pipeline.py --precision=fp16 --external_weights=safetensors --device=rocm --rt_device=rocm --iree_target_triple=gfx940 --scheduler_id=PNDM --num_inference_steps=30 --pipeline_dir=./sdxl_fp16_1024x1024_gfx940/ --external_weights_dir=./weights_fp16/ --attn_spec=default
 ```
 
 Note: the following "prompt_encoder_f16.irpa" contains weights for both clip1 and clip2.

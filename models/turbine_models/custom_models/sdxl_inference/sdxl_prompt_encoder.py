@@ -143,6 +143,8 @@ def export_prompt_encoder(
     exit_on_vmfb=True,
     pipeline_dir=None,
     input_mlir=None,
+    attn_spec=None,
+    weights_only=False,
 ):
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, "prompt_encoder")
@@ -160,6 +162,7 @@ def export_prompt_encoder(
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
+            attn_spec=attn_spec,
         )
         return vmfb_path
     # Load the tokenizer and text encoder to tokenize and encode the text.
@@ -184,6 +187,9 @@ def export_prompt_encoder(
     utils.save_external_weights(
         mapper, prompt_encoder_module, external_weights, external_weight_path
     )
+
+    if weights_only:
+        return external_weight_path
 
     class CompiledClip(CompiledModule):
         if external_weights:
@@ -223,6 +229,7 @@ def export_prompt_encoder(
             safe_name,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
+            attn_spec=attn_spec,
         )
         return module_str, vmfb_path
 

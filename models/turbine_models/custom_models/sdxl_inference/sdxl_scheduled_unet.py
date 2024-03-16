@@ -135,6 +135,7 @@ def export_scheduled_unet_model(
     pipeline_dir=None,
     attn_spec=None,
     input_mlir=None,
+    weights_only=False,
 ):
     if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
         attn_spec = os.path.join(
@@ -184,6 +185,9 @@ def export_scheduled_unet_model(
     utils.save_external_weights(
         mapper, scheduled_unet_model, external_weights, external_weight_path
     )
+
+    if weights_only:
+        return external_weight_path
 
     sample = (
         batch_size,

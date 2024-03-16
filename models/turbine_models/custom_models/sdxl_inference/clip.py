@@ -60,6 +60,8 @@ def export_clip_model(
     exit_on_vmfb=True,
     pipeline_dir=None,
     input_mlir=None,
+    attn_spec=None,
+    weights_only=False,
 ):
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
@@ -77,6 +79,7 @@ def export_clip_model(
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
+            attn_spec=attn_spec,
         )
         return vmfb_path
     # Load the tokenizer and text encoder to tokenize and encode the text.
@@ -113,6 +116,9 @@ def export_clip_model(
         mapper, text_encoder_model, external_weights, weights_path
     )
 
+    if weights_only:
+        return weights_path
+
     class CompiledClip(CompiledModule):
         if external_weights:
             params = export_parameters(
@@ -143,6 +149,7 @@ def export_clip_model(
             safe_name,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
+            attn_spec=attn_spec,
         )
         return None, vmfb_path
 

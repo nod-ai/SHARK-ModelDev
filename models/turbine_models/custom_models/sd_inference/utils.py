@@ -10,40 +10,28 @@ from diffusers import (
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 gfx94X_flags = {
-    "unet": [
+    "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
         "--iree-vm-target-truncate-unsupported-floats",
-        "--iree-codegen-llvmgpu-use-vector-distribution",
-        #"--iree-global-opt-promote-f16-accumulators",
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
+        "--iree-codegen-log-swizzle-tile=4",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
+    "unet": [
+        "--iree-codegen-llvmgpu-use-vector-distribution",
+    ],
     "clip": [
-        "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
-        "--iree-opt-outer-dim-concat=true",
-        "--iree-llvmgpu-enable-prefetch=true",
-        "--verify=false",
-        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+        "--iree-flow-split-matmul-reduction=1",
         "--iree-global-opt-only-sink-transposes=true",
     ],
     "vae": [
-        "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
-        "--iree-opt-outer-dim-concat=true",
-        "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
         "--iree-codegen-llvmgpu-use-vector-distribution",
-        #"--iree-global-opt-promote-f16-accumulators",
-        "--iree-llvmgpu-enable-prefetch=true",
-        "--verify=false",
         "--iree-global-opt-only-sink-transposes=true",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
     ],
 }
 
@@ -134,8 +122,11 @@ def compile_to_vmfb(
             flags.extend(gfx94X_flags["clip"])
         if "vae" in safe_name:
             flags.extend(gfx94X_flags["vae"])
+        flags.extend(gfx94X_flags["all"])
+
     if attn_spec is not None:
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+
     print("Compiling to", device, "with flags:", flags)
 
     if mlir_source == "file":
