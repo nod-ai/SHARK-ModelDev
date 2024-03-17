@@ -146,6 +146,11 @@ def export_prompt_encoder(
     attn_spec=None,
     weights_only=False,
 ):
+    if (attn_spec in ["default", "", None]):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+        )
+
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, "prompt_encoder")
     else:
