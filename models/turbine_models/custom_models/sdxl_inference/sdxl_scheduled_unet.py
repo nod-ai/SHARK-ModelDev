@@ -281,7 +281,7 @@ def export_pipeline_module(args):
         args.device,
         args.iree_target_triple,
         args.ireec_flags,
-        "sdxl_pipeline_" + args.precision + "_" + args.iree_target_triple,
+        "sdxl_full_pipeline_" + args.precision + "_" + args.iree_target_triple,
         return_path=True,
         const_expr_hoisting=False,
         mlir_source="file",
