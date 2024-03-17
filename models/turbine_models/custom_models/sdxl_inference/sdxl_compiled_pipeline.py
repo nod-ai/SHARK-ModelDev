@@ -191,9 +191,9 @@ def export_submodel(args, submodel, input_mlir, weights_only=False):
             return pipeline_vmfb, None
         case "full_pipeline":
             pipeline_file = (
-                "sdxl_sched_unet_bench_" + "f32"
+                "sdxl_pipeline_bench_" + "f32"
                 if args.precision == "fp32"
-                else "sdxl_sched_unet_bench_" + "f16"
+                else "sdxl_pipeline_bench_" + "f16"
             )
             pipeline_vmfb = utils.compile_to_vmfb(
                 os.path.join(
@@ -202,7 +202,7 @@ def export_submodel(args, submodel, input_mlir, weights_only=False):
                 args.device,
                 args.iree_target_triple,
                 args.ireec_flags,
-                os.path.join(args.pipeline_dir, "pipeline"),
+                os.path.join(args.pipeline_dir, "full_pipeline"),
                 return_path=True,
                 const_expr_hoisting=False,
                 mlir_source="file",
