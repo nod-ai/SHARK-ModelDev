@@ -167,6 +167,7 @@ def export_submodel(args, submodel, input_mlir, weights_only=False):
                 exit_on_vmfb=False,
                 pipeline_dir=args.pipeline_dir,
                 input_mlir=mlirs["prompt_encoder"],
+                attn_spec=args.attn_spec,
                 weights_only=weights_only,
             )
             return prompt_encoder_vmfb, prompt_encoder_external_weight_path
@@ -314,20 +315,20 @@ def generate_images(args, runners: dict):
         uncond_input_ids = uncond_input.input_ids
 
         text_input_ids_list.extend(
-            [ireert.asdevicearray(runners["prompt_encoder"].config.device, text_input_ids)]
+            [ireert.asdevicearray(runners["pipe"].config.device, text_input_ids)]
         )
         uncond_input_ids_list.extend(
             [
                 ireert.asdevicearray(
-                    runners["prompt_encoder"].config.device, uncond_input_ids
+                    runners["pipe"].config.device, uncond_input_ids
                 )
             ]
         )
     if args.compiled_pipeline:
         inf_start = time.time()
-        image = runners["full_pipeline"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list).to_host()
+        image = runners["pipe"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list).to_host()
         inf_end = time.time()
-        print("Total inference time: " + inf_end - inf_start + "sec")
+        print("Total inference time (Tokens to Image): " + str(inf_end - inf_start) + "sec")
         numpy_images.append(image)
     else:
         encode_prompts_start = time.time()
@@ -435,7 +436,7 @@ def is_prepared(args, vmfbs, weights):
         else:
             missing.append(val + ".vmfb")
     for w_key in weights:
-        if w_key == "pipeline":
+        if "pipeline" in w_key:
             continue
         if weights[w_key] is not None and os.path.exists(weights[w_key]):
             continue
@@ -471,7 +472,7 @@ def check_prepared(args, mlirs, vmfbs, weights):
                     vmfbs[submodel] = vmfb
                     if weights[submodel] is None:
                         weights[submodel] = weight
-                elif weights[submodel] is None:
+                elif weights[submodel] is None and "pipeline" not in submodel:
                     _, weight = export_submodel(args, submodel, weights_only=True)
                     weights[submodel] = weight
             ready, vmfbs, weights = is_prepared(args, vmfbs, weights)
