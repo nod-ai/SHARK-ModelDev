@@ -202,7 +202,7 @@ def export_prompt_encoder(
         else:
             params = export_parameters(prompt_encoder_module)
 
-        def main(
+        def encode_prompts(
             self,
             t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
             t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),

@@ -189,44 +189,82 @@ def export_submodel(args, submodel, input_mlir, weights_only=False):
                 mlir_source="file",
             )
             return pipeline_vmfb, None
+        case "full_pipeline":
+            pipeline_file = (
+                "sdxl_sched_unet_bench_" + "f32"
+                if args.precision == "fp32"
+                else "sdxl_sched_unet_bench_" + "f16"
+            )
+            pipeline_vmfb = utils.compile_to_vmfb(
+                os.path.join(
+                    os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
+                ),
+                args.device,
+                args.iree_target_triple,
+                args.ireec_flags,
+                os.path.join(args.pipeline_dir, "pipeline"),
+                return_path=True,
+                const_expr_hoisting=False,
+                mlir_source="file",
+            )
+            return pipeline_vmfb, None
 
 
-def generate_images(args, vmfbs: dict, weights: dict):
+def load_pipeline(args, vmfbs: dict, weights: dict):
+    runners = {}
+    if args.compiled_pipeline:
+        runners["pipe"] = vmfbRunner(
+            args.rt_device,
+            [vmfbs["scheduled_unet"], vmfbs["prompt_encoder"], vmfbs["vae_decode"], vmfbs["full_pipeline"]],
+            [weights["scheduled_unet"], weights["prompt_encoder"], weights["vae_decode"], None],
+        )
+    else:
+        runners["pipe"] = vmfbRunner(
+            args.rt_device,
+            [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
+            [weights["scheduled_unet"], None],
+        )
+        runners["vae_decode"] = vmfbRunner(
+            args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
+        )
+        runners["prompt_encoder"] = vmfbRunner(
+            args.rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
+        )
+    runners["tokenizer_1"] = CLIPTokenizer.from_pretrained(
+        args.hf_model_name,
+        subfolder="tokenizer",
+        token=args.hf_auth_token,
+    )
+    runners["tokenizer_2"] = CLIPTokenizer.from_pretrained(
+        args.hf_model_name,
+        subfolder="tokenizer_2",
+        token=args.hf_auth_token,
+    )
+    return runners
+
+
+def generate_images(args, runners: dict):
     print("Pipeline arguments: ", args)
-    # TODO: implement case where this is false e.g. in SDXL Turbo
 
-    do_classifier_free_guidance = True
+    # TODO: implement case where this is false e.g. in SDXL Turbo
+    # do_classifier_free_guidance = True
+
     iree_dtype = "float32" if args.precision == "fp32" else "float16"
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
 
     pipe_start = time.time()
 
-    pipe_runner = vmfbRunner(
-        args.rt_device,
-        [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
-        [weights["scheduled_unet"], None],
-    )
-    vae_decode_runner = vmfbRunner(
-        args.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
-    )
-    prompt_encoder_runner = vmfbRunner(
-        args.rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
-    )
-    tokenizer_1 = CLIPTokenizer.from_pretrained(
-        args.hf_model_name,
-        subfolder="tokenizer",
-        token=args.hf_auth_token,
-    )
-    tokenizer_2 = CLIPTokenizer.from_pretrained(
-        args.hf_model_name,
-        subfolder="tokenizer_2",
-        token=args.hf_auth_token,
-    )
-    tokenizers = [tokenizer_1, tokenizer_2]
+    tokenizers = [runners["tokenizer_1"], runners["tokenizer_2"]]
 
     max_length = args.max_length
 
     samples = []
+    numpy_images = []
+
+    if args.compiled_pipeline and (args.batch_count > 1):
+        print("Compiled one-shot pipeline only supports 1 image at a time for now. Setting batch count to 1.")
+        args.batch_count = 1
+
     for i in range(args.batch_count):
         generator = torch.manual_seed(args.seed + i)
         rand_sample = torch.randn(
@@ -241,20 +279,20 @@ def generate_images(args, vmfbs: dict, weights: dict):
         )
         samples.append(
             ireert.asdevicearray(
-                pipe_runner.config.device, rand_sample, dtype=iree_dtype
+                runners["pipe"].config.device, rand_sample, dtype=iree_dtype
             )
         )
 
     guidance_scale = ireert.asdevicearray(
-        pipe_runner.config.device,
+        runners["pipe"].config.device,
         np.asarray([args.guidance_scale]),
         dtype=iree_dtype,
     )
 
-    encode_prompts_start = time.time()
-
     text_input_ids_list = []
     uncond_input_ids_list = []
+
+    tokenize_start = time.time()
 
     # Tokenize prompt and negative prompt.
     for tokenizer in tokenizers:
@@ -276,74 +314,87 @@ def generate_images(args, vmfbs: dict, weights: dict):
         uncond_input_ids = uncond_input.input_ids
 
         text_input_ids_list.extend(
-            [ireert.asdevicearray(prompt_encoder_runner.config.device, text_input_ids)]
+            [ireert.asdevicearray(runners["prompt_encoder"].config.device, text_input_ids)]
         )
         uncond_input_ids_list.extend(
             [
                 ireert.asdevicearray(
-                    prompt_encoder_runner.config.device, uncond_input_ids
+                    runners["prompt_encoder"].config.device, uncond_input_ids
                 )
             ]
         )
+    if args.compiled_pipeline:
+        inf_start = time.time()
+        image = runners["full_pipeline"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list).to_host()
+        inf_end = time.time()
+        print("Total inference time: " + inf_end - inf_start + "sec")
+        numpy_images.append(image)
+    else:
+        encode_prompts_start = time.time()
 
-    prompt_embeds, add_text_embeds = prompt_encoder_runner.ctx.modules.compiled_clip[
-        "main"
-    ](*text_input_ids_list, *uncond_input_ids_list)
+        prompt_embeds, add_text_embeds = runners["prompt_encoder"].ctx.modules.compiled_clip[
+            "encode_prompts"
+        ](*text_input_ids_list, *uncond_input_ids_list)
 
-    encode_prompts_end = time.time()
-    numpy_images = []
-    for i in range(args.batch_count):
-        unet_start = time.time()
+        encode_prompts_end = time.time()
+        
+        for i in range(args.batch_count):
+            unet_start = time.time()
 
-        latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline[
-            "produce_image_latents"
-        ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
+            latents = runners["pipe"].ctx.modules.sdxl_compiled_pipeline[
+                "produce_image_latents"
+            ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
 
-        vae_start = time.time()
-        vae_out = vae_decode_runner.ctx.modules.compiled_vae["main"](latents)
+            vae_start = time.time()
+            vae_out = runners["vae_decode"].ctx.modules.compiled_vae["main"](latents)
 
-        pipe_end = time.time()
+            pipe_end = time.time()
 
+            image = vae_out.to_host()
+
+            numpy_images.append(image)
+            print("Batch #", i + 1, "\n")
+            print(
+                "UNet time(",
+                args.num_inference_steps,
+                "): ",
+                vae_start - unet_start,
+                "sec,",
+            )
+            print(
+                "Unet average step latency: ",
+                (vae_start - unet_start) / args.num_inference_steps,
+                "sec",
+            )
+            print("VAE time: ", pipe_end - vae_start, "sec")
+            print(
+                f"\nTotal time (txt2img, batch #{str(i+1)}): ",
+                (encode_prompts_end - encode_prompts_start) + (pipe_end - unet_start),
+                "sec\n",
+            )
+        end = time.time()
+        print(
+            "Total CLIP time:", encode_prompts_end - encode_prompts_start, "sec"
+        )
+        print(
+            "Total tokenize time:", encode_prompts_start - tokenize_start, "sec"
+        )
+        print("Loading time: ", encode_prompts_start - pipe_start, "sec")
+        if args.batch_count > 1:
+            print(
+                f"Total inference time ({args.batch_count} batch(es)):",
+                end - encode_prompts_start,
+                "sec",
+            )
+    timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+    for idx, image in enumerate(numpy_images):
         image = (
-            torch.from_numpy(vae_out.to_host())
+            torch.from_numpy(image)
             .cpu()
             .permute(0, 2, 3, 1)
             .float()
             .numpy()
         )
-
-        numpy_images.append(image)
-        print("Batch #", i + 1, "\n")
-        print(
-            "UNet time(",
-            args.num_inference_steps,
-            "): ",
-            vae_start - unet_start,
-            "sec,",
-        )
-        print(
-            "Unet average step latency: ",
-            (vae_start - unet_start) / args.num_inference_steps,
-            "sec",
-        )
-        print("VAE time: ", pipe_end - vae_start, "sec")
-        print(
-            f"\nTotal time (txt2img, batch #{str(i+1)}): ",
-            (encode_prompts_end - encode_prompts_start) + (pipe_end - unet_start),
-            "sec\n",
-        )
-    end = time.time()
-    print(
-        "Total CLIP + Tokenizer time:", encode_prompts_end - encode_prompts_start, "sec"
-    )
-    print("Loading time: ", encode_prompts_start - pipe_start, "sec")
-    print(
-        f"Total inference time ({args.batch_count} batch(es)):",
-        end - encode_prompts_start,
-        "sec",
-    )
-    timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
-    for idx, image in enumerate(numpy_images):
         image = numpy_to_pil_image(image)
         img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
         image[0].save(img_path)
@@ -457,18 +508,21 @@ if __name__ == "__main__":
         "prompt_encoder": None,
         "scheduled_unet": None,
         "pipeline": None,
+        "full_pipeline": None,
     }
     vmfbs = {
         "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
         "pipeline": None,
+        "full_pipeline": None,
     }
     weights = {
         "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
         "pipeline": None,
+        "full_pipeline": None,
     }
 
     if not args.pipeline_dir:
@@ -504,5 +558,6 @@ if __name__ == "__main__":
         args.external_weights_dir = args.pipeline_dir
     vmfbs, weights = check_prepared(args, mlirs, vmfbs, weights)
 
-    generate_images(args, vmfbs, weights)
+    runners = load_pipeline(args, vmfbs, weights)
+    generate_images(args, runners)
     print("Image generation complete.")
