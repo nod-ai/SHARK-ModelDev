@@ -173,7 +173,7 @@ def save_external_weights(
     external_weight_file=None,
 ):
     if external_weights is not None:
-        if external_weights == "safetensors":
+        if external_weights in ["safetensors", "irpa"]:
             mod_params = dict(model.named_parameters())
             for name in mod_params:
                 mapper["params." + name] = name
