@@ -130,6 +130,13 @@ p.add_argument(
     help="Directory to save pipeline artifacts",
 )
 
+p.add_argument(
+    "--compiled_pipeline",
+    default=False,
+    action="store_true",
+    help="Do one-shot inference from tokens to image in a shrink-wrapped pipeline binary.",
+)
+
 ##############################################################################
 # SDXL Modelling Options
 #    These options are used to control model defining parameters for SDXL.
@@ -210,6 +217,7 @@ p.add_argument(
     default=None,
     help="Azure storage container name to download mlir files from.",
 )
+
 
 ##############################################################################
 # IREE Compiler Options
