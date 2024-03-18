@@ -15,6 +15,7 @@ from turbine_models.custom_models.sdxl_inference import (
     unet_runner,
     vae,
     vae_runner,
+    sdxl_compiled_pipeline,
 )
 from turbine_models.utils.sdxl_benchmark import run_benchmark
 import unittest
@@ -527,210 +528,101 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
-        if arguments["device"] in ["vulkan", "rocm", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest("Have issues with submodels on these backends")
-        from diffusers import EulerDiscreteScheduler
+        mlirs = {
+            "vae_decode": None,
+            "prompt_encoder": None,
+            "scheduled_unet": None,
+            "pipeline": None,
+            "full_pipeline": None,
+        }
+        vmfbs = {
+            "vae_decode": None,
+            "prompt_encoder": None,
+            "scheduled_unet": None,
+            "pipeline": None,
+            "full_pipeline": None,
+        }
+        weights = {
+            "vae_decode": None,
+            "prompt_encoder": None,
+            "scheduled_unet": None,
+            "pipeline": None,
+            "full_pipeline": None,
+        }
 
-        arguments["vae_external_weight_path"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_vae_decode."
-            + arguments["external_weights"]
+        if not arguments["pipeline_dir"]:
+            pipe_id_list = [
+                "sdxl_1_0",
+                str(arguments["height"]),
+                str(arguments["width"]),
+                str(arguments["max_length"]),
+                arguments["precision"],
+                arguments["device"],
+            ]
+            arguments["pipeline_dir"] = os.path.join(
+                ".",
+                "_".join(pipe_id_list),
+            )
+        ireec_flags = {
+            "unet": arguments["ireec_flags:"] + arguments["unet_flags"],
+            "vae": arguments["ireec_flags"] + arguments["vae_flags"],
+            "clip": arguments["ireec_flags"] + arguments["clip_flags"],
+            "pipeline": arguments["ireec_flags"],
+        }
+        if arguments["input_mlir"]:
+            user_mlir_list = arguments["input_mlir"].split(",")
+        else:
+            user_mlir_list = []
+        for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
+            if submodel_id in mlir_path:
+                mlirs[submodel_id] = mlir_path
+        if not arguments["external_weights_dir"] and arguments["external_weights"]:
+            arguments["external_weights_dir"] = arguments["pipeline_dir"]
+        sdxl_pipe = sdxl_compiled_pipeline.SharkSDXLPipeline(
+            arguments["hf_model_name"],
+            arguments["scheduler_id"],
+            arguments["height"],
+            arguments["width"],
+            arguments["precision"],
+            arguments["max_length"],
+            arguments["batch_size"],
+            arguments["num_inference_steps"],
+            arguments["device"],
+            arguments["iree_target_triple"],
+            ireec_flags,
+            arguments["attn_spec"],
+            arguments["decomp_attn"],
+            arguments["pipeline_dir"],
+            arguments["external_weights_dir"],
+            arguments["external_weights"],
         )
-        arguments["vae_vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["height"])
-            + "x"
-            + str(arguments["width"])
-            + "_"
-            + arguments["precision"]
-            + "_vae_decode_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-        arguments["unet_external_weight_path"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_unet."
-            + arguments["external_weights"]
-        )
-        arguments["unet_vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + str(arguments["height"])
-            + "x"
-            + str(arguments["width"])
-            + "_"
-            + arguments["precision"]
-            + "_unet_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-        arguments["clip_external_weight_path"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip."
-            + arguments["external_weights"]
-        )
-        arguments["clip_vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + arguments["precision"]
-            + "_clip_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-
-        dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
-        for key in [
-            "vae_external_weight_path",
-            "vae_vmfb_path",
-            "unet_external_weight_path",
-            "unet_vmfb_path",
-            "clip_external_weight_path",
-            "clip_vmfb_path",
-        ]:
-            try:
-                assert os.path.exists(arguments[key])
-            except AssertionError:
-                unittest.skip(f"File {arguments[key]} not found")
-        start = time.time()
-        (
-            prompt_embeds,
-            negative_prompt_embeds,
-            pooled_prompt_embeds,
-            pooled_negative_prompt_embeds,
-        ) = clip_runner.run_encode_prompts(
-            arguments["rt_device"],
+        vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
+        sdxl_pipe.load_pipeline(vmfbs, weights, arguments["rt_device"])
+        sdxl_pipe.generate_images(
             arguments["prompt"],
             arguments["negative_prompt"],
-            arguments["clip_vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["clip_external_weight_path"],
-            arguments["max_length"],
+            arguments["batch_count"],
+            arguments["guidance_scale"],
+            arguments["seed"],
         )
-        generator = torch.manual_seed(0)
-        init_latents = torch.randn(
-            (
-                arguments["batch_size"],
-                4,
-                arguments["height"] // 8,
-                arguments["width"] // 8,
-            ),
-            generator=generator,
-            dtype=dtype,
+        vmfbs, weights = sdxl_compiled_pipeline.check_prepared(
+            arguments["pipeline_dir"],
+            mlirs,
+            vmfbs,
+            weights,
+            interactive=False,
         )
-        scheduler = EulerDiscreteScheduler.from_pretrained(
-            arguments["hf_model_name"],
-            subfolder="scheduler",
+        sdxl_compiled_pipeline.load_pipeline(vmfbs, weights)
+        sdxl_compiled_pipeline.generate_images(
+            arguments["prompt"],
+            arguments["negative_prompt"],
+            arguments["batch_count"],
+            arguments["guidance_scale"],
+            arguments["seed"],
         )
-        scheduler.set_timesteps(arguments["num_inference_steps"])
-        scheduler.is_scale_input_called = True
-        sample = init_latents * scheduler.init_noise_sigma
-
-        original_size = (arguments["height"], arguments["width"])
-        target_size = (arguments["height"], arguments["width"])
-        crops_coords_top_left = (0, 0)
-        add_text_embeds = pooled_prompt_embeds
-
-        add_time_ids = _get_add_time_ids(
-            original_size,
-            crops_coords_top_left,
-            target_size,
-            dtype=prompt_embeds.dtype,
-        )
-        negative_add_time_ids = add_time_ids
-
-        do_classifier_free_guidance = True
-        if do_classifier_free_guidance:
-            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-            add_text_embeds = torch.cat(
-                [pooled_negative_prompt_embeds, add_text_embeds], dim=0
-            )
-            add_time_ids = torch.cat([add_time_ids, negative_add_time_ids], dim=0)
-
-        add_text_embeds = add_text_embeds.to(dtype)
-        add_time_ids = add_time_ids.repeat(arguments["batch_size"] * 1, 1)
-
-        # guidance scale as a float32 tensor.
-        guidance_scale = torch.tensor(arguments["guidance_scale"]).to(dtype)
-        prompt_embeds = prompt_embeds.to(dtype)
-        add_time_ids = add_time_ids.to(dtype)
-        latents = unet_runner.run_unet_steps(
-            device=arguments["rt_device"],
-            sample=sample,
-            scheduler=scheduler,
-            prompt_embeds=prompt_embeds,
-            text_embeds=add_text_embeds,
-            time_ids=add_time_ids,
-            guidance_scale=guidance_scale,
-            vmfb_path=arguments["unet_vmfb_path"],
-            external_weight_path=arguments["unet_external_weight_path"],
-        )
-        all_imgs = []
-        for i in range(0, latents.shape[0], arguments["batch_size"]):
-            vae_out = vae_runner.run_vae(
-                arguments["rt_device"],
-                latents[i : i + arguments["batch_size"]],
-                arguments["vae_vmfb_path"],
-                arguments["hf_model_name"],
-                arguments["vae_external_weight_path"],
-            ).to_host()
-            image = torch.from_numpy(vae_out).cpu().permute(0, 2, 3, 1).float().numpy()
-            if i == 0:
-                end = time.time()
-                print(f"Total time taken by SD pipeline: {end-start}")
-            all_imgs.append(numpy_to_pil_image(image))
-        for idx, image in enumerate(all_imgs):
-            img_path = "sdxl_test_image_" + str(idx) + ".png"
-            image[0].save(img_path)
-            print(img_path, "saved")
-        with open("e2e_time.txt", "w") as f:
-            f.write(f"{end-start} per batch\n")
-        assert os.path.exists("sdxl_test_image_0.png")
-
-
-def numpy_to_pil_image(images):
-    """
-    Convert a numpy image or a batch of images to a PIL image.
-    """
-    if images.ndim == 3:
-        images = images[None, ...]
-    images = (images * 255).round().astype("uint8")
-    if images.shape[-1] == 1:
-        # special case for grayscale (single channel) images
-        pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
-    else:
-        pil_images = [Image.fromarray(image) for image in images]
-
-    return pil_images
-
-
-def _get_add_time_ids(original_size, crops_coords_top_left, target_size, dtype):
-    add_time_ids = list(original_size + crops_coords_top_left + target_size)
-
-    # self.unet.config.addition_time_embed_dim IS 256.
-    # self.text_encoder_2.config.projection_dim IS 1280.
-    passed_add_embed_dim = 256 * len(add_time_ids) + 1280
-    expected_add_embed_dim = 2816
-    # self.unet.add_embedding.linear_1.in_features IS 2816.
-
-    if expected_add_embed_dim != passed_add_embed_dim:
-        raise ValueError(
-            f"Model expects an added time embedding vector of length {expected_add_embed_dim}, but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
-        )
-
-    add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-    return add_time_ids
+        print("Image generation complete.")
 
 
 if __name__ == "__main__":
