@@ -121,18 +121,21 @@ def export_transformer_model(
     streaming_llm=False,
     vmfb_path=None,
     upload_ir=False,
+    mod=None,
+    tokenizer=None,
 ):
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
-
-    mod = AutoModelForCausalLM.from_pretrained(
-        hf_model_name,
-        torch_dtype=torch.float,
-        token=hf_auth_token,
-    )
+    if tokenizer == None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            hf_model_name,
+            use_fast=False,
+            token=hf_auth_token,
+        )
+    if mod == None:
+        mod = AutoModelForCausalLM.from_pretrained(
+            hf_model_name,
+            torch_dtype=torch.float,
+            token=hf_auth_token,
+        )
     schema_json = generate_schema(mod.config.num_hidden_layers)
     state_schema = pytree.treespec_loads(schema_json)
     if streaming_llm:
@@ -165,7 +168,8 @@ def export_transformer_model(
             for name in mod_params:
                 mapper["params." + name] = name
             if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
+                if os.path.exists(external_weight_file) == False:
+                    safetensors.torch.save_file(mod_params, external_weight_file)
 
         elif external_weights == "gguf":
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
