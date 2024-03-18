@@ -267,7 +267,8 @@ def generate_images(args, runners: dict):
         args.batch_count = 1
 
     for i in range(args.batch_count):
-        generator = torch.manual_seed(args.seed + i)
+
+        generator = torch.random.manual_seed(args.seed + i)
         rand_sample = torch.randn(
             (
                 args.batch_size,
@@ -326,10 +327,10 @@ def generate_images(args, runners: dict):
         )
     if args.compiled_pipeline:
         inf_start = time.time()
-        image = runners["pipe"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list).to_host()
+        image = runners["pipe"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list)
         inf_end = time.time()
         print("Total inference time (Tokens to Image): " + str(inf_end - inf_start) + "sec")
-        numpy_images.append(image)
+        numpy_images.append(image.to_host())
     else:
         encode_prompts_start = time.time()
 
