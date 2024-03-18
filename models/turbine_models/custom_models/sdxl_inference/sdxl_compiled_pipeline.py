@@ -216,8 +216,18 @@ def load_pipeline(args, vmfbs: dict, weights: dict):
     if args.compiled_pipeline:
         runners["pipe"] = vmfbRunner(
             args.rt_device,
-            [vmfbs["scheduled_unet"], vmfbs["prompt_encoder"], vmfbs["vae_decode"], vmfbs["full_pipeline"]],
-            [weights["scheduled_unet"], weights["prompt_encoder"], weights["vae_decode"], None],
+            [
+                vmfbs["scheduled_unet"],
+                vmfbs["prompt_encoder"],
+                vmfbs["vae_decode"],
+                vmfbs["full_pipeline"],
+            ],
+            [
+                weights["scheduled_unet"],
+                weights["prompt_encoder"],
+                weights["vae_decode"],
+                None,
+            ],
         )
     else:
         runners["pipe"] = vmfbRunner(
@@ -263,7 +273,9 @@ def generate_images(args, runners: dict):
     numpy_images = []
 
     if args.compiled_pipeline and (args.batch_count > 1):
-        print("Compiled one-shot pipeline only supports 1 image at a time for now. Setting batch count to 1.")
+        print(
+            "Compiled one-shot pipeline only supports 1 image at a time for now. Setting batch count to 1."
+        )
         args.batch_count = 1
 
     for i in range(args.batch_count):
@@ -319,27 +331,31 @@ def generate_images(args, runners: dict):
             [ireert.asdevicearray(runners["pipe"].config.device, text_input_ids)]
         )
         uncond_input_ids_list.extend(
-            [
-                ireert.asdevicearray(
-                    runners["pipe"].config.device, uncond_input_ids
-                )
-            ]
+            [ireert.asdevicearray(runners["pipe"].config.device, uncond_input_ids)]
         )
     if args.compiled_pipeline:
         inf_start = time.time()
-        image = runners["pipe"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list)
+        image = runners["pipe"].ctx.modules.sdxl_compiled_pipeline["tokens_to_image"](
+            samples[0], guidance_scale, *text_input_ids_list, *uncond_input_ids_list
+        )
         inf_end = time.time()
-        print("Total inference time (Tokens to Image): " + str(inf_end - inf_start) + "sec")
+        print(
+            "Total inference time (Tokens to Image): "
+            + str(inf_end - inf_start)
+            + "sec"
+        )
         numpy_images.append(image.to_host())
     else:
         encode_prompts_start = time.time()
 
-        prompt_embeds, add_text_embeds = runners["prompt_encoder"].ctx.modules.compiled_clip[
-            "encode_prompts"
-        ](*text_input_ids_list, *uncond_input_ids_list)
+        prompt_embeds, add_text_embeds = runners[
+            "prompt_encoder"
+        ].ctx.modules.compiled_clip["encode_prompts"](
+            *text_input_ids_list, *uncond_input_ids_list
+        )
 
         encode_prompts_end = time.time()
-        
+
         for i in range(args.batch_count):
             unet_start = time.time()
 
@@ -375,12 +391,8 @@ def generate_images(args, runners: dict):
                 "sec\n",
             )
         end = time.time()
-        print(
-            "Total CLIP time:", encode_prompts_end - encode_prompts_start, "sec"
-        )
-        print(
-            "Total tokenize time:", encode_prompts_start - tokenize_start, "sec"
-        )
+        print("Total CLIP time:", encode_prompts_end - encode_prompts_start, "sec")
+        print("Total tokenize time:", encode_prompts_start - tokenize_start, "sec")
         print("Loading time: ", encode_prompts_start - pipe_start, "sec")
         if args.batch_count > 1:
             print(
@@ -390,13 +402,7 @@ def generate_images(args, runners: dict):
             )
     timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
     for idx, image in enumerate(numpy_images):
-        image = (
-            torch.from_numpy(image)
-            .cpu()
-            .permute(0, 2, 3, 1)
-            .float()
-            .numpy()
-        )
+        image = torch.from_numpy(image).cpu().permute(0, 2, 3, 1).float().numpy()
         image = numpy_to_pil_image(image)
         img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
         image[0].save(img_path)
