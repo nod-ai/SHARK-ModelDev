@@ -6,6 +6,7 @@
 
 import os
 import sys
+import re
 
 from iree import runtime as ireert
 import iree.compiler as ireec
@@ -15,7 +16,7 @@ from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 from turbine_models.turbine_tank import turbine_tank
 
 import argparse
@@ -60,18 +61,29 @@ def export_clip_model(
     max_alloc=None,
     upload_ir=False,
 ):
-    # Load the tokenizer and text encoder to tokenize and encode the text.
-    tokenizer = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
+    if hf_model_name == "google/t5-v1_1-xxl":
+        from transformers import T5Tokenizer, T5Model
+        tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
+        text_encoder_model = T5Model.from_pretrained(hf_model_name)
 
-    text_encoder_model = CLIPTextModel.from_pretrained(
-        hf_model_name,
-        subfolder="text_encoder",
-        token=hf_auth_token,
-    )
+    else:
+        if hf_model_name == "openai/clip-vit-large-patch14":
+            tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+        else:
+            # Load the tokenizer and text encoder to tokenize and encode the text.
+            tokenizer = CLIPTokenizer.from_pretrained(
+                hf_model_name,
+                subfolder="tokenizer",
+                token=hf_auth_token,
+            )
+
+
+        text_encoder_model = CLIPTextModel.from_pretrained(
+            hf_model_name,
+        #    subfolder="text_encoder",
+            token=hf_auth_token,
+        )
+
 
     mapper = {}
     utils.save_external_weights(
@@ -90,7 +102,7 @@ def export_clip_model(
             params = export_parameters(text_encoder_model)
 
         def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
-            return jittable(text_encoder_model.forward)(inp)
+            return jittable(text_encoder_model.forward)(input_ids=inp, decoder_input_ids=inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
