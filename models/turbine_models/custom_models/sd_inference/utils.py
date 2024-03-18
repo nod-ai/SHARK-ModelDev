@@ -32,7 +32,6 @@ gfx94X_flags = {
         "--iree-global-opt-only-sink-transposes=true",
     ],
     "vae": [
-        #"--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-global-opt-only-sink-transposes=true",
     ],
