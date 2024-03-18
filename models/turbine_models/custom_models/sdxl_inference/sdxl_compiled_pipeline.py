@@ -76,7 +76,7 @@ class SharkSDXLPipeline:
         self.batch_size = batch_size
         self.num_inference_steps = num_inference_steps
         self.device = device
-        self.target_triple = iree_target_triple
+        self.iree_target_triple = iree_target_triple
         self.ireec_flags = ireec_flags
         self.attn_spec = attn_spec
         self.decomp_attn = decomp_attn
@@ -174,40 +174,41 @@ class SharkSDXLPipeline:
 
     # IMPORT / COMPILE PHASE
 
-    def get_torch_models(self):
-        scheduled_unet_torch = sdxl_scheduled_unet.SDXLScheduledUnet(
-            # This is a public model, so no auth required
-            self.hf_model_name,
-            self.scheduler_id,
-            self.height,
-            self.width,
-            self.batch_size,
-            None,
-            precision=self.precision,
-            num_inference_steps=self.num_inference_steps,
-        )
-        vae_torch = vae.VaeModel(
-            # This is a public model, so no auth required
-            self.hf_model_name,
-            custom_vae=(
-                "madebyollin/sdxl-vae-fp16-fix" if self.precision == "fp16" else None
-            ),
-        )
-        return scheduled_unet_torch, vae_torch
+    def get_torch_models(self, submodel):
+        match submodel:
+            case "scheduled_unet":
+                scheduled_unet_torch = sdxl_scheduled_unet.SDXLScheduledUnet(
+                    # This is a public model, so no auth required
+                    self.hf_model_name,
+                    self.scheduler_id,
+                    self.height,
+                    self.width,
+                    self.batch_size,
+                    None,
+                    precision=self.precision,
+                    num_inference_steps=self.num_inference_steps,
+                )
+                return scheduled_unet_torch
+            case "vae_decode":
+                vae_torch = vae.VaeModel(
+                    # This is a public model, so no auth required
+                    self.hf_model_name,
+                    custom_vae=(
+                        "madebyollin/sdxl-vae-fp16-fix" if self.precision == "fp16" else None
+                    ),
+                )
+                return vae_torch
 
     def export_submodel(
         self,
         submodel: str,
         input_mlir: str = None,
         weights_only: bool = False,
-        attn_spec: str = None,
     ):
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
-        if input_mlir is None and submodel in ["scheduled_unet", "vae_decode"]:
-            scheduled_unet_torch, vae_torch = self.get_torch_models()
         if self.external_weights_dir:
-            if not os.path.exists(external_weights_dir):
+            if not os.path.exists(self.external_weights_dir):
                 os.makedirs(external_weights_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
                 self.external_weights_dir, "vae_decode." + self.external_weights
@@ -243,6 +244,10 @@ class SharkSDXLPipeline:
             )
         match submodel:
             case "scheduled_unet":
+                if not input_mlir["scheduled_unet"]:
+                    scheduled_unet_torch = self.get_torch_models("scheduled_unet")
+                else:
+                    scheduled_unet_torch = None
                 unet_vmfb = sdxl_scheduled_unet.export_scheduled_unet_model(
                     scheduled_unet_torch,
                     self.scheduler_id,
@@ -263,12 +268,16 @@ class SharkSDXLPipeline:
                     self.decomp_attn,
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
-                    attn_spec=attn_spec,
-                    input_mlir=input_mlir,
+                    attn_spec=self.attn_spec,
+                    input_mlir=input_mlir["scheduled_unet"],
                     weights_only=weights_only,
                 )
                 return unet_vmfb, unet_external_weight_path
             case "vae_decode":
+                if not input_mlir["vae_decode"]:
+                    vae_torch = self.get_torch_models("vae_decode")
+                else:
+                    vae_torch = None
                 vae_decode_vmfb = vae.export_vae_model(
                     vae_torch,
                     self.hf_model_name,
@@ -286,8 +295,8 @@ class SharkSDXLPipeline:
                     self.decomp_attn,
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
-                    attn_spec=attn_spec,
-                    input_mlir=input_mlir,
+                    attn_spec=self.attn_spec,
+                    input_mlir=input_mlir["vae_decode"],
                     weights_only=weights_only,
                 )
                 return vae_decode_vmfb, vae_external_weight_path
@@ -305,8 +314,8 @@ class SharkSDXLPipeline:
                     self.ireec_flags["clip"],
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
-                    input_mlir=input_mlir,
-                    attn_spec=attn_spec,
+                    input_mlir=input_mlir["prompt_encoder"],
+                    attn_spec=self.attn_spec,
                     weights_only=weights_only,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
@@ -353,12 +362,12 @@ class SharkSDXLPipeline:
 
     # LOAD
 
-    def load_pipeline(self, vmfbs: dict, weights: dict, rt_device: str = "local-task"):
+    def load_pipeline(self, vmfbs: dict, weights: dict, rt_device: str = "local-task", compiled_pipeline: bool = True):
         self.runners = {}
         runners = {}
-        if self.compiled_pipeline:
+        if compiled_pipeline:
             runners["pipe"] = vmfbRunner(
-                self.rt_device,
+                rt_device,
                 [
                     vmfbs["scheduled_unet"],
                     vmfbs["prompt_encoder"],
@@ -374,15 +383,15 @@ class SharkSDXLPipeline:
             )
         else:
             runners["pipe"] = vmfbRunner(
-                self.rt_device,
+                rt_device,
                 [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
                 [weights["scheduled_unet"], None],
             )
             runners["vae_decode"] = vmfbRunner(
-                self.rt_device, vmfbs["vae_decode"], weights["vae_decode"]
+                rt_device, vmfbs["vae_decode"], weights["vae_decode"]
             )
             runners["prompt_encoder"] = vmfbRunner(
-                self.rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
+                rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
             )
         runners["tokenizer_1"] = CLIPTokenizer.from_pretrained(
             self.hf_model_name,
@@ -393,6 +402,7 @@ class SharkSDXLPipeline:
             subfolder="tokenizer_2",
         )
         self.runners = runners
+        self.compiled_pipeline = compiled_pipeline
         print("Successfully loaded pipeline.")
 
     # RUN
@@ -653,12 +663,9 @@ if __name__ == "__main__":
         args.pipeline_dir,
         args.external_weights_dir,
         args.external_weights,
-        mlirs,
-        vmfbs,
-        weights,
     )
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
-    sdxl_pipe.load_pipeline(vmfbs, weights, args.rt_device)
+    sdxl_pipe.load_pipeline(vmfbs, weights, args.rt_device, args.compiled_pipeline)
     sdxl_pipe.generate_images(
         args.prompt,
         args.negative_prompt,
