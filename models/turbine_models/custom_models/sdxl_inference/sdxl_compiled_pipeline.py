@@ -279,7 +279,6 @@ def generate_images(args, runners: dict):
         args.batch_count = 1
 
     for i in range(args.batch_count):
-
         generator = torch.random.manual_seed(args.seed + i)
         rand_sample = torch.randn(
             (
