@@ -599,7 +599,9 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["external_weights"],
         )
         vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
-        sdxl_pipe.load_pipeline(vmfbs, weights, arguments["rt_device"], arguments["compiled_pipeline"])
+        sdxl_pipe.load_pipeline(
+            vmfbs, weights, arguments["rt_device"], arguments["compiled_pipeline"]
+        )
         sdxl_pipe.generate_images(
             arguments["prompt"],
             arguments["negative_prompt"],

@@ -194,7 +194,9 @@ class SharkSDXLPipeline:
                     # This is a public model, so no auth required
                     self.hf_model_name,
                     custom_vae=(
-                        "madebyollin/sdxl-vae-fp16-fix" if self.precision == "fp16" else None
+                        "madebyollin/sdxl-vae-fp16-fix"
+                        if self.precision == "fp16"
+                        else None
                     ),
                 )
                 return vae_torch
@@ -362,7 +364,13 @@ class SharkSDXLPipeline:
 
     # LOAD
 
-    def load_pipeline(self, vmfbs: dict, weights: dict, rt_device: str = "local-task", compiled_pipeline: bool = True):
+    def load_pipeline(
+        self,
+        vmfbs: dict,
+        weights: dict,
+        rt_device: str = "local-task",
+        compiled_pipeline: bool = True,
+    ):
         self.runners = {}
         runners = {}
         if compiled_pipeline:
