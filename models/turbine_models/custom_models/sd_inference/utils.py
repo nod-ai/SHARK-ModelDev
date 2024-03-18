@@ -23,7 +23,7 @@ gfx94X_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
-        #"--iree-flow-split-matmul-reduction=5",
+        # "--iree-flow-split-matmul-reduction=5",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
     ],

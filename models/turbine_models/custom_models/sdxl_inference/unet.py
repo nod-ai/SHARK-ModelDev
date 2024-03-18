@@ -192,6 +192,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     if args.input_mlir:
         unet_model = None
     else:

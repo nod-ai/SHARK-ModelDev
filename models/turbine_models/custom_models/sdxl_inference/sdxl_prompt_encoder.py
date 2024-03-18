@@ -146,7 +146,7 @@ def export_prompt_encoder(
     attn_spec=None,
     weights_only=False,
 ):
-    if (attn_spec in ["default", "", None]):
+    if attn_spec in ["default", "", None]:
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
         )

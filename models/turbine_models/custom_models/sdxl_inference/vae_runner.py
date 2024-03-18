@@ -5,6 +5,7 @@ import torch
 
 torch.random.manual_seed(0)
 
+
 def run_vae(
     device,
     example_input,

@@ -251,6 +251,7 @@ def export_scheduled_unet_model(
             exit()
         return vmfb
 
+
 def export_pipeline_module(args):
     pipeline_file = (
         "sdxl_sched_unet_bench_" + "f32"
@@ -287,6 +288,7 @@ def export_pipeline_module(args):
         mlir_source="file",
     )
     return pipeline_vmfb_path
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
