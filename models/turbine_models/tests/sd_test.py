@@ -226,6 +226,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
+    # https://github.com/nod-ai/SHARK-Turbine/issues/536
     @unittest.expectedFailure
     def testExportVaeModelEncode(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
