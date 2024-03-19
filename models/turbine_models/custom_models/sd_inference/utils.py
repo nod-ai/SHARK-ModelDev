@@ -14,7 +14,7 @@ gfx94X_flags = {
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+        "--iree-rocm-bc-dir=/home/eagarvey/2024-q1-sdxl-sprint/bitcode-2024-03-07",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
@@ -24,6 +24,8 @@ gfx94X_flags = {
     ],
     "unet": [
         # "--iree-flow-split-matmul-reduction=5",
+        "--iree-codegen-llvmgpu-use-conv-vector-distribute-pipeline",
+        "--iree-codegen-llvmgpu-reduce-skinny-matmuls",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
     ],
