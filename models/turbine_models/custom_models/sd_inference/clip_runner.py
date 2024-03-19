@@ -72,19 +72,32 @@ def run_clip(
 
 
 def run_torch_clip(hf_model_name, hf_auth_token, prompt):
-    # TODO: Integrate with HFTransformerBuilder
-    from transformers import CLIPTextModel
+    if "google/t5" in hf_model_name:
+        from transformers import T5Tokenizer, T5Model
 
-    model = CLIPTextModel.from_pretrained(
-        hf_model_name,
-        subfolder="text_encoder",
-        token=hf_auth_token,
-    )
-    tokenizer = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
+        tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
+        model = T5Model.from_pretrained(hf_model_name)
+    # TODO: Integrate with HFTransformerBuilder
+    else:
+        if hf_model_name == "openai/clip-vit-large-patch14":
+            from transformers import CLIPProcessor
+            tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+            hf_subfolder = ""  # CLIPProcessor does not have a subfolder
+        else:
+            hf_subfolder="text_encoder"
+
+            tokenizer = CLIPTokenizer.from_pretrained(
+                hf_model_name,
+                subfolder="tokenizer",
+                token=hf_auth_token,
+            )
+
+        from transformers import CLIPTextModel
+        model = CLIPTextModel.from_pretrained(
+            hf_model_name,
+            subfolder=hf_subfolder,
+            token=hf_auth_token,
+        )
     text_input = tokenizer(
         prompt,
         padding="max_length",
@@ -94,7 +107,10 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
     )
     example_input = text_input.input_ids
 
-    results = model.forward(example_input)[0]
+    if "google/t5" in hf_model_name:
+        results = model.forward(example_input, decoder_input_ids=example_input)[0]
+    else:
+        results = model.forward(example_input)[0]
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
 

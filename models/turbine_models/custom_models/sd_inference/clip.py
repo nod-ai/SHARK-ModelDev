@@ -5,17 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import os
-import sys
 import re
 
-from iree import runtime as ireert
-import iree.compiler as ireec
 from iree.compiler.ir import Context
-import numpy as np
 from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
-import torch._dynamo as dynamo
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 from turbine_models.turbine_tank import turbine_tank
 
