@@ -61,14 +61,16 @@ def export_clip_model(
     max_alloc=None,
     upload_ir=False,
 ):
-    if hf_model_name == "google/t5-v1_1-xxl":
+    if "google/t5" in hf_model_name:
         from transformers import T5Tokenizer, T5Model
         tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
         text_encoder_model = T5Model.from_pretrained(hf_model_name)
 
     else:
+        #TODO: Add better filtering mechanism for things that require CLIPProcessor
         if hf_model_name == "openai/clip-vit-large-patch14":
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+            hf_subfolder = "" # CLIPProcessor does not have a subfolder
         else:
             # Load the tokenizer and text encoder to tokenize and encode the text.
             tokenizer = CLIPTokenizer.from_pretrained(
@@ -76,11 +78,12 @@ def export_clip_model(
                 subfolder="tokenizer",
                 token=hf_auth_token,
             )
+            hf_subfolder = "text_encoder"
 
 
         text_encoder_model = CLIPTextModel.from_pretrained(
             hf_model_name,
-        #    subfolder="text_encoder",
+            subfolder=hf_subfolder,
             token=hf_auth_token,
         )
 
@@ -90,19 +93,35 @@ def export_clip_model(
         mapper, text_encoder_model, external_weights, external_weight_path
     )
 
-    class CompiledClip(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                text_encoder_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(text_encoder_model)
+    if "google/t5" in hf_model_name:
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    text_encoder_model,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(text_encoder_model)
 
-        def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
-            return jittable(text_encoder_model.forward)(input_ids=inp, decoder_input_ids=inp)
+            def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64), 
+                     decoder_input_ids=AbstractTensor(1, 77, dtype=torch.int64)):
+                return jittable(text_encoder_model.forward)(input_ids=inp, decoder_input_ids=decoder_input_ids)
+    else:
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    text_encoder_model,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(text_encoder_model)
+
+            def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
+                return jittable(text_encoder_model.forward)(input_ids=inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
