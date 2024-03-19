@@ -71,11 +71,14 @@ class StableDiffusionTest(unittest.TestCase):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                # This is a public model, so no auth required
-                "google/t5-v1_1-small",
-                None,
-                "vmfb",
-                "cpu",
+                hf_model_name="google/t5-v1_1-small",
+                hf_auth_token=None,
+                compile_to="vmfb",
+                external_weights=None,
+                external_weight_path=None,
+                device="cpu",
+                target_triple=None,
+                max_alloc=None,
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
@@ -84,13 +87,14 @@ class StableDiffusionTest(unittest.TestCase):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                # This is a public model, so no auth required
-                "openai/clip-vit-large-patch14",
-                None,
-                "vmfb",
-                "safetensors",
-                "openai_clip-vit-large-patch14.safetensors",
-                "cpu",
+                hf_model_name="openai/clip-vit-large-patch14",
+                hf_auth_token=None,
+                compile_to="vmfb",
+                external_weights="safetensors",
+                external_weight_path="openai_clip-vit-large-patch14.safetensors",
+                device="cpu",
+                target_triple=None,
+                max_alloc=None,
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
