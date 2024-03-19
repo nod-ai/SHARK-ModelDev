@@ -63,14 +63,15 @@ def export_clip_model(
 ):
     if "google/t5" in hf_model_name:
         from transformers import T5Tokenizer, T5Model
+
         tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
         text_encoder_model = T5Model.from_pretrained(hf_model_name)
 
     else:
-        #TODO: Add better filtering mechanism for things that require CLIPProcessor
+        # TODO: Add better filtering mechanism for things that require CLIPProcessor
         if hf_model_name == "openai/clip-vit-large-patch14":
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
-            hf_subfolder = "" # CLIPProcessor does not have a subfolder
+            hf_subfolder = ""  # CLIPProcessor does not have a subfolder
         else:
             # Load the tokenizer and text encoder to tokenize and encode the text.
             tokenizer = CLIPTokenizer.from_pretrained(
@@ -80,13 +81,11 @@ def export_clip_model(
             )
             hf_subfolder = "text_encoder"
 
-
         text_encoder_model = CLIPTextModel.from_pretrained(
             hf_model_name,
             subfolder=hf_subfolder,
             token=hf_auth_token,
         )
-
 
     mapper = {}
     utils.save_external_weights(
@@ -94,6 +93,7 @@ def export_clip_model(
     )
 
     if "google/t5" in hf_model_name:
+
         class CompiledClip(CompiledModule):
             if external_weights:
                 params = export_parameters(
@@ -105,10 +105,17 @@ def export_clip_model(
             else:
                 params = export_parameters(text_encoder_model)
 
-            def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64), 
-                     decoder_input_ids=AbstractTensor(1, 77, dtype=torch.int64)):
-                return jittable(text_encoder_model.forward)(input_ids=inp, decoder_input_ids=decoder_input_ids)
+            def main(
+                self,
+                inp=AbstractTensor(1, 77, dtype=torch.int64),
+                decoder_input_ids=AbstractTensor(1, 77, dtype=torch.int64),
+            ):
+                return jittable(text_encoder_model.forward)(
+                    input_ids=inp, decoder_input_ids=decoder_input_ids
+                )
+
     else:
+
         class CompiledClip(CompiledModule):
             if external_weights:
                 params = export_parameters(

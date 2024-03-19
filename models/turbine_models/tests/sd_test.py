@@ -95,7 +95,6 @@ class StableDiffusionTest(unittest.TestCase):
             )
         self.assertEqual(cm.exception.code, None)
 
-
     def testExportClipModel(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
