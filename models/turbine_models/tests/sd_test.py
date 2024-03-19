@@ -65,7 +65,7 @@ scheduler_module = schedulers.Scheduler(
     "CompVis/stable-diffusion-v1-4", arguments["num_inference_steps"], scheduler
 )
 
-
+# TODO: this is a mess, don't share args across tests, create a copy for each test
 class StableDiffusionTest(unittest.TestCase):
     def testExportT5Model(self):
         arguments["hf_model_name"] = "google/t5-v1_1-small"
@@ -102,7 +102,7 @@ class StableDiffusionTest(unittest.TestCase):
 
     def testExportClipVitLarge14(self):
         arguments["hf_model_name"] = "openai/clip-vit-large-patch14"
-        safe_prefix = "openai_clip-vit-large-patch14"
+        safe_prefix = "openai_clip_vit_large_patch14"
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
@@ -136,6 +136,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove(safe_prefix + ".vmfb")
 
     def testExportClipModel(self):
+        arguments["hf_model_name"] = "CompVis/stable-diffusion-v1-4"
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
