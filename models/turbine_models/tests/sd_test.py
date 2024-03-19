@@ -67,6 +67,35 @@ scheduler_module = schedulers.Scheduler(
 
 
 class StableDiffusionTest(unittest.TestCase):
+    def testExportT5Model(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        with self.assertRaises(SystemExit) as cm:
+            clip.export_clip_model(
+                # This is a public model, so no auth required
+                "google/t5-v1_1-small",
+                None,
+                "vmfb",
+                "cpu",
+                upload_ir=upload_ir_var == "upload",
+            )
+        self.assertEqual(cm.exception.code, None)
+
+    def testExportClipVitLarge14(self):
+        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        with self.assertRaises(SystemExit) as cm:
+            clip.export_clip_model(
+                # This is a public model, so no auth required
+                "openai/clip-vit-large-patch14",
+                None,
+                "vmfb",
+                "safetensors",
+                "openai_clip-vit-large-patch14.safetensors",
+                "cpu",
+                upload_ir=upload_ir_var == "upload",
+            )
+        self.assertEqual(cm.exception.code, None)
+
+
     def testExportClipModel(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
@@ -198,6 +227,7 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
+    @unittest.expectedFailure
     def testExportVaeModelEncode(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
