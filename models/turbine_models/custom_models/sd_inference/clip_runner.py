@@ -81,10 +81,11 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
     else:
         if hf_model_name == "openai/clip-vit-large-patch14":
             from transformers import CLIPProcessor
+
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
             hf_subfolder = ""  # CLIPProcessor does not have a subfolder
         else:
-            hf_subfolder="text_encoder"
+            hf_subfolder = "text_encoder"
 
             tokenizer = CLIPTokenizer.from_pretrained(
                 hf_model_name,
@@ -93,6 +94,7 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
             )
 
         from transformers import CLIPTextModel
+
         model = CLIPTextModel.from_pretrained(
             hf_model_name,
             subfolder=hf_subfolder,

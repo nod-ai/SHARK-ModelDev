@@ -68,12 +68,12 @@ scheduler_module = schedulers.Scheduler(
 
 class StableDiffusionTest(unittest.TestCase):
     def testExportT5Model(self):
-        arguments["hf_model_name"]="google/t5-v1_1-small",
+        arguments["hf_model_name"] = "google/t5-v1_1-small"
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         safe_prefix = "google_t5-v1_1-small"
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                hf_model_name="google/t5-v1_1-small",
+                hf_model_name=arguments["hf_model_name"],
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights=None,
@@ -84,7 +84,7 @@ class StableDiffusionTest(unittest.TestCase):
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["vmfb_path"] = safe_prefix+".vmfb"
+        arguments["vmfb_path"] = safe_prefix + ".vmfb"
         turbine = clip_runner.run_clip(
             arguments["device"],
             arguments["prompt"],
@@ -98,10 +98,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
-        os.remove(safe_prefix+".vmfb")
+        os.remove(safe_prefix + ".vmfb")
 
     def testExportClipVitLarge14(self):
-        arguments["hf_model_name"]="openai/clip-vit-large-patch14",
+        arguments["hf_model_name"] = "openai/clip-vit-large-patch14"
         safe_prefix = "openai_clip-vit-large-patch14"
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
         with self.assertRaises(SystemExit) as cm:
@@ -110,15 +110,15 @@ class StableDiffusionTest(unittest.TestCase):
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights="safetensors",
-                external_weight_path=safe_prefix+".safetensors",
+                external_weight_path=safe_prefix + ".safetensors",
                 device="cpu",
                 target_triple=None,
                 max_alloc=None,
                 upload_ir=upload_ir_var == "upload",
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = safe_prefix+".safetensors"
-        arguments["vmfb_path"] = safe_prefix+".vmfb"
+        arguments["external_weight_path"] = safe_prefix + ".safetensors"
+        arguments["vmfb_path"] = safe_prefix + ".vmfb"
         turbine = clip_runner.run_clip(
             arguments["device"],
             arguments["prompt"],
@@ -132,8 +132,8 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
-        os.remove(safe_prefix+".safetensors")
-        os.remove(safe_prefix+".vmfb")
+        os.remove(safe_prefix + ".safetensors")
+        os.remove(safe_prefix + ".vmfb")
 
     def testExportClipModel(self):
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
