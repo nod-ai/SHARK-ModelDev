@@ -7,7 +7,7 @@ from diffusers import (
     PNDMScheduler,
 )
 
-
+winograd_params = "keys=unet.down_blocks.2.resnets.0.conv2.weight keys=unet.down_blocks.2.resnets.1.conv1.weight keys=unet.down_blocks.2.resnets.1.conv2.weight keys=unet.mid_block.resnets.0.conv1.weight keys=unet.mid_block.resnets.0.conv2.weight keys=unet.mid_block.resnets.1.conv1.weight keys=unet.mid_block.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.0.conv2.weight keys=unet.up_blocks.0.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.2.conv2.weight keys=unet.up_blocks.0.resnets.0.conv1.weight keys=unet.up_blocks.0.resnets.1.conv1.weight keys=unet.up_blocks.0.resnets.2.conv1.weight keys=unet.up_blocks.0.upsamplers.0.conv.weight"
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 gfx94X_flags = {
     "all": [
@@ -18,24 +18,28 @@ gfx94X_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
+        "--iree-rocm-waves-per-eu=2",
         "--iree-codegen-log-swizzle-tile=4",
-        "--iree-codegen-winograd-use-forall",
+        "--iree-llvmgpu-promote-filter=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
-        # "--iree-flow-split-matmul-reduction=5",
         # "--iree-codegen-llvmgpu-use-conv-vector-distribute-pipeline",
         "--iree-codegen-llvmgpu-reduce-skinny-matmuls",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-codegen-winograd-use-forall",
     ],
     "clip": [
-        "--iree-flow-split-matmul-reduction=1",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-codegen-llvmgpu-reduce-skinny-matmuls",
         "--iree-global-opt-only-sink-transposes=true",
     ],
     "vae": [
         "--iree-codegen-llvmgpu-use-vector-distribution",
         "--iree-global-opt-only-sink-transposes=true",
+        "--iree-codegen-winograd-use-forall",
+        "--iree-opt-data-tiling=false",
     ],
 }
 
@@ -99,13 +103,6 @@ def compile_to_vmfb(
         )
     else:
         print("incorrect device: ", device)
-    if const_expr_hoisting == False:
-        flags.extend(
-            [
-                "--iree-opt-const-expr-hoisting=False",
-                "--iree-codegen-linalg-max-constant-fold-elements=9223372036854775807",
-            ]
-        )
     if isinstance(ireec_flags, str):
         if ireec_flags != "":
             ireec_flags = ireec_flags.split(",")
@@ -126,9 +123,10 @@ def compile_to_vmfb(
             flags.extend(gfx94X_flags["clip"])
         elif "vae" in safe_name:
             flags.extend(gfx94X_flags["vae"])
-        flags.extend(gfx94X_flags["all"])
+        if "pipeline" not in safe_name:
+            flags.extend(gfx94X_flags["all"])
 
-    if attn_spec is not None:
+    if attn_spec not in [None, "", " "]:
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)

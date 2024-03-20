@@ -294,7 +294,7 @@ class SharkSDXLPipeline:
                     self.iree_target_triple,
                     self.ireec_flags["vae"],
                     "decode",
-                    self.decomp_attn,
+                    True,  # self.decomp_attn
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
                     attn_spec=self.attn_spec,
@@ -337,7 +337,6 @@ class SharkSDXLPipeline:
                     self.ireec_flags["pipeline"],
                     os.path.join(self.pipeline_dir, "pipeline"),
                     return_path=True,
-                    const_expr_hoisting=False,
                     mlir_source="file",
                 )
                 return pipeline_vmfb, None
@@ -357,7 +356,6 @@ class SharkSDXLPipeline:
                     self.ireec_flags["pipeline"],
                     os.path.join(self.pipeline_dir, "full_pipeline"),
                     return_path=True,
-                    const_expr_hoisting=False,
                     mlir_source="file",
                 )
                 return pipeline_vmfb, None

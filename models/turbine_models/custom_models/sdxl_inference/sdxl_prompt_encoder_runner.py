@@ -63,7 +63,7 @@ def run_prompt_encoder(
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[1]),
     ]
-    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip["main"](
+    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip["encode_prompts"](
         *prompt_encoder_inputs
     )
     del prompt_encoder_inputs
