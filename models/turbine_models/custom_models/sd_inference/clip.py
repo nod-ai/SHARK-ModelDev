@@ -5,17 +5,13 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import os
-import sys
+import re
 
-from iree import runtime as ireert
-import iree.compiler as ireec
 from iree.compiler.ir import Context
-import numpy as np
 from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
-import torch._dynamo as dynamo
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 from turbine_models.turbine_tank import turbine_tank
 
 import argparse
@@ -60,37 +56,77 @@ def export_clip_model(
     max_alloc=None,
     upload_ir=False,
 ):
-    # Load the tokenizer and text encoder to tokenize and encode the text.
-    tokenizer = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
+    input_len = 77
+    if "google/t5" in hf_model_name:
+        from transformers import T5Tokenizer, T5Model
 
-    text_encoder_model = CLIPTextModel.from_pretrained(
-        hf_model_name,
-        subfolder="text_encoder",
-        token=hf_auth_token,
-    )
+        tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
+        text_encoder_model = T5Model.from_pretrained(hf_model_name)
+        input_len = 512
+
+    else:
+        # TODO: Add better filtering mechanism for things that require CLIPProcessor
+        if "openai" in hf_model_name:
+            tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+            hf_subfolder = ""  # CLIPProcessor does not have a subfolder
+            input_len = 10
+        else:
+            # Load the tokenizer and text encoder to tokenize and encode the text.
+            tokenizer = CLIPTokenizer.from_pretrained(
+                hf_model_name,
+                subfolder="tokenizer",
+                token=hf_auth_token,
+            )
+            hf_subfolder = "text_encoder"
+
+        text_encoder_model = CLIPTextModel.from_pretrained(
+            hf_model_name,
+            subfolder=hf_subfolder,
+            token=hf_auth_token,
+        )
 
     mapper = {}
     utils.save_external_weights(
         mapper, text_encoder_model, external_weights, external_weight_path
     )
 
-    class CompiledClip(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                text_encoder_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(text_encoder_model)
+    if "google/t5" in hf_model_name:
 
-        def main(self, inp=AbstractTensor(1, 77, dtype=torch.int64)):
-            return jittable(text_encoder_model.forward)(inp)
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    text_encoder_model,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(text_encoder_model)
+
+            def main(
+                self,
+                inp=AbstractTensor(1, input_len, dtype=torch.int64),
+                decoder_input_ids=AbstractTensor(1, input_len, dtype=torch.int64),
+            ):
+                return jittable(text_encoder_model.forward)(
+                    input_ids=inp, decoder_input_ids=decoder_input_ids
+                )
+
+    else:
+
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    text_encoder_model,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(text_encoder_model)
+
+            def main(self, inp=AbstractTensor(1, input_len, dtype=torch.int64)):
+                return jittable(text_encoder_model.forward)(input_ids=inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
