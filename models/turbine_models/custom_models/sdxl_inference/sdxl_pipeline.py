@@ -205,6 +205,7 @@ def export_submodel(args, submodel):
             return pipeline_vmfb, None
 
 
+
 def generate_images(args, vmfbs: dict, weights: dict):
     print("Pipeline arguments: ", args)
     # TODO: implement case where this is false e.g. in SDXL Turbo
@@ -422,12 +423,19 @@ def generate_images(args, vmfbs: dict, weights: dict):
         "sec",
     )
 
-    for image in numpy_images:
+    return numpy_images
+
+
+def save_images(args, vmfbs: dict, weights: dict):
+    images = generate_images(args, vmfbs, weights)
+    for image in images:
         image = numpy_to_pil_image(image)
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
         img_path = "sdxl_output_" + timestamp + ".png"
         image[0].save(img_path)
         print(img_path, "saved")
+
+
 
 
 def numpy_to_pil_image(images):

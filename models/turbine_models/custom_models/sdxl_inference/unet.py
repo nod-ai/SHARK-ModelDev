@@ -50,7 +50,7 @@ class UnetModel(torch.nn.Module):
     def forward(
         self, sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
     ):
-        with torch.no_grad():
+        with torch.enable_grad():
             added_cond_kwargs = {
                 "text_embeds": text_embeds,
                 "time_ids": time_ids,

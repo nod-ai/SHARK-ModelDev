@@ -34,7 +34,7 @@ class ClipModel(torch.nn.Module):
             )
 
     def forward(self, input):
-        with torch.no_grad():
+        with torch.enable_grad():
             prompt_embeds = self.text_encoder_model(
                 input,
                 output_hidden_states=True,
