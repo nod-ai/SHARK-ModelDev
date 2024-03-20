@@ -137,6 +137,11 @@ def export_scheduled_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
+    if "turbo" in hf_model_name:
+        do_classifier_free_guidance = False
+    else:
+        do_classifier_free_guidance = True
+
     if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
@@ -196,9 +201,14 @@ def export_scheduled_unet_model(
         height // 8,
         width // 8,
     )
-    prompt_embeds_shape = (2 * batch_size, max_length, 2048)
-    text_embeds_shape = (2 * batch_size, 1280)
-    time_ids_shape = (2 * batch_size, 6)
+    if do_classifier_free_guidance:
+        init_batch_dim = 2
+    else:
+        init_batch_dim = 1
+
+    time_ids_shape = (init_batch_dim * batch_size, 6)
+    prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
+    text_embeds_shape = (init_batch_dim * batch_size, 1280)
 
     class CompiledScheduledUnet(CompiledModule):
         if external_weights:
@@ -258,23 +268,25 @@ def export_pipeline_module(args):
         if args.precision == "fp32"
         else "sdxl_sched_unet_bench_" + "f16"
     )
+    if "turbo" in args.hf_model_name:
+        pipe_prefix = "sdxl_turbo_pipeline_bench_"
+    else:
+        pipe_prefix = "sdxl_pipeline_bench_"
     full_pipeline_file = (
-        "sdxl_pipeline_bench_" + "f32"
-        if args.precision == "fp32"
-        else "sdxl_pipeline_bench_" + "f16"
+        pipe_prefix + "f32" if args.precision == "fp32" else pipe_prefix + "f16"
     )
-    pipeline_vmfb_path = utils.compile_to_vmfb(
-        os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
-        ),
-        args.device,
-        args.iree_target_triple,
-        args.ireec_flags,
-        "sdxl_pipeline_" + args.precision + "_" + args.iree_target_triple,
-        return_path=True,
-        const_expr_hoisting=False,
-        mlir_source="file",
-    )
+    # pipeline_vmfb_path = utils.compile_to_vmfb(
+    #     os.path.join(
+    #         os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
+    #     ),
+    #     args.device,
+    #     args.iree_target_triple,
+    #     args.ireec_flags,
+    #     "sdxl_pipeline_" + args.precision + "_" + args.iree_target_triple,
+    #     return_path=True,
+    #     const_expr_hoisting=False,
+    #     mlir_source="file",
+    # )
     full_pipeline_vmfb_path = utils.compile_to_vmfb(
         os.path.join(
             os.path.realpath(os.path.dirname(__file__)), full_pipeline_file + ".mlir"
@@ -287,7 +299,7 @@ def export_pipeline_module(args):
         const_expr_hoisting=False,
         mlir_source="file",
     )
-    return pipeline_vmfb_path
+    return full_pipeline_vmfb_path
 
 
 if __name__ == "__main__":

@@ -154,7 +154,7 @@ p.add_argument(
 p.add_argument(
     "--precision",
     type=str,
-    default="fp32",
+    default="fp16",
     help="Precision of Stable Diffusion weights and graph.",
 )
 p.add_argument(

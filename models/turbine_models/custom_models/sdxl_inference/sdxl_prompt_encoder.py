@@ -18,7 +18,13 @@ from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokeniz
 
 
 class PromptEncoderModule(torch.nn.Module):
-    def __init__(self, hf_model_name, precision, hf_auth_token=None):
+    def __init__(
+        self,
+        hf_model_name,
+        precision,
+        hf_auth_token=None,
+        do_classifier_free_guidance=True,
+    ):
         super().__init__()
         self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
         self.text_encoder_model_1 = CLIPTextModel.from_pretrained(
@@ -31,6 +37,7 @@ class PromptEncoderModule(torch.nn.Module):
             subfolder="text_encoder_2",
             token=hf_auth_token,
         )
+        self.do_classifier_free_guidance = do_classifier_free_guidance
 
     #     self.tokenizer_1 = CLIPTokenizer.from_pretrained(
     #         hf_model_name,
@@ -115,14 +122,16 @@ class PromptEncoderModule(torch.nn.Module):
                 bs_embed * 1, -1
             )
             add_text_embeds = pooled_prompt_embeds
-
-            neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(1, -1)
-            neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
-            neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
-            prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
-            add_text_embeds = torch.cat(
-                [neg_pooled_prompt_embeds, add_text_embeds], dim=0
-            )
+            if self.do_classifier_free_guidance:
+                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
+                    1, -1
+                )
+                neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
+                neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
+                prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
+                add_text_embeds = torch.cat(
+                    [neg_pooled_prompt_embeds, add_text_embeds], dim=0
+                )
 
             add_text_embeds = add_text_embeds.to(self.torch_dtype)
             prompt_embeds = prompt_embeds.to(self.torch_dtype)
@@ -146,6 +155,11 @@ def export_prompt_encoder(
     attn_spec=None,
     weights_only=False,
 ):
+    if "turbo" in hf_model_name:
+        do_classifier_free_guidance = False
+    else:
+        do_classifier_free_guidance = True
+
     if attn_spec in ["default", "", None]:
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
@@ -184,7 +198,9 @@ def export_prompt_encoder(
         model_max_length=max_length,
     )
     tokenizers = [tokenizer_1, tokenizer_2]
-    prompt_encoder_module = PromptEncoderModule(hf_model_name, precision, hf_auth_token)
+    prompt_encoder_module = PromptEncoderModule(
+        hf_model_name, precision, hf_auth_token, do_classifier_free_guidance
+    )
     if precision == "fp16":
         prompt_encoder_module = prompt_encoder_module.half()
     mapper = {}
