@@ -3,6 +3,7 @@ from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
+from PIL import Image
 
 parser = argparse.ArgumentParser()
 
@@ -52,21 +53,54 @@ def run_clip(
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
-    tokenizer = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
-    text_input = tokenizer(
-        prompt,
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
+    if "google/t5" in hf_model_name:
+        from transformers import T5Tokenizer, T5Model
+
+        tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
+        text_input = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+    # TODO: Integrate with HFTransformerBuilder
+    else:
+        if "openai" in hf_model_name:
+            from transformers import CLIPProcessor
+            import requests
+
+            url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+            image = Image.open(requests.get(url, stream=True).raw)
+            tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+            text_input = tokenizer(
+                text=prompt,
+                images=image,
+                truncation=True,
+                padding=True,
+                return_tensors="pt",
+            )
+        else:
+            hf_subfolder = "tokenizer"
+
+            tokenizer = CLIPTokenizer.from_pretrained(
+                hf_model_name,
+                subfolder=hf_subfolder,
+                token=hf_auth_token,
+            )
+
+            text_input = tokenizer(
+                prompt,
+                padding="max_length",
+                max_length=tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
     example_input = text_input.input_ids
     inp = [ireert.asdevicearray(runner.config.device, example_input)]
 
+    if "google/t5" in hf_model_name:
+        inp += [ireert.asdevicearray(runner.config.device, example_input)]
     results = runner.ctx.modules.compiled_clip["main"](*inp)
     return results
 
@@ -77,13 +111,38 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
 
         tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
         model = T5Model.from_pretrained(hf_model_name)
+        text_input = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
     # TODO: Integrate with HFTransformerBuilder
     else:
         if hf_model_name == "openai/clip-vit-large-patch14":
             from transformers import CLIPProcessor
+            import requests
+
+            url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+            image = Image.open(requests.get(url, stream=True).raw)
 
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
             hf_subfolder = ""  # CLIPProcessor does not have a subfolder
+            from transformers import CLIPTextModel
+
+            model = CLIPTextModel.from_pretrained(
+                hf_model_name,
+                subfolder=hf_subfolder,
+                token=hf_auth_token,
+            )
+            text_input = tokenizer(
+                text=prompt,
+                images=image,
+                truncation=True,
+                padding=True,
+                return_tensors="pt",
+            )
         else:
             hf_subfolder = "text_encoder"
 
@@ -93,20 +152,20 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
                 token=hf_auth_token,
             )
 
-        from transformers import CLIPTextModel
+            from transformers import CLIPTextModel
 
-        model = CLIPTextModel.from_pretrained(
-            hf_model_name,
-            subfolder=hf_subfolder,
-            token=hf_auth_token,
-        )
-    text_input = tokenizer(
-        prompt,
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
+            model = CLIPTextModel.from_pretrained(
+                hf_model_name,
+                subfolder=hf_subfolder,
+                token=hf_auth_token,
+            )
+            text_input = tokenizer(
+                prompt,
+                padding="max_length",
+                max_length=tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
     example_input = text_input.input_ids
 
     if "google/t5" in hf_model_name:

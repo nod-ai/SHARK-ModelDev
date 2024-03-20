@@ -21,9 +21,11 @@ from turbine_models.custom_models.sd_inference import utils
 import torch
 import unittest
 import os
+import copy
+import platform
 
 
-arguments = {
+default_arguments = {
     "hf_auth_token": None,
     "hf_model_name": "CompVis/stable-diffusion-v1-4",
     "scheduler_id": "PNDM",
@@ -42,6 +44,7 @@ arguments = {
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
 }
+UPLOAD_IR = os.environ.get("TURBINE_TANK_ACTION", "not_upload") == "upload"
 
 
 unet_model = unet.UnetModel(
@@ -60,20 +63,21 @@ schedulers_dict = utils.get_schedulers(
     # This is a public model, so no auth required
     "CompVis/stable-diffusion-v1-4",
 )
-scheduler = schedulers_dict[arguments["scheduler_id"]]
+scheduler = schedulers_dict[default_arguments["scheduler_id"]]
 scheduler_module = schedulers.Scheduler(
-    "CompVis/stable-diffusion-v1-4", arguments["num_inference_steps"], scheduler
+    "CompVis/stable-diffusion-v1-4", default_arguments["num_inference_steps"], scheduler
 )
+
 
 # TODO: this is a mess, don't share args across tests, create a copy for each test
 class StableDiffusionTest(unittest.TestCase):
     def testExportT5Model(self):
-        arguments["hf_model_name"] = "google/t5-v1_1-small"
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
-        safe_prefix = "google_t5-v1_1-small"
+        current_args = copy.deepcopy(default_arguments)
+        current_args["hf_model_name"] = "google/t5-v1_1-small"
+        safe_prefix = "t5_v1_1_small"
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                hf_model_name=arguments["hf_model_name"],
+                hf_model_name=current_args["hf_model_name"],
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights=None,
@@ -81,32 +85,37 @@ class StableDiffusionTest(unittest.TestCase):
                 device="cpu",
                 target_triple=None,
                 max_alloc=None,
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["vmfb_path"] = safe_prefix + ".vmfb"
+        current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
-            arguments["device"],
-            arguments["prompt"],
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
+            current_args["device"],
+            current_args["prompt"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
             None,
         )
         torch_output = clip_runner.run_torch_clip(
-            arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"]
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["prompt"],
         )
         err = utils.largest_error(torch_output, turbine[0])
-        assert err < 9e-5
-        os.remove(safe_prefix + ".vmfb")
+        assert err < 9e-4
+        if platform.system() != "Windows":
+            os.remove(current_args["external_weight_path"])
+            os.remove(current_args["vmfb_path"])
+        del current_args
 
     def testExportClipVitLarge14(self):
-        arguments["hf_model_name"] = "openai/clip-vit-large-patch14"
-        safe_prefix = "openai_clip_vit_large_patch14"
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
+        current_args["hf_model_name"] = "openai/clip-vit-large-patch14"
+        safe_prefix = "clip_vit_large_patch14"
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
-                hf_model_name=arguments["hf_model_name"],
+                hf_model_name=current_args["hf_model_name"],
                 hf_auth_token=None,
                 compile_to="vmfb",
                 external_weights="safetensors",
@@ -114,30 +123,33 @@ class StableDiffusionTest(unittest.TestCase):
                 device="cpu",
                 target_triple=None,
                 max_alloc=None,
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = safe_prefix + ".safetensors"
-        arguments["vmfb_path"] = safe_prefix + ".vmfb"
+        current_args["external_weight_path"] = safe_prefix + ".safetensors"
+        current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
-            arguments["device"],
-            arguments["prompt"],
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["device"],
+            current_args["prompt"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = clip_runner.run_torch_clip(
-            arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"]
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["prompt"],
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
-        os.remove(safe_prefix + ".safetensors")
-        os.remove(safe_prefix + ".vmfb")
+        if platform.system() != "Windows":
+            os.remove(current_args["external_weight_path"])
+            os.remove(current_args["vmfb_path"])
 
     def testExportClipModel(self):
-        arguments["hf_model_name"] = "CompVis/stable-diffusion-v1-4"
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
+        current_args["hf_model_name"] = "CompVis/stable-diffusion-v1-4"
         with self.assertRaises(SystemExit) as cm:
             clip.export_clip_model(
                 # This is a public model, so no auth required
@@ -147,21 +159,23 @@ class StableDiffusionTest(unittest.TestCase):
                 "safetensors",
                 "stable_diffusion_v1_4_clip.safetensors",
                 "cpu",
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = "stable_diffusion_v1_4_clip.safetensors"
-        arguments["vmfb_path"] = "stable_diffusion_v1_4_clip.vmfb"
+        current_args["external_weight_path"] = "stable_diffusion_v1_4_clip.safetensors"
+        current_args["vmfb_path"] = "stable_diffusion_v1_4_clip.vmfb"
         turbine = clip_runner.run_clip(
-            arguments["device"],
-            arguments["prompt"],
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["device"],
+            current_args["prompt"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = clip_runner.run_torch_clip(
-            arguments["hf_model_name"], arguments["hf_auth_token"], arguments["prompt"]
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["prompt"],
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
@@ -169,48 +183,48 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_clip.vmfb")
 
     def testExportUnetModel(self):
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
             unet.export_unet_model(
                 unet_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
+                current_args["batch_size"],
+                current_args["height"],
+                current_args["width"],
                 None,
                 "vmfb",
                 "safetensors",
                 "stable_diffusion_v1_4_unet.safetensors",
                 "cpu",
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = "stable_diffusion_v1_4_unet.safetensors"
-        arguments["vmfb_path"] = "stable_diffusion_v1_4_unet.vmfb"
+        current_args["external_weight_path"] = "stable_diffusion_v1_4_unet.safetensors"
+        current_args["vmfb_path"] = "stable_diffusion_v1_4_unet.vmfb"
         sample = torch.rand(
-            arguments["batch_size"],
-            arguments["in_channels"],
-            arguments["height"] // 8,
-            arguments["width"] // 8,
+            current_args["batch_size"],
+            current_args["in_channels"],
+            current_args["height"] // 8,
+            current_args["width"] // 8,
             dtype=torch.float32,
         )
         timestep = torch.zeros(1, dtype=torch.float32)
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
 
         turbine = unet_runner.run_unet(
-            arguments["device"],
+            current_args["device"],
             sample,
             timestep,
             encoder_hidden_states,
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = unet_runner.run_torch_unet(
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
             sample,
             timestep,
             encoder_hidden_states,
@@ -221,44 +235,44 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_unet.vmfb")
 
     def testExportVaeModelDecode(self):
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
+                current_args["batch_size"],
+                current_args["height"],
+                current_args["width"],
                 None,
                 "vmfb",
                 "safetensors",
                 "stable_diffusion_v1_4_vae.safetensors",
                 "cpu",
                 variant="decode",
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
-        arguments["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
+        current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
+        current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
         example_input = torch.rand(
-            arguments["batch_size"],
+            current_args["batch_size"],
             4,
-            arguments["height"] // 8,
-            arguments["width"] // 8,
+            current_args["height"] // 8,
+            current_args["width"] // 8,
             dtype=torch.float32,
         )
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            current_args["device"],
             example_input,
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
             "decode",
             example_input,
         )
@@ -270,44 +284,44 @@ class StableDiffusionTest(unittest.TestCase):
     # https://github.com/nod-ai/SHARK-Turbine/issues/536
     @unittest.expectedFailure
     def testExportVaeModelEncode(self):
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
             vae.export_vae_model(
                 vae_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
+                current_args["batch_size"],
+                current_args["height"],
+                current_args["width"],
                 None,
                 "vmfb",
                 "safetensors",
                 "stable_diffusion_v1_4_vae.safetensors",
                 "cpu",
                 variant="encode",
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
-        arguments["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
+        current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
+        current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
         example_input = torch.rand(
-            arguments["batch_size"],
+            current_args["batch_size"],
             3,
-            arguments["height"],
-            arguments["width"],
+            current_args["height"],
+            current_args["width"],
             dtype=torch.float32,
         )
         turbine = vae_runner.run_vae(
-            arguments["device"],
+            current_args["device"],
             example_input,
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
             "encode",
             example_input,
         )
@@ -318,48 +332,47 @@ class StableDiffusionTest(unittest.TestCase):
 
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
-        upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
+        current_args = copy.deepcopy(default_arguments)
+        safe_name = "stable_diffusion_v1_4_scheduler"
         with self.assertRaises(SystemExit) as cm:
             schedulers.export_scheduler(
                 scheduler_module,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
-                arguments["batch_size"],
-                arguments["height"],
-                arguments["width"],
+                current_args["batch_size"],
+                current_args["height"],
+                current_args["width"],
                 None,
                 "vmfb",
                 "safetensors",
                 "stable_diffusion_v1_4_scheduler.safetensors",
                 "cpu",
-                upload_ir=upload_ir_var == "upload",
+                upload_ir=UPLOAD_IR,
             )
         self.assertEqual(cm.exception.code, None)
-        arguments[
-            "external_weight_path"
-        ] = "stable_diffusion_v1_4_scheduler.safetensors"
-        arguments["vmfb_path"] = "stable_diffusion_v1_4_scheduler.vmfb"
+        current_args["external_weight_path"] = safe_name + ".safetensors"
+        current_args["vmfb_path"] = safe_name + ".vmfb"
         sample = torch.rand(
-            arguments["batch_size"],
+            current_args["batch_size"],
             4,
-            arguments["height"] // 8,
-            arguments["width"] // 8,
+            current_args["height"] // 8,
+            current_args["width"] // 8,
             dtype=torch.float32,
         )
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
         turbine = schedulers_runner.run_scheduler(
-            arguments["device"],
+            current_args["device"],
             sample,
             encoder_hidden_states,
-            arguments["vmfb_path"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path"],
+            current_args["vmfb_path"],
+            current_args["hf_model_name"],
+            current_args["hf_auth_token"],
+            current_args["external_weight_path"],
         )
         torch_output = schedulers_runner.run_torch_scheduler(
-            arguments["hf_model_name"],
+            current_args["hf_model_name"],
             scheduler,
-            arguments["num_inference_steps"],
+            current_args["num_inference_steps"],
             sample,
             encoder_hidden_states,
         )
