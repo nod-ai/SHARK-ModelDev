@@ -3,7 +3,6 @@ from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
-from PIL import Image
 
 parser = argparse.ArgumentParser()
 
@@ -70,12 +69,9 @@ def run_clip(
             from transformers import CLIPProcessor
             import requests
 
-            url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-            image = Image.open(requests.get(url, stream=True).raw)
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
             text_input = tokenizer(
                 text=prompt,
-                images=image,
                 truncation=True,
                 padding=True,
                 return_tensors="pt",
@@ -122,10 +118,6 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
     else:
         if hf_model_name == "openai/clip-vit-large-patch14":
             from transformers import CLIPProcessor
-            import requests
-
-            url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-            image = Image.open(requests.get(url, stream=True).raw)
 
             tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
             hf_subfolder = ""  # CLIPProcessor does not have a subfolder
@@ -138,7 +130,6 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
             )
             text_input = tokenizer(
                 text=prompt,
-                images=image,
                 truncation=True,
                 padding=True,
                 return_tensors="pt",
