@@ -166,6 +166,14 @@ p.add_argument(
     action="store_true",
     help="Make scheduled unet compiled module return the step index.",
 )
+
+p.add_argument(
+    "--vae_decomp_attn",
+    type=bool,
+    default=True,
+    help="Decompose attention for VAE decode only at fx graph level",
+)
+
 ##############################################################################
 # SDXL script general options.
 ##############################################################################
