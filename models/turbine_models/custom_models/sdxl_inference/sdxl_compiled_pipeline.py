@@ -66,6 +66,7 @@ class SharkSDXLPipeline:
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
         external_weights: str = "safetensors",
+        vae_decomp_attn: bool = True,
     ):
         self.hf_model_name = hf_model_name
         self.scheduler_id = scheduler_id
@@ -83,6 +84,7 @@ class SharkSDXLPipeline:
         self.pipeline_dir = pipeline_dir
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
+        self.vae_decomp_attn = vae_decomp_attn
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 
@@ -294,7 +296,7 @@ class SharkSDXLPipeline:
                     self.iree_target_triple,
                     self.ireec_flags["vae"],
                     "decode",
-                    True,  # self.decomp_attn
+                    self.vae_decomp_attn,
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
                     attn_spec=self.attn_spec,
@@ -669,6 +671,7 @@ if __name__ == "__main__":
         args.pipeline_dir,
         args.external_weights_dir,
         args.external_weights,
+        args.vae_decomp_attn,
     )
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
     sdxl_pipe.load_pipeline(vmfbs, weights, args.rt_device, args.compiled_pipeline)
