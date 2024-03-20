@@ -105,7 +105,6 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-4
         if platform.system() != "Windows":
-            os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
         del current_args
 
