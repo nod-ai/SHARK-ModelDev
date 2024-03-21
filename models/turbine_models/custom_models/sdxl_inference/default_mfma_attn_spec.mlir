@@ -899,13 +899,85 @@ module attributes { transform.with_named_sequence } {
   }
 
 //===----------------------------------------------------------------------===//
+// Contraction tuning
+//===----------------------------------------------------------------------===//
+
+  transform.named_sequence @match_contract_2x1024x1280x20x64(%contract: !transform.any_op {transform.readonly})
+    -> (!transform.any_op, !transform.any_param) {
+    %ins, %outs = transform.iree.match.cast_compatible_dag_from_root %contract {
+    ^bb0(%lhs: tensor<2x20x1024x64xf16>, %rhs: tensor<1280x20x64xf16>, %out: tensor<2x1024x1280xf32>):
+      %20 = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d1, d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d2, d3, d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2)>],
+          iterator_types = ["parallel", "parallel", "parallel", "reduction", "reduction"]
+        } ins(%lhs, %rhs : tensor<2x20x1024x64xf16>, tensor<1280x20x64xf16>)
+          outs(%out : tensor<2x1024x1280xf32>) {
+        ^bb0(%in: f16, %in_0: f16, %acc: f32):
+          %22 = arith.extf %in : f16 to f32
+          %23 = arith.extf %in_0 : f16 to f32
+          %24 = arith.mulf %22, %23 : f32
+          %25 = arith.addf %acc, %24 : f32
+          linalg.yield %25 : f32
+        } -> tensor<2x1024x1280xf32>
+    } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
+    %config = transform.param.constant #iree_codegen.compilation_info<
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 64, 160, 1, 64]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+      {mma_schedule = #iree_gpu.mma_schedule<
+        intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+        subgroup_m_count = 2, subgroup_n_count = 2,
+        subgroup_m_tile_count = 2,
+        subgroup_n_tile_count = 5,
+        subgroup_k_tile_count = 4>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64> -> !transform.any_param
+    // transform.print %contract {name = "Contract"} : !transform.any_op
+    transform.yield %contract, %config : !transform.any_op, !transform.any_param
+  }
+
+  transform.named_sequence @match_contract_2x2x20x64x64x2048(%contract: !transform.any_op {transform.readonly})
+    -> (!transform.any_op, !transform.any_param) {
+    %ins, %outs = transform.iree.match.cast_compatible_dag_from_root %contract {
+    ^bb0(%lhs: tensor<2x64x2048xf16>, %rhs: tensor<2x20x64x2048xf16>, %out: tensor<2x2x20x64x64xf32>):
+      %10 = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d3, d5)>,
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d4, d5)>,
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4)>],
+          iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction"]
+        } ins(%lhs, %rhs : tensor<2x64x2048xf16>, tensor<2x20x64x2048xf16>)
+          outs(%out : tensor<2x2x20x64x64xf32>) {
+      ^bb0(%in: f16, %in_0: f16, %acc: f32):
+        %12 = arith.extf %in : f16 to f32
+        %13 = arith.extf %in_0 : f16 to f32
+        %14 = arith.mulf %12, %13 : f32
+        %15 = arith.addf %acc, %14 : f32
+        linalg.yield %15 : f32
+      } -> tensor<2x2x20x64x64xf32>
+    } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
+    %config = transform.param.constant #iree_codegen.compilation_info<
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 1, 32, 16, 128]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+      {mma_schedule = #iree_gpu.mma_schedule<
+        intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+        subgroup_m_count = 2, subgroup_n_count = 1,
+        subgroup_m_tile_count = 1,
+        subgroup_n_tile_count = 1,
+        subgroup_k_tile_count = 8>}>,
+      workgroup_size = [64, 2, 1], subgroup_size = 64> -> !transform.any_param
+    // transform.print %contract {name = "Contract"} : !transform.any_op
+    transform.yield %contract, %config : !transform.any_op, !transform.any_param
+  }
+
+//===----------------------------------------------------------------------===//
 // Entry point
 //===----------------------------------------------------------------------===//
 
   transform.named_sequence @__kernel_config(%variant_op: !transform.any_op {transform.consumed}) {
     transform.foreach_match in %variant_op
+        // Attention.
         @match_attention_len_512 -> @custom_attention_len_512,
         @match_attention -> @custom_attention,
+        // Matmul tuning.
         @match_mmt_2048x10240x1280 -> @apply_op_config,
         @match_mmt_2048x1280x1280 -> @apply_op_config,
         @match_mmt_2048x1280x5120 -> @apply_op_config,
@@ -913,6 +985,7 @@ module attributes { transform.with_named_sequence } {
         @match_mmt_128x640x2048 -> @apply_op_config,
         @match_mmt_8192x640x2560 -> @apply_op_config,
         @match_mmt_8192x5120x640 -> @apply_op_config,
+        // Convolution tuning.
         @match_conv_2d_nhwc_hwcf_2x32x32x1280x3x3x1280 -> @apply_op_config,
         @match_conv_2d_nhwc_hwcf_2x32x32x1280x3x3x1920 -> @apply_op_config,
         @match_conv_2d_nhwc_hwcf_2x32x32x1280x3x3x2560 -> @apply_op_config,
@@ -923,7 +996,10 @@ module attributes { transform.with_named_sequence } {
         @match_conv_2d_nhwc_hwcf_2x128x128x320x3x3x320 -> @apply_op_config,
         @match_conv_2d_nhwc_hwcf_2x128x128x320x3x3x640 -> @apply_op_config,
         @match_conv_2d_nhwc_hwcf_2x128x128x320x3x3x960 -> @apply_op_config,
-        @match_conv_2d_nhwc_hwcf_2x128x128x640x3x3x640 -> @apply_op_config
+        @match_conv_2d_nhwc_hwcf_2x128x128x640x3x3x640 -> @apply_op_config,
+        // Contract tuning.
+        @match_contract_2x1024x1280x20x64 -> @apply_op_config,
+        @match_contract_2x2x20x64x64x2048 -> @apply_op_config
       : (!transform.any_op) -> (!transform.any_op)
     transform.yield
   }
