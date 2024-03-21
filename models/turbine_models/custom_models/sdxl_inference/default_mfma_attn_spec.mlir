@@ -675,14 +675,14 @@ module attributes { transform.with_named_sequence } {
         outs(%out : tensor<2x32x32x1280xf32>) -> tensor<2x32x32x1280xf32>
     } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
     %config = transform.param.constant #iree_codegen.compilation_info<
-    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 32, 320, 1, 1, 80]]>,
-    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 2, 32, 160, 0, 0, 64], [0, 0, 0, 0, 1, 1, 0]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUConvVectorDistribute,
       {mma_schedule = #iree_gpu.mma_schedule<
         intrinsic = #iree_gpu.mfma_layout<F16_32x32x8_F32>,
-        subgroup_m_count = 1, subgroup_n_count = 10,
+        subgroup_m_count = 2, subgroup_n_count = 5,
         subgroup_m_tile_count = 1,
         subgroup_n_tile_count = 1,
-        subgroup_k_tile_count = 10>}>,
+        subgroup_k_tile_count = 8>}>,
       workgroup_size = [640, 1, 1], subgroup_size = 64> -> !transform.any_param
     transform.yield %conv, %config : !transform.any_op, !transform.any_param
   }
@@ -696,15 +696,15 @@ module attributes { transform.with_named_sequence } {
         outs(%out : tensor<2x32x32x1280xf32>) -> tensor<2x32x32x1280xf32>
     } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
     %config = transform.param.constant #iree_codegen.compilation_info<
-    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 32, 160, 1, 1, 80]]>,
-    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 2, 32, 160, 0, 0, 64], [0, 0, 0, 0, 1, 1, 0]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUConvVectorDistribute,
       {mma_schedule = #iree_gpu.mma_schedule<
         intrinsic = #iree_gpu.mfma_layout<F16_32x32x8_F32>,
-        subgroup_m_count = 1, subgroup_n_count = 5,
+        subgroup_m_count = 2, subgroup_n_count = 5,
         subgroup_m_tile_count = 1,
         subgroup_n_tile_count = 1,
-        subgroup_k_tile_count = 10>}>,
-      workgroup_size = [320, 1, 1], subgroup_size = 64> -> !transform.any_param
+        subgroup_k_tile_count = 8>}>,
+      workgroup_size = [640, 1, 1], subgroup_size = 64> -> !transform.any_param
     transform.yield %conv, %config : !transform.any_op, !transform.any_param
   }
 
@@ -717,15 +717,15 @@ module attributes { transform.with_named_sequence } {
         outs(%out : tensor<2x32x32x1280xf32>) -> tensor<2x32x32x1280xf32>
     } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
     %config = transform.param.constant #iree_codegen.compilation_info<
-    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 32, 160, 1, 1, 80]]>,
-    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 2, 32, 160, 0, 0, 64], [0, 0, 0, 0, 1, 1, 0]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUConvVectorDistribute,
       {mma_schedule = #iree_gpu.mma_schedule<
         intrinsic = #iree_gpu.mfma_layout<F16_32x32x8_F32>,
-        subgroup_m_count = 1, subgroup_n_count = 5,
+        subgroup_m_count = 2, subgroup_n_count = 5,
         subgroup_m_tile_count = 1,
         subgroup_n_tile_count = 1,
-        subgroup_k_tile_count = 10>}>,
-      workgroup_size = [320, 1, 1], subgroup_size = 64> -> !transform.any_param
+        subgroup_k_tile_count = 8>}>,
+      workgroup_size = [640, 1, 1], subgroup_size = 64> -> !transform.any_param
     transform.yield %conv, %config : !transform.any_op, !transform.any_param
   }
 
@@ -738,14 +738,14 @@ module attributes { transform.with_named_sequence } {
         outs(%out : tensor<2x64x64x640xf32>) -> tensor<2x64x64x640xf32>
     } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
     %config = transform.param.constant #iree_codegen.compilation_info<
-    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 64, 320, 1, 1, 80]]>,
-    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 2, 64, 160, 0, 0, 32], [0, 0, 0, 0, 1, 1, 0]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUConvVectorDistribute,
       {mma_schedule = #iree_gpu.mma_schedule<
         intrinsic = #iree_gpu.mfma_layout<F16_32x32x8_F32>,
-        subgroup_m_count = 1, subgroup_n_count = 10,
+        subgroup_m_count = 2, subgroup_n_count = 5,
         subgroup_m_tile_count = 2,
         subgroup_n_tile_count = 1,
-        subgroup_k_tile_count = 10>}>,
+        subgroup_k_tile_count = 4>}>,
       workgroup_size = [640, 1, 1], subgroup_size = 64> -> !transform.any_param
     transform.yield %conv, %config : !transform.any_op, !transform.any_param
   }
@@ -968,6 +968,39 @@ module attributes { transform.with_named_sequence } {
     transform.yield %contract, %config : !transform.any_op, !transform.any_param
   }
 
+  transform.named_sequence @match_contract_3x2x20x64x64x1280(%contract: !transform.any_op {transform.readonly})
+    -> (!transform.any_op, !transform.any_param) {
+    %ins, %outs = transform.iree.match.cast_compatible_dag_from_root %contract {
+    ^bb0(%lhs: tensor<2x1024x1280xf16>, %rhs: tensor<3x20x64x1280xf16>, %out: tensor<3x2x20x1024x64xf32>):
+      %14 = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d3, d5)>,
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d4, d5)>,
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4)>],
+          iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction"]
+        } ins(%lhs, %rhs : tensor<2x1024x1280xf16>, tensor<3x20x64x1280xf16>)
+          outs(%out : tensor<3x2x20x1024x64xf32>) {
+      ^bb0(%in: f16, %in_0: f16, %acc: f32):
+        %16 = arith.extf %in : f16 to f32
+        %17 = arith.extf %in_0 : f16 to f32
+        %18 = arith.mulf %16, %17 : f32
+        %19 = arith.addf %acc, %18 : f32
+        linalg.yield %19 : f32
+      } -> tensor<3x2x20x1024x64xf32>
+    } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
+    %config = transform.param.constant #iree_codegen.compilation_info<
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[1, 1, 1, 128, 64, 64]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+      {mma_schedule = #iree_gpu.mma_schedule<
+        intrinsic = #iree_gpu.mfma_layout<F16_32x32x8_F32>,
+        subgroup_m_count = 2, subgroup_n_count = 2,
+        subgroup_m_tile_count = 2,
+        subgroup_n_tile_count = 1,
+        subgroup_k_tile_count = 8>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64> -> !transform.any_param
+    // transform.print %contract {name = "Contract"} : !transform.any_op
+    transform.yield %contract, %config : !transform.any_op, !transform.any_param
+  }
+
 //===----------------------------------------------------------------------===//
 // Entry point
 //===----------------------------------------------------------------------===//
@@ -999,7 +1032,8 @@ module attributes { transform.with_named_sequence } {
         @match_conv_2d_nhwc_hwcf_2x128x128x640x3x3x640 -> @apply_op_config,
         // Contract tuning.
         @match_contract_2x1024x1280x20x64 -> @apply_op_config,
-        @match_contract_2x2x20x64x64x2048 -> @apply_op_config
+        @match_contract_2x2x20x64x64x2048 -> @apply_op_config,
+        @match_contract_3x2x20x64x64x1280 -> @apply_op_config
       : (!transform.any_op) -> (!transform.any_op)
     transform.yield
   }
