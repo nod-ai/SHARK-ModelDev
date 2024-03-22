@@ -246,9 +246,17 @@ class SharkSDXLPipeline:
             prompt_encoder_external_weight_path = os.path.join(
                 self.pipeline_dir, "prompt_encoder." + self.external_weights
             )
+        if weights_only:
+            input_mlir = {
+                "vae_decode": None,
+                "prompt_encoder": None,
+                "scheduled_unet": None,
+                "pipeline": None,
+                "full_pipeline": None,
+            }
         match submodel:
             case "scheduled_unet":
-                if not input_mlir["scheduled_unet"]:
+                if not input_mlir[submodel]:
                     scheduled_unet_torch = self.get_torch_models("scheduled_unet")
                 else:
                     scheduled_unet_torch = None
@@ -278,7 +286,7 @@ class SharkSDXLPipeline:
                 )
                 return unet_vmfb, unet_external_weight_path
             case "vae_decode":
-                if not input_mlir["vae_decode"]:
+                if not input_mlir[submodel]:
                     vae_torch = self.get_torch_models("vae_decode")
                 else:
                     vae_torch = None

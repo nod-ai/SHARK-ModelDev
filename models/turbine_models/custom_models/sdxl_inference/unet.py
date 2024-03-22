@@ -105,7 +105,11 @@ def export_unet_model(
     else:
         do_classifier_free_guidance = True
 
-    if (attn_spec in ["default", "", None]) and (decomp_attn is not None):
+    if (
+        (attn_spec in ["default", "", None])
+        and (decomp_attn is not None)
+        and ("gfx9" in target_triple)
+    ):
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
         )

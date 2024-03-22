@@ -160,7 +160,7 @@ def export_prompt_encoder(
     else:
         do_classifier_free_guidance = True
 
-    if attn_spec in ["default", "", None]:
+    if attn_spec in ["default", "", None] and ("gfx9" in target_triple):
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
         )
@@ -210,7 +210,7 @@ def export_prompt_encoder(
     )
 
     if weights_only:
-        return external_weight_path
+        return None, external_weight_path
 
     class CompiledClip(CompiledModule):
         if external_weights:
