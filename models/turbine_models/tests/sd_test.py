@@ -23,6 +23,7 @@ import unittest
 import os
 import copy
 import platform
+from turbine_models.turbine_tank import turbine_tank
 
 
 default_arguments = {
@@ -76,7 +77,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args["hf_model_name"] = "google/t5-v1_1-small"
         safe_prefix = "t5_v1_1_small"
         with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
+            blob_name = clip.export_clip_model(
                 hf_model_name=current_args["hf_model_name"],
                 hf_auth_token=None,
                 compile_to="vmfb",
@@ -106,6 +107,10 @@ class StableDiffusionTest(unittest.TestCase):
         assert err < 9e-4
         if platform.system() != "Windows":
             os.remove(current_args["vmfb_path"])
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         del current_args
 
     def testExportClipVitLarge14(self):
@@ -113,7 +118,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args["hf_model_name"] = "openai/clip-vit-large-patch14"
         safe_prefix = "clip_vit_large_patch14"
         with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
+            blob_name = clip.export_clip_model(
                 hf_model_name=current_args["hf_model_name"],
                 hf_auth_token=None,
                 compile_to="vmfb",
@@ -142,6 +147,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         if platform.system() != "Windows":
             os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
@@ -150,7 +159,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args = copy.deepcopy(default_arguments)
         current_args["hf_model_name"] = "CompVis/stable-diffusion-v1-4"
         with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
+            blob_name = clip.export_clip_model(
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
                 None,
@@ -178,13 +187,17 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_clip.safetensors")
         os.remove("stable_diffusion_v1_4_clip.vmfb")
 
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
-            unet.export_unet_model(
+            blob_name = unet.export_unet_model(
                 unet_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
@@ -230,13 +243,17 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_unet.safetensors")
         os.remove("stable_diffusion_v1_4_unet.vmfb")
 
     def testExportVaeModelDecode(self):
         current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
-            vae.export_vae_model(
+            blob_name = vae.export_vae_model(
                 vae_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
@@ -277,6 +294,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
@@ -285,7 +306,7 @@ class StableDiffusionTest(unittest.TestCase):
     def testExportVaeModelEncode(self):
         current_args = copy.deepcopy(default_arguments)
         with self.assertRaises(SystemExit) as cm:
-            vae.export_vae_model(
+            blob_name = vae.export_vae_model(
                 vae_model,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
@@ -326,6 +347,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 3e-3
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
@@ -334,7 +359,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args = copy.deepcopy(default_arguments)
         safe_name = "stable_diffusion_v1_4_scheduler"
         with self.assertRaises(SystemExit) as cm:
-            schedulers.export_scheduler(
+            blob_name = schedulers.export_scheduler(
                 scheduler_module,
                 # This is a public model, so no auth required
                 "CompVis/stable-diffusion-v1-4",
@@ -377,6 +402,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-3
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_scheduler.safetensors")
         os.remove("stable_diffusion_v1_4_scheduler.vmfb")
 

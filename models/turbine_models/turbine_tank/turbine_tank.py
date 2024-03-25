@@ -27,8 +27,6 @@ else:
     )
 os.makedirs(WORKDIR, exist_ok=True)
 
-storage_account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
-storage_account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
 connection_string = os.environ.get("AZURE_CONNECTION_STRING")
 container_name = os.environ.get("AZURE_CONTAINER_NAME")
 
@@ -42,6 +40,28 @@ def get_short_git_sha() -> str:
         )
     except FileNotFoundError:
         return None
+
+
+def changeBlobName(old_blob_name, new_blob_name):
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    blob_client = blob_service_client.get_blob_client(container_name, old_blob_name)
+    new_blob_client = blob_service_client.get_blob_client(container_name, new_blob_name)
+
+    blob = blob_client.from_connection_string(
+        conn_str=connection_string,
+        container_name=container_name,
+        blob_name=blob_client.blob_name,
+    )
+    if not blob.exists():
+        print("Blob to be renamed does not exist.")
+        return
+
+    # Copy the blob to the new name
+    new_blob_client.start_copy_from_url(blob_client.url)
+
+    # Delete the original blob
+    blob_client.delete_blob()
+    print("The blob is Renamed successfully:", {new_blob_name})
 
 
 def uploadToBlobStorage(file_path, file_name):
@@ -68,6 +88,7 @@ def uploadToBlobStorage(file_path, file_name):
     with open(file_path, "rb") as data:
         blob_client.upload_blob(data)
     print(f"Uploaded {file_name}.")
+    return blob_client.blob_name
 
 
 def checkAndRemoveIfDownloadedOld(model_name: str, model_dir: str, prefix: str):
@@ -170,7 +191,7 @@ def downloadModelArtifacts(model_name: str) -> str:
     if blobDNE:
         return
     model_dir = os.path.join(WORKDIR, model_name + "/" + download_latest_prefix)
-    mlir_filename = os.path.join(model_dir, model_name + ".mlir")
+    mlir_filename = os.path.join(model_dir, model_name + "-param.mlir")
     print(
         f"Verifying that model artifacts were downloaded successfully to {mlir_filename}..."
     )
