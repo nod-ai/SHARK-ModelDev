@@ -88,6 +88,8 @@ class StableDiffusionTest(unittest.TestCase):
                 max_alloc=None,
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
@@ -129,6 +131,8 @@ class StableDiffusionTest(unittest.TestCase):
                 max_alloc=None,
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = safe_prefix + ".safetensors"
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
@@ -169,6 +173,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "cpu",
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = "stable_diffusion_v1_4_clip.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_clip.vmfb"
@@ -211,6 +217,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "cpu",
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = "stable_diffusion_v1_4_unet.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_unet.vmfb"
@@ -268,6 +276,8 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="decode",
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
@@ -321,6 +331,8 @@ class StableDiffusionTest(unittest.TestCase):
                 variant="encode",
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
@@ -373,6 +385,8 @@ class StableDiffusionTest(unittest.TestCase):
                 "cpu",
                 upload_ir=UPLOAD_IR,
             )
+            if UPLOAD_IR:
+                exit()
         self.assertEqual(cm.exception.code, None)
         current_args["external_weight_path"] = safe_name + ".safetensors"
         current_args["vmfb_path"] = safe_name + ".vmfb"

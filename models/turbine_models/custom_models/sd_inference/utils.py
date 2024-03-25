@@ -29,7 +29,9 @@ def largest_error(array1, array2):
     return max_error
 
 
-def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
+def compile_to_vmfb(
+    module_str, device, target_triple, max_alloc, safe_name, upload_ir=False
+):
     flags = [
         "--iree-input-type=torch",
         "--mlir-print-debuginfo",
@@ -83,7 +85,10 @@ def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
     with open(f"{safe_name}.vmfb", "wb+") as f:
         f.write(flatbuffer_blob)
     print("Saved to", safe_name + ".vmfb")
-    exit()
+    if upload_ir:
+        return
+    else:
+        exit()
 
 
 def create_safe_name(hf_model_name, model_name_str):
