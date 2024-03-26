@@ -96,10 +96,11 @@ class ExportedProgramIntrinsic(CallableIntrinsic):
                 f"{self.function_symbol} is {visibility}"
             )
 
-        # Flatten and convert py args to torch IR values.
+        # Flatten and convert py args to torch IR values by converting to
+        # the canonical tree structure for args
+        # (tuple of list of args, dict of kwargs).
         flat_py_args, args_tree = tree_flatten(((list(py_args),), py_kwargs))
         if args_tree != self.entry_sig.in_spec:
-            print(dir(args_tree))
             raise ValueError(
                 f"Mismatched arguments to exported program. \n"
                 f"  Got: {treespec_pprint(args_tree)}\n"
@@ -176,6 +177,9 @@ def import_exported_program(
 
     # We want additional torch-level metadata about any user outputs.
     # This will help us create a true python fake without loss of information.
+    # TODO: It is unclear how much switchiness is actually needed here as
+    # modern use is pretty constrained. Potentially streamline the body of
+    # the for loop once done with full test cases available.
     user_output_dtypes: list[Optional[torch.dtype]] = []
     node_map: Dict[str, torch.fx.Node] = {
         n.name: n for n in exported_program.graph.nodes

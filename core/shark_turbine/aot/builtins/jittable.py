@@ -190,7 +190,7 @@ class jittable(CallableIntrinsic):
                 "Compiling program with the old PyTorch constraints system "
                 "for dynamic shapes is deprecated and will break on PyTorch "
                 "nightlies after the 2.3 release cut (expect either a PyTorch "
-                "warning or excpetion to follow)",
+                "warning or exception to follow)",
                 DeprecationWarning,
             )
             export_kwargs["constraints"] = constraints
