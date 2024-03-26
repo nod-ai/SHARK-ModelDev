@@ -595,7 +595,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
             info.shadow_dict[key] = import_exported_program(
                 module_builder,
                 ep_def.exported_program,
-                symbol_name=ep_def.export_name,
+                symbol_name=ep_def.export_name or "main",
                 symbol_visibility=None if ep_def.public else "private",
             )
 

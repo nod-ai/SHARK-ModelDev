@@ -191,13 +191,13 @@ def export(
                 "args, example_args, kwargs, or dynamic_dims"
             )
 
-        class Exported(CompiledModule, export_name=mdl.graph_module._get_name()):
+        class EpExported(CompiledModule, export_name=mdl.graph_module._get_name()):
             params = export_global_tree(
                 dict(list(mdl.named_parameters())), external=external_params
             )
             main = mdl
 
-        TransformedModule = Exported
+        TransformedModule = EpExported
     elif isinstance(mdl, torch.nn.Module):
         # Normalize arguments for torch.export.
         if args is None:

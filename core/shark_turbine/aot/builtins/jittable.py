@@ -228,7 +228,7 @@ class jittable(CallableIntrinsic):
             aten_graph=True,
             decomposition_table=self.decomposition_table,
             assume_static_by_default=True,
-            **export_kwargs,
+            **export_kwargs,  # type: ignore
         )
         logger.debug("Invoking dynamo trace")
         gm, guards = exported_f(*flat_pytorch_args)
