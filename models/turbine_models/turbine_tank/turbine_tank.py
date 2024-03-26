@@ -11,6 +11,7 @@ import datetime
 import os
 from pathlib import Path
 from functools import cmp_to_key
+import logging
 
 custom_path = os.getenv("TURBINE_TANK_CACHE_DIR")
 if custom_path is not None:
@@ -19,10 +20,10 @@ if custom_path is not None:
 
     WORKDIR = custom_path
 
-    print(f"Using {WORKDIR} as local turbine_tank cache directory.")
+    logging.info(f"Using {WORKDIR} as local turbine_tank cache directory.")
 else:
     WORKDIR = os.path.join(str(Path.home()), ".local/turbine_tank/")
-    print(
+    logging.info(
         f"turbine_tank local cache is located at {WORKDIR} . You may change this by assigning the TURBINE_TANK_CACHE_DIR environment variable."
     )
 os.makedirs(WORKDIR, exist_ok=True)
@@ -53,7 +54,7 @@ def changeBlobName(old_blob_name, new_blob_name):
         blob_name=blob_client.blob_name,
     )
     if not blob.exists():
-        print("Blob to be renamed does not exist.")
+        logging.warning("Blob to be renamed does not exist.")
         return
 
     # Copy the blob to the new name
@@ -61,7 +62,7 @@ def changeBlobName(old_blob_name, new_blob_name):
 
     # Delete the original blob
     blob_client.delete_blob()
-    print("The blob is Renamed successfully:", {new_blob_name})
+    logging.info("The blob is Renamed successfully:", {new_blob_name})
 
 
 def uploadToBlobStorage(file_path, file_name):
@@ -80,14 +81,14 @@ def uploadToBlobStorage(file_path, file_name):
     )
     # we check to see if we already uploaded the blob (don't want to duplicate)
     if blob.exists():
-        print(
+        logging.info(
             f"model artifacts have already been uploaded for {today} on the same github commit ({commit})"
         )
         return
     # upload to azure storage container tankturbine
     with open(file_path, "rb") as data:
         blob_client.upload_blob(data)
-    print(f"Uploaded {file_name}.")
+    logging.info(f"Uploaded {file_name}.")
     return blob_client.blob_name
 
 
@@ -146,7 +147,7 @@ def download_public_folder(model_name: str, prefix: str, model_dir: str):
             sample_blob.write(download_stream.readall())
 
     if empty:
-        print(f"Model ({model_name}) has not been uploaded yet")
+        logging.warning(f"Model ({model_name}) has not been uploaded yet")
         return True
 
     return False
@@ -180,7 +181,7 @@ def downloadModelArtifacts(model_name: str) -> str:
         model_name=model_name, model_dir=model_dir, prefix=download_latest_prefix
     )
     if exists:
-        print("Already downloaded most recent version")
+        logging.info("Already downloaded most recent version")
         return "NA"
     # download the model artifacts (passing in the model name, path in azure storage to model artifacts, local directory to store)
     blobDNE = download_public_folder(
@@ -192,7 +193,7 @@ def downloadModelArtifacts(model_name: str) -> str:
         return
     model_dir = os.path.join(WORKDIR, model_name + "/" + download_latest_prefix)
     mlir_filename = os.path.join(model_dir, model_name + "-param.mlir")
-    print(
+    logging.info(
         f"Verifying that model artifacts were downloaded successfully to {mlir_filename}..."
     )
     assert os.path.exists(mlir_filename), f"MLIR not found at {mlir_filename}"
