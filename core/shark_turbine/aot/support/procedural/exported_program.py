@@ -17,6 +17,12 @@ from torch.utils._pytree import (
     treespec_pprint,
 )
 
+try:
+    from torch.utils._pytree import treespec_pprint
+except ImportError:
+    # torch < 2.3 does not include this.
+    treespec_pprint = lambda x: repr(x)  # type: ignore
+
 from iree.compiler.extras.fx_importer import (
     FxImporter,
     FxImporterHooks,
