@@ -23,6 +23,7 @@ import unittest
 import os
 import copy
 import platform
+from turbine_models.turbine_tank import turbine_tank
 
 
 default_arguments = {
@@ -75,19 +76,17 @@ class StableDiffusionTest(unittest.TestCase):
         current_args = copy.deepcopy(default_arguments)
         current_args["hf_model_name"] = "google/t5-v1_1-small"
         safe_prefix = "t5_v1_1_small"
-        with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
-                hf_model_name=current_args["hf_model_name"],
-                hf_auth_token=None,
-                compile_to="vmfb",
-                external_weights=None,
-                external_weight_path=None,
-                device="cpu",
-                target_triple=None,
-                max_alloc=None,
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = clip.export_clip_model(
+            hf_model_name=current_args["hf_model_name"],
+            hf_auth_token=None,
+            compile_to="vmfb",
+            external_weights=None,
+            external_weight_path=None,
+            device="cpu",
+            target_triple=None,
+            max_alloc=None,
+            upload_ir=UPLOAD_IR,
+        )
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
             current_args["device"],
@@ -106,25 +105,27 @@ class StableDiffusionTest(unittest.TestCase):
         assert err < 9e-4
         if platform.system() != "Windows":
             os.remove(current_args["vmfb_path"])
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         del current_args
 
     def testExportClipVitLarge14(self):
         current_args = copy.deepcopy(default_arguments)
         current_args["hf_model_name"] = "openai/clip-vit-large-patch14"
         safe_prefix = "clip_vit_large_patch14"
-        with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
-                hf_model_name=current_args["hf_model_name"],
-                hf_auth_token=None,
-                compile_to="vmfb",
-                external_weights="safetensors",
-                external_weight_path=safe_prefix + ".safetensors",
-                device="cpu",
-                target_triple=None,
-                max_alloc=None,
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = clip.export_clip_model(
+            hf_model_name=current_args["hf_model_name"],
+            hf_auth_token=None,
+            compile_to="vmfb",
+            external_weights="safetensors",
+            external_weight_path=safe_prefix + ".safetensors",
+            device="cpu",
+            target_triple=None,
+            max_alloc=None,
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = safe_prefix + ".safetensors"
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
@@ -142,6 +143,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         if platform.system() != "Windows":
             os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
@@ -149,18 +154,16 @@ class StableDiffusionTest(unittest.TestCase):
     def testExportClipModel(self):
         current_args = copy.deepcopy(default_arguments)
         current_args["hf_model_name"] = "CompVis/stable-diffusion-v1-4"
-        with self.assertRaises(SystemExit) as cm:
-            clip.export_clip_model(
-                # This is a public model, so no auth required
-                "CompVis/stable-diffusion-v1-4",
-                None,
-                "vmfb",
-                "safetensors",
-                "stable_diffusion_v1_4_clip.safetensors",
-                "cpu",
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = clip.export_clip_model(
+            # This is a public model, so no auth required
+            "CompVis/stable-diffusion-v1-4",
+            None,
+            "vmfb",
+            "safetensors",
+            "stable_diffusion_v1_4_clip.safetensors",
+            "cpu",
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_clip.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_clip.vmfb"
         turbine = clip_runner.run_clip(
@@ -178,27 +181,29 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_clip.safetensors")
         os.remove("stable_diffusion_v1_4_clip.vmfb")
 
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
-        with self.assertRaises(SystemExit) as cm:
-            unet.export_unet_model(
-                unet_model,
-                # This is a public model, so no auth required
-                "CompVis/stable-diffusion-v1-4",
-                current_args["batch_size"],
-                current_args["height"],
-                current_args["width"],
-                None,
-                "vmfb",
-                "safetensors",
-                "stable_diffusion_v1_4_unet.safetensors",
-                "cpu",
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = unet.export_unet_model(
+            unet_model,
+            # This is a public model, so no auth required
+            "CompVis/stable-diffusion-v1-4",
+            current_args["batch_size"],
+            current_args["height"],
+            current_args["width"],
+            None,
+            "vmfb",
+            "safetensors",
+            "stable_diffusion_v1_4_unet.safetensors",
+            "cpu",
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_unet.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_unet.vmfb"
         sample = torch.rand(
@@ -230,28 +235,30 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_unet.safetensors")
         os.remove("stable_diffusion_v1_4_unet.vmfb")
 
     def testExportVaeModelDecode(self):
         current_args = copy.deepcopy(default_arguments)
-        with self.assertRaises(SystemExit) as cm:
-            vae.export_vae_model(
-                vae_model,
-                # This is a public model, so no auth required
-                "CompVis/stable-diffusion-v1-4",
-                current_args["batch_size"],
-                current_args["height"],
-                current_args["width"],
-                None,
-                "vmfb",
-                "safetensors",
-                "stable_diffusion_v1_4_vae.safetensors",
-                "cpu",
-                variant="decode",
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = vae.export_vae_model(
+            vae_model,
+            # This is a public model, so no auth required
+            "CompVis/stable-diffusion-v1-4",
+            current_args["batch_size"],
+            current_args["height"],
+            current_args["width"],
+            None,
+            "vmfb",
+            "safetensors",
+            "stable_diffusion_v1_4_vae.safetensors",
+            "cpu",
+            variant="decode",
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
         example_input = torch.rand(
@@ -277,6 +284,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-5
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
@@ -284,23 +295,21 @@ class StableDiffusionTest(unittest.TestCase):
     @unittest.expectedFailure
     def testExportVaeModelEncode(self):
         current_args = copy.deepcopy(default_arguments)
-        with self.assertRaises(SystemExit) as cm:
-            vae.export_vae_model(
-                vae_model,
-                # This is a public model, so no auth required
-                "CompVis/stable-diffusion-v1-4",
-                current_args["batch_size"],
-                current_args["height"],
-                current_args["width"],
-                None,
-                "vmfb",
-                "safetensors",
-                "stable_diffusion_v1_4_vae.safetensors",
-                "cpu",
-                variant="encode",
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = vae.export_vae_model(
+            vae_model,
+            # This is a public model, so no auth required
+            "CompVis/stable-diffusion-v1-4",
+            current_args["batch_size"],
+            current_args["height"],
+            current_args["width"],
+            None,
+            "vmfb",
+            "safetensors",
+            "stable_diffusion_v1_4_vae.safetensors",
+            "cpu",
+            variant="encode",
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
         example_input = torch.rand(
@@ -326,6 +335,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 3e-3
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
@@ -333,22 +346,20 @@ class StableDiffusionTest(unittest.TestCase):
     def testExportPNDMScheduler(self):
         current_args = copy.deepcopy(default_arguments)
         safe_name = "stable_diffusion_v1_4_scheduler"
-        with self.assertRaises(SystemExit) as cm:
-            schedulers.export_scheduler(
-                scheduler_module,
-                # This is a public model, so no auth required
-                "CompVis/stable-diffusion-v1-4",
-                current_args["batch_size"],
-                current_args["height"],
-                current_args["width"],
-                None,
-                "vmfb",
-                "safetensors",
-                "stable_diffusion_v1_4_scheduler.safetensors",
-                "cpu",
-                upload_ir=UPLOAD_IR,
-            )
-        self.assertEqual(cm.exception.code, None)
+        blob_name = schedulers.export_scheduler(
+            scheduler_module,
+            # This is a public model, so no auth required
+            "CompVis/stable-diffusion-v1-4",
+            current_args["batch_size"],
+            current_args["height"],
+            current_args["width"],
+            None,
+            "vmfb",
+            "safetensors",
+            "stable_diffusion_v1_4_scheduler.safetensors",
+            "cpu",
+            upload_ir=UPLOAD_IR,
+        )
         current_args["external_weight_path"] = safe_name + ".safetensors"
         current_args["vmfb_path"] = safe_name + ".vmfb"
         sample = torch.rand(
@@ -377,6 +388,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         err = utils.largest_error(torch_output, turbine)
         assert err < 9e-3
+        if UPLOAD_IR:
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_scheduler.safetensors")
         os.remove("stable_diffusion_v1_4_scheduler.vmfb")
 

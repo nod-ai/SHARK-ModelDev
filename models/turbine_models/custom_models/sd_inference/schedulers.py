@@ -153,7 +153,7 @@ def export_scheduler(
             f.write(module_str)
         model_name_upload = hf_model_name.replace("/", "-")
         model_name_upload = model_name_upload + "_scheduler"
-        turbine_tank.uploadToBlobStorage(
+        blob_name = turbine_tank.uploadToBlobStorage(
             str(os.path.abspath(f"{safe_name}.mlir")),
             f"{model_name_upload}/{model_name_upload}.mlir",
         )
@@ -161,6 +161,8 @@ def export_scheduler(
         return module_str
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        if upload_ir:
+            return blob_name
 
 
 if __name__ == "__main__":

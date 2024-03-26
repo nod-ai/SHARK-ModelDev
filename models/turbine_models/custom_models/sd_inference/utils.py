@@ -83,7 +83,6 @@ def compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name):
     with open(f"{safe_name}.vmfb", "wb+") as f:
         f.write(flatbuffer_blob)
     print("Saved to", safe_name + ".vmfb")
-    exit()
 
 
 def create_safe_name(hf_model_name, model_name_str):

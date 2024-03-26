@@ -416,7 +416,7 @@ def export_transformer_model(
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(module_str)
         model_name_upload = hf_model_name.replace("/", "_")
-        turbine_tank.uploadToBlobStorage(
+        blob_name = turbine_tank.uploadToBlobStorage(
             str(os.path.abspath(f"{safe_name}.mlir")),
             f"{model_name_upload}/{model_name_upload}.mlir",
         )
@@ -478,6 +478,8 @@ def export_transformer_model(
         with open(vmfb_path, "wb+") as f:
             f.write(flatbuffer_blob)
         print("saved to ", safe_name + ".vmfb")
+        if upload_ir:
+            return blob_name
         return module_str, tokenizer
 
 

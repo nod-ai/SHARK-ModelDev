@@ -22,6 +22,7 @@ from turbine_models.custom_models import llm_runner
 from turbine_models.gen_external_params.gen_external_params import (
     gen_external_params,
 )
+from turbine_models.turbine_tank import turbine_tank
 
 
 def check_output_string(reference, output):
@@ -86,7 +87,7 @@ class StatelessLlamaChecks(unittest.TestCase):
 
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
 
-        llama.export_transformer_model(
+        blob_name = llama.export_transformer_model(
             hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
             hf_auth_token=None,
             compile_to="vmfb",
@@ -130,6 +131,10 @@ class StatelessLlamaChecks(unittest.TestCase):
             tokenizer=self.tokenizer,
         )
         check_output_string(torch_str, turbine_str)
+        if upload_ir_var == "upload":
+            new_blob_name = blob_name.split(".")
+            new_blob_name = new_blob_name[0] + "-pass.mlir"
+            turbine_tank.changeBlobName(blob_name, new_blob_name)
 
     def test_streaming_vmfb_comparison(self):
         """
