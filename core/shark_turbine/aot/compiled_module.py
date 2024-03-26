@@ -596,7 +596,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
                 module_builder,
                 ep_def.exported_program,
                 symbol_name=ep_def.export_name,
-                symbol_visibility="public" if ep_def.public else "private",
+                symbol_visibility=None if ep_def.public else "private",
             )
 
         # Instantiate procs.

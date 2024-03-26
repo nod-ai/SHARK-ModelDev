@@ -5,7 +5,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+import inspect
 
 import torch
 
@@ -17,10 +19,15 @@ from torch.utils._pytree import (
 
 from iree.compiler.extras.fx_importer import (
     FxImporter,
+    FxImporterHooks,
+    GraphNodeImporter,
 )
+
+from ....support.logging import aot_logger as logger
 
 from ....support.ir_imports import (
     func_d,
+    util_d,
     FlatSymbolRefAttr,
     FunctionType,
     IrType,
@@ -148,13 +155,9 @@ def import_exported_program(
     module_builder: ModuleBuilder,
     exported_program: torch.export.ExportedProgram,
     symbol_name: str,
-    symbol_visibility: str,
+    symbol_visibility: Optional[str],
 ) -> ExportedProgramIntrinsic:
-    fx_importer = FxImporter(
-        module_op=module_builder.module_op,
-        config_check=False,
-        py_attr_tracker=module_builder.fx_py_attr_tracker,
-    )
+    fx_importer = _create_fx_importer(module_builder)
     entry_func_op = fx_importer.import_program(
         exported_program, func_name=symbol_name, func_visibility=symbol_visibility
     )
@@ -186,3 +189,83 @@ def import_exported_program(
     return ExportedProgramIntrinsic(
         entry_func_op, entry_module_call_entry.signature, user_output_dtypes
     )
+
+
+class _Hooks(FxImporterHooks):
+    def __init__(self, module_builder: ModuleBuilder):
+        self.module_builder = module_builder
+
+    def resolve_literal(self, gni: GraphNodeImporter, literal: Any) -> Optional[Value]:
+        module_builder = self.module_builder
+
+        # We support resolution of tracked reference types. Currently this
+        # only includes Tensors. All others we let the importer do what it
+        # is going to do.
+        if not isinstance(literal, torch.Tensor):
+            return None
+
+        # See if we know about it.
+        mapping = module_builder.global_ref_tracker.track(literal)
+        if mapping.is_empty:
+            # If it is unknown, just let the default importer take it on.
+            return None
+
+        # Already materialized.
+        logger.debug("Resolved defined global for literal %r", mapping)
+        materialized_global: MaterializedGlobal = mapping.value  # type: ignore
+
+        # Emit a global load and conversion.
+        vtensor_type = gni._cc.tensor_to_vtensor_type(literal)
+        loaded_value = util_d.GlobalLoadOp(
+            materialized_global.ir_type, materialized_global.symbol_name
+        ).result
+        converted_value = Operation.create(
+            "torch_c.from_builtin_tensor",
+            results=[vtensor_type],
+            operands=[loaded_value],
+        ).result
+        return converted_value
+
+
+# In https://github.com/llvm/torch-mlir/pull/3046, the FxImporter was
+# extended to accept a "module_op" as an Operation (vs a Module). Switch for
+# compatibility.
+_fx_importer_accepts_module_op = (
+    "module_op" in inspect.getfullargspec(FxImporter).kwonlyargs
+)
+
+
+def _create_fx_importer(module_builder: ModuleBuilder) -> FxImporter:
+    hooks = _Hooks(module_builder)
+    if _fx_importer_accepts_module_op:
+        # New path.
+        return FxImporter(
+            module_op=module_builder.module_op,
+            config_check=False,
+            py_attr_tracker=module_builder.fx_py_attr_tracker,
+            hooks=hooks,
+        )
+    else:
+        # Legacy path.
+        class FakeModule:
+            def __init__(self, op):
+                self._op = module_builder.module_op
+
+            @property
+            def context(self):
+                return self._op.context
+
+            @property
+            def operation(self):
+                return self._op
+
+            @property
+            def body(self):
+                return self._op.regions[0].blocks[0]
+
+        return FxImporter(
+            module=FakeModule(module_builder.module_op),
+            config_check=False,
+            py_attr_tracker=module_builder.fx_py_attr_tracker,
+            hooks=hooks,
+        )
