@@ -161,7 +161,7 @@ def export_scheduler(
         return module_str
     else:
         utils.compile_to_vmfb(
-            module_str, device, target_triple, max_alloc, safe_name, upload_ir
+            module_str, device, target_triple, max_alloc, safe_name
         )
         if upload_ir:
             return blob_name

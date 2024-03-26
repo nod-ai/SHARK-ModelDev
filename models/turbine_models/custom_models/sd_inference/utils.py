@@ -30,7 +30,7 @@ def largest_error(array1, array2):
 
 
 def compile_to_vmfb(
-    module_str, device, target_triple, max_alloc, safe_name, upload_ir=False
+    module_str, device, target_triple, max_alloc, safe_name
 ):
     flags = [
         "--iree-input-type=torch",
