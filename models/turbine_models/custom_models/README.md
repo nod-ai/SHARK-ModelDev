@@ -7,8 +7,7 @@ cd SHARK-Turbine
 python -m venv turbine_venv && source turbine_venv/bin/activate
 
 pip install --index-url https://download.pytorch.org/whl/cpu \
-    -r core/pytorch-cpu-requirements.txt \
-    -r core/torchvision-requirements.txt
+    -r core/pytorch-cpu-requirements.txt
 pip install --upgrade -r core/requirements.txt
 pip install -e core
 pip install -e models

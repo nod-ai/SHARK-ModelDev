@@ -40,8 +40,7 @@ jobs:
           # from non default locations first. Installing the PyTorch CPU
           # wheels saves multiple minutes and a lot of bandwidth on runner setup.
           pip install --index-url https://download.pytorch.org/whl/cpu \
-            -r core/pytorch-cpu-requirements.txt \
-            -r core/torchvision-requirements.txt
+            -r core/pytorch-cpu-requirements.txt
           pip install --upgrade \
             -r core/requirements.txt \
             -r mypy-requirements.txt
