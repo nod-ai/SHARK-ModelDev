@@ -85,10 +85,6 @@ def compile_to_vmfb(
     with open(f"{safe_name}.vmfb", "wb+") as f:
         f.write(flatbuffer_blob)
     print("Saved to", safe_name + ".vmfb")
-    if upload_ir:
-        return
-    else:
-        exit()
 
 
 def create_safe_name(hf_model_name, model_name_str):
