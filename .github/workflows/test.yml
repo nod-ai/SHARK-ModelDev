@@ -42,7 +42,8 @@ jobs:
           pip install -r core/pytorch-cpu-requirements.txt
           pip install --upgrade \
             -r core/requirements.txt \
-            -r mypy-requirements.txt
+            -r mypy-requirements.txt \
+            -r serving/requirements.txt
           pip install -e core[testing] -e serving[testing]
 
       - name: Run core tests
