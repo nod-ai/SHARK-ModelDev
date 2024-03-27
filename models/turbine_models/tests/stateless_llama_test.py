@@ -84,9 +84,11 @@ class StatelessLlamaChecks(unittest.TestCase):
 
         For VMFB, quantization can be int4 or None, but right now only using none for compatibility with torch.
         """
-        
-        self.skipTest("Issues with numerics on torch>2.3.0:  https://github.com/nod-ai/SHARK-Turbine/issues/559")
-        
+
+        self.skipTest(
+            "Issues with numerics on torch>2.3.0:  https://github.com/nod-ai/SHARK-Turbine/issues/559"
+        )
+
         upload_ir_var = os.environ.get("TURBINE_TANK_ACTION", "not_upload")
 
         blob_name = llama.export_transformer_model(
