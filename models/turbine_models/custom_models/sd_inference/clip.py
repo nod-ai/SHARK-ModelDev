@@ -138,7 +138,7 @@ def export_clip_model(
             f.write(module_str)
         model_name_upload = hf_model_name.replace("/", "_")
         model_name_upload += "-clip"
-        turbine_tank.uploadToBlobStorage(
+        blob_name = turbine_tank.uploadToBlobStorage(
             str(os.path.abspath(f"{safe_name}.mlir")),
             f"{model_name_upload}/{model_name_upload}.mlir",
         )
@@ -146,6 +146,8 @@ def export_clip_model(
         return module_str, tokenizer
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
+        if upload_ir:
+            return blob_name
 
 
 if __name__ == "__main__":

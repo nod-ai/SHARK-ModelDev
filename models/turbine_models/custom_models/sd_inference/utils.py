@@ -156,8 +156,6 @@ def compile_to_vmfb(
     print("Saved to", safe_name + ".vmfb")
     if return_path == True:
         return safe_name + ".vmfb"
-    else:
-        exit()
 
 
 def create_safe_name(hf_model_name, model_name_str):
