@@ -55,10 +55,8 @@ class trace_tensor(CustomOp):
     def select(self, ksel: KernelSelection):
         ksel.attr_str(0)
         ksel.arg_tensor(1, inplace_tied=True)
-        print("TRACE_TENSOR_SELECT:", ksel)
 
     def generate(self, ksel: KernelSelection, kb: KernelBuilder):
-        print("TRACE_TENSOR_GENERATE:", ksel)
         key = cast(AttrArg, ksel.arg_descs[0])
         _emit_tensor_trace(kb, cast(str, key.v), [kb.arg_bindings[1]])
         kb.yield_results(kb.arg_bindings[1])
