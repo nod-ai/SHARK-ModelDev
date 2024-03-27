@@ -183,6 +183,9 @@ class StatelessLlamaChecks(unittest.TestCase):
         )
         check_output_string(torch_str, turbine_str)
 
+    @unittest.expectedFailure(
+        "Numerics: https://github.com/nod-ai/SHARK-Turbine/issues/559"
+    )
     def test_rerotated_torch_comparison(self):
         torch_str = llm_runner.run_torch_llm(
             "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
