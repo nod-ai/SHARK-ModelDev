@@ -11,6 +11,9 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.dynamo.passes import (
+    DEFAULT_DECOMPOSITIONS,
+)
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -115,6 +118,13 @@ def export_vae_model(
     upload_ir=False,
 ):
     mapper = {}
+    decomp_list = DEFAULT_DECOMPOSITIONS
+    decomp_list.extend(
+        [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+        ]
+    )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     vae_model = vae_model.to(dtype)
     utils.save_external_weights(
@@ -130,9 +140,9 @@ def export_vae_model(
 
         def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
             if variant == "decode":
-                return jittable(vae_model.decode_inp)(inp)
+                return jittable(vae_model.decode_inp, decompose_ops=decomp_list)(inp)
             elif variant == "encode":
-                return jittable(vae_model.encode_inp)(inp)
+                return jittable(vae_model.encode_inp, decompose_ops=decomp_list)(inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledVae(context=Context(), import_to=import_to)

@@ -11,6 +11,9 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.dynamo.passes import (
+    DEFAULT_DECOMPOSITIONS,
+)
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -100,6 +103,13 @@ def export_unet_model(
     upload_ir=False,
 ):
     mapper = {}
+    decomp_list = DEFAULT_DECOMPOSITIONS
+    decomp_list.extend(
+        [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+        ]
+    )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     unet_model = unet_model.to(dtype)
     utils.save_external_weights(
@@ -130,7 +140,7 @@ def export_unet_model(
             ),
             guidance_scale=AbstractTensor(1, dtype=dtype),
         ):
-            return jittable(unet_model.forward)(
+            return jittable(unet_model.forward, decompose_ops=decomp_list)(
                 sample, timestep, encoder_hidden_states, guidance_scale
             )
 
