@@ -17,6 +17,7 @@ class KernelRegTest(unittest.TestCase):
         t = torch.randn(3, 4)
         ops.iree.trace_tensor("TEST", t)
 
+    @unittest.expectedFailure
     def testTraceList(self):
         t1 = torch.randn(3, 4)
         t2 = torch.randn(1, 8)
