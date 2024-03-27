@@ -210,6 +210,7 @@ def export(
         exported_program = torch.export.export(
             nn_module, args=args, kwargs=kwargs, dynamic_shapes=dynamic_shapes
         )
+        print("EP:", exported_program)
 
         class Exported(CompiledModule, export_name=nn_module._get_name()):
             params = export_parameters(nn_module, external=external_params)
