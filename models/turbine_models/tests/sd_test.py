@@ -55,12 +55,12 @@ UPLOAD_IR = os.environ.get("TURBINE_TANK_ACTION", "not_upload") == "upload"
 
 unet_model = unet.UnetModel(
     # This is a public model, so no auth required
-    arguments["hf_model_name"],
+    default_arguments["hf_model_name"],
 )
 
 vae_model = vae.VaeModel(
     # This is a public model, so no auth required
-    arguments["hf_model_name"],
+    default_arguments["hf_model_name"],
     custom_vae=None,
 )
 
@@ -219,7 +219,7 @@ class StableDiffusionTest(unittest.TestCase):
         )
         timestep = torch.zeros(1, dtype=dtype)
         encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
-        guidance_scale = torch.Tensor([arguments["guidance_scale"]]).to(dtype)
+        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
             current_args["device"],
