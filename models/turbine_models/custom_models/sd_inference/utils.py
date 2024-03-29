@@ -49,7 +49,7 @@ def compile_to_vmfb(
     module_str,
     device,
     target_triple,
-    ireec_flags=[],
+    ireec_flags=[""],
     safe_name="model",
     return_path=False,
     const_expr_hoisting=True,
@@ -110,6 +110,8 @@ def compile_to_vmfb(
     if isinstance(ireec_flags, str):
         if ireec_flags != "":
             ireec_flags = ireec_flags.split(",")
+    elif ireec_flags == None:
+        ireec_flags = []
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]

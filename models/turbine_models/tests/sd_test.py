@@ -218,9 +218,10 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["width"] // 8,
             dtype=torch.float32,
         )
-        timestep = torch.zeros(1, dtype=self.dtype)
-        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=self.dtype)
-        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(self.dtype)
+        dtype = torch.float32 if current_args["precision"] == "fp32" else torch.float16
+        timestep = torch.zeros(1, dtype=dtype)
+        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
+        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
             current_args["device"],
