@@ -69,6 +69,7 @@ def command_line_args(request):
     arguments["in_channels"] = int(request.config.getoption("--in_channels"))
     arguments["benchmark"] = request.config.getoption("--benchmark")
     arguments["tracy_profile"] = request.config.getoption("--tracy_profile")
+    arguments["compiled_pipeline"] = request.config.getoption("--compiled_pipeline")
 
 
 @pytest.mark.usefixtures("command_line_args")
@@ -321,10 +322,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-2
-        if arguments["device"] == "cpu" and arguments["precision"] == "fp16":
-            with self.assertRaises(AssertionError):
-                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
-            return
+
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test03_ExportVaeModelDecode(self):
@@ -414,10 +412,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-2
-        if arguments["device"] == "cpu" and arguments["precision"] == "fp16":
-            with self.assertRaises(AssertionError):
-                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
-            return
+
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test04_ExportVaeModelEncode(self):
@@ -507,10 +502,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-2
-        if arguments["device"] == "cpu":
-            with self.assertRaises(AssertionError):
-                np.testing.assert_allclose(torch_output, turbine, rtol, atol)
-            return
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
@@ -552,20 +543,16 @@ class StableDiffusionXLTest(unittest.TestCase):
                 "_".join(pipe_id_list),
             )
         ireec_flags = {
-            "unet": arguments["ireec_flags"] + arguments["unet_flags"],
-            "vae": arguments["ireec_flags"] + arguments["vae_flags"],
-            "clip": arguments["ireec_flags"] + arguments["clip_flags"],
+            "unet": arguments["ireec_flags"],
+            "vae": arguments["ireec_flags"],
+            "clip": arguments["ireec_flags"],
             "pipeline": arguments["ireec_flags"],
         }
-        if arguments["input_mlir"]:
-            user_mlir_list = arguments["input_mlir"].split(",")
-        else:
-            user_mlir_list = []
+        user_mlir_list = []
         for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
             if submodel_id in mlir_path:
                 mlirs[submodel_id] = mlir_path
-        if not arguments["external_weights_dir"] and arguments["external_weights"]:
-            arguments["external_weights_dir"] = arguments["pipeline_dir"]
+        external_weights_dir = arguments["pipeline_dir"]
         sdxl_pipe = sdxl_compiled_pipeline.SharkSDXLPipeline(
             arguments["hf_model_name"],
             arguments["scheduler_id"],
@@ -578,35 +565,22 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["device"],
             arguments["iree_target_triple"],
             ireec_flags,
-            arguments["attn_spec"],
+            None,  # attn_spec
             arguments["decomp_attn"],
             arguments["pipeline_dir"],
-            arguments["external_weights_dir"],
+            external_weights_dir,
             arguments["external_weights"],
         )
-        vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
+        vmfbs, weights = sdxl_pipe.check_prepared(
+            mlirs, vmfbs, weights, interactive=False
+        )
         sdxl_pipe.load_pipeline(
             vmfbs, weights, arguments["rt_device"], arguments["compiled_pipeline"]
         )
         sdxl_pipe.generate_images(
             arguments["prompt"],
             arguments["negative_prompt"],
-            arguments["batch_count"],
-            arguments["guidance_scale"],
-            arguments["seed"],
-        )
-        vmfbs, weights = sdxl_compiled_pipeline.check_prepared(
-            arguments["pipeline_dir"],
-            mlirs,
-            vmfbs,
-            weights,
-            interactive=False,
-        )
-        sdxl_compiled_pipeline.load_pipeline(vmfbs, weights)
-        sdxl_compiled_pipeline.generate_images(
-            arguments["prompt"],
-            arguments["negative_prompt"],
-            arguments["batch_count"],
+            1,
             arguments["guidance_scale"],
             arguments["seed"],
         )
