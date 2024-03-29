@@ -43,8 +43,6 @@ class SDXLScheduledUnet(torch.nn.Module):
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
         self.return_index = return_index
-        if "Euler" in scheduler_id:
-            self.scheduler._step_index = torch.tensor(0, dtype=torch.float16)
 
         if precision == "fp16":
             try:
@@ -94,8 +92,8 @@ class SDXLScheduledUnet(torch.nn.Module):
                 "time_ids": time_ids,
             }
             t = self.scheduler.timesteps[step_index]
-            sample = self.scheduler.scale_model_input(sample, t)
             latent_model_input = torch.cat([sample] * 2)
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             noise_pred = self.unet.forward(
                 latent_model_input,
                 t,

@@ -5,6 +5,7 @@ import safetensors
 import re
 from diffusers import (
     PNDMScheduler,
+    EulerDiscreteScheduler,
 )
 
 winograd_params = "keys=unet.down_blocks.2.resnets.0.conv2.weight keys=unet.down_blocks.2.resnets.1.conv1.weight keys=unet.down_blocks.2.resnets.1.conv2.weight keys=unet.mid_block.resnets.0.conv1.weight keys=unet.mid_block.resnets.0.conv2.weight keys=unet.mid_block.resnets.1.conv1.weight keys=unet.mid_block.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.0.conv2.weight keys=unet.up_blocks.0.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.2.conv2.weight keys=unet.up_blocks.0.resnets.0.conv1.weight keys=unet.up_blocks.0.resnets.1.conv1.weight keys=unet.up_blocks.0.resnets.2.conv1.weight keys=unet.up_blocks.0.upsamplers.0.conv.weight"
@@ -205,6 +206,10 @@ def get_schedulers(model_id):
 
     schedulers = dict()
     schedulers["PNDM"] = PNDMScheduler.from_pretrained(
+        model_id,
+        subfolder="scheduler",
+    )
+    schedulers["Euler"] = EulerDiscreteScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
     )
