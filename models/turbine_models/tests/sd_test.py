@@ -220,7 +220,7 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["width"] // 8,
             dtype=torch.float32,
         )
-        dtype = torch.float32 if current_args["precision"] == "fp32" else torch.float16
+
         timestep = torch.zeros(1, dtype=torch.float32)
         if current_args["hf_model_name"] == "CompVis/stable-diffusion-v1-4":
             encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
@@ -235,7 +235,7 @@ class StableDiffusionTest(unittest.TestCase):
             sample,
             timestep,
             encoder_hidden_states,
-            current_args["guidance_scale"],
+            guidance_scale,
             current_args["vmfb_path"],
             current_args["hf_model_name"],
             current_args["hf_auth_token"],
