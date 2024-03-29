@@ -221,12 +221,14 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         dtype = torch.float32 if current_args["precision"] == "fp32" else torch.float16
-        timestep = torch.zeros(1, dtype=dtype)
+        timestep = torch.zeros(1, dtype=torch.float32)
         if current_args["hf_model_name"] == "CompVis/stable-diffusion-v1-4":
-            encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+            encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
         elif current_args["hf_model_name"] == "stabilityai/stable-diffusion-2-1-base":
-            encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
-        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
+            encoder_hidden_states = torch.rand(2, 77, 1024, dtype=torch.float32)
+        guidance_scale = torch.tensor(
+            [current_args["guidance_scale"]], dtype=torch.float32
+        )
 
         turbine = unet_runner.run_unet(
             current_args["rt_device"],
