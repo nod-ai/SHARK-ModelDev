@@ -59,7 +59,7 @@ def compile_to_vmfb(
     attn_spec=None,
 ):
     flags = []
-    if target_triple in ["", None] and "triple" not in ireec_flags:
+    if target_triple in ["", None]:
         if device == "cpu":
             target_triple = "x86_64-linux-gnu"
         else:
