@@ -34,7 +34,7 @@ class vmfbRunner:
                 )
             else:
                 haldevice = haldriver.create_device(hal_device_id)
-            
+
         self.config = ireert.Config(device=haldevice)
         mods = []
         if not isinstance(vmfb_path, list):
@@ -69,4 +69,3 @@ class vmfbRunner:
     def unload(self):
         self.ctx = None
         self.config = None
-

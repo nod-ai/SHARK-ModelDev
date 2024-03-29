@@ -127,7 +127,9 @@ def run_torch_scheduled_unet(
                 }
                 t = self.scheduler.timesteps[step_index]
                 latent_model_input = torch.cat([sample] * 2)
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                latent_model_input = self.scheduler.scale_model_input(
+                    latent_model_input, t
+                )
                 noise_pred = self.unet.forward(
                     latent_model_input,
                     t,

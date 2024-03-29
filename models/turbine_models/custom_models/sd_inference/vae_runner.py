@@ -100,7 +100,7 @@ def run_torch_vae(hf_model_name, variant, example_input):
         def encode_inp(self, inp):
             latents = self.vae.encode(inp).latent_dist.sample()
             return 0.18215 * latents
-    
+
     vae_model = VaeModel(
         hf_model_name,
     )
