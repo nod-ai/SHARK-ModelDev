@@ -196,11 +196,12 @@ class StableDiffusionTest(unittest.TestCase):
         current_args = copy.deepcopy(default_arguments)
         blob_name = unet.export_unet_model(
             unet_model,
-            # This is a public model, so no auth required
             "CompVis/stable-diffusion-v1-4",
             current_args["batch_size"],
             current_args["height"],
             current_args["width"],
+            current_args["precision"],
+            current_args["max_length"],
             None,
             "vmfb",
             "safetensors",
@@ -217,9 +218,9 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["width"] // 8,
             dtype=torch.float32,
         )
-        timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
-        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
+        timestep = torch.zeros(1, dtype=self.dtype)
+        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=self.dtype)
+        guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(self.dtype)
 
         turbine = unet_runner.run_unet(
             current_args["device"],
@@ -308,7 +309,7 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["batch_size"],
             current_args["height"],
             current_args["width"],
-            None,
+            current_args["precision"],
             "vmfb",
             "safetensors",
             "stable_diffusion_v1_4_vae.safetensors",

@@ -49,8 +49,8 @@ def compile_to_vmfb(
     module_str,
     device,
     target_triple,
-    ireec_flags,
-    safe_name,
+    ireec_flags=[],
+    safe_name="model",
     return_path=False,
     const_expr_hoisting=True,
     mlir_source="str",
@@ -60,9 +60,12 @@ def compile_to_vmfb(
 ):
     flags = []
     if target_triple in ["", None] and "triple" not in ireec_flags:
-        raise ValueError(
-            "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
-        )
+        if device == "cpu":
+            target_triple = "x86_64-linux-gnu"
+        else:
+            raise ValueError(
+                "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
+            )
     if device == "cpu":
         flags.extend(
             [
