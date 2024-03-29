@@ -28,8 +28,8 @@ from turbine_models.turbine_tank import turbine_tank
 
 default_arguments = {
     "hf_auth_token": None,
-    "hf_model_name": "stabilityai/stable-diffusion-2-1",
-    "safe_model_name": "stable_diffusion_2_1",
+    "hf_model_name": "CompVis/stable-diffusion-v1-4",
+    "safe_model_name": "stable-diffusion_v1_4",
     "scheduler_id": "PNDM",
     "num_inference_steps": 5,
     "batch_size": 1,
@@ -93,7 +93,7 @@ class StableDiffusionTest(unittest.TestCase):
         )
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
-            current_args["device"],
+            current_args["rt_device"],
             current_args["prompt"],
             current_args["vmfb_path"],
             current_args["hf_model_name"],
@@ -133,7 +133,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args["external_weight_path"] = safe_prefix + ".safetensors"
         current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
         turbine = clip_runner.run_clip(
-            current_args["device"],
+            current_args["rt_device"],
             current_args["prompt"],
             current_args["vmfb_path"],
             current_args["hf_model_name"],
@@ -171,7 +171,7 @@ class StableDiffusionTest(unittest.TestCase):
         current_args["external_weight_path"] = "stable_diffusion_v1_4_clip.safetensors"
         current_args["vmfb_path"] = "stable_diffusion_v1_4_clip.vmfb"
         turbine = clip_runner.run_clip(
-            current_args["device"],
+            current_args["rt_device"],
             current_args["prompt"],
             current_args["vmfb_path"],
             current_args["hf_model_name"],
@@ -224,10 +224,11 @@ class StableDiffusionTest(unittest.TestCase):
         guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
-            current_args["device"],
+            current_args["rt_device"],
             sample,
             timestep,
             encoder_hidden_states,
+            current_args["guidance_scale"],
             current_args["vmfb_path"],
             current_args["hf_model_name"],
             current_args["hf_auth_token"],
@@ -277,11 +278,10 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         turbine = vae_runner.run_vae(
-            current_args["device"],
+            current_args["rt_device"],
             example_input,
             current_args["vmfb_path"],
             current_args["hf_model_name"],
-            current_args["hf_auth_token"],
             current_args["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
@@ -328,11 +328,10 @@ class StableDiffusionTest(unittest.TestCase):
             dtype=torch.float32,
         )
         turbine = vae_runner.run_vae(
-            current_args["device"],
+            current_args["rt_device"],
             example_input,
             current_args["vmfb_path"],
             current_args["hf_model_name"],
-            current_args["hf_auth_token"],
             current_args["external_weight_path"],
         )
         torch_output = vae_runner.run_torch_vae(
@@ -379,7 +378,7 @@ class StableDiffusionTest(unittest.TestCase):
         )
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
         turbine = schedulers_runner.run_scheduler(
-            current_args["device"],
+            current_args["rt_device"],
             sample,
             encoder_hidden_states,
             current_args["vmfb_path"],
