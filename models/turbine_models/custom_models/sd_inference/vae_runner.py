@@ -47,7 +47,7 @@ def run_vae(device, example_input, vmfb_path, hf_model_name, external_weight_pat
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
     inputs = [ireert.asdevicearray(runner.config.device, example_input)]
-    results = runner.ctx.modules.compiled_vae["main"](*inputs)
+    results = runner.ctx.modules.compiled_vae["main"](*inputs).to_host()
     return results
 
 
@@ -91,14 +91,9 @@ def run_torch_vae(hf_model_name, variant, example_input):
 
         def decode_inp(self, input):
             with torch.no_grad():
-                if not self.base_vae:
-                    input = 1 / 0.18215 * input
+                input = 1 / 0.18215 * input
                 x = self.vae.decode(input, return_dict=False)[0]
-                x = (x / 2 + 0.5).clamp(0, 1)
-                if self.base_vae:
-                    return x
-                x = x * 255.0
-            return x.round()
+            return (x / 2 + 0.5).clamp(0, 1)
 
         def encode_inp(self, inp):
             latents = self.vae.encode(inp).latent_dist.sample()

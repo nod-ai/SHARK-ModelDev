@@ -108,6 +108,7 @@ class StableDiffusionTest(unittest.TestCase):
         err = utils.largest_error(torch_output, turbine[0])
         assert err < 9e-4
         if platform.system() != "Windows":
+            os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
         if UPLOAD_IR:
             new_blob_name = blob_name.split(".")
@@ -189,8 +190,9 @@ class StableDiffusionTest(unittest.TestCase):
             new_blob_name = blob_name.split(".")
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
-        os.remove("stable_diffusion_v1_4_clip.safetensors")
-        os.remove("stable_diffusion_v1_4_clip.vmfb")
+        if platform.system() != "Windows":
+            os.remove(current_args["external_weight_path"])
+            os.remove(current_args["vmfb_path"])
 
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
@@ -220,7 +222,10 @@ class StableDiffusionTest(unittest.TestCase):
         )
         dtype = torch.float32 if current_args["precision"] == "fp32" else torch.float16
         timestep = torch.zeros(1, dtype=dtype)
-        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
+        if current_args["hf_model_name"] == "CompVis/stable-diffusion-v1-4":
+            encoder_hidden_states = torch.rand(2, 77, 768, dtype=dtype)
+        elif current_args["hf_model_name"] == "stabilityai/stable-diffusion-2-1-base":
+            encoder_hidden_states = torch.rand(2, 77, 1024, dtype=dtype)
         guidance_scale = torch.Tensor([current_args["guidance_scale"]]).to(dtype)
 
         turbine = unet_runner.run_unet(
@@ -250,6 +255,8 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_unet.safetensors")
         os.remove("stable_diffusion_v1_4_unet.vmfb")
+        del torch_output
+        del turbine
 
     def testExportVaeModelDecode(self):
         current_args = copy.deepcopy(default_arguments)
@@ -286,7 +293,6 @@ class StableDiffusionTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             current_args["hf_model_name"],
-            current_args["hf_auth_token"],
             "decode",
             example_input,
         )
@@ -298,6 +304,8 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
+        del torch_output
+        del turbine
 
     # https://github.com/nod-ai/SHARK-Turbine/issues/536
     @unittest.expectedFailure
@@ -336,7 +344,6 @@ class StableDiffusionTest(unittest.TestCase):
         )
         torch_output = vae_runner.run_torch_vae(
             current_args["hf_model_name"],
-            current_args["hf_auth_token"],
             "encode",
             example_input,
         )
@@ -348,6 +355,8 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
+        del torch_output
+        del turbine
 
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
@@ -401,6 +410,8 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_scheduler.safetensors")
         os.remove("stable_diffusion_v1_4_scheduler.vmfb")
+        del torch_output
+        del turbine
 
 
 if __name__ == "__main__":
