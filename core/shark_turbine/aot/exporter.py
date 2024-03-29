@@ -199,7 +199,10 @@ def export(
 
         class EpExported(CompiledModule, export_name=mdl.graph_module._get_name()):
             params = export_global_tree(
-                dict(list(mdl.named_parameters())), external=external_params
+                dict(mdl.named_parameters()), external=external_params
+            )
+            buffers = export_global_tree(
+                dict(mdl.named_buffers()), mutable=True, external=external_params
             )
             main = mdl
 
@@ -223,7 +226,12 @@ def export(
             exported_program = exported_program.run_decompositions(current_decomps)
 
         class Exported(CompiledModule, export_name=nn_module._get_name()):
-            params = export_parameters(nn_module, external=external_params)
+            params = export_global_tree(
+                dict(nn_module.named_parameters()), external=external_params
+            )
+            buffers = export_global_tree(
+                dict(nn_module.named_buffers()), mutable=True, external=external_params
+            )
             main = exported_program
 
         TransformedModule = Exported
