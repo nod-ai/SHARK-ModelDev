@@ -7,10 +7,6 @@ class vmfbRunner:
     def __init__(self, device, vmfb_path, external_weight_path=None):
         flags = []
         haldriver = ireert.get_driver(device)
-        if "cpu" in device:
-            allocators = ["caching"]
-        else:
-            allocators = ["caching"]
         if "://" in device:
             try:
                 device_idx = int(device.split("://")[-1])
@@ -22,12 +18,23 @@ class vmfbRunner:
             device_idx = 0
             device_uri = None
         if device_uri:
-            haldevice = haldriver.create_device_by_uri(
-                device_uri, allocators=allocators
-            )
+            if not any(x in device for x in ["cpu", "task"]):
+                allocators = ["caching"]
+                haldevice = haldriver.create_device_by_uri(
+                    device_uri, allocators=allocators
+                )
+            else:
+                haldevice = haldriver.create_device_by_uri(device_uri)
         else:
             hal_device_id = haldriver.query_available_devices()[device_idx]["device_id"]
-            haldevice = haldriver.create_device(hal_device_id, allocators=allocators)
+            if not any(x in device for x in ["cpu", "task"]):
+                allocators = ["caching"]
+                haldevice = haldriver.create_device(
+                    hal_device_id, allocators=allocators
+                )
+            else:
+                haldevice = haldriver.create_device(hal_device_id)
+            
         self.config = ireert.Config(device=haldevice)
         mods = []
         if not isinstance(vmfb_path, list):
@@ -58,3 +65,8 @@ class vmfbRunner:
             vm_modules=vm_modules,
             config=self.config,
         )
+
+    def unload(self):
+        self.ctx = None
+        self.config = None
+

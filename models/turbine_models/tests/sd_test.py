@@ -302,10 +302,11 @@ class StableDiffusionTest(unittest.TestCase):
             new_blob_name = blob_name.split(".")
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
-        os.remove("stable_diffusion_v1_4_vae.safetensors")
-        os.remove("stable_diffusion_v1_4_vae.vmfb")
         del torch_output
         del turbine
+        os.remove("stable_diffusion_v1_4_vae.safetensors")
+        os.remove("stable_diffusion_v1_4_vae.vmfb")
+
 
     # https://github.com/nod-ai/SHARK-Turbine/issues/536
     @unittest.expectedFailure
@@ -355,9 +356,7 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
-        del torch_output
-        del turbine
-
+    
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
         current_args = copy.deepcopy(default_arguments)
