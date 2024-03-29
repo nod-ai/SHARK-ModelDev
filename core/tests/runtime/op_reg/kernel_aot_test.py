@@ -43,13 +43,7 @@ class KernelRegTest(unittest.TestCase):
     def testTrace(self):
         mlp = MLP()
 
-        # TODO: PyTorch 2.3 has an issue with ExportedProgram.run_decompositions
-        # and Python registered ops :(
-        # See: https://github.com/pytorch/pytorch/issues/122752
-        # Reported fixed in an early 2.4 nightly.
-        with aot.extend_aot_decompositions(from_current=False):
-            prog = aot.export(mlp, torch.empty(97, 8, dtype=torch.float32))
-
+        prog = aot.export(mlp, torch.empty(97, 8, dtype=torch.float32))
         p = ExpandCustomOpsPass(prog.mlir_module)
         p.run()
 

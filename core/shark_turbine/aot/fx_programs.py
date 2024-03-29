@@ -228,6 +228,9 @@ class FxProgramsBuilder(FxPrograms):
         )
         current_decomps = current_aot_decompositions()
         if current_decomps:
+            from .decompositions import _patch_op_dispatch_for_export
+
+            _patch_op_dispatch_for_export()
             program = program.run_decompositions(current_decomps)
         fx_builder.programs[name] = program
         return program

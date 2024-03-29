@@ -26,4 +26,4 @@ def apply_decompositions(
 
 def turbine_cpu_pass_pipeline(gm: torch.fx.GraphModule, example_inputs):
     decompose_ops = DEFAULT_DECOMPOSITIONS
-    return apply_decompositions(gm, example_inputs, decompose_ops)
+    return apply_decompositions(gm, example_inputs, decompose_ops)  # type: ignore

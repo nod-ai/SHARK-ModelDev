@@ -220,7 +220,7 @@ class jittable(CallableIntrinsic):
         exported_f = dynamo.export(
             transformed_f,
             aten_graph=True,
-            decomposition_table=self.decomposition_table,
+            decomposition_table=self.decomposition_table,  # type: ignore
             assume_static_by_default=True,
             **export_kwargs,  # type: ignore
         )

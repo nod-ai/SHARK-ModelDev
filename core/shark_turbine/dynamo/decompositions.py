@@ -49,14 +49,15 @@ def _extend_context_manager(
     add_ops: Optional[DecompositionOpsList] = None,
     remove_ops: Optional[DecompositionOpsList] = None
 ):
+    table: DecompositionTable
     if from_current:
         table = dict(_current(scope))
     else:
-        table: DecompositionTable = {}
+        table = {}
     if add_ops:
         table.update(get_decompositions(add_ops))
     if remove_ops:
-        remove_decompositions(table, remove_ops)
+        remove_decompositions(table, remove_ops)  # type: ignore
     stack = _get_decomp_stack(scope)
     stack.append(table)
     try:

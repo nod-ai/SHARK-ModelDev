@@ -217,6 +217,9 @@ def export(
             nn_module, args=args, kwargs=kwargs, dynamic_shapes=dynamic_shapes
         )
         if current_decomps:
+            from .decompositions import _patch_op_dispatch_for_export
+
+            _patch_op_dispatch_for_export()
             exported_program = exported_program.run_decompositions(current_decomps)
 
         class Exported(CompiledModule, export_name=nn_module._get_name()):
