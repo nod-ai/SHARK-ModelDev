@@ -6,15 +6,11 @@
 
 import sys
 
-from turbine_llm.data import (
-    PrimitiveTensor,
-    QuantizedTensor,
-    load_gguf_file,
-)
+from ..layers import *
 
 
 def main(args: list[str]):
-    config = load_gguf_file(args[0])
+    config = gguf.load_file(args[0])
     print(f"Properties:")
     for key, value in config.properties.items():
         print(f"  {key} = {value} (of {type(value)})")

@@ -11,11 +11,10 @@ import sys
 
 import torch
 
-from ..data.gguf import load_gguf_file
-from ..config.llm_configs import LlamaHParams
+from ..layers import *
 
 # TODO: Should be using a base class with the protocol supported.
-from ..models.llama import PagedLlamaModelV1
+from ..models.llama.llama import PagedLlamaModelV1
 from ..utils.debugging import trace_tensor
 from ..utils.tokenizer import InferenceTokenizer, load_tokenizer
 
@@ -185,10 +184,10 @@ def main(args: list[str]):
     except IndexError:
         raise RuntimeError(f"Expected <gguf_path> <tokenizer_path> <prompt>...")
 
-    dataset = load_gguf_file(gguf_path)
+    dataset = gguf.load_file(gguf_path)
     tokenizer = load_tokenizer(tokenizer_path)
 
-    hp = LlamaHParams.from_gguf_props(dataset.properties)
+    hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
     model = PagedLlamaModelV1(dataset.root_theta, hp)
     generator = TorchGenerator(model, tokenizer)
 
