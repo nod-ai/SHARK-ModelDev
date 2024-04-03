@@ -111,6 +111,31 @@ class GlobalAttributes:
                 return new_name
         return name
 
+    def infer_external_from_tensor(
+        self, t: torch.Tensor
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """If externality is not specified, infers it from the tensor."""
+        # We check for the first item in a list because this lets us in the
+        # future extend the list by unwrapping.
+        check_tensors = [t]
+        for check_t in check_tensors:
+            if not getattr(check_t, "_is_turbine_external_tensor", False):
+                continue
+            try:
+                external_scope = check_t.external_scope
+                external_name = check_t.external_name
+            except AttributeError as e:
+                raise AttributeError(
+                    f"Tensor defines _is_turbine_external_tensor but not other fields: {type(t)} = {t}"
+                )
+            return (
+                True,
+                external_scope if self.external_scope is None else self.external_scope,
+                external_name,
+            )
+
+        return self.external, self.external_scope, None
+
 
 ###############################################################################
 # Builders
@@ -207,6 +232,8 @@ class ModuleBuilder:
         logical_name: Optional[str] = None,
     ) -> Tuple[str, Operation, IrType]:
         element_type = self.torch_dtype_to_iree_type(t.dtype)
+        external, external_scope, external_name = attrs.infer_external_from_tensor(t)
+
         with self.global_ip, Location.unknown():
             tensor_type = RankedTensorType.get(list(t.shape), element_type)
             ir_attrs = {
@@ -218,11 +245,15 @@ class ModuleBuilder:
                 ir_attrs["noinline"] = UnitAttr.get()
             if attrs.mutable:
                 ir_attrs["is_mutable"] = UnitAttr.get()
-            if attrs.external:
+            if external:
                 # Emit named external reference.
-                external_scope_attr = StringAttr.get(attrs.external_scope or "model")
-                external_name = attrs.map_name(
-                    logical_name if logical_name is not None else symbol_name
+                external_scope_attr = StringAttr.get(external_scope or "model")
+                external_name = (
+                    external_name
+                    if external_name is not None
+                    else attrs.map_name(
+                        logical_name if logical_name is not None else symbol_name
+                    )
                 )
                 external_name_attr = StringAttr.get(external_name)
                 # TODO: Have real Python builders for this.

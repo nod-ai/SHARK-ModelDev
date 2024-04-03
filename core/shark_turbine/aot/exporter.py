@@ -157,6 +157,7 @@ def export(
     kwargs: Optional[Dict[str, Any]] = None,
     dynamic_shapes: Dict[str, Any] | Tuple[Any] | List[Any] | None = None,
     external_params: bool = False,
+    global_params: bool = True,
 ) -> ExportOutput:
     """One shot export of an nn.Module or CompiledModule.
 
@@ -178,6 +179,8 @@ def export(
       dynamic_shapes: Dynamic shape specs to pass to torch.export.
       external_params: Whether to declare parameters as external vs inlining
         contents.
+      global_params: Whether to promote module parameters to globals eagerly
+        (vs relying on explicit). Default True.
 
     Returns:
       An ExportOutput object that wraps the compilation and provides
@@ -198,9 +201,10 @@ def export(
             )
 
         class EpExported(CompiledModule, export_name=mdl.graph_module._get_name()):
-            params = export_global_tree(
-                dict(list(mdl.named_parameters())), external=external_params
-            )
+            if global_params:
+                params = export_global_tree(
+                    dict(list(mdl.named_parameters())), external=external_params
+                )
             main = mdl
 
         TransformedModule = EpExported
@@ -223,7 +227,8 @@ def export(
             exported_program = exported_program.run_decompositions(current_decomps)
 
         class Exported(CompiledModule, export_name=nn_module._get_name()):
-            params = export_parameters(nn_module, external=external_params)
+            if global_params:
+                params = export_parameters(nn_module, external=external_params)
             main = exported_program
 
         TransformedModule = Exported

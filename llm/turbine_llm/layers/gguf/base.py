@@ -13,6 +13,10 @@ import torch
 
 from gguf import GGUFReader, GGUFValueType
 
+from shark_turbine.aot.params import (
+    ExternalTensor,
+)
+
 from ...utils.logging import get_logger
 
 from ..data import (
@@ -57,6 +61,11 @@ _quantized_types = {
 }
 
 
+def _externalize_tensor(name: str, data: np.memmap) -> torch.Tensor:
+    data_tensor = torch.tensor(data)
+    return ExternalTensor(data_tensor, external_name=name)
+
+
 def _wrap_tensor(
     name: str, logical_shape: list[int], type_name: str, data: np.memmap
 ) -> InferenceTensor:
@@ -67,11 +76,15 @@ def _wrap_tensor(
     # always true.
     logical_shape = list(reversed(logical_shape))
     if type_name in ["F16", "F32", "F64"]:
-        return DefaultPrimitiveTensor(name, torch.Tensor(data).reshape(logical_shape))
+        return DefaultPrimitiveTensor(
+            name, _externalize_tensor(name, data).reshape(logical_shape)
+        )
 
     quantized_type = _quantized_types.get(type_name)
     if quantized_type is not None:
-        return quantized_type(name=name, raw=torch.tensor(data), shape=logical_shape)
+        return quantized_type(
+            name=name, raw=_externalize_tensor(name, data), shape=logical_shape
+        )
 
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")
 

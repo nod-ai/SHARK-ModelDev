@@ -43,11 +43,17 @@ from ....support.ir_imports import (
 )
 
 from ..ir_utils import (
+    GlobalAttributes,
     ModuleBuilder,
 )
 
 from .base import (
     CallableIntrinsic,
+)
+
+from .globals import (
+    GlobalsDef,
+    MaterializedGlobal,
 )
 
 from .primitives import (
@@ -205,8 +211,6 @@ class _Hooks(FxImporterHooks):
         self.module_builder = module_builder
 
     def resolve_literal(self, gni: GraphNodeImporter, literal: Any) -> Optional[Value]:
-        module_builder = self.module_builder
-
         # We support resolution of tracked reference types. Currently this
         # only includes Tensors. All others we let the importer do what it
         # is going to do.
@@ -214,14 +218,10 @@ class _Hooks(FxImporterHooks):
             return None
 
         # See if we know about it.
-        mapping = module_builder.global_ref_tracker.track(literal)
-        if mapping.is_empty:
+        materialized_global = self._lift_literal_to_global(literal)
+        if not materialized_global:
             # If it is unknown, just let the default importer take it on.
             return None
-
-        # Already materialized.
-        logger.debug("Resolved defined global for literal %r", mapping)
-        materialized_global: MaterializedGlobal = mapping.value  # type: ignore
 
         # Emit a global load and conversion.
         vtensor_type = gni._cc.tensor_to_vtensor_type(literal)
@@ -234,6 +234,50 @@ class _Hooks(FxImporterHooks):
             operands=[loaded_value],
         ).result
         return converted_value
+
+    def _lift_literal_to_global(self, literal: Any) -> Optional[MaterializedGlobal]:
+        module_builder = self.module_builder
+        mapping = module_builder.global_ref_tracker.track(literal)
+        if mapping.is_empty:
+            if isinstance(literal, torch.Tensor) and getattr(
+                literal, "_is_turbine_external_tensor", False
+            ):
+                # If it is an external tensor, we auto map it.
+                return self._auto_import_external_tensor(literal)
+
+            # If it is unknown, just let the default importer take it on.
+            return None
+
+        # Already materialized.
+        logger.debug("Resolved defined global for literal %r", mapping)
+        materialized_global: MaterializedGlobal = mapping.value  # type: ignore
+        return materialized_global
+
+    def _auto_import_external_tensor(self, external_tensor: torch.Tensor):
+        auto_def = AutoExternalTensorDef(external_tensor)
+        materialized_global = auto_def.track(self.module_builder, "_auto_external")
+        assert isinstance(materialized_global, MaterializedGlobal)
+        return materialized_global
+
+
+class AutoExternalTensorDef(GlobalsDef):
+    __slots__ = [
+        "_name",
+        "_value",
+        "_schema",
+    ]
+
+    def __init__(self, external_tensor: torch.Tensor):
+        super().__init__(GlobalAttributes())
+        self._name = external_tensor.external_name  # type: ignore
+        self._value = external_tensor
+        _, self._schema = tree_flatten(self._value)
+
+    def items(self):
+        yield (self._name, self._value)
+
+    def schema(self):
+        return self._schema
 
 
 # In https://github.com/llvm/torch-mlir/pull/3046, the FxImporter was
