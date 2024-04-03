@@ -6,9 +6,6 @@
 
 """Inference support for the PagedLLMV1 protocol of models."""
 
-import math
-import sys
-
 import torch
 
 from shark_turbine.aot import (
@@ -21,13 +18,15 @@ from ..layers import *
 from ..models.llama.llama import PagedLlamaModelV1
 
 
-def main(args: list[str]):
-    try:
-        (gguf_path,) = args
-    except IndexError:
-        raise RuntimeError(f"Expected <gguf_path>")
+def main():
+    from ..utils import cli
 
-    dataset = gguf.load_file(gguf_path)
+    parser = cli.create_parser()
+    cli.add_gguf_dataset_options(parser)
+    args = cli.parse(parser)
+
+    data_files = cli.get_gguf_data_files(args)
+    dataset = gguf.load_file(data_files["gguf"])
 
     hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
     model = PagedLlamaModelV1(dataset.root_theta, hp)
@@ -36,7 +35,8 @@ def main(args: list[str]):
     # override. There may be a better way to do this.
     import torch._dynamo.config as dynamo_config
 
-    dynamo_config.max_loop_unroll_nodes = 0
+    # TODO: Seems removed from 2.3+
+    # dynamo_config.max_loop_unroll_nodes = 0
 
     fxb = FxProgramsBuilder(model)
 
@@ -132,4 +132,4 @@ def main(args: list[str]):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()

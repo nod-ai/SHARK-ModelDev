@@ -4,13 +4,19 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import sys
-
 from ..layers import *
 
 
-def main(args: list[str]):
-    config = gguf.load_file(args[0])
+def main():
+    from ..utils import cli
+
+    parser = cli.create_parser()
+    cli.add_gguf_dataset_options(parser)
+    args = cli.parse(parser)
+
+    data_files = cli.get_gguf_data_files(args)
+    config = gguf.load_file(data_files["gguf"])
+
     print(f"Properties:")
     for key, value in config.properties.items():
         print(f"  {key} = {value} (of {type(value)})")
@@ -35,4 +41,4 @@ def main(args: list[str]):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    main()
