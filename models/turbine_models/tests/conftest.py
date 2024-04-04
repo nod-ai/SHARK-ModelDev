@@ -30,7 +30,7 @@ def pytest_addoption(parser):
     parser.addoption("--batch_size", type=int, action="store", default=1)
     parser.addoption("--height", type=int, action="store", default=1024)
     parser.addoption("--width", type=int, action="store", default=1024)
-    parser.addoption("--precision", action="store", default="fp16")
+    parser.addoption("--precision", action="store", default="fp32")
     parser.addoption("--max_length", type=int, action="store", default=64)
     parser.addoption("--run_vmfb", action="store", default=True)
     # General Options
