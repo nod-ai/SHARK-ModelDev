@@ -25,7 +25,7 @@ def pytest_addoption(parser):
     parser.addoption("--external_weight_path", action="store", default="")
     parser.addoption("--external_weight_dir", action="store", default="")
     parser.addoption("--external_weight_file", action="store", default="")
-    parser.addoption("--pipeline_dir", action="store", default="")
+    parser.addoption("--pipeline_dir", action="store", default=".")
     # Modelling Options
     parser.addoption("--batch_size", type=int, action="store", default=1)
     parser.addoption("--height", type=int, action="store", default=1024)
@@ -36,7 +36,7 @@ def pytest_addoption(parser):
     # General Options
     parser.addoption("--compile_to", action="store", default=None)
     parser.addoption("--external_weights", action="store", default="safetensors")
-    parser.addoption("--decomp_attn", action="store_true", default=False)
+    parser.addoption("--decomp_attn", action="store", default=True)
     # Compiler Options
     parser.addoption("--device", action="store", default="cpu")
     parser.addoption("--rt_device", action="store", default="local-task")
