@@ -8,8 +8,8 @@ from typing import Optional
 
 import torch
 
-from ..data import Theta
-from ..layers.core import (
+from .data import Theta
+from .base import (
     ThetaLayer,
 )
 

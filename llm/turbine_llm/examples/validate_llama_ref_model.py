@@ -14,15 +14,14 @@ import sys
 
 import torch
 
-from turbine_llm.config import *
-from turbine_llm.data import *
-from turbine_llm.models.llama_ref import *
+from turbine_llm.layers import *
+from turbine_llm.models.llama.llama_ref import *
 
 
 def main(args: list[str]):
     torch.no_grad().__enter__()
-    config = load_gguf_file(args[0])
-    hp = LlamaHParams.from_gguf_props(config.properties)
+    config = gguf.load_file(args[0])
+    hp = configs.LlamaHParams.from_gguf_props(config.properties)
     model = DirectCacheLlamaModelV1(config.root_theta, hp)
 
     kv_cache = model.create_cache(bs=1)

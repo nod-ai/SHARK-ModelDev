@@ -8,15 +8,14 @@ import sys
 
 import torch
 
-from turbine_llm.config import *
-from turbine_llm.data import *
-from turbine_llm.models.llama import *
+from turbine_llm.layers import *
+from turbine_llm.models.llama.llama import *
 
 
 def main(args: list[str]):
     torch.no_grad().__enter__()
-    config = load_gguf_file(args[0])
-    hp = LlamaHParams.from_gguf_props(config.properties)
+    config = gguf.load_file(args[0])
+    hp = configs.LlamaHParams.from_gguf_props(config.properties)
     model = PagedLlamaModelV1(config.root_theta, hp)
     cache_state = model.cache.allocate(128, torch.float32)
     start_index = 0
@@ -137,7 +136,7 @@ def main(args: list[str]):
     # torch.testing.assert_close(llama.DEBUG_PREFILL_XK, llama.DEBUG_DECODE_XK)
 
     def save_prefill_module(model):
-        from shark_turbine.importers.fx_importer import FxImporter
+        from iree.compiler.extras.fx_importer import FxImporter
         from iree.compiler.ir import AsmState
 
         importer = FxImporter()

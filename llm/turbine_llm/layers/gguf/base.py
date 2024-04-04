@@ -15,7 +15,7 @@ from gguf import GGUFReader, GGUFValueType
 
 from ...utils.logging import get_logger
 
-from ..base import (
+from ..data import (
     Dataset,
     DefaultPrimitiveTensor,
     InferenceTensor,
@@ -25,7 +25,7 @@ from ..base import (
 from . import layouts
 
 __all__ = [
-    "load_gguf_file",
+    "load_file",
 ]
 
 logger = get_logger("gguf")
@@ -76,7 +76,7 @@ def _wrap_tensor(
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")
 
 
-def load_gguf_file(gguf_path: Union[str, os.PathLike]) -> Dataset:
+def load_file(gguf_path: Union[str, os.PathLike]) -> Dataset:
     reader = GGUFReader(gguf_path)
     logger.info(
         "Loading gguf file %s (%d fields, %d tensors)",

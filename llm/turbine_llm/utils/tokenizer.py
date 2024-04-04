@@ -24,7 +24,7 @@ class InferenceTokenizer(ABC):
 
     def encode(
         self, texts: list[str], pad_to_multiple_of: int = 1, pad_token: int = 0
-    ) -> tuple[list[list[int], list[int]]]:
+    ) -> tuple[list[list[int]]]:
         """Encodes a list of texts into a padded list of tokens.
 
         Returns a list of list of tokens and a list of unpadded lengths.

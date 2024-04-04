@@ -12,15 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..config.llm_configs import LlamaHParams
-from ..data import Theta
-from ..layers import (
-    LinearLayer,
-    RMSNormLayer,
-    ThetaLayer,
-    TokenEmbedding,
-    RotaryEmbeddingLayer,
-)
+from ...layers import *
 
 __all__ = [
     "DirectCacheLlamaModelV1",
@@ -34,12 +26,12 @@ __all__ = [
 class DirectCacheLlamaModelV1(ThetaLayer):
     """Simple LlamaModel with a direct lookup KV cache for batch-1 inference."""
 
-    def __init__(self, theta: Theta, hp: LlamaHParams):
+    def __init__(self, theta: Theta, hp: configs.LlamaHParams):
         super().__init__(theta)
         self.hp = hp
         self.add_module(
             "token_embedding",
-            TokenEmbedding(theta("token_embd"), dtype=hp.activation_dtype),
+            TokenEmbeddingLayer(theta("token_embd"), dtype=hp.activation_dtype),
         )
         self.add_module(
             "attention_embedding",
