@@ -113,7 +113,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             ireec_flags=arguments["ireec_flags"],
             index=1,
             exit_on_vmfb=True,
-            pipeline_dir=arguments["pipeline_dir"],
         )
         clip.export_clip_model(
             hf_model_name=arguments["hf_model_name"],
@@ -131,7 +130,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             ireec_flags=arguments["ireec_flags"],
             index=2,
             exit_on_vmfb=True,
-            pipeline_dir=arguments["pipeline_dir"],
         )
         arguments["external_weight_path_1"] = (
             self.safe_model_name
@@ -351,7 +349,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             variant="decode",
             decomp_attn=arguments["decomp_attn"],
             exit_on_vmfb=True,
-            pipeline_dir=arguments["pipeline_dir"],
         )
         arguments["external_weight_path"] = (
             self.safe_model_name
@@ -441,7 +438,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             variant="encode",
             decomp_attn=arguments["decomp_attn"],
             exit_on_vmfb=True,
-            pipeline_dir=arguments["pipeline_dir"],
         )
         arguments["external_weight_path"] = (
             self.safe_model_name
