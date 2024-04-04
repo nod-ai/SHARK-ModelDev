@@ -43,6 +43,10 @@ from ....support.ir_imports import (
     Value,
 )
 
+from ...tensor_traits import (
+    ExternalTensorTrait,
+)
+
 from ..ir_utils import (
     GlobalAttributes,
     ModuleBuilder,
@@ -249,27 +253,33 @@ class _Hooks(FxImporterHooks):
 
         # Policy check: Should we auto-import? Generally, we keep "small"
         # tensors as inline as they can be optimized.
-        if not self._should_lift_tensor_to_global(literal):
+        external_trait = ExternalTensorTrait.get(literal)
+        if not self._should_lift_tensor_to_global(literal, external_trait):
             return None
 
         # If it is a tensor we haven't seen yet, materialize it
         # as a global and return.
-        if getattr(literal, "_is_turbine_external_tensor", False):
+        if external_trait is not None:
             # If it is an external tensor, we can generate a nicer
             # symbol name.
-            name = literal.external_name
+            name = external_trait.external_name
         else:
             # Otherwise, generate a name based on what we have.
             shape_desc = "_".join([str(d) for d in literal.shape])
             name = f"constant_{shape_desc}_{str(literal.dtype)}"
 
+        name = module_builder.unique_auto_symbol(name)
         # TODO: We may want to unique this somehow in the module builder.
         auto_def = AutoGlobalTensorDef(name, literal, GlobalAttributes())
         materialized_global = auto_def.track(module_builder, "_auto")
         assert isinstance(materialized_global, MaterializedGlobal)
         return materialized_global
 
-    def _should_lift_tensor_to_global(self, literal: torch.Tensor) -> bool:
+    def _should_lift_tensor_to_global(
+        self, literal: torch.Tensor, external_trait: Optional[ExternalTensorTrait]
+    ) -> bool:
+        if external_trait is not None:
+            return True
         volume = math.prod(literal.shape)
         return volume > 1024
 

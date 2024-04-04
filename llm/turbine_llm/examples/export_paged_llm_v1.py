@@ -127,18 +127,13 @@ def main():
 
     generate_batch_prefill(4)
     generate_batch_decode(4)
-    # generate_batch_prefill(2)
     print("GENERATED!")
 
     for name, ep in fxb.programs.items():
         print(f"EXPORT {name}:\n{ep}")
 
-    print("Creating CompiledModule")
-    BatchedLlamaV1 = CompiledModuleMeta(
-        "BatchedLlamaV1", (CompiledModule,), fxb.programs
-    )
     print("Exporting")
-    output = export(BatchedLlamaV1)
+    output = export(fxb)
     print("Saving")
     output.save_mlir("/tmp/batch_llama_v1.mlir")
 

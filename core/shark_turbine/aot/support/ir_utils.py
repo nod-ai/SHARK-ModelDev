@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any, Callable, Generator, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple
 
 from pathlib import Path
 import tempfile
@@ -59,6 +59,10 @@ from ...support.conversions import (
 
 from ...support.logging import aot_logger as logger
 
+from ..tensor_traits import (
+    ExternalTensorTrait,
+)
+
 ###############################################################################
 # Configuration
 ###############################################################################
@@ -86,7 +90,7 @@ class GlobalAttributes:
         external: Optional[bool] = None,
         external_scope: Optional[str] = None,
         name_mapper: Optional[NameMapCallback] = None,
-        noinline: bool = True,
+        noinline: bool = False,
         uninitialized: Optional[bool] = None,
     ):
         if external and uninitialized:
@@ -119,11 +123,12 @@ class GlobalAttributes:
         # future extend the list by unwrapping.
         check_tensors = [t]
         for check_t in check_tensors:
-            if not getattr(check_t, "_is_turbine_external_tensor", False):
+            trait = ExternalTensorTrait.get(check_t)
+            if trait is None:
                 continue
             try:
-                external_scope = check_t.external_scope
-                external_name = check_t.external_name
+                external_scope = trait.external_scope
+                external_name = trait.external_name
             except AttributeError as e:
                 raise AttributeError(
                     f"Tensor defines _is_turbine_external_tensor but not other fields: {type(t)} = {t}"
@@ -134,7 +139,7 @@ class GlobalAttributes:
                 external_name,
             )
 
-        return self.external, self.external_scope, None
+        return bool(self.external), self.external_scope, None
 
 
 ###############################################################################
@@ -156,6 +161,7 @@ class ModuleBuilder:
         "symbol_table",
         "global_ref_tracker",
         "native_type_converter",
+        "_auto_symbol_counts",
     ]
 
     def __init__(self, module_op: Operation):
@@ -173,6 +179,15 @@ class ModuleBuilder:
         # as to better intern tensors to attributes.
         self.fx_py_attr_tracker = RefTracker()
         self.native_type_converter = NativeTypeConverter(self.context)
+        self._auto_symbol_counts: Dict[str, int] = {}
+
+    def unique_auto_symbol(self, requested_name: str) -> str:
+        if requested_name not in self._auto_symbol_counts:
+            self._auto_symbol_counts[requested_name] = 0
+            return requested_name
+        count = self._auto_symbol_counts[requested_name] + 1
+        self._auto_symbol_counts[requested_name] = count
+        return f"{requested_name}${count}"
 
     def handle_mlir_error(self, op: Operation, e: MLIRError, message: str):
         # TODO: Replace with a real dumping facility.
@@ -273,8 +288,7 @@ class ModuleBuilder:
                 array = np.array(detached_tensor)
                 # We know that a Numpy array is a ReadableBuffer so ignore type error.
                 contents = memoryview(array)  # type: ignore
-                shape_desc = "_".join([str(d) for d in t.shape])
-                blob_name = f"torch_tensor_{shape_desc}_{str(t.dtype)}"
+                blob_name = symbol_name
                 elements_attr = DenseResourceElementsAttr.get_from_buffer(
                     contents, blob_name, tensor_type
                 )

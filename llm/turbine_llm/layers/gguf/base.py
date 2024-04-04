@@ -13,8 +13,8 @@ import torch
 
 from gguf import GGUFReader, GGUFValueType
 
-from shark_turbine.aot.params import (
-    ExternalTensor,
+from shark_turbine.aot import (
+    ExternalTensorTrait,
 )
 
 from ...utils.logging import get_logger
@@ -64,13 +64,12 @@ _quantized_types = {
 def _externalize_tensor(
     name: str, data: np.memmap, logical_shape: list[int]
 ) -> torch.Tensor:
+    # Important: The annotation tag must be set on the actual leaf tensor
+    # which is stored in the root theta. This means that any shaping or
+    # data type massaging has to happen *before* annotating.
     data_tensor = torch.tensor(data).reshape(logical_shape)
-    external = data_tensor
-    # TODO: Maybe don't monkey patch the tensor into an external.
-    external._is_turbine_external_tensor = True
-    external.external_name = name
-    external.external_scope = ""
-    return external
+    ExternalTensorTrait(external_name=name, external_scope="").set(data_tensor)
+    return data_tensor
 
 
 def _wrap_tensor(

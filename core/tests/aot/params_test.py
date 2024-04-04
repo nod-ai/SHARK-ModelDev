@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
+from pathlib import Path
+import tempfile
 import unittest
 
 import torch
@@ -17,12 +19,9 @@ from iree.runtime import (
 
 from shark_turbine.aot import (
     export,
-)
-
-from shark_turbine.aot.params import (
     externalize_module_parameters,
     save_module_parameters,
-    ExternalTensor,
+    ExternalTensorTrait,
     ParameterArchive,
 )
 
@@ -31,48 +30,73 @@ class SimpleParamsModule(nn.Module):
     def __init__(self):
         super().__init__()
         self.classifier = nn.Linear(20, 30)
+        self.large_tensor = torch.rand([30, 50])
+        self.dup_large_tensor = torch.rand([30, 50])
 
     def forward(self, x):
-        return self.classifier(x)
+        result = self.classifier(x) + torch.tensor([1.0], dtype=torch.float32)
+        result = torch.matmul(result, self.large_tensor + self.dup_large_tensor)
+        return result
 
 
 class ParamsTest(unittest.TestCase):
     def testCreateArchive(self):
-        file_path = "/tmp/mystuff.irpa"
-        m = SimpleParamsModule()
-        save_module_parameters(file_path, m)
-        archive = ParameterArchive(file_path)
-        print(archive)
+        with tempfile.NamedTemporaryFile("wb", delete=False, suffix=".irpa") as f:
+            file_path = Path(f.name)
+            try:
+                m = SimpleParamsModule()
+                save_module_parameters(file_path, m)
+                # mmap=False is a bit nicer for tests on Windows because it doesn't
+                # lock the file for an arbitrary duration.
+                archive = ParameterArchive(file_path, mmap=False)
+                items = dict(archive.items())
+                self.assertIn("classifier.weight", items)
+                self.assertIn("classifier.bias", items)
+            finally:
+                file_path.unlink()
+
+    def testCreateArchiveWithPrefixScope(self):
+        with tempfile.NamedTemporaryFile("wb", delete=False, suffix=".irpa") as f:
+            file_path = Path(f.name)
+            try:
+                m = SimpleParamsModule()
+                save_module_parameters(file_path, m, prefix="foobar.model")
+                # mmap=False is a bit nicer for tests on Windows because it doesn't
+                # lock the file for an arbitrary duration.
+                archive = ParameterArchive(file_path, mmap=False)
+                items = dict(archive.items())
+                self.assertIn("foobar.model.classifier.weight", items)
+                self.assertIn("foobar.model.classifier.bias", items)
+            finally:
+                file_path.unlink()
 
     def testExportExternalized(self):
         m = SimpleParamsModule()
         externalize_module_parameters(m)
-        export(m, args=(torch.empty([128, 20]),), global_params=False).print_readable()
+        output = export(m, args=(torch.empty([128, 20]),))
+        asm = str(output.mlir_module)
+        self.assertIn(
+            'util.global private @__auto.classifier.weight = #stream.parameter.named<"model"::"classifier.weight">',
+            asm,
+        )
+        self.assertIn(
+            'util.global private @__auto.classifier.bias = #stream.parameter.named<"model"::"classifier.bias">',
+            asm,
+        )
+        # Verify that the small tensor is inlined.
+        self.assertIn("torch.vtensor.literal(dense<1.000000e+00> : tensor<1xf32>)", asm)
+        # Verify that the large tensors are named uniquely and lifted.
+        self.assertIn("@__auto.constant_30_50_torch.float32 =", asm)
+        self.assertIn("@__auto.constant_30_50_torch.float32$1 =", asm)
 
 
 class ExternalTensorTest(unittest.TestCase):
-    def testBackedExternalTensor(self):
-        inner_t = torch.ones([2, 3], dtype=torch.float32)
-        t = ExternalTensor(
-            inner_t, requires_grad=True, external_name="foobar", external_scope="main"
-        )
-        self.assertIs(type(t), ExternalTensor)
-        self.assertTrue(t._is_turbine_external_tensor)
-        self.assertEqual("main", t.external_scope)
-        self.assertEqual("foobar", t.external_name)
-        r = t + 1
-        self.assertFalse(hasattr(r, "_is_turbine_external_tensor"))
-        self.assertFalse(hasattr(r, "external_name"))
-        self.assertFalse(hasattr(r, "external_scope"))
-
-    def testParameter(self):
-        p = nn.Parameter(torch.ones([2, 3], dtype=torch.float32))
-        t = ExternalTensor(p, external_name="foobar", external_scope="main")
-        self.assertIs(type(t), ExternalTensor)
-        self.assertTrue(t._is_turbine_external_tensor)
-        self.assertEqual("main", t.external_scope)
-        self.assertEqual("foobar", t.external_name)
-        self.assertTrue(isinstance(t, nn.Parameter))
+    def testExternalTensorTrait(self):
+        t = torch.ones([2, 3], dtype=torch.float32)
+        trait = ExternalTensorTrait(external_name="foobar", external_scope="test")
+        self.assertIsNone(trait.get(t))
+        trait.set(t)
+        self.assertIs(ExternalTensorTrait.get(t), trait)
 
 
 if __name__ == "__main__":
