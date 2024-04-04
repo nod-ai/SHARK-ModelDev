@@ -306,5 +306,8 @@ class _ScalarBuilder:
     def unary_exp2_float(self, val: IRProxyValue) -> IRProxyValue:
         return IRProxyValue(math_d.exp2(val.ir_value))
 
+    def unary_rsqrt_float(self, val: IRProxyValue) -> IRProxyValue:
+        return IRProxyValue(math_d.rsqrt(val.ir_value))
+
 
 ScalarBuilder = _ScalarBuilder()

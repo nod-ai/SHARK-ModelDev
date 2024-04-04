@@ -22,6 +22,7 @@ __all__ = [
     "broadcast_in_dim",
     "transpose",
     "to_dtype",
+    "rsqrt",
 ]
 
 
@@ -37,6 +38,7 @@ to_dtype = ops.to_dtype
 # Math Operations
 exp2 = ops.exp2
 constant = ops.vector_constant
+rsqrt = ops.rsqrt
 
 # Reduction Operations
 max = ops.vector_max

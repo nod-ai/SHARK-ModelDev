@@ -281,6 +281,14 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
+    def handle_rsqrt(self, op, val):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(val,),
+            kwargs={},
+        )
+
     def handle_vector_constant(
         self, op, shape: Tuple[int, ...], dtype, value: int | float
     ):

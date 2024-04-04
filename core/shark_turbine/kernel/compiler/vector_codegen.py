@@ -238,6 +238,7 @@ BINARY_ARITHMETIC_OPS = [
 
 UNARY_ARITHMETIC_OPS = [
     (tkl.exp2, "exp2"),
+    (tkl.rsqrt, "rsqrt"),
 ]
 
 
