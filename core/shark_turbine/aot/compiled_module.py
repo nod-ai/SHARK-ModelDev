@@ -46,6 +46,7 @@ from .support.ir_utils import (
 
 __all__ = [
     "CompiledModule",
+    "CompiledModuleMeta",
 ]
 
 ################################################################################

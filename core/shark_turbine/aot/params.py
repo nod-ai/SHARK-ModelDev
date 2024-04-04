@@ -126,7 +126,7 @@ class ParameterArchive:
         file_path: Union[str, Path],
         *,
         readable: bool = True,
-        writable: bool = False
+        writable: bool = False,
     ):
         """Loads index entries from a file adding them to the in-memory archive."""
         self._index.load(file_path, readable=readable, writable=writable)

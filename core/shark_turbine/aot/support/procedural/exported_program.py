@@ -8,6 +8,7 @@
 from typing import Any, Dict, List, Optional
 
 import inspect
+import math
 
 import torch
 
@@ -218,7 +219,7 @@ class _Hooks(FxImporterHooks):
             return None
 
         # See if we know about it.
-        materialized_global = self._lift_literal_to_global(literal)
+        materialized_global = self._lift_tensor_to_global(literal)
         if not materialized_global:
             # If it is unknown, just let the default importer take it on.
             return None
@@ -235,42 +236,58 @@ class _Hooks(FxImporterHooks):
         ).result
         return converted_value
 
-    def _lift_literal_to_global(self, literal: Any) -> Optional[MaterializedGlobal]:
+    def _lift_tensor_to_global(
+        self, literal: torch.Tensor
+    ) -> Optional[MaterializedGlobal]:
         module_builder = self.module_builder
         mapping = module_builder.global_ref_tracker.track(literal)
-        if mapping.is_empty:
-            if isinstance(literal, torch.Tensor) and getattr(
-                literal, "_is_turbine_external_tensor", False
-            ):
-                # If it is an external tensor, we auto map it.
-                return self._auto_import_external_tensor(literal)
+        if not mapping.is_empty:
+            # Already materialized.
+            logger.debug("Resolved defined global for literal %r", mapping)
+            materialized_global: MaterializedGlobal = mapping.value  # type: ignore
+            return materialized_global
 
-            # If it is unknown, just let the default importer take it on.
+        # Policy check: Should we auto-import? Generally, we keep "small"
+        # tensors as inline as they can be optimized.
+        if not self._should_lift_tensor_to_global(literal):
             return None
 
-        # Already materialized.
-        logger.debug("Resolved defined global for literal %r", mapping)
-        materialized_global: MaterializedGlobal = mapping.value  # type: ignore
-        return materialized_global
+        # If it is a tensor we haven't seen yet, materialize it
+        # as a global and return.
+        if getattr(literal, "_is_turbine_external_tensor", False):
+            # If it is an external tensor, we can generate a nicer
+            # symbol name.
+            name = literal.external_name
+        else:
+            # Otherwise, generate a name based on what we have.
+            shape_desc = "_".join([str(d) for d in literal.shape])
+            name = f"constant_{shape_desc}_{str(literal.dtype)}"
 
-    def _auto_import_external_tensor(self, external_tensor: torch.Tensor):
-        auto_def = AutoExternalTensorDef(external_tensor)
-        materialized_global = auto_def.track(self.module_builder, "_auto_external")
+        # TODO: We may want to unique this somehow in the module builder.
+        auto_def = AutoGlobalTensorDef(name, literal, GlobalAttributes())
+        materialized_global = auto_def.track(module_builder, "_auto")
         assert isinstance(materialized_global, MaterializedGlobal)
         return materialized_global
 
+    def _should_lift_tensor_to_global(self, literal: torch.Tensor) -> bool:
+        volume = math.prod(literal.shape)
+        return volume > 1024
 
-class AutoExternalTensorDef(GlobalsDef):
+
+class AutoGlobalTensorDef(GlobalsDef):
+    """Global definition that is used for arbitrary tensor literals encountered
+    during processing."""
+
     __slots__ = [
         "_name",
         "_value",
         "_schema",
     ]
 
-    def __init__(self, external_tensor: torch.Tensor):
-        super().__init__(GlobalAttributes())
-        self._name = external_tensor.external_name  # type: ignore
-        self._value = external_tensor
+    def __init__(self, name: str, value: torch.Tensor, attrs: GlobalAttributes):
+        super().__init__(attrs)
+        self._name = name
+        self._value = value
         _, self._schema = tree_flatten(self._value)
 
     def items(self):

@@ -51,7 +51,6 @@ class ParamsTest(unittest.TestCase):
 
 
 class ExternalTensorTest(unittest.TestCase):
-
     def testBackedExternalTensor(self):
         inner_t = torch.ones([2, 3], dtype=torch.float32)
         t = ExternalTensor(
@@ -74,6 +73,7 @@ class ExternalTensorTest(unittest.TestCase):
         self.assertEqual("main", t.external_scope)
         self.assertEqual("foobar", t.external_name)
         self.assertTrue(isinstance(t, nn.Parameter))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

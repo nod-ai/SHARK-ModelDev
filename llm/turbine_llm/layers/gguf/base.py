@@ -61,9 +61,16 @@ _quantized_types = {
 }
 
 
-def _externalize_tensor(name: str, data: np.memmap) -> torch.Tensor:
-    data_tensor = torch.tensor(data)
-    return ExternalTensor(data_tensor, external_name=name)
+def _externalize_tensor(
+    name: str, data: np.memmap, logical_shape: list[int]
+) -> torch.Tensor:
+    data_tensor = torch.tensor(data).reshape(logical_shape)
+    external = data_tensor
+    # TODO: Maybe don't monkey patch the tensor into an external.
+    external._is_turbine_external_tensor = True
+    external.external_name = name
+    external.external_scope = ""
+    return external
 
 
 def _wrap_tensor(
@@ -77,7 +84,7 @@ def _wrap_tensor(
     logical_shape = list(reversed(logical_shape))
     if type_name in ["F16", "F32", "F64"]:
         return DefaultPrimitiveTensor(
-            name, _externalize_tensor(name, data).reshape(logical_shape)
+            name, _externalize_tensor(name, data, logical_shape)
         )
 
     quantized_type = _quantized_types.get(type_name)
