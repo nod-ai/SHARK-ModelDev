@@ -76,9 +76,9 @@ class StatelessLlamaChecks(unittest.TestCase):
         cls.tokenizer = None
         cls.mod = None
 
-    # See: https://github.com/nod-ai/SHARK-Turbine/issues/560
+    # See: https://github.com/nod-ai/SHARK-Turbine/issues/601
     # Developed issues related to the pytorch 2.3 upgrade.
-    # @unittest.expectedFailure
+    @unittest.expectedFailure
     def test_vmfb_comparison(self):
         """
         Test that the vmfb model produces the same output as the torch model
