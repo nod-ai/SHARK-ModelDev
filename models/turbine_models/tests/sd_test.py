@@ -306,8 +306,6 @@ class StableDiffusionTest(unittest.TestCase):
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
 
-    # https://github.com/nod-ai/SHARK-Turbine/issues/536
-    @unittest.expectedFailure
     def testExportVaeModelEncode(self):
         current_args = copy.deepcopy(default_arguments)
         blob_name = vae.export_vae_model(
