@@ -1,6 +1,6 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from iree import runtime as ireert
 import torch
 import time
@@ -209,6 +209,18 @@ def run_torch_llm(
     model=None,
     tokenizer=None,
 ):
+    if model == None:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model_name,
+            torch_dtype=torch.float,
+            token=hf_auth_token,
+        )
+    if tokenizer == None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            hf_model_name,
+            use_fast=False,
+            token=hf_auth_token,
+        )
     if streaming_llm is True:
         enable_llama_pos_shift_attention(model)
 
