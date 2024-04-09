@@ -581,6 +581,18 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["seed"],
         )
         print("Image generation complete.")
+        os.remove(os.path.join(arguments["pipeline_dir"], "prompt_encoder.vmfb"))
+        os.remove(
+            os.path.join(
+                arguments["pipeline_dir"],
+                arguments["scheduler_id"]
+                + "_unet_"
+                + str(arguments["num_inference_steps"])
+                + ".vmfb",
+            )
+        )
+        os.remove(os.path.join(arguments["pipeline_dir"], "vae_decode.vmfb"))
+        os.remove(os.path.join(arguments["pipeline_dir"], "full_pipeline.vmfb"))
 
 
 if __name__ == "__main__":
