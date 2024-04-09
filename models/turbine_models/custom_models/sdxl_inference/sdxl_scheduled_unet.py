@@ -140,7 +140,7 @@ def export_scheduled_unet_model(
     else:
         do_classifier_free_guidance = True
     if (
-        (attn_spec in ["default", None])
+        (attn_spec in ["default"])
         and decomp_attn == False
         and ("gfx9" in iree_target_triple)
     ):

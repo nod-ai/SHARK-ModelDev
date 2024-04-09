@@ -261,7 +261,7 @@ p.add_argument(
     "--attn_spec",
     type=str,
     default=None,
-    help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
+    help="extra iree-compile options for models with iree_linalg_ext.attention ops. Set this to 'default' if you are using mfma-capable hardware with ROCM.",
 )
 
 p.add_argument(

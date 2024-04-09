@@ -106,7 +106,7 @@ def export_unet_model(
         do_classifier_free_guidance = True
 
     if (
-        (attn_spec in ["default", None])
+        (attn_spec in ["default"])
         and decomp_attn == False
         and ("gfx9" in target_triple)
     ):

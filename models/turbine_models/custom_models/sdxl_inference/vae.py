@@ -85,7 +85,7 @@ def export_vae_model(
     weights_only=False,
 ):
     if (
-        (attn_spec in ["default", None])
+        (attn_spec in ["default"])
         and decomp_attn == False
         and ("gfx9" in target_triple)
     ):
