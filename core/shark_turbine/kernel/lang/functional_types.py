@@ -29,6 +29,7 @@ class _MemoryStorage(ShapedDataType):
 
         class MemoryType(cls):
             symbolic_shape = init_symbolic_shape
+            rank = len(symbolic_shape)
             address_space = init_address_space
             dtype = init_dtype
 
@@ -74,10 +75,6 @@ class Memory(metaclass=_MemoryStorage):
         dtype = cast(DataType, dtype)
         addressSpace = cast(AddressSpace, addressSpace)
         return cls.new_subtype(symbolic_shape=shape, address_space=addressSpace, dtype=dtype)
-
-    def next(self):
-        "Returns the next element in the iterator."
-        pass
 
 class Register(metaclass=_MemoryStorage):
     "Represents virtual registers. Parameterized by a shape and element type."

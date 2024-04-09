@@ -25,6 +25,7 @@ from .indexing import (
 )
 
 from ..lang.kernel_buffer import KernelBuffer
+from ..lang.functional_types import Memory, Register
 from ..lang.grid import Grid
 
 from ..lang.types import (
@@ -107,7 +108,6 @@ class MemoryProxy(fx.Proxy):
         self._orig_type = orig_type
         # The shape and rank are statically available (not proxied).
         self.symbolic_shape = orig_type.symbolic_shape
-        self.rank = orig_type.rank
 
     def __getitem__(self, key):
         return ops.memory_getitem(self, key)
@@ -115,6 +115,27 @@ class MemoryProxy(fx.Proxy):
     def __setitem__(self, key, item):
         ops.memory_setitem(self, key, item)
 
+class RegisterProxy(fx.Proxy):
+
+    """Custom proxy for Registers so that we can override special methods."""
+
+    def __init__(
+        self,
+        node: fx.Node,
+        tracer: "KernelTracer",
+        orig_type: Type[Register],
+    ):
+        super().__init__(node, tracer)
+        self._orig_type = orig_type
+        # The shape and rank are statically available (not proxied).
+        self.symbolic_shape = orig_type.symbolic_shape
+        self.rank = orig_type.rank
+
+    def __getitem__(self, key):
+        return ops.register_getitem(self, key)
+
+    def __setitem__(self, key, item):
+        ops.register_setitem(self, key, item)
 
 class KernelTracer(SubgraphTracer):
     """Custom Tracer for generating a trace of a kernel computation."""
@@ -127,6 +148,8 @@ class KernelTracer(SubgraphTracer):
                 return KernelBufferProxy(node, self, t)
             if issubclass(t, Memory):
                 return MemoryProxy(node, self, t)
+            if issubclass(t, Register):
+                return RegisterProxy(node, self, t)
         return super().proxy(node)
 
     def create_arg(self, a):
@@ -271,7 +294,7 @@ class CompiledContext(BaseContext):
         self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(memory),
+            args=(memory,),
             kwargs={},
         )
 
@@ -345,6 +368,14 @@ class CompiledContext(BaseContext):
         )
 
     def handle_vector_dot(self, op, lhs, rhs, acc=None):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(lhs, rhs, acc),
+            kwargs={},
+        )
+
+    def handle_mma(self, op, lhs, rhs, acc):
         return self.region_graph.create_proxy(
             "call_function",
             target=op,

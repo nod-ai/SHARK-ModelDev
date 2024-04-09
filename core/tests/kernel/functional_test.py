@@ -25,7 +25,7 @@ class Test(unittest.TestCase):
         @tkf.wave(0, 0)
         def gemm(a: tkf.Memory[M, K, S, tkl.f16],
                  b: tkf.Memory[N, K, S, tkl.f16],
-                 creg: tkf.Register[M, N, tkl.f32] = 0) -> tkf.Register[M, N, tkl.f32]:
+                 creg: tkf.Register[M, N, tkl.f32]) -> tkf.Register[M, N, tkl.f32]:
             areg = tkf.memory_to_register(a)
             breg = tkf.memory_to_register(b)
             dreg = tkf.mma(areg, breg, creg)
