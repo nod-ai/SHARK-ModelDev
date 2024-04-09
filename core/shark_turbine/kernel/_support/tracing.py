@@ -71,6 +71,7 @@ class KernelRegionGraph(RegionGraph):
 
 
 class KernelBufferProxy(fx.Proxy):
+
     """Custom proxy for KernelBuffer so that we can override special methods."""
 
     def __init__(
@@ -92,6 +93,29 @@ class KernelBufferProxy(fx.Proxy):
         ops.kernel_buffer_setitem(self, key, item)
 
 
+class MemoryProxy(fx.Proxy):
+
+    """Custom proxy for Memory so that we can override special methods."""
+
+    def __init__(
+        self,
+        node: fx.Node,
+        tracer: "KernelTracer",
+        orig_type: Type[Memory],
+    ):
+        super().__init__(node, tracer)
+        self._orig_type = orig_type
+        # The shape and rank are statically available (not proxied).
+        self.symbolic_shape = orig_type.symbolic_shape
+        self.rank = orig_type.rank
+
+    def __getitem__(self, key):
+        return ops.memory_getitem(self, key)
+
+    def __setitem__(self, key, item):
+        ops.memory_setitem(self, key, item)
+
+
 class KernelTracer(SubgraphTracer):
     """Custom Tracer for generating a trace of a kernel computation."""
 
@@ -101,6 +125,8 @@ class KernelTracer(SubgraphTracer):
         if t is not None:
             if issubclass(t, KernelBuffer):
                 return KernelBufferProxy(node, self, t)
+            if issubclass(t, Memory):
+                return MemoryProxy(node, self, t)
         return super().proxy(node)
 
     def create_arg(self, a):
@@ -238,6 +264,14 @@ class CompiledContext(BaseContext):
             "call_function",
             target=op,
             args=(kernel_buffer, multi_index, item),
+            kwargs={},
+        )
+
+    def handle_memory_to_register(self, op, memory):
+        self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(memory),
             kwargs={},
         )
 
