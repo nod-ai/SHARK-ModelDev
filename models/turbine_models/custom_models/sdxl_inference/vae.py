@@ -84,12 +84,17 @@ def export_vae_model(
     input_mlir=None,
     weights_only=False,
 ):
-    if attn_spec in ["default", "", None] and ("gfx9" in target_triple):
+    if (
+        (attn_spec in ["default", None])
+        and decomp_attn == False
+        and ("gfx9" in target_triple)
+    ):
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
         )
-    if decomp_attn:
+    elif decomp_attn:
         attn_spec = None
+
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, "vae_" + variant)
     else:

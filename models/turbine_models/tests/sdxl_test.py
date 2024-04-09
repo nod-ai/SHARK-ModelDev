@@ -61,6 +61,7 @@ def command_line_args(request):
     arguments["compile_to"] = request.config.getoption("--compile_to")
     arguments["external_weights"] = request.config.getoption("--external_weights")
     arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
+    arguments["attn_spec"] = request.config.getoption("--attn_spec")
     arguments["device"] = request.config.getoption("--device")
     arguments["rt_device"] = request.config.getoption("--rt_device")
     arguments["iree_target_triple"] = request.config.getoption("--iree_target_triple")
@@ -561,7 +562,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["device"],
             arguments["iree_target_triple"],
             ireec_flags,
-            None,  # attn_spec
+            arguments["attn_spec"],
             arguments["decomp_attn"],
             arguments["pipeline_dir"],
             external_weights_dir,
