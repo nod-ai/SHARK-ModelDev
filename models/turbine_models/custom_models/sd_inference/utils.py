@@ -94,7 +94,6 @@ def compile_to_vmfb(
             [
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
-                "--iree-rocm-link-bc=true",
                 "--verify=false",
             ]
         )
