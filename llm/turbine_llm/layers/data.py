@@ -59,7 +59,7 @@ class PrimitiveTensor(InferenceTensor):
     """
 
     @abstractmethod
-    def as_torch(self) -> torch.Tensor:
+    def as_torch(self, *, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Accesses the raw data as a torch tensor.
 
         If the tensor is packed in some way, this may bare no resemblance to
@@ -75,7 +75,9 @@ class DefaultPrimitiveTensor(PrimitiveTensor):
         super().__init__(name, list(data.shape))
         self._data = data
 
-    def as_torch(self) -> torch.Tensor:
+    def as_torch(self, *, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if dtype is not None:
+            return self._data.to(dtype)
         return self._data
 
     @property
@@ -280,7 +282,7 @@ class InferenceOps:
             )
         elif isinstance(rhs, PrimitiveTensor):
             # Convertible to a Torch tensor without custom layout.
-            rhs_torch = rhs.as_torch()
+            rhs_torch = rhs.as_torch(dtype=lhs.dtype)
             return _matmul_torch(
                 lhs,
                 rhs_torch,
