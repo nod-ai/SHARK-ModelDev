@@ -72,7 +72,6 @@ class KernelRegionGraph(RegionGraph):
 
 
 class KernelBufferProxy(fx.Proxy):
-
     """Custom proxy for KernelBuffer so that we can override special methods."""
 
     def __init__(
@@ -95,7 +94,6 @@ class KernelBufferProxy(fx.Proxy):
 
 
 class MemoryProxy(fx.Proxy):
-
     """Custom proxy for Memory so that we can override special methods."""
 
     def __init__(
@@ -115,8 +113,8 @@ class MemoryProxy(fx.Proxy):
     def __setitem__(self, key, item):
         ops.memory_setitem(self, key, item)
 
-class RegisterProxy(fx.Proxy):
 
+class RegisterProxy(fx.Proxy):
     """Custom proxy for Registers so that we can override special methods."""
 
     def __init__(
@@ -136,6 +134,7 @@ class RegisterProxy(fx.Proxy):
 
     def __setitem__(self, key, item):
         ops.register_setitem(self, key, item)
+
 
 class KernelTracer(SubgraphTracer):
     """Custom Tracer for generating a trace of a kernel computation."""
@@ -291,10 +290,13 @@ class CompiledContext(BaseContext):
         )
 
     def handle_read(self, op, memory, elements_per_thread=None):
-        self.region_graph.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(memory, elements_per_thread,),
+            args=(
+                memory,
+                elements_per_thread,
+            ),
             kwargs={},
         )
 
@@ -302,7 +304,11 @@ class CompiledContext(BaseContext):
         self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(register, memory, elements_per_thread,),
+            args=(
+                register,
+                memory,
+                elements_per_thread,
+            ),
             kwargs={},
         )
 
@@ -462,14 +468,11 @@ class Launchable(ABC):
         return launch_context.launch(self, args, kwargs)
 
     @abstractmethod
-    def eager_execute(self, args, kwargs):
-        ...
+    def eager_execute(self, args, kwargs): ...
 
-    def aot_execute(self, args, kwargs):
-        ...
+    def aot_execute(self, args, kwargs): ...
 
-    def test_execute(self, args, kwargs):
-        ...
+    def test_execute(self, args, kwargs): ...
 
 
 class LaunchContext(ABC):
@@ -508,8 +511,7 @@ class LaunchContext(ABC):
         context.pop(LaunchContext, self)
 
     @abstractmethod
-    def launch(self, launchable: Launchable, args, kwargs):
-        ...
+    def launch(self, launchable: Launchable, args, kwargs): ...
 
 
 class DebugLaunchContext(LaunchContext):
