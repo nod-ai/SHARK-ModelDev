@@ -70,6 +70,10 @@ from .tracer import (
     IrTrace,
 )
 
+# Limit of tensor volumes. Over this limit, otherwise uncategorized tensor
+# constants will be emitted out-of-line. Under the limit, inline.
+INLINE_TENSOR_VOLUME_LIMIT = 1024
+
 
 class ExportedProgramIntrinsic(CallableIntrinsic):
     def __init__(
@@ -281,7 +285,7 @@ class _Hooks(FxImporterHooks):
         if external_trait is not None:
             return True
         volume = math.prod(literal.shape)
-        return volume > 1024
+        return volume > INLINE_TENSOR_VOLUME_LIMIT
 
 
 class AutoGlobalTensorDef(GlobalsDef):
