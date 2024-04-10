@@ -11,7 +11,7 @@ from .._support.indexing import (
 )
 
 from .._support.tracing import CapturedTrace
-from .functional_ops import memory_to_register, mma
+from .functional_ops import read, write, mma
 from ..compiler.builder import (
     IRProxyValue,
     ScalarBuilder,
@@ -177,7 +177,12 @@ def handle_op(op):
 ###############################################################################
 # Memory Ops
 ###############################################################################
-@handle_op(memory_to_register)
+@handle_op(read)
+def _(emitter: WaveEmitter, node: fx.Node):
+    breakpoint()
+    pass
+
+@handle_op(write)
 def _(emitter: WaveEmitter, node: fx.Node):
     breakpoint()
     pass

@@ -290,11 +290,19 @@ class CompiledContext(BaseContext):
             kwargs={},
         )
 
-    def handle_memory_to_register(self, op, memory):
+    def handle_read(self, op, memory, elements_per_thread=None):
         self.region_graph.create_proxy(
             "call_function",
             target=op,
-            args=(memory,),
+            args=(memory, elements_per_thread,),
+            kwargs={},
+        )
+
+    def handle_write(self, op, register, memory, elements_per_thread=None):
+        self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(register, memory, elements_per_thread,),
             kwargs={},
         )
 

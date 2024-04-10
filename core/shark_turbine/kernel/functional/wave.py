@@ -45,6 +45,7 @@ from ..functional.codegen import WaveEmitter
 
 __all__ = [
     "wave",
+    "tiledLoop",
 ]
 
 
@@ -56,6 +57,22 @@ def wave(*symbolic_shape: IndexExpr):
 
     return decorator
 
+def tiledLoop(*symbolic_dims: IndexExpr):
+    # TODO: Use the argument to determine how many iterations
+    def decorator(f : Callable):
+        def wrapper(*args, **kwargs):
+            return
+        return wrapper
+    return decorator
+
+class TiledLoop():
+    def __init__(self, reduction_dims, name, function: Callable):
+        self._name = name
+        self._reduction_dims = reduction_dims
+        self._f = function
+
+    def __repr__(self):
+        return f"tk.tiledLoop @{self._name}[{self._reduction_dims}]"
 
 class LaunchableWave(Launchable):
     def __init__(
