@@ -20,20 +20,23 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-amdgpu-w7900-x86-64]
+        os: [nodai-amdgpu-mi210-x86-64]
 
     runs-on: ${{matrix.os}}
     steps:
-      - name: "Setting up Python"
-        uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
-        with:
-          python-version: ${{matrix.version}}
+      # We are using a persistent Gentoo runner here, and this python action is not supported for the arch
+      # - name: "Setting up Python"
+      #   uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
+      #   with:
+      #     python-version: ${{matrix.version}}
 
       - name: "Checkout Code"
         uses: actions/checkout@v2
 
       - name: Sync source deps
         run: |
+          python -m venv turbine_venv
+          source turbine_venv/bin/activate
           python -m pip install --upgrade pip
           # Note: We install in three steps in order to satisfy requirements
           # from non default locations first. Installing the PyTorch CPU
@@ -49,8 +52,10 @@ jobs:
 
       - name: Run stateless_llama tests
         run: |
+          source turbine_venv/bin/activate
           pytest models/turbine_models/tests/stateless_llama_test.py
 
       - name: Run sd tests
         run: |
+          source turbine_venv/bin/activate
           pytest models/turbine_models/tests/sd_test.py
