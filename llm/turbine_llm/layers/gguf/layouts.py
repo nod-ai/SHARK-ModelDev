@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 import torch
 
-from ..base import (
+from ..data import (
     QuantizedTensor,
 )
 

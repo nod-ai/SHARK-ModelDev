@@ -12,18 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..config.llm_configs import LlamaHParams
-from ..data import Theta
-from ..layers import (
-    LinearLayer,
-    RMSNormLayer,
-    ThetaLayer,
-    TokenEmbedding,
-    RotaryEmbeddingLayer,
-    PagedKVCache,
-)
+from ...layers import *
 
-from .base import BaseCausalLMModel
 
 __all__ = [
     "PagedLlamaModelV1",
@@ -57,7 +47,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
     Various samplers and schedulers can be interleaved throughout.
     """
 
-    def __init__(self, theta: Theta, hp: LlamaHParams):
+    def __init__(self, theta: Theta, hp: configs.LlamaHParams):
         super().__init__(theta, context_length=hp.context_length)
         self.hp = hp
         # TODO: It doesn't seem like this is the right way to be getting the
@@ -72,7 +62,7 @@ class PagedLlamaModelV1(BaseCausalLMModel):
         )
         self.add_module(
             "token_embedding",
-            TokenEmbedding(theta("token_embd"), dtype=hp.activation_dtype),
+            TokenEmbeddingLayer(theta("token_embd"), dtype=hp.activation_dtype),
         )
         self.add_module(
             "attention_embedding",

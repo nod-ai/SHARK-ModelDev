@@ -6,38 +6,35 @@
 
 """Inference support for the PagedLLMV1 protocol of models."""
 
-import math
-import sys
-
 import torch
 
-from shark_turbine.aot import (
-    FxProgramsBuilder,
-)
+from shark_turbine.aot import *
 
-from ..data.gguf import load_gguf_file
-from ..config.llm_configs import LlamaHParams
+from ..layers import *
 
 # TODO: Should be using a base class with the protocol supported.
-from ..models.llama import PagedLlamaModelV1
+from ..models.llama.llama import PagedLlamaModelV1
 
 
-def main(args: list[str]):
-    try:
-        (gguf_path,) = args
-    except IndexError:
-        raise RuntimeError(f"Expected <gguf_path>")
+def main():
+    from ..utils import cli
 
-    dataset = load_gguf_file(gguf_path)
+    parser = cli.create_parser()
+    cli.add_gguf_dataset_options(parser)
+    args = cli.parse(parser)
 
-    hp = LlamaHParams.from_gguf_props(dataset.properties)
+    data_files = cli.get_gguf_data_files(args)
+    dataset = gguf.load_file(data_files["gguf"])
+
+    hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
     model = PagedLlamaModelV1(dataset.root_theta, hp)
 
     # Unrolling cache updates by batch row makes dynamo sad without an
     # override. There may be a better way to do this.
     import torch._dynamo.config as dynamo_config
 
-    dynamo_config.max_loop_unroll_nodes = 0
+    # TODO: Seems removed from 2.3+
+    # dynamo_config.max_loop_unroll_nodes = 0
 
     fxb = FxProgramsBuilder(model)
 
@@ -55,6 +52,8 @@ def main(args: list[str]):
             "seq_block_ids": {1: block_dim},
             "cache_state": [{0: page_dim}],
         }
+
+        print(f"Exporting prefill_bs{bs}")
 
         @fxb.export_program(
             name=f"prefill_bs{bs}",
@@ -88,6 +87,8 @@ def main(args: list[str]):
             "seq_block_ids": {1: block_dim},
             "cache_state": [{0: page_dim}],
         }
+
+        print(f"Exporting decode_bs{bs}")
 
         @fxb.export_program(
             name=f"decode_bs{bs}",
@@ -124,13 +125,18 @@ def main(args: list[str]):
             )
             return logits
 
-    generate_batch_prefill(16)
-    generate_batch_decode(16)
+    generate_batch_prefill(4)
+    generate_batch_decode(4)
     print("GENERATED!")
 
     for name, ep in fxb.programs.items():
         print(f"EXPORT {name}:\n{ep}")
 
+    print("Exporting")
+    output = export(fxb)
+    print("Saving")
+    output.save_mlir("/tmp/batch_llama_v1.mlir")
+
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()

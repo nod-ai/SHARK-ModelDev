@@ -76,6 +76,9 @@ class StatelessLlamaChecks(unittest.TestCase):
         cls.tokenizer = None
         cls.mod = None
 
+    # See: https://github.com/nod-ai/SHARK-Turbine/issues/601
+    # Developed issues related to the pytorch 2.3 upgrade.
+    @unittest.expectedFailure
     def test_vmfb_comparison(self):
         """
         Test that the vmfb model produces the same output as the torch model
@@ -113,7 +116,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             torch_str = llm_runner.run_torch_llm(
                 "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
                 None,
-                self.DEFAULT_PROMPT,
+                DEFAULT_PROMPT,
                 model=self.mod,
                 tokenizer=self.tokenizer,
             )
@@ -152,7 +155,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             target_triple="host",
             streaming_llm=True,
             vmfb_path="streaming_llama.vmfb",
-            mod=self.mod,
+            mod=None,
             tokenizer=self.tokenizer,
         )
 
@@ -169,7 +172,7 @@ class StatelessLlamaChecks(unittest.TestCase):
                 None,
                 DEFAULT_PROMPT,
                 streaming_llm=True,
-                model=self.mod,
+                model=None,
                 tokenizer=self.tokenizer,
             )
 
@@ -204,7 +207,7 @@ class StatelessLlamaChecks(unittest.TestCase):
             None,
             DEFAULT_PROMPT,
             streaming_llm=True,
-            model=self.mod,
+            model=None,
             tokenizer=self.tokenizer,
         )
         check_output_string(torch_str, rotated_torch_str)

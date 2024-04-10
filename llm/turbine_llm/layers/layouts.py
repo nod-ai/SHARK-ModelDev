@@ -15,7 +15,7 @@ from typing import Optional
 
 import torch
 
-from .base import QuantizedLayout
+from .data import QuantizedLayout
 
 
 class BlockScaledLayout(QuantizedLayout):

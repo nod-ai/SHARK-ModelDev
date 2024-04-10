@@ -11,11 +11,10 @@ import sys
 
 import torch
 
-from ..data.gguf import load_gguf_file
-from ..config.llm_configs import LlamaHParams
+from ..layers import *
 
 # TODO: Should be using a base class with the protocol supported.
-from ..models.llama import PagedLlamaModelV1
+from ..models.llama.llama import PagedLlamaModelV1
 from ..utils.debugging import trace_tensor
 from ..utils.tokenizer import InferenceTokenizer, load_tokenizer
 
@@ -29,7 +28,7 @@ class TorchGenerator:
         tokenizer: InferenceTokenizer,
         page_cache_size: int = 128,
         # Need to look at the model more for this.
-        end_token: int = 13,
+        end_token: int = 2,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -179,16 +178,21 @@ class Batch:
         return torch.tensor(rows)
 
 
-def main(args: list[str]):
-    try:
-        gguf_path, tokenizer_path, *prompts = args
-    except IndexError:
-        raise RuntimeError(f"Expected <gguf_path> <tokenizer_path> <prompt>...")
+def main():
+    from ..utils import cli
 
-    dataset = load_gguf_file(gguf_path)
-    tokenizer = load_tokenizer(tokenizer_path)
+    parser = cli.create_parser()
+    parser.add_argument("prompt", nargs="+", help="Prompt strings")
+    cli.add_gguf_dataset_options(parser)
+    cli.add_tokenizer_options(parser)
+    args = cli.parse(parser)
 
-    hp = LlamaHParams.from_gguf_props(dataset.properties)
+    data_files = cli.get_gguf_data_files(args)
+    tokenizer = cli.get_tokenizer(args, data_files=data_files)
+    dataset = gguf.load_file(data_files["gguf"])
+    prompts = args.prompt
+
+    hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
     model = PagedLlamaModelV1(dataset.root_theta, hp)
     generator = TorchGenerator(model, tokenizer)
 
@@ -208,4 +212,4 @@ def main(args: list[str]):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()
