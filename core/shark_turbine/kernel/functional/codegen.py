@@ -55,6 +55,16 @@ from ..compiler.kernel_codegen import (
     BoundKernelSignature,
 )
 
+from ..compiler.vector_codegen import (
+    cast_py_literal,
+    cast_kernel_buffer,
+    cast_slice_spec,
+    cast_vector,
+    extract_slice_starts,
+)
+import operator as py_operator
+
+
 @dataclass
 class NodeAttrs:
     # By default, integers are assumed signed. We propagate unsigned as graph
@@ -166,34 +176,144 @@ def handle_op(op):
 
     return decorator
 
+
 ###############################################################################
 # Python/scalar ops
 ###############################################################################
+@handle_op(py_operator.call)
+def _(emitter: WaveEmitter, node: fx.Node):
+    breakpoint()
+
 
 ###############################################################################
 # Core data movement and indexing ops
 ###############################################################################
+
 
 ###############################################################################
 # Memory Ops
 ###############################################################################
 @handle_op(read)
 def _(emitter: WaveEmitter, node: fx.Node):
-    breakpoint()
-    pass
+    # This is similar to tkl.store with fixed start indices for now.
+    try:
+        memory, elements_per_thread = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    vector_shape = cast_py_literal(emitter, (16, 16))
+    # memory has no IR node yet.
+    kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, memory)
+    ref_shape = kb_py_type.symbolic_shape
+    # slice_spec = cast_slice_spec(emitter, ref_shape, None)
+    # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
+    start_indices = [
+        arith_d.constant(IndexType.get(), 0),
+        arith_d.constant(IndexType.get(), 0),
+    ]
+    element_type = kb_ir_type.element_type
+    vector_type = VectorType.get(vector_shape, element_type)
+    pad_attr = ScalarBuilder.zero_attr(element_type)
+    pad_value = arith_d.constant(element_type, pad_attr)
+    result = vector_d.transfer_read(
+        vector_type,
+        kb_src,
+        start_indices,
+        AffineMap.get_minor_identity(len(ref_shape), len(vector_shape)),
+        pad_value,
+    )
+    emitter.bind_node_proxy(node, IRProxyValue(result))
+
 
 @handle_op(write)
 def _(emitter: WaveEmitter, node: fx.Node):
-    breakpoint()
-    pass
+    try:
+        register, memory, elements_per_thread = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    kb_dest, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, memory)
+    dest_rank = kb_ir_type.rank
+    ref_shape = kb_py_type.symbolic_shape
+    # slice_spec = cast_slice_spec(emitter, ref_shape, multi_index)
+    # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
+    start_indices = [
+        arith_d.constant(IndexType.get(), 0),
+        arith_d.constant(IndexType.get(), 0),
+    ]
+    if dest_rank != len(start_indices):
+        raise CodegenError(
+            f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(start_indices)}"
+        )
+    # TODO: This fails currently because the register is not properly resolved.
+    #       It stems from the function call.
+    insert_vector = cast_vector(emitter, register, element_type=kb_ir_type.element_type)
+    insert_type = VectorType(insert_vector.type)
+    insert_rank = insert_type.rank
+
+    # Special case rank-0 broadcast.
+    if insert_rank == 0:
+        broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
+        insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
+
+    permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
+    vector_d.transfer_write(
+        None,
+        insert_vector,
+        kb_dest,
+        start_indices,
+        AffineMapAttr.get(permutation_map),
+    )
+
 
 ###############################################################################
 # Math Ops
 ###############################################################################
 @handle_op(mma)
 def _(emitter: WaveEmitter, node: fx.Node):
-    breakpoint()
-    pass
+    # TODO: lhs, rhs, acc are actually registers, not vectors.
+    #       Currently this is handled exactly like tkl.dot
+    try:
+        lhs, rhs, acc = node.args
+        lhs = cast_vector(emitter, lhs)
+        rhs = cast_vector(emitter, rhs)
+        acc = cast_vector(emitter, acc)
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    vector_type = VectorType(lhs.type)
+    element_type = vector_type.element_type
+    rank = vector_type.rank
+
+    n, m, k = (
+        AffineExpr.get_dim(0),
+        AffineExpr.get_dim(1),
+        AffineExpr.get_dim(2),
+    )
+    indexing_maps = [
+        AffineMap.get(3, 0, [n, k]),
+        AffineMap.get(3, 0, [k, m]),
+        AffineMap.get(3, 0, [n, m]),
+    ]
+    indexing_maps_attr = [AffineMapAttr.get(map) for map in indexing_maps]
+    # TODO: Bad hack, please fix.
+    iterator_types = ArrayAttr.get(
+        [
+            Attribute.parse("#vector.iterator_type<parallel>"),
+            Attribute.parse("#vector.iterator_type<parallel>"),
+            Attribute.parse("#vector.iterator_type<reduction>"),
+        ]
+    )
+    result = vector_d.ContractionOp(
+        acc.type,
+        lhs,
+        rhs,
+        acc,
+        indexing_maps_attr,
+        iterator_types,
+    ).result
+    emitter.bind_node_proxy(node, IRProxyValue(result))
+
 
 ###############################################################################
 # Control Flow ops

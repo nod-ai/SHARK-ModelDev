@@ -1,4 +1,3 @@
-
 from typing import (
     Type,
     Callable,
@@ -57,16 +56,17 @@ def wave(*symbolic_shape: IndexExpr):
 
     return decorator
 
+
 def tiledLoop(*symbolic_dims: IndexExpr):
     # TODO: Use the argument to determine how many iterations
-    def decorator(f : Callable):
+    def decorator(f: Callable):
+        # TODO: Here we need the maybe_scf_for()
         return f()
-        #def wrapper(*args, **kwargs):
-        #    return
-        #return wrapper
+
     return decorator
 
-class TiledLoop():
+
+class TiledLoop:
     def __init__(self, reduction_dims, name, function: Callable):
         self._name = name
         self._reduction_dims = reduction_dims
@@ -74,6 +74,7 @@ class TiledLoop():
 
     def __repr__(self):
         return f"tk.tiledLoop @{self._name}[{self._reduction_dims}]"
+
 
 class LaunchableWave(Launchable):
     def __init__(
@@ -146,7 +147,6 @@ class LaunchableWave(Launchable):
                 idxc.bind_shaped(arg_name, param_type, list(arg_value.shape))
 
         idxc.finalize()
-        breakpoint()
 
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
