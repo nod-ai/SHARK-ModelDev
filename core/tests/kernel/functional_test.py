@@ -50,8 +50,7 @@ class Test(unittest.TestCase):
                 b_reg: tkf.Register[WAVE_N, WAVE_K, tkl.f16] = tkf.read(b, elements_per_thread=LOAD_ELEMS_PER_THREAD)
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
                 return c_reg
-            result = repeat()
-            tkf.write(result, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
+            tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
 
         hyperparams = {ADDRESS_SPACE:1, LOAD_ELEMS_PER_THREAD:4, STORE_ELEMS_PER_THREAD:1, BLOCK_M: 32, BLOCK_N: 128, BLOCK_K: 64,
                        WAVE_M:16, WAVE_N:16, WAVE_K:16}

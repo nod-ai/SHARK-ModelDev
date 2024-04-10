@@ -60,9 +60,10 @@ def wave(*symbolic_shape: IndexExpr):
 def tiledLoop(*symbolic_dims: IndexExpr):
     # TODO: Use the argument to determine how many iterations
     def decorator(f : Callable):
-        def wrapper(*args, **kwargs):
-            return
-        return wrapper
+        return f()
+        #def wrapper(*args, **kwargs):
+        #    return
+        #return wrapper
     return decorator
 
 class TiledLoop():
