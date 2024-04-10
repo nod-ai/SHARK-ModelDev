@@ -21,6 +21,8 @@ from dataclasses import dataclass
 
 import torch.fx as fx
 
+from shark_turbine.kernel.lang.functional_types import _MemoryStorage
+
 from .._support.indexing import (
     IndexingContext,
     IndexSymbol,
@@ -58,6 +60,7 @@ class BindingType(Enum):
     KERNEL_BUFFER = 0
     INDEX_VALUE = 1
     SYMBOL_VALUE = 2
+    MEMORY = 3
 
 
 @dataclass
@@ -89,7 +92,10 @@ class BindingDesc:
             return "?" if static_value is None else str(static_value)
 
         binding_type = self.binding_type
-        if binding_type == BindingType.KERNEL_BUFFER:
+        if (
+            binding_type == BindingType.KERNEL_BUFFER
+            or binding_type == BindingType.MEMORY
+        ):
             kb_t = self.kernel_buffer_type  # type: KernelBuffer
             element_type_asm = kb_t.dtype.ir_type_asm()
             symbolic_shape = kb_t.symbolic_shape
@@ -136,6 +142,7 @@ class KernelSignature:
             for b in self.bindings
             if b.binding_type == BindingType.KERNEL_BUFFER
             and b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT
+            or b.binding_type == BindingType.MEMORY
         ]
 
     @property
@@ -175,6 +182,16 @@ class KernelSignature:
                         symbol_type=t,
                     )
                 )
+            elif isinstance(t, _MemoryStorage):
+                self.bindings.append(
+                    BindingDesc(
+                        ("node", node),
+                        BindingType.MEMORY,
+                        name=node.target,
+                        kernel_buffer_type=t,
+                    )
+                )
+
             else:
                 raise ValueError(
                     f"Unsupported placeholder node type: {t} (for node {node})"

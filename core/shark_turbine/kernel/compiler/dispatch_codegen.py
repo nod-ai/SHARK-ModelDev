@@ -236,7 +236,10 @@ class DispatchEntrypoint(BoundKernelSignature):
                 IntegerAttr.get(IndexType.get(), ref_value)
             )
 
-        if binding.binding_type == BindingType.KERNEL_BUFFER:
+        if (
+            binding.binding_type == BindingType.KERNEL_BUFFER
+            or binding.binding_type == BindingType.MEMORY
+        ):
             # Issue a subspan to get into the memref domain.
             result_type = IndexType.get()
             zero_value = arith_d.constant(result_type, IntegerAttr.get(result_type, 0))

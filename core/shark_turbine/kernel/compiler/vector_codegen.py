@@ -4,6 +4,7 @@ Such kernels operate on global memory at the boundary, scheduling
 actual loads/stores/computes to local vectors using PyTorch tensor
 level operations executed as threads over a grid.
 """
+
 from typing import Any, Callable, Type, Optional, Sequence, Union, List
 import types
 
@@ -14,6 +15,8 @@ import operator as py_operator
 import torch
 import torch.fx as fx
 import torch.utils._pytree as pytree
+
+from shark_turbine.kernel.lang.functional_types import Memory
 
 from .._support.indexing import (
     IndexExpr,
@@ -827,7 +830,7 @@ def cast_kernel_buffer(
             f"Expected a KernelBuffer (aka. `memref`) but got `{ir_type}`"
         )
 
-    if not issubclass(py_type, KernelBuffer):
+    if not (issubclass(py_type, KernelBuffer) or issubclass(py_type, Memory)):
         raise CodegenError(
             f"Expected an lvalue of type KernelBuffer but got '{py_type}' for node {node}"
         )
