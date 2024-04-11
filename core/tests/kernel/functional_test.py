@@ -53,9 +53,7 @@ class Test(unittest.TestCase):
             # Do we maybe rather need the info that this is a reduction dimension?
             # This could be called tkf.dim(K) or tkf.reduction(K) ?
             @tkf.tiled_loop(K, init_args=[c_reg])
-            def repeat(
-                i: tkf.Register[WAVE_M, WAVE_N, tkl.f32], c_reg
-            ) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
+            def repeat(c_reg) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
                 # a_reg: tkf.Register[WAVE_M, WAVE_K, tkl.f16]
                 # b_reg: tkf.Register[WAVE_N, WAVE_K, tkl.f16]
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)

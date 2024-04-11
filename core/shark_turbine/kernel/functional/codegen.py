@@ -387,12 +387,12 @@ def _(emitter: WaveEmitter, node: fx.Node):
             if node.op == "placeholder" and "lifted" not in node.meta
         ]
         # Add mapping for induction variable argument.
-        emitter.bind_node_proxy(
-            subgraph_args[0], IRProxyValue(forOp.induction_variable)
-        )
+        #emitter.bind_node_proxy(
+        #    subgraph_args[0], IRProxyValue(forOp.induction_variable)
+        #)
         # Add mapping for iter_args.
         for i, v in enumerate(forOp.inner_iter_args):
-            emitter.bind_node_proxy(subgraph_args[i + 1], IRProxyValue(v))
+            emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))
 
         ret = emitter.emit_subgraph(subgraph, implicit_capture)
         # Use ret in terminatory of body
