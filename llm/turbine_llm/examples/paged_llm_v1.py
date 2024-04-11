@@ -33,7 +33,7 @@ class TorchGenerator:
         self.model = model
         self.tokenizer = tokenizer
         if model.cache.is_paged:
-            self.shared_cache_state = model.cache.allocate(
+            self.shared_cache_state = model.cache.paged.allocate(
                 page_cache_size, dtype=torch.float32
             )
         else:
@@ -184,8 +184,7 @@ class Batch:
             attention_mask=decode_attention_mask,
             start_positions=start_positions,
             seq_block_ids=seq_block_ids_tensor,
-            read_cache_state=self.cache_state,
-            write_cache_state=self.cache_state,
+            cache_state=self.cache_state,
         )
         trace_tensor("decode.logits", logits)
         # TODO: Normalize the output of extract_tokens_from_logits into
@@ -207,6 +206,7 @@ def main():
 
     parser = cli.create_parser()
     parser.add_argument("prompt", nargs="+", help="Prompt strings")
+    parser.add_argument("--kv-cache-type", default="paged", help="KV cache type")
     cli.add_gguf_dataset_options(parser)
     cli.add_tokenizer_options(parser)
     args = cli.parse(parser)
@@ -216,12 +216,10 @@ def main():
     dataset = gguf.load_file(data_files["gguf"])
     prompts = args.prompt
 
-    direct_kv_cache = False
-
     config = LlamaModelConfig(
         hp=configs.LlamaHParams.from_gguf_props(dataset.properties),
         block_seq_stride=16,
-        kv_cache_type="direct" if direct_kv_cache else "paged",
+        kv_cache_type=args.kv_cache_type,
     )
     model = PagedLlamaModelV1(dataset.root_theta, config)
     generator = TorchGenerator(model, tokenizer)

@@ -120,8 +120,7 @@ def main():
                 attention_mask=attention_mask,
                 start_positions=start_positions,
                 seq_block_ids=seq_block_ids,
-                read_cache_state=cache_state,
-                write_cache_state=cache_state,
+                cache_state=cache_state,
             )
             return logits
 
