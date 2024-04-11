@@ -37,6 +37,7 @@ class LlamaHParams:
     feed_forward_length: int
     rope_dimension_count: int
     attention_head_count: int
+    attn_head_dim: int
     attention_layer_norm_rms_epsilon: float
     attention_head_count_kv: int
 
@@ -50,6 +51,7 @@ class LlamaHParams:
             embedding_length=_int_prop(p, "llama.embedding_length"),
             block_count=_int_prop(p, "llama.block_count"),
             feed_forward_length=_int_prop(p, "llama.feed_forward_length"),
+            attn_head_dim=_int_prop(p, "llama.rope.dimension_count"),
             rope_dimension_count=_int_prop(p, "llama.rope.dimension_count"),
             attention_head_count=attention_head_count,
             attention_layer_norm_rms_epsilon=_float_prop(

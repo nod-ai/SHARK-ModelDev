@@ -14,7 +14,7 @@ import torch
 from ..layers import *
 
 # TODO: Should be using a base class with the protocol supported.
-from ..models.llama.llama import PagedLlamaModelV1
+from ..models.llama.llama import *
 from ..utils.debugging import trace_tensor
 from ..utils.tokenizer import InferenceTokenizer, load_tokenizer
 
@@ -32,7 +32,12 @@ class TorchGenerator:
     ):
         self.model = model
         self.tokenizer = tokenizer
-        self.cache_state = model.cache.allocate(page_cache_size, dtype=torch.float32)
+        if model.cache.is_paged:
+            self.shared_cache_state = model.cache.allocate(
+                page_cache_size, dtype=torch.float32
+            )
+        else:
+            self.shared_cache_state = None
         self.free_pages = list(range(1, 128))
         self.end_token = end_token
 
@@ -42,28 +47,45 @@ class TorchGenerator:
 
     def begin_batch(self, prompts: list[str]):
         token_ids, seq_lens = self.tokenizer.encode(
-            prompts, pad_to_multiple_of=self.model.cache.block_seq_stride
+            prompts, pad_to_multiple_of=self.model.cache.pad_sequence_stride
         )
         token_ids = torch.tensor(token_ids)
         seq_lens = torch.tensor(seq_lens)
-        return Batch(self, token_ids, seq_lens)
+        if self.shared_cache_state is not None:
+            cache_state = self.shared_cache_state
+        else:
+            cache_state = self.model.cache.direct.allocate(
+                bs=len(prompts), dtype=torch.float32
+            )
+        return Batch(self, token_ids, seq_lens, cache_state)
 
     def alloc_page(self) -> int:
+        if self.model.cache.is_direct:
+            # We don't allocate block ids for the direct cache.
+            return 0
+
         return self.free_pages.pop()
 
     def release_page(self, index: int):
+        if self.model.cache.is_direct:
+            return
         self.free_pages.append(index)
 
 
 class Batch:
     def __init__(
-        self, parent: TorchGenerator, token_ids: torch.Tensor, seq_lens: torch.Tensor
+        self,
+        parent: TorchGenerator,
+        token_ids: torch.Tensor,
+        seq_lens: torch.Tensor,
+        cache_state: list[torch.Tensor],
     ):
         self.bs = token_ids.shape[0]
         assert seq_lens.shape[0] == self.bs
         self.parent = parent
         self.token_ids = token_ids
         self.seq_lens = seq_lens
+        self.cache_state = cache_state
         self.results: list[list[int]] = [[] for _ in range(self.bs)]
         self.done_result_indices: set[int] = set()
 
@@ -71,7 +93,9 @@ class Batch:
         seq_stride = self.parent.block_seq_stride
         self.seq_block_ids: list[list[int]] = []
         for seq_len in self.seq_lens:
-            blocks_needed = int(math.ceil(seq_len / seq_stride))
+            blocks_needed = (
+                int(math.ceil(seq_len / seq_stride)) if seq_stride > 0 else 0
+            )
             row = []
             for _ in range(blocks_needed):
                 row.append(self.parent.alloc_page())
@@ -126,7 +150,7 @@ class Batch:
             self.token_ids,
             attention_mask=attention_mask,
             seq_block_ids=seq_block_ids_tensor,
-            cache_state=self.parent.cache_state,
+            cache_state=self.cache_state,
         )
         # TODO: Normalize the output of extract_tokens_from_logits into
         # tensor [bs, 1].
@@ -160,8 +184,8 @@ class Batch:
             attention_mask=decode_attention_mask,
             start_positions=start_positions,
             seq_block_ids=seq_block_ids_tensor,
-            read_cache_state=self.parent.cache_state,
-            write_cache_state=self.parent.cache_state,
+            read_cache_state=self.cache_state,
+            write_cache_state=self.cache_state,
         )
         trace_tensor("decode.logits", logits)
         # TODO: Normalize the output of extract_tokens_from_logits into
@@ -192,8 +216,14 @@ def main():
     dataset = gguf.load_file(data_files["gguf"])
     prompts = args.prompt
 
-    hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
-    model = PagedLlamaModelV1(dataset.root_theta, hp)
+    direct_kv_cache = False
+
+    config = LlamaModelConfig(
+        hp=configs.LlamaHParams.from_gguf_props(dataset.properties),
+        block_seq_stride=16,
+        kv_cache_type="direct" if direct_kv_cache else "paged",
+    )
+    model = PagedLlamaModelV1(dataset.root_theta, config)
     generator = TorchGenerator(model, tokenizer)
 
     print(f":: Prompting:")
