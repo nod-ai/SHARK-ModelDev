@@ -18,44 +18,6 @@ from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from diffusers import AutoencoderKL
-import argparse
-from turbine_models.turbine_tank import turbine_tank
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="CompVis/stable-diffusion-v1-4",
-)
-parser.add_argument(
-    "--batch_size", type=int, default=1, help="Batch size for inference"
-)
-parser.add_argument(
-    "--height", type=int, default=512, help="Height of Stable Diffusion"
-)
-parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
-parser.add_argument(
-    "--precision", type=str, default="fp32", help="Precision of Stable Diffusion"
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument("--external_weight_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
-)
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-# TODO: Bring in detection for target triple
-parser.add_argument(
-    "--iree_target_triple",
-    type=str,
-    default="",
-    help="Specify vulkan target triple or rocm/cuda target device.",
-)
-parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-parser.add_argument("--variant", type=str, default="decode")
 
 
 class VaeModel(torch.nn.Module):
@@ -92,13 +54,13 @@ class VaeModel(torch.nn.Module):
             self.vae.load_state_dict(custom_vae)
 
     def decode_inp(self, inp):
-        inp = 1 / 0.18215 * inp
+        inp = 1 / 0.13025 * inp
         x = self.vae.decode(inp, return_dict=False)[0]
         return (x / 2 + 0.5).clamp(0, 1)
 
     def encode_inp(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
-        return 0.18215 * latents
+        return 0.13025 * latents
 
 
 def export_vae_model(
@@ -113,14 +75,48 @@ def export_vae_model(
     external_weight_path=None,
     device=None,
     target_triple=None,
-    max_alloc=None,
+    ireec_flags=None,
     variant="decode",
-    upload_ir=False,
-    decomp_attn=True,
+    decomp_attn=False,
+    exit_on_vmfb=False,
+    pipeline_dir=None,
+    attn_spec=None,
+    input_mlir=None,
+    weights_only=False,
 ):
+    if (
+        (attn_spec in ["default"])
+        and decomp_attn == False
+        and ("gfx9" in target_triple)
+    ):
+        attn_spec = os.path.join(
+            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
+        )
+    elif decomp_attn:
+        attn_spec = None
+
+    if pipeline_dir:
+        safe_name = os.path.join(pipeline_dir, "vae_" + variant)
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"_{height}x{width}_{precision}_vae_{variant}_{device}"
+        )
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            mlir_source="file",
+            return_path=not exit_on_vmfb,
+            attn_spec=attn_spec,
+        )
+        return vmfb_path
+
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
-    if decomp_attn:
+    if decomp_attn == True:
         decomp_list.extend(
             [
                 torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
@@ -128,17 +124,24 @@ def export_vae_model(
             ]
         )
     dtype = torch.float16 if precision == "fp16" else torch.float32
-    vae_model = vae_model.to(dtype)
+    if precision == "fp16":
+        vae_model = vae_model.half()
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
     )
-
+    if weights_only:
+        return external_weight_path
     sample = (batch_size, 4, height // 8, width // 8)
     if variant == "encode":
         sample = (batch_size, 3, height, width)
 
     class CompiledVae(CompiledModule):
-        params = export_parameters(vae_model)
+        if external_weights:
+            params = export_parameters(
+                vae_model, external=True, external_scope="", name_mapper=mapper.get
+            )
+        else:
+            params = export_parameters(vae_model)
 
         def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
             if variant == "decode":
@@ -150,45 +153,61 @@ def export_vae_model(
     inst = CompiledVae(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-vae")
-    if upload_ir:
-        with open(f"{safe_name}.mlir", "w+") as f:
-            f.write(module_str)
-        model_name_upload = hf_model_name.replace("/", "_")
-        model_name_upload = model_name_upload + "-vae-" + variant
-        blob_name = turbine_tank.uploadToBlobStorage(
-            str(os.path.abspath(f"{safe_name}.mlir")),
-            f"{model_name_upload}/{model_name_upload}.mlir",
-        )
+
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
-        if upload_ir:
-            return blob_name
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            return_path=not exit_on_vmfb,
+            attn_spec=attn_spec,
+        )
+        return vmfb_path
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
-    vae_model = VaeModel(
-        args.hf_model_name,
-    )
+    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
+    if args.precision == "fp16":
+        custom_vae = "madebyollin/sdxl-vae-fp16-fix"
+    else:
+        custom_vae = ""
+
+    if args.input_mlir:
+        vae_model = None
+    else:
+        vae_model = VaeModel(
+            args.hf_model_name,
+            custom_vae=custom_vae,
+        )
     mod_str = export_vae_model(
         vae_model,
         args.hf_model_name,
         args.batch_size,
-        args.height,
-        args.width,
-        args.precision,
-        args.compile_to,
-        args.external_weights,
-        args.external_weight_path,
-        args.device,
-        args.iree_target_triple,
-        args.vulkan_max_allocation,
-        args.variant,
+        height=args.height,
+        width=args.width,
+        precision=args.precision,
+        compile_to=args.compile_to,
+        external_weights=args.external_weights,
+        external_weight_path=args.external_weight_path,
+        device=args.device,
+        target_triple=args.iree_target_triple,
+        ireec_flags=args.ireec_flags + args.attn_flags + args.vae_flags,
+        variant=args.vae_variant,
+        decomp_attn=args.decomp_attn,
+        attn_spec=args.attn_spec,
+        input_mlir=args.input_mlir,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, "-vae")
+    if args.input_mlir or (args.compile_to == "vmfb"):
+        exit()
+    safe_name = utils.create_safe_name(
+        args.hf_model_name,
+        f"_{args.height}x{args.width}_{args.precision}_vae_{args.vae_variant}",
+    )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")

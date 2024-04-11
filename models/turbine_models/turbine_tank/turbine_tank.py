@@ -29,7 +29,7 @@ else:
 os.makedirs(WORKDIR, exist_ok=True)
 
 connection_string = os.environ.get("AZURE_CONNECTION_STRING")
-container_name = os.environ.get("AZURE_CONTAINER_NAME")
+CONTAINER_NAME = os.environ.get("AZURE_CONTAINER_NAME")
 
 
 def get_short_git_sha() -> str:
@@ -72,11 +72,11 @@ def uploadToBlobStorage(file_path, file_name):
     prefix = today + "_" + commit
     blob_service_client = BlobServiceClient.from_connection_string(connection_string)
     blob_client = blob_service_client.get_blob_client(
-        container=container_name, blob=prefix + "/" + file_name
+        container=CONTAINER_NAME, blob=prefix + "/" + file_name
     )
     blob = blob_client.from_connection_string(
         conn_str=connection_string,
-        container_name=container_name,
+        CONTAINER_NAME=CONTAINER_NAME,
         blob_name=blob_client.blob_name,
     )
     # we check to see if we already uploaded the blob (don't want to duplicate)
@@ -117,7 +117,9 @@ def checkAndRemoveIfDownloadedOld(model_name: str, model_dir: str, prefix: str):
     return False
 
 
-def download_public_folder(model_name: str, prefix: str, model_dir: str):
+def download_public_folder(
+    model_name: str, prefix: str, model_dir: str, container_name=CONTAINER_NAME
+):
     """Downloads a folder of blobs in azure container."""
     blob_service_client = BlobServiceClient.from_connection_string(connection_string)
     container_client = blob_service_client.get_container_client(
@@ -163,7 +165,7 @@ def compare(item1, item2):
         return 0
 
 
-def downloadModelArtifacts(model_name: str) -> str:
+def downloadModelArtifacts(model_name: str, container_name=CONTAINER_NAME) -> str:
     model_name = model_name.replace("/", "_")
     container_client = BlobServiceClient.from_connection_string(
         connection_string
