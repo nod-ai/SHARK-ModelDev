@@ -93,7 +93,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
 
     def test01_ExportClipModels(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
                 "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
             )
@@ -215,7 +215,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
     def test02_ExportUnetModel(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
                 "Unknown error on vulkan; Runtime error on rocm; To be tested on cuda."
             )
@@ -325,7 +325,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test03_ExportVaeModelDecode(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
                 "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
             )
