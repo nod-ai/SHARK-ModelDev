@@ -25,7 +25,8 @@ __all__ = [
 
 class QuantizedLayout(ABC):
     @abstractmethod
-    def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor: ...
+    def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        ...
 
 
 QuantizedLayoutT = TypeVar("QuantizedLayoutT", bound=QuantizedLayout)
@@ -105,7 +106,8 @@ class QuantizedTensor(InferenceTensor, Generic[QuantizedLayoutT]):
         self.layout_type = layout_type
 
     @abstractmethod
-    def unpack(self) -> QuantizedLayoutT: ...
+    def unpack(self) -> QuantizedLayoutT:
+        ...
 
 
 class Theta:
@@ -265,9 +267,7 @@ class InferenceOps:
         transpose_rhs: Whether the right hand side should be transposed prior
             to matmul.
         """
-        assert (
-            len(rhs.shape) == 2
-        ), f"Expected 2d matmul rhs for. Got: {rhs.shape}"
+        assert len(rhs.shape) == 2, f"Expected 2d matmul rhs for. Got: {rhs.shape}"
         rank = len(lhs.shape)
 
         if isinstance(rhs, QuantizedTensor):
