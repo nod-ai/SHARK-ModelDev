@@ -10,12 +10,11 @@ These are typically logical, planar layouts over some fundamental data types.
 Concrete sub-classes implement any necessary physical to logical mapping.
 """
 
-from abc import abstractmethod
 from typing import Optional
 
 import torch
 
-from .data import QuantizedLayout
+from .tensors import QuantizedLayout
 
 
 class BlockScaledLayout(QuantizedLayout):
