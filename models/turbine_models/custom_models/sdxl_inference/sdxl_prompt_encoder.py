@@ -39,45 +39,6 @@ class PromptEncoderModule(torch.nn.Module):
         )
         self.do_classifier_free_guidance = do_classifier_free_guidance
 
-    #     self.tokenizer_1 = CLIPTokenizer.from_pretrained(
-    #         hf_model_name,
-    #         subfolder="tokenizer",
-    #         token=hf_auth_token,
-    #         model_max_length=max_length,
-    #     )
-    #     self.tokenizer_2 = CLIPTokenizer.from_pretrained(
-    #         hf_model_name,
-    #         subfolder="tokenizer_2",
-    #         token=hf_auth_token,
-    #         model_max_length=max_length,
-    #     )
-    # def tokenize(self, prompt, negative_prompt):
-    #     text_input_ids_1 = self.tokenizer_1(
-    #         prompt,
-    #         padding="max_length",
-    #         truncation=True,
-    #         return_tensors="pt",
-    #     ).input_ids
-    #     uncond_input_ids_1 = self.tokenizer_2(
-    #         negative_prompt,
-    #         padding="max_length",
-    #         truncation=True,
-    #         return_tensors="pt",
-    #     ).input_ids
-    #     text_input_ids_2 = self.tokenizer_2(
-    #         prompt,
-    #         padding="max_length",
-    #         truncation=True,
-    #         return_tensors="pt",
-    #     ).input_ids
-    #     uncond_input_ids_2 = self.tokenizer_2(
-    #         negative_prompt,
-    #         padding="max_length",
-    #         truncation=True,
-    #         return_tensors="pt",
-    #     ).input_ids
-    #     return text_input_ids_1, uncond_input_ids_1, text_input_ids_2, uncond_input_ids_2
-
     def forward(
         self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
     ):

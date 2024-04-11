@@ -8,12 +8,10 @@ from diffusers import (
     EulerDiscreteScheduler,
 )
 
-winograd_params = "keys=unet.down_blocks.2.resnets.0.conv2.weight keys=unet.down_blocks.2.resnets.1.conv1.weight keys=unet.down_blocks.2.resnets.1.conv2.weight keys=unet.mid_block.resnets.0.conv1.weight keys=unet.mid_block.resnets.0.conv2.weight keys=unet.mid_block.resnets.1.conv1.weight keys=unet.mid_block.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.0.conv2.weight keys=unet.up_blocks.0.resnets.1.conv2.weight keys=unet.up_blocks.0.resnets.2.conv2.weight keys=unet.up_blocks.0.resnets.0.conv1.weight keys=unet.up_blocks.0.resnets.1.conv1.weight keys=unet.up_blocks.0.resnets.2.conv1.weight keys=unet.up_blocks.0.upsamplers.0.conv.weight"
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 gfx94X_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
         "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
         "--iree-vm-target-truncate-unsupported-floats",
@@ -95,6 +93,7 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--verify=false",
+                "--iree-opt-const-eval=false",
             ]
         )
     elif device == "cuda":

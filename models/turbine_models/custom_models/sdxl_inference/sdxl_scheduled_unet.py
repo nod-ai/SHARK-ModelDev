@@ -276,18 +276,6 @@ def export_pipeline_module(args):
     full_pipeline_file = (
         pipe_prefix + "f32" if args.precision == "fp32" else pipe_prefix + "f16"
     )
-    # pipeline_vmfb_path = utils.compile_to_vmfb(
-    #     os.path.join(
-    #         os.path.realpath(os.path.dirname(__file__)), pipeline_file + ".mlir"
-    #     ),
-    #     args.device,
-    #     args.iree_target_triple,
-    #     args.ireec_flags,
-    #     "sdxl_pipeline_" + args.precision + "_" + args.iree_target_triple,
-    #     return_path=True,
-    #     const_expr_hoisting=False,
-    #     mlir_source="file",
-    # )
     full_pipeline_vmfb_path = utils.compile_to_vmfb(
         os.path.join(
             os.path.realpath(os.path.dirname(__file__)), full_pipeline_file + ".mlir"

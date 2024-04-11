@@ -120,12 +120,7 @@ def export_scheduler(
             torch.ops.aten._scaled_dot_product_flash_attention.default,
         ]
     )
-    # encoder_hidden_states_sizes = (2, 77, 768)
-    # if hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-    #     encoder_hidden_states_sizes = (2, 77, 1024)
-
     # tensor shapes for tracing
-    # sample = torch.randn(1, 4, 128, 128)
     sample = (batch_size, 4, height // 8, width // 8)
     prompt_embeds = (2, 77, 2048)
     text_embeds = (2, 1280)

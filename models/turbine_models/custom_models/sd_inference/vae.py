@@ -116,15 +116,17 @@ def export_vae_model(
     max_alloc=None,
     variant="decode",
     upload_ir=False,
+    decomp_attn=True,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
-    decomp_list.extend(
-        [
-            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-            torch.ops.aten._scaled_dot_product_flash_attention.default,
-        ]
-    )
+    if decomp_attn:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     vae_model = vae_model.to(dtype)
     utils.save_external_weights(

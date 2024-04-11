@@ -101,15 +101,17 @@ def export_unet_model(
     target_triple=None,
     max_alloc=None,
     upload_ir=False,
+    decomp_attn=True,
 ):
     mapper = {}
     decomp_list = DEFAULT_DECOMPOSITIONS
-    decomp_list.extend(
-        [
-            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-            torch.ops.aten._scaled_dot_product_flash_attention.default,
-        ]
-    )
+    if decomp_attn:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
     unet_model = unet_model.to(dtype)
     utils.save_external_weights(
