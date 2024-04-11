@@ -25,6 +25,7 @@ __all__ = [
     "memory_setitem",
     "register_getitem",
     "register_setitem",
+    "construct_register_from_metadata",
 ]
 
 
@@ -43,6 +44,8 @@ def register_getitem(register, key) -> "Register": ...
 @define_op
 def register_setitem(register, key, item) -> None: ...
 
+@define_op
+def construct_register_from_metadata(shape, dtype, value) -> None: ...
 
 @define_op
 def memory_setitem(memory, key, item) -> None: ...

@@ -130,8 +130,8 @@ class KernelSignature:
         return [
             b
             for b in self.bindings
-            if b.binding_type == BindingType.KERNEL_BUFFER
-            and b.kernel_buffer_type.usage == KernelBufferUsage.INPUT
+            if (((b.binding_type == BindingType.KERNEL_BUFFER) and (b.kernel_buffer_type.usage == KernelBufferUsage.INPUT)) or
+                ((b.binding_type == BindingType.MEMORY) and (b.usage_type == KernelBufferUsage.INPUT)))
         ]
 
     @property
@@ -140,9 +140,8 @@ class KernelSignature:
         return [
             b
             for b in self.bindings
-            if b.binding_type == BindingType.KERNEL_BUFFER
-            and b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT
-            or b.binding_type == BindingType.MEMORY
+            if (((b.binding_type == BindingType.KERNEL_BUFFER) and (b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT)) or
+                ((b.binding_type == BindingType.MEMORY) and (b.usage_type == KernelBufferUsage.OUTPUT)))
         ]
 
     @property
@@ -214,6 +213,34 @@ class KernelSignature:
                 part = f"{b.name}: {part}"
             parts.append(part)
         return f"Signature({', '.join(parts)})"
+
+    def determine_input_output_buffers(self, graph: fx.Graph):
+        placeholder_nodes: list[fx.Node] = []
+        for node in graph.nodes:
+            if node.op != "placeholder":
+                continue
+            placeholder_nodes.append(node)
+
+        def only_read_dependencies(node):
+            return all(['read' in x.name for x in node.users.keys()])
+
+        def only_write_dependencies(node):
+            return all(['write' in x.name for x in node.users.keys()])
+
+        for node in placeholder_nodes:
+            index = None
+            for i, binding in enumerate(self.bindings):
+                if binding.reference[1] == node:
+                    index = i
+                    break
+            if index == None:
+                continue
+            if only_read_dependencies(node):
+                self.bindings[index].usage_type = KernelBufferUsage.INPUT
+            if only_write_dependencies(node):
+                self.bindings[index].usage_type = KernelBufferUsage.OUTPUT
+
+        return
 
 
 class BoundKernelSignature(ABC):

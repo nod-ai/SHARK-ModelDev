@@ -11,7 +11,7 @@ from .._support.indexing import (
 )
 
 from .._support.tracing import CapturedTrace
-from .functional_ops import read, write, mma
+from .functional_ops import read, write, mma, construct_register_from_metadata
 from ..compiler.builder import (
     IRProxyValue,
     ScalarBuilder,
@@ -147,7 +147,7 @@ class WaveEmitter:
     def emit_graph(self, graph: fx.Graph):
         """Emits the given graph at the current insertion point."""
         for node in graph.nodes:
-            if node.op == "call_function":
+            if node.op == "call_function" or node.op == "call_method":
                 self.emit_function_call_node(node)
             if node.op == "output":
                 return node.args
@@ -180,10 +180,11 @@ def handle_op(op):
 ###############################################################################
 # Python/scalar ops
 ###############################################################################
-@handle_op(py_operator.call)
+@handle_op("__call__")
 def _(emitter: WaveEmitter, node: fx.Node):
-    breakpoint()
-
+    # TODO: This currently only handles returning a single result
+    values = emitter.lookup_node_values(node.args[0])
+    emitter.bind_node_proxy(node, values[0])
 
 ###############################################################################
 # Core data movement and indexing ops
@@ -193,6 +194,17 @@ def _(emitter: WaveEmitter, node: fx.Node):
 ###############################################################################
 # Memory Ops
 ###############################################################################
+@handle_op(construct_register_from_metadata)
+def _(emitter:WaveEmitter, node: fx.Node):
+    try:
+        shape, dtype, value = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+    vector_shape = cast_py_literal(emitter, shape)
+    element_type = IrType.parse(dtype.ir_type_asm())
+    register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
+    emitter.bind_node_proxy(node, register)
+
 @handle_op(read)
 def _(emitter: WaveEmitter, node: fx.Node):
     # This is similar to tkl.store with fixed start indices for now.
@@ -277,7 +289,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
         lhs, rhs, acc = node.args
         lhs = cast_vector(emitter, lhs)
         rhs = cast_vector(emitter, rhs)
-        acc = cast_vector(emitter, acc)
+        acc = cast_vector(emitter, acc[0])
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 

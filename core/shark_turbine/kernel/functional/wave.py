@@ -60,9 +60,10 @@ def wave(*symbolic_shape: IndexExpr):
 def tiledLoop(*symbolic_dims: IndexExpr):
     # TODO: Use the argument to determine how many iterations
     def decorator(f: Callable):
-        # TODO: Here we need the maybe_scf_for()
-        return f()
-
+        def wrapper(*args, **kwargs):
+            # TODO: Here we need the maybe_scf_for()
+            return f(args)
+        return wrapper
     return decorator
 
 
@@ -151,6 +152,7 @@ class LaunchableWave(Launchable):
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
         kernel_sig.add_grid(self.grid_type)
+        kernel_sig.determine_input_output_buffers(trace.get_root_graph())
 
         grid = self.grid_type()
 

@@ -119,6 +119,7 @@ class _ScalarBuilder:
         # Create a vector type for dtype if value is a vector.
         to_type = dtype
         if isinstance(value_type, VectorType):
+            print(value_type, value_type.shape)
             to_type = VectorType.get(value_type.shape, dtype)
 
         # Short-circuit if already the right type.

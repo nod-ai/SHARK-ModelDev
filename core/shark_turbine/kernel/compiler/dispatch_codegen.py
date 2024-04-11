@@ -151,7 +151,8 @@ class StreamExecutable:
 
             # Define the dispatch function.
             def abi_type(binding: BindingDesc):
-                if binding.binding_type == BindingType.KERNEL_BUFFER:
+                if binding.binding_type == BindingType.KERNEL_BUFFER \
+                   or binding.binding_type == BindingType.MEMORY:
                     return binding_type
                 return binding.as_mlir_type()
 

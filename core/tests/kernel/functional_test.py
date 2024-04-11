@@ -47,10 +47,10 @@ class Test(unittest.TestCase):
         ):
             # This microkernel encodes the fact that if the reduction
             # dimension were tiled, then we would need to materialize a loop.
+            # c_reg: tkf.Register[WAVE_M, WAVE_N, tkl.f32]
+            c_reg = tkf.construct_register_from_metadata((WAVE_M, WAVE_N), tkl.f32, 0.0)
             @tkf.tiledLoop(K)
-            def repeat(
-                c_reg: tkf.Register[WAVE_M, WAVE_N, tkl.f32] = 0
-            ) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
+            def repeat(c_reg : tkf.Register[WAVE_M, WAVE_N, tkl.f32]) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
                 # a_reg: tkf.Register[WAVE_M, WAVE_K, tkl.f16]
                 # b_reg: tkf.Register[WAVE_N, WAVE_K, tkl.f16]
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)
@@ -58,7 +58,7 @@ class Test(unittest.TestCase):
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
                 return c_reg
 
-            result = repeat()
+            result = repeat(c_reg)
             tkf.write(result, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
             # We also discussed using `repeat` directly in tkf.write:
             # tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)

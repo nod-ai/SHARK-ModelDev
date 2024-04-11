@@ -301,7 +301,7 @@ class CompiledContext(BaseContext):
         )
 
     def handle_write(self, op, register, memory, elements_per_thread=None):
-        self.region_graph.create_proxy(
+        return self.region_graph.create_proxy(
             "call_function",
             target=op,
             args=(
@@ -311,6 +311,19 @@ class CompiledContext(BaseContext):
             ),
             kwargs={},
         )
+
+    def handle_construct_register_from_metadata(self, op, shape, dtype, value):
+        return self.region_graph.create_proxy(
+            "call_function",
+            target=op,
+            args=(
+                shape,
+                dtype,
+                value,
+            ),
+            kwargs={},
+        )
+
 
     ### ========================================================================
     ### Control Flow Operations
