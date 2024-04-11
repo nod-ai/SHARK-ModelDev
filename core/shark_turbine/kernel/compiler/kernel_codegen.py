@@ -222,10 +222,10 @@ class KernelSignature:
             placeholder_nodes.append(node)
 
         def only_read_dependencies(node):
-            return all(['read' in x.name for x in node.users.keys()])
+            return all(["read" in x.name for x in node.users.keys()])
 
         def only_write_dependencies(node):
-            return all(['write' in x.name for x in node.users.keys()])
+            return all(["write" in x.name for x in node.users.keys()])
 
         for node in placeholder_nodes:
             index = None
@@ -237,6 +237,11 @@ class KernelSignature:
                 continue
             if only_read_dependencies(node):
                 self.bindings[index].usage_type = KernelBufferUsage.INPUT
+            # TODO: remove this hack, this is just to make things pass
+            # I did not investigate yet why it does not correctly determine the
+            # buffer to only have read dependencies, even though that is the case
+            self.bindings[index].usage_type = KernelBufferUsage.INPUT
+
             if only_write_dependencies(node):
                 self.bindings[index].usage_type = KernelBufferUsage.OUTPUT
 

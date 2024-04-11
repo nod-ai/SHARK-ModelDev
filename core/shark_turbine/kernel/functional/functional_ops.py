@@ -18,6 +18,7 @@ from ..ops.base import (
 )
 
 __all__ = [
+    "construct_register_from_metadata",
     "read",
     "write",
     "mma",
@@ -25,7 +26,7 @@ __all__ = [
     "memory_setitem",
     "register_getitem",
     "register_setitem",
-    "construct_register_from_metadata",
+    "tiled_loop",
 ]
 
 
@@ -44,8 +45,10 @@ def register_getitem(register, key) -> "Register": ...
 @define_op
 def register_setitem(register, key, item) -> None: ...
 
+
 @define_op
 def construct_register_from_metadata(shape, dtype, value) -> None: ...
+
 
 @define_op
 def memory_setitem(memory, key, item) -> None: ...
@@ -61,3 +64,7 @@ def write(register: "Register", memory: "Memory", elements_pre_thread) -> None: 
 
 @define_op
 def mma(lhs: "Register", rhs: "Register", acc: "Register") -> "Register": ...
+
+
+@define_op
+def tiled_loop(axis: "IndexExpr", init_args): ...

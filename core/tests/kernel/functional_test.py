@@ -49,8 +49,13 @@ class Test(unittest.TestCase):
             # dimension were tiled, then we would need to materialize a loop.
             # c_reg: tkf.Register[WAVE_M, WAVE_N, tkl.f32]
             c_reg = tkf.construct_register_from_metadata((WAVE_M, WAVE_N), tkl.f32, 0.0)
-            @tkf.tiledLoop(K)
-            def repeat(c_reg : tkf.Register[WAVE_M, WAVE_N, tkl.f32]) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
+
+            # Do we maybe rather need the info that this is a reduction dimension?
+            # This could be called tkf.dim(K) or tkf.reduction(K) ?
+            @tkf.tiled_loop(K, init_args=[c_reg])
+            def repeat(
+                i: tkf.Register[WAVE_M, WAVE_N, tkl.f32], c_reg
+            ) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
                 # a_reg: tkf.Register[WAVE_M, WAVE_K, tkl.f16]
                 # b_reg: tkf.Register[WAVE_N, WAVE_K, tkl.f16]
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)
@@ -58,8 +63,9 @@ class Test(unittest.TestCase):
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
                 return c_reg
 
-            result = repeat(c_reg)
-            tkf.write(result, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
+            # Call removed as the init arg is now explicit above.
+            # result = repeat(c_reg)
+            tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
             # We also discussed using `repeat` directly in tkf.write:
             # tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
 

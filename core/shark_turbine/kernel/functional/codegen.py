@@ -1,6 +1,7 @@
 from typing import Any, Callable, Type, Optional, Sequence, Union, List
 from dataclasses import dataclass
 import torch.fx as fx
+import torch.utils._pytree as pytree
 
 from .._support.indexing import (
     IndexExpr,
@@ -11,7 +12,13 @@ from .._support.indexing import (
 )
 
 from .._support.tracing import CapturedTrace
-from .functional_ops import read, write, mma, construct_register_from_metadata
+from .functional_ops import (
+    read,
+    tiled_loop,
+    write,
+    mma,
+    construct_register_from_metadata,
+)
 from ..compiler.builder import (
     IRProxyValue,
     ScalarBuilder,
@@ -57,6 +64,7 @@ from ..compiler.kernel_codegen import (
 
 from ..compiler.vector_codegen import (
     cast_py_literal,
+    cast_py_value,
     cast_kernel_buffer,
     cast_slice_spec,
     cast_vector,
@@ -186,6 +194,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     values = emitter.lookup_node_values(node.args[0])
     emitter.bind_node_proxy(node, values[0])
 
+
 ###############################################################################
 # Core data movement and indexing ops
 ###############################################################################
@@ -195,7 +204,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
 # Memory Ops
 ###############################################################################
 @handle_op(construct_register_from_metadata)
-def _(emitter:WaveEmitter, node: fx.Node):
+def _(emitter: WaveEmitter, node: fx.Node):
     try:
         shape, dtype, value = node.args
     except ValueError as e:
@@ -204,6 +213,7 @@ def _(emitter:WaveEmitter, node: fx.Node):
     element_type = IrType.parse(dtype.ir_type_asm())
     register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
     emitter.bind_node_proxy(node, register)
+
 
 @handle_op(read)
 def _(emitter: WaveEmitter, node: fx.Node):
@@ -289,7 +299,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
         lhs, rhs, acc = node.args
         lhs = cast_vector(emitter, lhs)
         rhs = cast_vector(emitter, rhs)
-        acc = cast_vector(emitter, acc[0])
+        acc = cast_vector(emitter, acc)
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
@@ -330,6 +340,72 @@ def _(emitter: WaveEmitter, node: fx.Node):
 ###############################################################################
 # Control Flow ops
 ###############################################################################
+
+
+@handle_op(tiled_loop)
+def _(emitter: WaveEmitter, node: fx.Node):
+    # Note: Adapted from tk.for_loop
+    try:
+        axis, init_args = node.args
+        subgraph = node.kwargs["subgraph"]
+        implicit_capture = node.kwargs["implicit_capture"]
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    # Check if init_args is a flattened list of values.
+    for arg in init_args:
+        if len(emitter.lookup_node_values(arg)) != 1:
+            raise CodegenError(f"NYI: For loop init args must be flattened")
+
+    # Get IR values mapping to the node args.
+    # TODO: Hardcoded sizes should be dynamic
+    start = arith_d.constant(IndexType.get(), 0)
+    end = arith_d.constant(IndexType.get(), 16)
+    step = arith_d.constant(IndexType.get(), 1)
+
+    # Flatten init_args and get IR values for each of them.
+    flat_init_args, init_args_spec = pytree.tree_flatten((init_args))
+    flat_init_args = [cast_py_value(emitter, arg) for arg in flat_init_args]
+
+    # Get the subgraph for body of the loop.
+    assert isinstance(subgraph, str)
+    subgraph = emitter.trace.get_subgraph(subgraph)
+
+    # Create scf.for operation.
+    forOp = scf_d.ForOp(
+        start,
+        end,
+        step,
+        [a.ir_value for a in flat_init_args],
+    )
+    # Enter body of for loop.
+    with InsertionPoint(forOp.body):
+        # TODO: Flatten subgraph args here.
+        subgraph_args = [
+            node
+            for node in subgraph.nodes
+            if node.op == "placeholder" and "lifted" not in node.meta
+        ]
+        # Add mapping for induction variable argument.
+        emitter.bind_node_proxy(
+            subgraph_args[0], IRProxyValue(forOp.induction_variable)
+        )
+        # Add mapping for iter_args.
+        for i, v in enumerate(forOp.inner_iter_args):
+            emitter.bind_node_proxy(subgraph_args[i + 1], IRProxyValue(v))
+
+        ret = emitter.emit_subgraph(subgraph, implicit_capture)
+        # Use ret in terminatory of body
+        # TODO: Flatten return values here.
+        flat_ret_values, ret_spec = pytree.tree_flatten((ret))
+        flat_ret_values = [
+            cast_py_value(emitter, value).ir_value for value in flat_ret_values
+        ]
+        scf_d.YieldOp(flat_ret_values)
+
+    results = forOp.results_
+    emitter.bind_node_proxies(node, [IRProxyValue(v) for v in results])
+
 
 ###############################################################################
 # Shape Manipulation Ops
