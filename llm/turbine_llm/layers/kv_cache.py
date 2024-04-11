@@ -11,6 +11,7 @@ tightly coupled transformer blocks a bit less "stringy" with loose tensors
 and dims floating around everywhere. 
 """
 
+import abc
 import math
 
 import torch
@@ -18,11 +19,102 @@ import torch
 from ..utils.debugging import trace_tensor
 
 __all__ = [
+    "BaseKVCache",
+    "DirectKVCache",
     "PagedKVCache",
 ]
 
 
-class PagedKVCache:
+class BaseKVCache(abc.ABC):
+    """Base class for a KV cache.
+
+    This doesn't do much on its own except to serve as a type-safe base class
+    unifying the PagedKVCache and DirectKVCache:
+
+    * PagedKVCache is a shared cache which can be used across an arbitrary
+      number of batches/sequences with random mapping of blocks within a
+      sequence to backing "page".
+    * DirectKVCache is a single-batch cache with a fixed batch size and
+      sequence length where the K/V cache tensors for each transformer block
+      are densely layed out in memory.
+    """
+
+    block_seq_stride: int
+    transformer_block_count: int
+    attn_head_count: int
+    attn_head_dim: int
+
+    @property
+    @abc.abstractmethod
+    def pad_sequence_stride(self) -> int:
+        """Stride that a sequence must be padded to in order to be valid for
+        the cache. For paged caches, this will typically be a multiple of the
+        block_seq_stride. For direct caches it may be 1 or a multiple that
+        is chosen for performance reasons.
+        """
+        ...
+
+    @property
+    def is_paged(self) -> bool:
+        return isinstance(self, PagedKVCache)
+
+    @property
+    def is_direct(self) -> bool:
+        return isinstance(self, DirectKVCache)
+
+    @property
+    def paged(self) -> "PagedKVCache":
+        assert isinstance(
+            self, PagedKVCache
+        ), f"Attempt to access cache {type(self)} as paged but it is not"
+        return self
+
+    @property
+    def direct(self) -> "DirectKVCache":
+        assert isinstance(
+            self, DirectKVCache
+        ), f"Attempt to access cache {type(self)} as direct but it is not"
+        return self
+
+
+class DirectKVCache(BaseKVCache):
+    """KVCache for a single batch where the cache tensors are densely laid out."""
+
+    def __init__(
+        self,
+        *,
+        block_seq_stride: int,
+        transformer_block_count: int,
+        attn_head_count: int,
+        attn_head_dim: int,
+        seq_length: int,
+    ):
+        self.block_seq_stride = block_seq_stride
+        self.transformer_block_count = transformer_block_count
+        self.attn_head_count = attn_head_count
+        self.attn_head_dim = attn_head_dim
+        self.seq_length = seq_length
+
+    @property
+    def pad_sequence_stride(self) -> int:
+        return self.block_seq_stride
+
+    def allocate(self, *, bs: int, dtype: torch.dtype) -> list[torch.Tensor]:
+        """Allocates 2*transformer_block_count K/V cache tensors for the
+        given batch size and sequence length.
+
+        Each tensor has shape: [bs, sl, attn_head_count, attn_head_dim]
+        """
+        return [
+            torch.empty(
+                [bs, self.seq_length, self.attn_head_count, self.attn_head_dim],
+                dtype=dtype,
+            )
+            for _ in range(2 * self.transformer_block_count)
+        ]
+
+
+class PagedKVCache(BaseKVCache):
     """Implementation of a KV cache on top of a 'page table'.
 
     The page table slab is physically represented as a 2D tensor:
@@ -80,6 +172,10 @@ class PagedKVCache:
                 self.attn_head_dim,
             ]
         )
+
+    @property
+    def pad_sequence_stride(self) -> int:
+        return self.block_seq_stride
 
     def allocate(self, page_count: int, dtype: torch.dtype) -> list[torch.Tensor]:
         """Allocates tensor state for a page table for the given capacity in

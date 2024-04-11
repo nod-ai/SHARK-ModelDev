@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from .base import BaseLayer, ThetaLayer
-from .kv_cache import PagedKVCache
+from .kv_cache import BaseKVCache, DirectKVCache, PagedKVCache
 from .causal_llm import BaseCausalLMModel
 from .data import (
     Dataset,
