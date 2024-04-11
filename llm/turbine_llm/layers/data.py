@@ -11,6 +11,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
+from .. import ops
+
 __all__ = [
     "Dataset",
     "InferenceTensor",
@@ -23,8 +25,7 @@ __all__ = [
 
 class QuantizedLayout(ABC):
     @abstractmethod
-    def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        ...
+    def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor: ...
 
 
 QuantizedLayoutT = TypeVar("QuantizedLayoutT", bound=QuantizedLayout)
@@ -104,8 +105,7 @@ class QuantizedTensor(InferenceTensor, Generic[QuantizedLayoutT]):
         self.layout_type = layout_type
 
     @abstractmethod
-    def unpack(self) -> QuantizedLayoutT:
-        ...
+    def unpack(self) -> QuantizedLayoutT: ...
 
 
 class Theta:
@@ -261,20 +261,22 @@ class InferenceOps:
 
         Args:
         lhs: Left hand side tensor. Can have dimensionality > 2 for batch.
-        rhs: Right hand side tensor.
+        rhs: Right hand side tensor. Must be 2d.
         transpose_rhs: Whether the right hand side should be transposed prior
             to matmul.
         """
-        if transpose_rhs:
-            assert (
-                len(rhs.shape) == 2
-            ), f"Expected 2d rhs for transpose_rhs=True. Got: {rhs.shape}"
+        assert (
+            len(rhs.shape) == 2
+        ), f"Expected 2d matmul rhs for. Got: {rhs.shape}"
+        rank = len(lhs.shape)
 
         if isinstance(rhs, QuantizedTensor):
             # By default, unpack and dequantize the rhs. This produces correct results
             # for Torch but is likely not the right thing for anything else.
             # TODO: Consult a dispatch table for the engine-specific op to use here.
             rhs_torch = rhs.unpack().dequant(lhs.dtype)
+            if transpose_rhs and rank <= 3:
+                return ops.mmtfp(lhs, rhs_torch)
             return _matmul_torch(
                 lhs,
                 rhs_torch,
@@ -282,6 +284,8 @@ class InferenceOps:
             )
         elif isinstance(rhs, PrimitiveTensor):
             # Convertible to a Torch tensor without custom layout.
+            if transpose_rhs and rank <= 3:
+                return ops.mmtfp(lhs, rhs.as_torch())
             rhs_torch = rhs.as_torch(dtype=lhs.dtype)
             return _matmul_torch(
                 lhs,
@@ -291,6 +295,8 @@ class InferenceOps:
         else:
             # Treat it as a torch Tensor.
             assert isinstance(rhs, torch.Tensor)
+            if transpose_rhs and rank <= 3:
+                return ops.mmtfp(lhs, rhs)
             return _matmul_torch(lhs, rhs, transpose_rhs=transpose_rhs)
 
     def rms_norm(
