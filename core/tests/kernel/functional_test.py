@@ -29,7 +29,7 @@ class Test(unittest.TestCase):
         # Expose user-specified and hardware constraints
         constraints =  [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
         constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
-        #constraints += [tkf.constraints.tile(K, BLOCK_K)]
+        constraints += [tkf.TilingConstraint(K, BLOCK_K)]
         #constraints += [tkf.constraints.hardware(mma = (16, 16, 16))]
 
         # Wave-level micro-kernel.

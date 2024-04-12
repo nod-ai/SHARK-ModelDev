@@ -21,19 +21,15 @@ class ConstraintsMeta(ABC):
             tkl.sym.TY,
             tkl.sym.TZ,
         ]
+        # This is populated when we encounter a tkf.tiled_loop in the graph
+        self.induction_variables = []
 """
-This class imposes a constraint on the workgroup id 0, 1, 2.
-Specifically, given a constraint of the form
-    tkf.distribution.workgroup_constraint(
-        # Tile M dimension with a tile size of BLOCK_M along workgroup 0
-        M : (BLOCK_M, 0),
-        N : (BLOCK_N, 1),
-    )
-This specifies that we want to distribute dimension M along workgroup dim 0
+A constraint of the form
+    tkf.WorkgroupConstraint(M, BLOCK_M, 0)
+specifies that we want to distribute dimension M along workgroup dim 0
 with a tile size of BLOCK_M resulting in M // BLOCK_M workgroups along that
 dimension. This translates to an index constraint for all tensors of the
 shape [M, ?] -> index = (workgroup_id_0 * BLOCK_M, ?)
-shape [N, ?] -> index = (workgroup_id_1 * BLOCK_N, ?)
 """
 class WorkgroupConstraint(ConstraintsMeta):
     def __init__(self, dim, tile_size, workgroup_dim) -> None:
@@ -42,13 +38,30 @@ class WorkgroupConstraint(ConstraintsMeta):
         self.tile_size = tile_size
         self.workgroup_dim = workgroup_dim
 
-    def apply(self, index):
+    def apply(self):
         wg_dim = None
         match self.workgroup_dim:
             case 0: wg_dim = self.workgroup_ids[0]
             case 1: wg_dim = self.workgroup_ids[1]
             case _: raise ValueError("Invalid workgroup index. Expected 0 or 1")
-        return (index + wg_dim * self.tile_size)
+        return wg_dim * self.tile_size
 
 
+"""
+A constraint of the form
+    tkf.TilingConstraint(K, BLOCK_K)
+specifies that we want to tile the K dimension with a tile size of BLOCK_K.
+In the micro-kernel, there will need to be a tkf.tiled_loop that maps to
+the same dimension. This translates to the following index constraint
+shape[?, K] -> index = (?, arg0 * BLOCK_K)
+where arg0 is the induction variable of the tkf.tiled_loop.
+"""
+class TilingConstraint(ConstraintsMeta):
+    def __init__(self, dim, tile_size) -> None:
+        super().__init__()
+        self.dim = dim
+        self.tile_size = tile_size
+
+    def apply(self, induction_var):
+        return induction_var * self.tile_size
 

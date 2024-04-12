@@ -6,6 +6,7 @@ from typing import (
 
 import inspect
 import math
+import shark_turbine.kernel.lang as tkl
 
 import torch
 import torch.fx as fx
@@ -42,7 +43,7 @@ from ..compiler.ir import (
 )
 
 from ..functional.codegen import WaveEmitter
-from .constraints import ConstraintsMeta, WorkgroupConstraint
+from .constraints import ConstraintsMeta, WorkgroupConstraint, TilingConstraint
 
 __all__ = [
     "wave",
@@ -95,7 +96,7 @@ class LaunchableWave(Launchable):
     def get_grid_shape(self, constraints: list[ConstraintsMeta]) -> list[IndexExpr]:
         grid = [None, None]
         for constraint in constraints:
-            if type(constraint) is WorkgroupConstraint:
+            if isinstance(constraint, WorkgroupConstraint):
                 grid[constraint.workgroup_dim] = constraint.dim // constraint.tile_size
         return grid
 
@@ -133,10 +134,16 @@ class LaunchableWave(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
-    def propagate_workgroup_constraints(self, graph: fx.Graph):
+    def propagate_constraints(self, graph: fx.Graph):
+        # Determine if there are any loops
+        self.induction_vars = {}
+        i = 0
+        for node in graph.nodes:
+            if node.name == 'tiled_loop':
+                self.induction_vars[node.args[0]] = tkl.IndexSymbol('ARG' + str(i))
+
         for node in graph.nodes:
             if node.op == 'placeholder':
-                type = node.type
                 shape = node.type.symbolic_shape
                 if 'index' not in node.meta:
                     node.meta['index'] = [0 for _ in range(len(shape))]
@@ -144,9 +151,10 @@ class LaunchableWave(Launchable):
                     for constraint in self.constraints:
                         if isinstance(constraint, WorkgroupConstraint):
                             if dim == constraint.dim:
-                                node.meta['index'][idx] = constraint.apply(node.meta['index'][idx])
-                print(shape, node.meta)
-        breakpoint()
+                                node.meta['index'][idx] += constraint.apply()
+                        if isinstance(constraint, TilingConstraint):
+                            if dim == constraint.dim:
+                                node.meta['index'][idx] += constraint.apply(self.induction_vars[dim])
 
     def _trace_and_get_kernel_signature(
         self,
@@ -174,7 +182,7 @@ class LaunchableWave(Launchable):
         idxc.finalize()
 
         # Propagate constraints to all nodes in the graph
-        self.propagate_workgroup_constraints(trace.get_root_graph())
+        self.propagate_constraints(trace.get_root_graph())
 
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
