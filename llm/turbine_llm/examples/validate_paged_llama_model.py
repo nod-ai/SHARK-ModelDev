@@ -17,7 +17,7 @@ def main(args: list[str]):
     config = gguf.load_file(args[0])
     hp = configs.LlamaHParams.from_gguf_props(config.properties)
     model = PagedLlamaModelV1(config.root_theta, hp)
-    cache_state = model.cache.allocate(128, torch.float32)
+    cache_state = model.cache.paged.allocate(128, torch.float32)
     start_index = 0
     next_batch = torch.tensor(
         [
@@ -118,8 +118,7 @@ def main(args: list[str]):
         attention_mask=decode_attention_mask,
         start_positions=start_positions,
         seq_block_ids=seq_block_ids,
-        read_cache_state=cache_state,
-        write_cache_state=cache_state,
+        cache_state=cache_state,
     )
     tokens = torch.tensor(
         model.extract_tokens_from_logits(logits, [1, 1, 1, 1])

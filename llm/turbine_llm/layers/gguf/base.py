@@ -13,6 +13,10 @@ import torch
 
 from gguf import GGUFReader, GGUFValueType
 
+from shark_turbine.aot import (
+    ExternalTensorTrait,
+)
+
 from ...utils.logging import get_logger
 
 from ..data import (
@@ -57,6 +61,17 @@ _quantized_types = {
 }
 
 
+def _externalize_tensor(
+    name: str, data: np.memmap, logical_shape: list[int]
+) -> torch.Tensor:
+    # Important: The annotation tag must be set on the actual leaf tensor
+    # which is stored in the root theta. This means that any shaping or
+    # data type massaging has to happen *before* annotating.
+    data_tensor = torch.tensor(data).reshape(logical_shape)
+    ExternalTensorTrait(external_name=name, external_scope="").set(data_tensor)
+    return data_tensor
+
+
 def _wrap_tensor(
     name: str, logical_shape: list[int], type_name: str, data: np.memmap
 ) -> InferenceTensor:
@@ -67,11 +82,15 @@ def _wrap_tensor(
     # always true.
     logical_shape = list(reversed(logical_shape))
     if type_name in ["F16", "F32", "F64"]:
-        return DefaultPrimitiveTensor(name, torch.Tensor(data).reshape(logical_shape))
+        return DefaultPrimitiveTensor(
+            name, _externalize_tensor(name, data, logical_shape)
+        )
 
     quantized_type = _quantized_types.get(type_name)
     if quantized_type is not None:
-        return quantized_type(name=name, raw=torch.tensor(data), shape=logical_shape)
+        return quantized_type(
+            name=name, raw=_externalize_tensor(name, data), shape=logical_shape
+        )
 
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")
 

@@ -8,9 +8,7 @@
 
 import torch
 
-from shark_turbine.aot import (
-    FxProgramsBuilder,
-)
+from shark_turbine.aot import *
 
 from ..layers import *
 
@@ -55,6 +53,8 @@ def main():
             "cache_state": [{0: page_dim}],
         }
 
+        print(f"Exporting prefill_bs{bs}")
+
         @fxb.export_program(
             name=f"prefill_bs{bs}",
             args=(tokens, seq_lens, seq_block_ids, cache_state),
@@ -88,6 +88,8 @@ def main():
             "cache_state": [{0: page_dim}],
         }
 
+        print(f"Exporting decode_bs{bs}")
+
         @fxb.export_program(
             name=f"decode_bs{bs}",
             args=(
@@ -118,17 +120,21 @@ def main():
                 attention_mask=attention_mask,
                 start_positions=start_positions,
                 seq_block_ids=seq_block_ids,
-                read_cache_state=cache_state,
-                write_cache_state=cache_state,
+                cache_state=cache_state,
             )
             return logits
 
-    generate_batch_prefill(16)
-    generate_batch_decode(16)
+    generate_batch_prefill(4)
+    generate_batch_decode(4)
     print("GENERATED!")
 
     for name, ep in fxb.programs.items():
         print(f"EXPORT {name}:\n{ep}")
+
+    print("Exporting")
+    output = export(fxb)
+    print("Saving")
+    output.save_mlir("/tmp/batch_llama_v1.mlir")
 
 
 if __name__ == "__main__":
