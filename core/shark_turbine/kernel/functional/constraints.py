@@ -12,8 +12,15 @@ the following form:
 """
 class ConstraintsMeta(ABC):
     def __init__(self) -> None:
-        pass
-
+        self.workgroup_ids = [
+            tkl.sym.WG0,
+            tkl.sym.WG1,
+        ]
+        self.thread_ids = [
+            tkl.sym.TX,
+            tkl.sym.TY,
+            tkl.sym.TZ,
+        ]
 """
 This class imposes a constraint on the workgroup id 0, 1, 2.
 Specifically, given a constraint of the form
@@ -35,10 +42,13 @@ class WorkgroupConstraint(ConstraintsMeta):
         self.tile_size = tile_size
         self.workgroup_dim = workgroup_dim
 
-    def apply_constraint(self, node: fx.Node):
-        if 'tkf_index' not in node.meta:
-            node.meta['tkf_index'] = []
-        breakpoint()
+    def apply(self, index):
+        wg_dim = None
+        match self.workgroup_dim:
+            case 0: wg_dim = self.workgroup_ids[0]
+            case 1: wg_dim = self.workgroup_ids[1]
+            case _: raise ValueError("Invalid workgroup index. Expected 0 or 1")
+        return (index + wg_dim * self.tile_size)
 
 
 

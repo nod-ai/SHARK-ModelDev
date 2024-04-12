@@ -8,6 +8,7 @@ import inspect
 import math
 
 import torch
+import torch.fx as fx
 
 from ..lang import (
     KernelBuffer,
@@ -85,6 +86,7 @@ class LaunchableWave(Launchable):
         eager_function: Callable,
     ):
         super().__init__(eager_function)
+        self.constraints = constraints
         self.grid_type = Grid[*self.get_grid_shape(constraints)]
         self._name = name
         self._f = eager_function
@@ -131,6 +133,21 @@ class LaunchableWave(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
+    def propagate_workgroup_constraints(self, graph: fx.Graph):
+        for node in graph.nodes:
+            if node.op == 'placeholder':
+                type = node.type
+                shape = node.type.symbolic_shape
+                if 'index' not in node.meta:
+                    node.meta['index'] = [0 for _ in range(len(shape))]
+                for idx, dim in enumerate(shape):
+                    for constraint in self.constraints:
+                        if isinstance(constraint, WorkgroupConstraint):
+                            if dim == constraint.dim:
+                                node.meta['index'][idx] = constraint.apply(node.meta['index'][idx])
+                print(shape, node.meta)
+        breakpoint()
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -155,6 +172,9 @@ class LaunchableWave(Launchable):
                 idxc.bind_shaped(arg_name, param_type, list(arg_value.shape))
 
         idxc.finalize()
+
+        # Propagate constraints to all nodes in the graph
+        self.propagate_workgroup_constraints(trace.get_root_graph())
 
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
