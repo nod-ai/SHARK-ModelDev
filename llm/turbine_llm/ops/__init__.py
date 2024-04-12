@@ -5,3 +5,4 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from .matmul import *
+from .custom_inference_ops import CustomInferenceOps

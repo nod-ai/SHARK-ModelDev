@@ -10,6 +10,7 @@ import torch
 
 __all__ = [
     "mmtfp",
+    "mmt_block_scaled_q8",
 ]
 
 
@@ -91,3 +92,91 @@ class mmtfp(CustomOp):
             **kwargs,
         )
         kb.yield_results(*call_function(target_function, *kb.arg_bindings))
+
+
+@CustomOp.register(library=LIBRARY)
+class mmt_block_scaled_q8(CustomOp):
+    """Generic block scaled matmul with transposed RHS.
+
+    This corresponds to the BlockScaledLayout and operates on planar `d`
+    and `qs` tensors as specified there:
+
+    * `d`: `[N, K // 32, 1]`
+    * `qs`: `[N, K // 32, 32]`
+
+    The LHS is expected to be a 3d tensor of shape [B, M, K]. The kernel
+    will be specialized for all values of N, K and LHS dtype.
+    """
+
+    signature = "mmt_block_scaled_q8(Tensor a, Tensor d, Tensor qs) -> (Tensor)"
+
+    def select(self, ksel: KernelSelection):
+        # a arg
+        a_desc = ksel.arg_tensor(0)  # Shape [b, ] m, k
+        *batch_dims, a_m, a_k = a_desc.t.shape
+        if not a_desc.t.dtype.is_floating_point:
+            raise ValueError(
+                f"mmt_block_scaled_q8 arg 'a': Expected floating point (got {a_desc.t.dtype})"
+            )
+        if len(batch_dims) != 1:
+            raise ValueError(
+                f"mmt_block_scaled_q8 arg 'a': Expected 3d tensor (got {a_desc.t.shape})"
+            )
+
+        # qs arg
+        qs_desc = ksel.arg_tensor(2)  # Shape [N, K // BLOCK_SIZE, BLOCK_SIZE]
+        qs_n, qs_group0, qs_bs, *rest = qs_desc.t.shape
+        if rest or (qs_group0 * qs_bs) != a_k:
+            raise ValueError(
+                f"mmt_block_scaled_q8 arg 'qs': Incorrect shape (got {qs_desc.t.shape})"
+            )
+
+        # d arg
+        d_desc = ksel.arg_tensor(1)  # Shape [N, K // BLOCK_SIZE, 1]
+        d_n, d_group0, d_one, *rest = d_desc.t.shape
+        if rest or (d_group0 * qs_bs) != a_k or d_one != 1 or d_n != qs_n:
+            raise ValueError(
+                f"mmt_block_scaled_q8 arg 'd': Incorrect shape (got {d_desc.t.shape})"
+            )
+
+        # Specialize on K, N, BS
+        a_desc.spec_dims[-1] = a_k
+        qs_desc.spec_dims[:] = qs_desc.t.shape
+        d_desc.spec_dims[:] = d_desc.t.shape
+
+        c = torch.empty(batch_dims + [a_m, d_n], dtype=a_desc.t.dtype)
+        c_desc = ksel.return_tensor(c)  # Shape batch..., m, n
+        c_desc.spec_dims[-1] = d_n
+
+    def generate(self, ksel: KernelSelection, kb: KernelBuilder):
+        a = kb.arg_value(0)
+        a_tensor_type = RankedTensorType(a.type)
+        d = kb.arg_value(1)
+        d_tensor_type = RankedTensorType(d.type)
+        qs = kb.arg_value(2)
+        qs_tensor_type = RankedTensorType(qs.type)
+
+        rank = a_tensor_type.rank
+        k = a_tensor_type.get_dim_size(rank - 1)
+        n, group0, bs = qs_tensor_type.shape
+        a_type_str = str(a_tensor_type.element_type)
+        scale_type_str = str(d_tensor_type.element_type)
+
+        template_file = "mmt_block_scaled_q8_3d.mlir"
+        target_function_name = (
+            f"turbine_llm_mmt_block_scaled_q8_3d_{n}_{k}_{bs}_{a_type_str}"
+        )
+
+        target_function = inline_template_function(
+            kb,
+            template_file,
+            target_function_name,
+            n=n,
+            k=k,
+            bs=bs,
+            group0=group0,
+            a_type=a_type_str,
+            scale_type=scale_type_str,
+        )
+        kb.yield_results(*call_function(target_function, *kb.arg_bindings))
+        print(kb.module_body.owner)

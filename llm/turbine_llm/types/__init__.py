@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from .inference_ops import *
 from .layouts import *
 from .tensors import *
 from .theta import *

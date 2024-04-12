@@ -15,7 +15,7 @@ import torch
 from turbine_llm import ops
 
 
-class MmtFPTest(unittest.TestCase):
+class mmtfp_test(unittest.TestCase):
     def test2DF32(self):
         result = ops.mmtfp(
             torch.rand([128, 32], dtype=torch.float32),
@@ -31,6 +31,15 @@ class MmtFPTest(unittest.TestCase):
         )
         print(result)
         # TODO: DO NOT SUBMIT: Add numerical test.
+
+
+class mmt_block_scaled_q8_test(unittest.TestCase):
+    def testF32BS32(self):
+        a = torch.rand([4, 16, 3200], dtype=torch.float32)
+        d = torch.rand([3200, 100, 1], dtype=torch.float16)
+        qs = (torch.rand([3200, 100, 32], dtype=torch.float32) * 127.0).to(torch.int8)
+        result = ops.mmt_block_scaled_q8(a, d, qs)
+        print(result)
 
 
 if __name__ == "__main__":

@@ -14,8 +14,9 @@ __all__ = [
     "InferenceTensor",
     "PrimitiveTensor",
     "QuantizedTensor",
-    "QuantizedLayout",    
+    "QuantizedLayout",
 ]
+
 
 class QuantizedLayout(ABC):
     @abstractmethod
