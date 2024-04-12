@@ -43,7 +43,7 @@ from ..compiler.ir import (
 )
 
 from ..functional.codegen import WaveEmitter
-from .constraints import ConstraintsMeta, WorkgroupConstraint, TilingConstraint
+from .constraints import ConstraintsMeta, WorkgroupConstraint, TilingConstraint, ThreadConstraint
 
 __all__ = [
     "wave",
@@ -134,16 +134,45 @@ class LaunchableWave(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
-    def propagate_constraints(self, graph: fx.Graph):
-        # Determine if there are any loops
+    """
+    Trace the args of each fx.Node till we find the first placeholder
+    node.
+    """
+    def find_placeholder(self, arg):
+        queue = [arg]
+        visited = []
+        done = False
+        while not done > 0:
+            node = queue[0]
+            queue.pop(0)
+            if isinstance(node, fx.Node) and node not in visited:
+                if node.op == 'placeholder':
+                    if node.name in self.placeholders:
+                        return node.name
+                    for arg in node.args:
+                        queue.append(arg)
+                else:
+                    for arg in node.args:
+                        queue.append(arg)
+            visited.append(node)
+            if len(queue) == 0:
+                done = True
+        return None
+
+    def propagate_constraints(self, trace: CapturedTrace):
+        root_graph = trace.get_root_graph()
+        subgraphs = trace.region_graph.subgraphs
         self.induction_vars = {}
         i = 0
-        for node in graph.nodes:
+        for node in root_graph.nodes:
             if node.name == 'tiled_loop':
                 self.induction_vars[node.args[0]] = tkl.IndexSymbol('ARG' + str(i))
+                i += 1
 
-        for node in graph.nodes:
+        self.placeholders = {}
+        for node in root_graph.nodes:
             if node.op == 'placeholder':
+                self.placeholders[node.name] = node
                 shape = node.type.symbolic_shape
                 if 'index' not in node.meta:
                     node.meta['index'] = [0 for _ in range(len(shape))]
@@ -155,6 +184,34 @@ class LaunchableWave(Launchable):
                         if isinstance(constraint, TilingConstraint):
                             if dim == constraint.dim:
                                 node.meta['index'][idx] += constraint.apply(self.induction_vars[dim])
+
+        self.thread_constraints = []
+        for constraint in self.constraints:
+            if isinstance(constraint, ThreadConstraint):
+                self.thread_constraints.append(constraint)
+
+        for graph in subgraphs.values():
+            for node in graph.nodes:
+                if node.name == 'mma':
+                    for i, arg in enumerate(node.args):
+                        name = self.find_placeholder(arg)
+                        if name is None:
+                            breakpoint()
+                        print(name)
+                        if name is not None:
+                            for constraint in self.thread_constraints:
+                                matrix_type = None
+                                match i:
+                                    case 0: matrix_type = 'A'
+                                    case 1: matrix_type = 'B'
+                                    case 2: matrix_type = 'C'
+                                offset = constraint.apply(matrix_type)
+                                for j in range(len(offset)):
+                                    self.placeholders[name].meta['index'][j] += offset[j]
+
+        for node in self.placeholders.values():
+            print(node.meta['index'])
+        breakpoint()
 
     def _trace_and_get_kernel_signature(
         self,
@@ -182,7 +239,7 @@ class LaunchableWave(Launchable):
         idxc.finalize()
 
         # Propagate constraints to all nodes in the graph
-        self.propagate_constraints(trace.get_root_graph())
+        self.propagate_constraints(trace)
 
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())

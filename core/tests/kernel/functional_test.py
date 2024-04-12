@@ -26,11 +26,13 @@ class Test(unittest.TestCase):
         LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
 
-        # Expose user-specified and hardware constraints
+        # Expose user-constraints
         constraints =  [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
         constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
         constraints += [tkf.TilingConstraint(K, BLOCK_K)]
-        #constraints += [tkf.constraints.hardware(mma = (16, 16, 16))]
+        constraints += [tkf.ThreadConstraint(threads_per_block = [128, 2, 1], \
+                                             threads_per_wave = 64,
+                                             mma_type = 'MFMA_F32_16x16x16_F16')]
 
         # Wave-level micro-kernel.
         # Since warps are not directly addressable, there is no

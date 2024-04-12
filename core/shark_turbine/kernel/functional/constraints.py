@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import shark_turbine.kernel.lang as tkl
 import torch.fx as fx
+import math
 
 """
 Base class for constraints. Every constraint reduces to
@@ -29,7 +30,7 @@ A constraint of the form
 specifies that we want to distribute dimension M along workgroup dim 0
 with a tile size of BLOCK_M resulting in M // BLOCK_M workgroups along that
 dimension. This translates to an index constraint for all tensors of the
-shape [M, ?] -> index = (workgroup_id_0 * BLOCK_M, ?)
+shape [M, ?] -> index += (workgroup_id_0 * BLOCK_M, 0)
 """
 class WorkgroupConstraint(ConstraintsMeta):
     def __init__(self, dim, tile_size, workgroup_dim) -> None:
@@ -53,7 +54,7 @@ A constraint of the form
 specifies that we want to tile the K dimension with a tile size of BLOCK_K.
 In the micro-kernel, there will need to be a tkf.tiled_loop that maps to
 the same dimension. This translates to the following index constraint
-shape[?, K] -> index = (?, arg0 * BLOCK_K)
+shape[?, K] -> index += (0, arg0 * BLOCK_K)
 where arg0 is the induction variable of the tkf.tiled_loop.
 """
 class TilingConstraint(ConstraintsMeta):
@@ -64,4 +65,42 @@ class TilingConstraint(ConstraintsMeta):
 
     def apply(self, induction_var):
         return induction_var * self.tile_size
+
+"""
+A constraint of the form
+    tkf.ThreadConstraint(threads_per_block = [tx, ty, tz],
+                         mma_type = 'MFMA_F32_16x16x16_F16')
+specifies that we want all mma operations in the microkernel to be
+mapped to a hardware mma instruction of shape (M, N, K) and that
+we want to distribute to threads as per the threads per block specification.
+This translates to the following index constraint
+A: shape[M, K] -> index += ()
+B: shape[N, K] -> index += ()
+C: shape[M, N] -> index += ()
+"""
+class ThreadConstraint(ConstraintsMeta):
+    def __init__(self, threads_per_block, threads_per_wave, mma_type) -> None:
+        super().__init__()
+        self.threads_per_block = threads_per_block
+        self.threads_per_wave = threads_per_wave
+        self.mma_type = mma_type
+
+    def mma_indices(self, mma_type):
+        # TODO: Add support for more instructions
+        if mma_type == 'MFMA_F32_16x16x16_F16':
+            indices = {
+                'A': lambda lane, gpr: (lane % 16, 4 * (lane / 16) + gpr),
+                'B': lambda lane, gpr: (lane % 16, 4 * (lane / 16) + gpr),
+                'C': lambda lane, gpr: (4 * (lane / 16) + gpr, lane % 16)
+            }
+        return indices
+
+    def apply(self, matrix_type):
+        indices = self.mma_indices(self.mma_type)
+        lane = (self.thread_ids[0] \
+             + self.thread_ids[1] * self.threads_per_block[0] \
+             + self.thread_ids[2] * self.threads_per_block[0] * self.threads_per_block[1]) \
+             % self.threads_per_wave
+        gpr = 0
+        return indices[matrix_type](lane, gpr)
 
