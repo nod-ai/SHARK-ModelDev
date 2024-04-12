@@ -26,7 +26,6 @@ from ..support.ir_imports import (
 from .builtins import *
 from .compiled_module import (
     CompiledModule,
-    CompiledModuleMeta,
     ImportPhase,
 )
 from .fx_programs import FxPrograms
@@ -283,7 +282,7 @@ def export(
             {(function_name or "main"): exported_program},
             export_name=module_name or "module",
         )
-    elif issubclass(type(mdl), CompiledModuleMeta):
+    elif issubclass(mdl, CompiledModule):
         TransformedModule = mdl
     else:
         raise TypeError(f"mdl argument (type: {type(mdl)}) is not a supported type")
