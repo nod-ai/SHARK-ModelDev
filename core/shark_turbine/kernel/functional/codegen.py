@@ -54,9 +54,11 @@ from ..compiler.ir import (
     amdgpu_d,
     arith_d,
     func_d,
+    gpu_d,
     math_d,
     vector_d,
     scf_d,
+    stream_d,
 )
 
 from .. import lang as tkl
@@ -102,6 +104,8 @@ class WaveEmitter:
         self._root_sig = root_sig
         self.trace = trace
         self.ip = InsertionPoint(root_sig.entry_block)
+        self.thread_ids = []
+        self.workgroup_ids = []
 
     def lookup_node_values(self, node: fx.Node) -> List[Value]:
         assert NDEBUG or isinstance(node, fx.Node)
@@ -142,8 +146,20 @@ class WaveEmitter:
             attrs.store(node)
         self._node_values[node] = proxies
 
+    def emit_program_invariants(self):
+        self.workgroup_ids = [
+            stream_d.dispatch_workgroup_id(IntegerAttr.get(IndexType.get(), 0)),
+            stream_d.dispatch_workgroup_id(IntegerAttr.get(IndexType.get(), 1)),
+        ]
+        self.thread_ids = [
+            gpu_d.thread_id(gpu_d.Dimension.x),
+            gpu_d.thread_id(gpu_d.Dimension.y),
+            gpu_d.thread_id(gpu_d.Dimension.z),
+        ]
+
     def emit(self):
         with self.ip, Location.unknown():
+            self.emit_program_invariants()
             self.emit_graph(self.trace.get_root_graph())
 
     def emit_function_call_node(self, node: fx.Node):

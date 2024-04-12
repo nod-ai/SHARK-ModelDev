@@ -37,6 +37,7 @@ from iree.compiler.dialects import (
     builtin as builtin_d,
     flow as flow_d,
     func as func_d,
+    gpu as gpu_d,
     math as math_d,
     stream as stream_d,
     vector as vector_d,
