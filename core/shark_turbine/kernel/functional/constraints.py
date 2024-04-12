@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import shark_turbine.kernel.lang as tkl
+import torch.fx as fx
 
 """
 Base class for constraints. Every constraint reduces to
@@ -16,17 +18,27 @@ class ConstraintsMeta(ABC):
 This class imposes a constraint on the workgroup id 0, 1, 2.
 Specifically, given a constraint of the form
     tkf.distribution.workgroup_constraint(
-        # Tile M dimension with a tile size of BLOCK_M along
-        # workgroup 0, respecting the mapping from tile id -> workgroup id 0.
-        # (In this case, tile i goes to id i).
-        M : (BLOCK_M, 0, lambda i : i),
-        # We can repeat this for other dimensions and with more exotic
-        # mapping functions.
-        N : (BLOCK_N, 1, lambda i : (i + 1) % N),
+        # Tile M dimension with a tile size of BLOCK_M along workgroup 0
+        M : (BLOCK_M, 0),
+        N : (BLOCK_N, 1),
     )
-The SMT solver generates code to read/write from/to the appropriate tiles
-based on this constraint. Also computes the number of workgroups.
+This specifies that we want to distribute dimension M along workgroup dim 0
+with a tile size of BLOCK_M resulting in M // BLOCK_M workgroups along that
+dimension. This translates to an index constraint for all tensors of the
+shape [M, ?] -> index = (workgroup_id_0 * BLOCK_M, ?)
+shape [N, ?] -> index = (workgroup_id_1 * BLOCK_N, ?)
 """
 class WorkgroupConstraint(ConstraintsMeta):
-    def __init__(self) -> None:
+    def __init__(self, dim, tile_size, workgroup_dim) -> None:
         super().__init__()
+        self.dim = dim
+        self.tile_size = tile_size
+        self.workgroup_dim = workgroup_dim
+
+    def apply_constraint(self, node: fx.Node):
+        if 'tkf_index' not in node.meta:
+            node.meta['tkf_index'] = []
+        breakpoint()
+
+
+

@@ -41,6 +41,7 @@ from ..compiler.ir import (
 )
 
 from ..functional.codegen import WaveEmitter
+from .constraints import ConstraintsMeta, WorkgroupConstraint
 
 __all__ = [
     "wave",
@@ -48,11 +49,10 @@ __all__ = [
 ]
 
 
-def wave(*symbolic_shape: IndexExpr):
-    GridType = Grid[symbolic_shape]
+def wave(constraints: list[ConstraintsMeta]):
 
     def decorator(f: Callable) -> "LaunchableWave":
-        return LaunchableWave(GridType, f.__name__, f)
+        return LaunchableWave(constraints, f.__name__, f)
 
     return decorator
 
@@ -80,15 +80,22 @@ class TiledLoop:
 class LaunchableWave(Launchable):
     def __init__(
         self,
-        grid_type: Type[Grid],
+        constraints: list[ConstraintsMeta],
         name: str,
         eager_function: Callable,
     ):
         super().__init__(eager_function)
-        self.grid_type = grid_type
+        self.grid_type = Grid[*self.get_grid_shape(constraints)]
         self._name = name
         self._f = eager_function
         self._sig = inspect.signature(eager_function)
+
+    def get_grid_shape(self, constraints: list[ConstraintsMeta]) -> list[IndexExpr]:
+        grid = [None, None]
+        for constraint in constraints:
+            if type(constraint) is WorkgroupConstraint:
+                grid[constraint.workgroup_dim] = constraint.dim // constraint.tile_size
+        return grid
 
     def _trace(self) -> CapturedTrace:
         region_graph = KernelRegionGraph()

@@ -26,20 +26,18 @@ class Test(unittest.TestCase):
         LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
 
-        # This example hardcodes the hardware and distribution constraints,
-        # but these should be exposed in the language.
-        # constraints = [tkf.constraints.distribute(M, BLOCK_M)]
-        # constraints += [tkf.constraints.distribute(N, BLOCK_N)]
-        # constraints += [tkf.constraints.distribute(K, BLOCK_K)]
-        # constraints += [tkf.constraints.hardware((WAVE_M, WAVE_N, WAVE_K), (16, 16, 16))]
+        # Expose user-specified and hardware constraints
+        constraints =  [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
+        constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
+        #constraints += [tkf.constraints.tile(K, BLOCK_K)]
+        #constraints += [tkf.constraints.hardware(mma = (16, 16, 16))]
 
         # Wave-level micro-kernel.
         # Since warps are not directly addressable, there is no
         # explicit notion of a warp id (like a workgroup or thread id).
         # Here we use a functional style of expressing the loop since
         # we do not know the loop bounds.
-        # @tkf.wave(constraints)
-        @tkf.wave(N // BLOCK_N, M // BLOCK_M)
+        @tkf.wave(constraints)
         def gemm(
             a: tkf.Memory[M, K, ADDRESS_SPACE, tkl.f16],
             b: tkf.Memory[N, K, ADDRESS_SPACE, tkl.f16],
