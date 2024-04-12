@@ -43,12 +43,15 @@ from ..compiler.ir import (
     IndexType,
     FloatAttr,
     InsertionPoint,
+    IntegerType,
+    IntegerAttr,
     IrType,
     Location,
     MemRefType,
     ShapedType,
     Value,
     VectorType,
+    amdgpu_d,
     arith_d,
     func_d,
     math_d,
@@ -307,33 +310,22 @@ def _(emitter: WaveEmitter, node: fx.Node):
     element_type = vector_type.element_type
     rank = vector_type.rank
 
-    n, m, k = (
-        AffineExpr.get_dim(0),
-        AffineExpr.get_dim(1),
-        AffineExpr.get_dim(2),
+    m = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
+    n = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
+    k = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
+    blocks = ScalarBuilder.constant_attr(1, IntegerType.get_signless(32))
+
+    result = amdgpu_d.mfma(
+        dest_d=vector_type,
+        m=m,
+        n=n,
+        k=k,
+        blocks=blocks,
+        source_a=lhs,
+        source_b=rhs,
+        dest_c=acc,
     )
-    indexing_maps = [
-        AffineMap.get(3, 0, [n, k]),
-        AffineMap.get(3, 0, [k, m]),
-        AffineMap.get(3, 0, [n, m]),
-    ]
-    indexing_maps_attr = [AffineMapAttr.get(map) for map in indexing_maps]
-    # TODO: Bad hack, please fix.
-    iterator_types = ArrayAttr.get(
-        [
-            Attribute.parse("#vector.iterator_type<parallel>"),
-            Attribute.parse("#vector.iterator_type<parallel>"),
-            Attribute.parse("#vector.iterator_type<reduction>"),
-        ]
-    )
-    result = vector_d.ContractionOp(
-        acc.type,
-        lhs,
-        rhs,
-        acc,
-        indexing_maps_attr,
-        iterator_types,
-    ).result
+
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
@@ -387,9 +379,9 @@ def _(emitter: WaveEmitter, node: fx.Node):
             if node.op == "placeholder" and "lifted" not in node.meta
         ]
         # Add mapping for induction variable argument.
-        #emitter.bind_node_proxy(
+        # emitter.bind_node_proxy(
         #    subgraph_args[0], IRProxyValue(forOp.induction_variable)
-        #)
+        # )
         # Add mapping for iter_args.
         for i, v in enumerate(forOp.inner_iter_args):
             emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))

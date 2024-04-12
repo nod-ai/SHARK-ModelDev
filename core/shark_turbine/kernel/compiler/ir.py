@@ -32,6 +32,7 @@ from iree.compiler.ir import (
 )
 
 from iree.compiler.dialects import (
+    amdgpu as amdgpu_d,
     arith as arith_d,
     builtin as builtin_d,
     flow as flow_d,
