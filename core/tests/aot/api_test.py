@@ -120,7 +120,8 @@ class ExportAPI(unittest.TestCase):
         )
 
     def testCompiledModuleExportedProgram(self):
-        class BasicModule(CompiledModule): ...
+        class BasicModule(CompiledModule):
+            ...
 
         exported = export(BasicModule)
         module_str = str(exported.mlir_module)
@@ -128,7 +129,8 @@ class ExportAPI(unittest.TestCase):
         self.assertIn("module @basic", module_str)
 
     def testUnsupportedExportedProgram(self):
-        class UnsupportedExportType: ...
+        class UnsupportedExportType:
+            ...
 
         with self.assertRaises(TypeError):
             export(UnsupportedExportType)
