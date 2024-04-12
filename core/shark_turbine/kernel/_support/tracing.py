@@ -5,17 +5,14 @@ from typing import (
     Callable,
     Type,
     cast,
-    List,
     Dict,
     Tuple,
-    Any,
 )
+
+from ..compiler.ir import Operation
 
 import functools
 import warnings
-import contextlib
-import torch.utils._pytree as pytree
-import random
 
 import torch.fx as fx
 
@@ -24,19 +21,17 @@ from .indexing import (
     BoundedRelation,
     IndexExpr,
     IndexSymbol,
-    Grid,
-    KernelBuffer,
-    SymIndex,
     IndexingContext,
 )
 
+from ..lang.kernel_buffer import KernelBuffer
+from ..lang.grid import Grid
+
 from ..lang.types import (
     Index,
-    Vector,
 )
 
 from .regions import RegionGraph, SubgraphTracer
-
 
 from .. import ops
 from ..ops.base import (
@@ -203,6 +198,14 @@ class CompiledContext(BaseContext):
         )
         return proxy
 
+    def handle_to_dtype(self, op, val, dtype):
+        return self.region_graph.create_proxy(
+            "call_function",
+            op,
+            args=(val, dtype),
+            kwargs={},
+        )
+
     def handle_kernel_buffer_getitem(self, op, kernel_buffer: KernelBuffer, key):
         return self.region_graph.create_proxy(
             "call_function",
@@ -349,7 +352,6 @@ class CompiledContext(BaseContext):
             i for i in range(len(shape)) if i not in broadcast_dimensions
         )
         permutation = permutation + tuple(broadcast_dimensions)
-        print(permutation)
 
         # Transpose
         return self.region_graph.create_proxy(
@@ -388,6 +390,9 @@ class Launchable(ABC):
 
     @abstractmethod
     def eager_execute(self, args, kwargs):
+        ...
+
+    def aot_execute(self, args, kwargs):
         ...
 
     def test_execute(self, args, kwargs):
@@ -442,6 +447,19 @@ class DebugLaunchContext(LaunchContext):
 class TestLaunchContext(LaunchContext):
     def launch(self, launchable: Launchable, args, kwargs):
         return launchable.test_execute(args, kwargs)
+
+
+class AOTLaunchContext(LaunchContext):
+    module: Operation
+
+    def __init__(
+        self, module: Operation, constant_bindings: Dict[IndexSymbol, int] = {}
+    ):
+        self.module = module
+        super().__init__(constant_bindings)
+
+    def launch(self, launchable: Launchable, args, kwargs):
+        return launchable.aot_execute(args, kwargs)
 
 
 ###############################################################################

@@ -1,0 +1,49 @@
+name: SDXL Models Nightly
+
+on:
+  schedule:
+    - cron:  '30 6 * * *'
+
+jobs:
+  test-sdxl-models:
+    strategy:
+      matrix:
+        version: [3.11]
+        os: [nodai-amdgpu-w7900-x86-64]
+
+    runs-on: ${{matrix.os}}
+    steps:
+      - name: "Setting up Python"
+        uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
+        with:
+          python-version: ${{matrix.version}}
+
+      - name: "Checkout Code"
+        uses: actions/checkout@v2
+        with:
+          ref: ean-sd-fp16
+
+      - name: Sync source deps
+        # build IREE from source with -DIREE_BUILD_TRACY=ON if getting tracy profile
+        run: |
+          python -m pip install --upgrade pip
+          # Note: We install in three steps in order to satisfy requirements
+          # from non default locations first. Installing the PyTorch CPU
+          # wheels saves multiple minutes and a lot of bandwidth on runner setup.
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+            -r core/pytorch-cpu-requirements.txt
+          pip install --upgrade -r core/requirements.txt
+          pip install -e core[testing,torch-cpu-nightly]
+          pip install --upgrade -r models/requirements.txt
+          pip install -e models
+      
+      - name: Show current free memory
+        run: |
+          free -mh
+
+      - name: Run sdxl tests
+        run: |
+          pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu
+          pytest models/turbine_models/tests/sdxl_test.py --device cpu --rt_device local-task --iree_target_triple x86_64-linux-gnu
+          pytest models/turbine_models/tests/sdxl_test.py --device vulkan --rt_device vulkan --iree_target_triple rdna3-unknown-linux
+          pytest models/turbine_models/tests/sdxl_test.py --device rocm --rt_device rocm --iree_target_triple gfx90a

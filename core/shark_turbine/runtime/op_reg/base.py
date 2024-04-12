@@ -8,13 +8,14 @@
 dispatcher.
 """
 
-from typing import Any, Callable, Optional, Sequence, Type, Union
+from typing import Any, Callable, Optional, Sequence, Type, Union, cast
 
 from abc import ABC, abstractmethod, abstractproperty
 import functools
 import logging
 import re
 import textwrap
+import threading
 
 import torch
 from torch import Tensor
@@ -42,6 +43,7 @@ from ...support.conversions import (
 
 __all__ = [
     "ArgDescriptor",
+    "AttrArg",
     "CustomOp",
     "FreeFuncKernelBuilder",
     "IntArg",
@@ -56,6 +58,8 @@ logger = logging.getLogger("turbine.runtime.op_reg")
 ###############################################################################
 # Op library management
 ###############################################################################
+
+_CONFIG_LOCK = threading.Lock()
 
 
 def def_library(ns) -> torch.library.Library:
@@ -80,6 +84,14 @@ def default_dispatch_keys() -> list[str]:
 # We also allow extending existing libraries outside of this, but that is
 # the non default case.
 TURBINE_LIBRARY = def_library("turbine")
+
+# Set of all programmatically registered op names in libraries we manage.
+# This is used to detect name collisions eagerly and providing name uniqueing.
+# Keys are (Library.ns, name)
+DEFINED_OP_NAMES: set[tuple[str, str]] = set()
+
+# Mapping of (Library.ns, name_spec) to an integer counter used to unique it.
+UNIQUE_OP_NAME_COUNTER: dict[tuple[str, str], int] = {}
 
 
 class CustomOp(ABC):
@@ -133,9 +145,7 @@ class CustomOp(ABC):
         register_meta: bool,
         register_impl: bool,
     ):
-        fq_schema = self.signature
-        name = _extract_name_from_signature(fq_schema)
-        library.define(fq_schema)
+        self.name = name = _define_signature_in_library(library, self.signature)
         self.library = library
         self.cache_key_base = f"{library.ns}.{library.kind}::{name}"
         self.op = _get_library_op(library, name)
@@ -166,6 +176,10 @@ class CustomOp(ABC):
         ```
         my_op(Tensor t) -> Tensor
         ```
+
+        The signature can have some special tokens in the name part:
+
+        * "@UNIQUE@": Generates a name-specific numeric value and replaces it.
         """
         ...
 
@@ -225,6 +239,7 @@ class KernelSelection(ABC):
 
     __slots__ = [
         "arg_descs",
+        "inplace_tied_arg_descs",
         "op",
         "result_descs",
         "variant",
@@ -232,7 +247,8 @@ class KernelSelection(ABC):
 
     def __init__(self, op: CustomOp, arg_arity: int):
         self.op = op
-        self.arg_descs: list[Optional[ArgDescriptor]] = arg_arity * [None]
+        self.arg_descs = cast(list[Optional[ArgDescriptor]], arg_arity * [None])
+        self.inplace_tied_arg_descs: list[ArgDescriptor] = []
         self.result_descs: list[ArgDescriptor] = []
         self.variant: str = "default"
 
@@ -266,8 +282,12 @@ class KernelSelection(ABC):
     @property
     def spec_key(self) -> str:
         try:
-            arg_keys = ",".join(d.spec_key for d in self.arg_descs)
-            return_keys = ",".join(d.spec_key for d in self.result_descs)
+            arg_keys = ",".join(
+                d.spec_key if d is not None else "None" for d in self.arg_descs
+            )
+            return_keys = ",".join(
+                d.spec_key if d is not None else "None" for d in self.result_descs
+            )
             return (
                 f"{self.op.cache_key_base}::{self.variant}({arg_keys})->({return_keys})"
             )
@@ -277,12 +297,16 @@ class KernelSelection(ABC):
             ) from e
 
     @abstractmethod
-    def arg_tensor(self, arg: int) -> "TensorArg":
+    def arg_tensor(self, arg: int, *, inplace_tied: bool = False) -> "TensorArg":
         """Declares an argument to allow any ranked tensor and to specialize for each rank
         and dtype.
 
         Returns the argument descriptor, which can be used to further inspect or constrain
         the selection. It will default to allowing all dimensions to be dynamic.
+
+        If inplace_tied is True, then this argument participates in in-place
+        semantics. The kernel must yield the result-mutated after all normal
+        results in the order declared.
         """
         ...
 
@@ -336,7 +360,7 @@ class EagerKernelSelection(KernelSelection):
         super().__init__(op, len(args))
         self.args = args
 
-    def arg_tensor(self, arg: int) -> "TensorArg":
+    def arg_tensor(self, arg: int, *, inplace_tied: bool = False) -> "TensorArg":
         arg_descs = self.arg_descs
         arg_value = self.args[arg]
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
@@ -344,6 +368,8 @@ class EagerKernelSelection(KernelSelection):
             arg_value, Tensor
         ), f"Argument type mismatch from Torch for {arg}: Expected tensor, got {type(arg_value)}"
         arg_descs[arg] = desc = TensorArg(arg_value)
+        if inplace_tied:
+            self.inplace_tied_arg_descs.append(desc)
         return desc
 
     def arg_tensor_list(self, arg: int) -> "TensorListArg":
@@ -352,7 +378,7 @@ class EagerKernelSelection(KernelSelection):
         assert arg_descs[arg] is None, f"Already constrained argument {arg}"
         assert isinstance(
             arg_value, list
-        ), f"Argument type mismatch from Torch for {arg}: Expected tensor, got {type(arg_value)}"
+        ), f"Argument type mismatch from Torch for {arg}: Expected list, got {type(arg_value)}"
         arg_descs[arg] = desc = TensorListArg(arg_value)
         return desc
 
@@ -463,7 +489,7 @@ class TensorArg:
     def __init__(self, t: Tensor):
         self.t = t
         # Any static dims that we are specializing. Defaults to all dynamic.
-        self.spec_dims: list[Optional[int]] = len(t.shape) * [None]
+        self.spec_dims: Sequence[Optional[int]] = len(t.shape) * [None]
         # All descriptors have an attribute to indicate their value
         # as a tensor, and those that aren't are fixated to None.
         # This is to enable fast lookup in the hot path of determining
@@ -514,16 +540,16 @@ class TensorListArg:
 
     is_list: bool = True
 
-    def __init__(self, ts: Tensor):
+    def __init__(self, ts: list[Tensor]):
         self.ts = ts
         self.ir_arity = len(ts)
         # Any static dims that we are specializing. Defaults to all dynamic.
-        self.spec_dims: list[list[Optional[int]]] = [len(t.shape) * [None] for t in ts]
+        self.spec_dims: list[list[Optional[int]]] = [len(t.shape) * [None] for t in ts]  # type: ignore
         # All descriptors have an attribute to indicate their value
         # as a tensor, and those that aren't are fixated to None.
         # This is to enable fast lookup in the hot path of determining
         # how to dispatch.
-        self.maybe_tensor_value: Tensor = ts
+        self.maybe_tensor_value: list[Tensor] = ts
 
     def __repr__(self):
         return (
@@ -645,6 +671,7 @@ class FreeFuncKernelBuilder(KernelBuilder):
             # Assemble arg types.
             arg_types = []
             for d in ksel.arg_descs:
+                assert d is not None, "NYI: None arguments"
                 arity = d.ir_arity
                 if not d.is_list:
                     if arity == 1:
@@ -657,7 +684,7 @@ class FreeFuncKernelBuilder(KernelBuilder):
 
             # Assemble result types.
             result_types = []
-            for d in ksel.result_descs:
+            for d in (*ksel.result_descs, *ksel.inplace_tied_arg_descs):
                 if not d.is_list:
                     if d.ir_arity == 1:
                         result_types.append(IrType.parse(d.mlir_type_asm))
@@ -679,6 +706,7 @@ class FreeFuncKernelBuilder(KernelBuilder):
         block_arg_index = 0
         arg_bindings: list[Optional[Value]] = []
         for desc in ksel.arg_descs:
+            assert desc is not None, "NYI: None arguments"
             arity = desc.ir_arity
             if not desc.is_list:
                 if arity == 1:
@@ -724,6 +752,11 @@ class FreeFuncKernelBuilder(KernelBuilder):
     def yield_results(self, *results: Value):
         """Yields results of the kernel computation."""
         assert not self.yielded, "yield_results has already been called"
+        ksel = self.ksel
+        expected_count = len(ksel.result_descs) + len(ksel.inplace_tied_arg_descs)
+        assert (
+            len(results) == expected_count
+        ), f"Mismatched yielded results and declared+inplace: Expected={expected_count}, Got={len(results)}"
         with self.ip, Location.unknown():
             func_d.ReturnOp(results)
         self.yielded = True
@@ -771,11 +804,44 @@ def _create_impl_trampoline(op: CustomOp):
     return handler
 
 
-_SIGNATURE_NAME_PATTERN = re.compile(r"^([^(]+)")
+def _define_signature_in_library(lib: torch.library.Library, signature: str) -> str:
+    """Helper to define a schema in the library.
+
+    This handles the interlocked process of uniqueing, reserving the name,
+    and calling `lib.define` on the resulting schema.
+    """
+    ns = lib.ns
+    with _CONFIG_LOCK:
+        name, call_args = _split_signature(signature)
+
+        # Unique the name.
+        if "@UNIQUE@" in name:
+            # Uniqueify.
+            unique_key = (ns, name)
+            counter = UNIQUE_OP_NAME_COUNTER.get(unique_key, 0)
+            counter += 1
+            name = name.replace("@UNIQUE@", str(counter))
+            UNIQUE_OP_NAME_COUNTER[unique_key] = counter
+
+        # Define it, recording in the defined op names.
+        key = (lib.ns, name)
+        schema = f"{name}{call_args}"
+        if key in DEFINED_OP_NAMES:
+            raise RuntimeError(
+                f"Duplicate turbine custom op registration: library={lib.ns}, "
+                f"name={name}"
+            )
+        lib.define(schema)
+        DEFINED_OP_NAMES.add(key)
+    return name
 
 
-def _extract_name_from_signature(sig: str) -> str:
+_SIGNATURE_NAME_PATTERN = re.compile(r"^([^(]+)(\(.+)$")
+
+
+def _split_signature(sig: str) -> tuple[str, str]:
+    """Splits a signature into name and call-args parts."""
     m = re.match(_SIGNATURE_NAME_PATTERN, sig)
     if not m:
-        raise ValueError(f"Expected signature of form `name() -> (). Got: {sig}")
-    return m.group(1)
+        raise ValueError(f"Expected signature of form `name(...) -> type. Got: {sig}")
+    return m.group(1), m.group(2)

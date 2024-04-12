@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Callable, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union
 
 import enum
 import inspect
@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 import weakref
 import sys
+
+from torch.export import ExportedProgram
 
 from . import builtins
 
@@ -26,6 +28,8 @@ from ..support.ir_imports import (
     PassManager,
     StringAttr,
 )
+from ..support.logging import aot_logger as logger
+from ..transforms.general.custom_op_expansion import ExpandCustomOpsPass
 
 from .support.procedural import (
     GlobalsDef,
@@ -33,13 +37,12 @@ from .support.procedural import (
     current_ir_trace,
 )
 
+from .support.procedural.exported_program import import_exported_program
+
 from .support.ir_utils import (
     ModuleBuilder,
 )
 
-from .support.utils import (
-    logger,
-)
 
 __all__ = [
     "CompiledModule",
@@ -51,13 +54,21 @@ __all__ = [
 
 
 class ImportPhase(enum.IntEnum):
-    # Compiles to valid MLIR that IREE can ingest as an input.
-    IMPORT = 0
+    # Imports to torch dialect IR.
+    TORCH_IR = 0
+
+    # Performs custom op expansion and post processing for known custom ops.
+    CUSTOM_OP_EXPANSION = 1
+
+    # Compiles to valid MLIR that IREE can ingest as an input with the
+    # input-type of torch.
+    IMPORT = CUSTOM_OP_EXPANSION
+
     # Runs the IREE input pipeline to compile to internal form.
-    INPUT = 1
+    IREE_INTERNAL = 2
 
     # The full import pipeline (this is an alias for another enum value).
-    FULL = 1
+    FULL = IREE_INTERNAL
 
     @staticmethod
     def parse(spec: Union[str, None, "ImportPhase"]) -> "ImportPhase":
@@ -123,7 +134,28 @@ class ExportProcDef:
         return f"<def {self.export_name}({self.signature})>"
 
 
-Exportable = Union[ExportProcDef, PyOnlyDef, GlobalsDef]
+class ExportedProgramDef:
+    def __init__(
+        self,
+        ep: ExportedProgram,
+        *,
+        export_name: Optional[str] = None,
+        public: bool = False,
+    ):
+        self.export_name = export_name
+        self.exported_program = ep
+        self.public = public
+
+    def copy(self) -> "ExportedProgramDef":
+        return ExportedProgramDef(
+            self.exported_program, export_name=self.export_name, public=self.public
+        )
+
+    def __repr__(self):
+        return f"<exported_program {self.exported_program}>"
+
+
+Exportable = Union[ExportProcDef, ExportedProgramDef, PyOnlyDef, GlobalsDef]
 
 
 class CompiledModuleClassInfo:
@@ -146,27 +178,42 @@ class CompiledModuleClassInfo:
         return filter(
             lambda kv_tuple: isinstance(kv_tuple[1], ExportProcDef),
             self.all_exports.items(),
-        )
+        )  # type: ignore
+
+    @property
+    def exported_programs(
+        self,
+    ) -> Generator[Tuple[str, ExportedProgramDef], None, None]:
+        return filter(
+            lambda kv_tuple: isinstance(kv_tuple[1], ExportedProgramDef),
+            self.all_exports.items(),
+        )  # type: ignore
 
     @property
     def py_only_defs(self) -> Generator[Tuple[str, PyOnlyDef], None, None]:
         return filter(
             lambda kv_tuple: isinstance(kv_tuple[1], PyOnlyDef),
             self.all_exports.items(),
-        )
+        )  # type: ignore
 
     @property
     def globals_defs(self) -> Generator[Tuple[str, GlobalsDef], None, None]:
         return filter(
             lambda kv_tuple: isinstance(kv_tuple[1], GlobalsDef),
             self.all_exports.items(),
-        )
+        )  # type: ignore
 
     def def_attribute(self, key, value):
         # Some decorators, the only thing we do is convert them to PyOnlyDef.
         # Do that first so the generic descriptor code below handles them.
         if isinstance(value, builtins.jittable):
             value = PyOnlyDef(value)
+
+        # Promote a torch ExportedProgram to an ExportedProgramDef.
+        if isinstance(value, ExportedProgram):
+            value = ExportedProgramDef(
+                value, export_name=key, public=not key.startswith("_")
+            )
 
         # Detect our own descriptors.
         if isinstance(value, GlobalsDef):
@@ -179,9 +226,15 @@ class CompiledModuleClassInfo:
                 value.export_name = key
             self.add_export(key, value)
             return value
-
         if isinstance(value, PyOnlyDef):
             logging.debug("DEFINE PY_ONLY: %s = %r", key, value)
+            self.add_export(key, value)
+            return value
+        if isinstance(value, ExportedProgramDef):
+            if value.export_name is None:
+                value = value.copy()
+                value.export_name = key
+            logging.debug("DEFINE EXPORTED_PROGRAM: %r", value.export_name)
             self.add_export(key, value)
             return value
 
@@ -200,11 +253,11 @@ class CompiledModuleClassInfo:
         file_line_loc = None
         try:
             sourcefile = inspect.getsourcefile(f)
-            _, linenums = sourcelines = inspect.getsourcelines(f)
-            if sourcefile and linenums:
-                file_line_loc = [sourcefile, linenums[0]]
-        except TypeError:
-            pass
+            _, linenum = sourcelines = inspect.getsourcelines(f)
+        except OSError:
+            ...
+        else:
+            file_line_loc = (sourcefile or "<unnamed>", linenum)
 
         sig = inspect.signature(f)
         if len(sig.parameters) < 1:
@@ -258,19 +311,18 @@ class CompiledModuleInstanceInfo:
         self.module_builder = module_builder
         # The shadow dict holds instance attributes. We stash them here and the
         # Program instance itself arbitrates access via getattr/setattr.
-        self.shadow_dict = dict()
-        self.current_import_phase = ImportPhase.IMPORT
+        self.shadow_dict: dict[str, Any] = dict()
+        self.current_import_phase = ImportPhase.TORCH_IR
 
 
 ################################################################################
 # Live reference accounting
 ################################################################################
 
-_all_compiled_module_class_infos: Dict[
+_all_compiled_module_class_infos: weakref.WeakKeyDictionary[
     "CompiledModuleMeta", CompiledModuleClassInfo
 ] = weakref.WeakKeyDictionary()
-
-_all_compiled_module_instance_infos: Dict[
+_all_compiled_module_instance_infos: weakref.WeakKeyDictionary[
     "CompiledModule", CompiledModuleInstanceInfo
 ] = weakref.WeakKeyDictionary()
 
@@ -283,7 +335,7 @@ _all_compiled_module_instance_infos: Dict[
 _metaclass_setup_complete = False
 
 
-@property
+@property  # type: ignore
 def _blackhole_instance_attribute(self):
     # We're not here.
     raise AttributeError
@@ -294,6 +346,8 @@ def _uncallable_public_export(*args, **kwargs):
 
 
 _COMPILED_MODULE_API_ATTRIBUTES = [
+    "create_from_dict",
+    "expand_custom_ops",
     "export_global",
     "get_class_info",
     "get_info",
@@ -375,6 +429,25 @@ class CompiledModuleMeta(type):
 class CompiledModule(metaclass=CompiledModuleMeta):
     """Base class for all staged modules."""
 
+    @classmethod
+    def create_from_dict(
+        cls: CompiledModuleMeta,
+        name: str,
+        dct: dict,
+        *,
+        export_name: Optional[str] = None,
+    ) -> CompiledModuleMeta:
+        """Creates a CompiledModule subclass with an explicit dictionary of members.
+
+        This is the unsugared form of:
+
+        ```
+        class Foo(CompiledModule, export_name="bar"):
+          def member(): ...
+        ```
+        """
+        return CompiledModuleMeta(name, (cls,), dct, export_name=export_name)
+
     @staticmethod
     def get_class_info(cls: CompiledModuleMeta) -> CompiledModuleClassInfo:
         return _all_compiled_module_class_infos[cls]
@@ -398,23 +471,39 @@ class CompiledModule(metaclass=CompiledModuleMeta):
 
     @staticmethod
     def run_import(
-        inst: "CompiledModule", import_to: Union[ImportPhase, str, None] = "full"
+        inst: "CompiledModule", import_to: Union[ImportPhase, str, None] = "import"
     ):
         import_to = ImportPhase.parse(import_to)
         info = CompiledModule.get_info(inst)
-        if info.current_import_phase >= import_to:
-            return
-
-        for phase in [ImportPhase.IMPORT, ImportPhase.INPUT]:
+        for phase in [
+            ImportPhase.TORCH_IR,
+            ImportPhase.CUSTOM_OP_EXPANSION,
+            ImportPhase.IREE_INTERNAL,
+        ]:
+            if phase > import_to:
+                logger.debug("Stopped import at phase %s", info.current_import_phase)
+                break
             if info.current_import_phase >= phase:
                 continue
             logger.debug("Run import phase %s", phase)
-            if phase == ImportPhase.IMPORT:
+            if phase == ImportPhase.TORCH_IR:
+                # Starting phase. Do nothing.
                 ...
-            if phase == ImportPhase.INPUT:
+            elif phase == ImportPhase.CUSTOM_OP_EXPANSION:
+                CompiledModule.expand_custom_ops(inst)
+            elif phase == ImportPhase.IREE_INTERNAL:
                 CompiledModule.run_pass_pipeline(inst, "builtin.module(torch-to-iree)")
             else:
                 assert False, f"Phase {phase} not handled in switch"
+            info.current_import_phase = phase
+
+    @staticmethod
+    def expand_custom_ops(inst: "CompiledModule"):
+        """Performs custom torch.operator expansion for known custom ops."""
+        logger.debug("Expand known torch.operator custom ops")
+        module_op = CompiledModule.get_mlir_module(inst)
+        p = ExpandCustomOpsPass(module_op)
+        p.run()
 
     @staticmethod
     def run_pass_pipeline(
@@ -483,7 +572,7 @@ class CompiledModule(metaclass=CompiledModuleMeta):
         *,
         context: Optional[Context] = None,
         module_op: Optional[Operation] = None,
-        import_to: Union[ImportPhase, None, str] = "full",
+        import_to: Union[ImportPhase, None, str] = "import",
     ):
         import_to = ImportPhase.parse(import_to)
         self = super().__new__(cls)
@@ -518,6 +607,17 @@ class CompiledModule(metaclass=CompiledModuleMeta):
         # Make PyOnly defs visible.
         for key, py_def in info.class_info.py_only_defs:
             info.shadow_dict[key] = py_def.py_value
+
+        # Instantiate exported programs.
+        # TODO: This should be done in two phases along with export_procs
+        # in order to enable dependence.
+        for key, ep_def in info.class_info.exported_programs:
+            info.shadow_dict[key] = import_exported_program(
+                module_builder,
+                ep_def.exported_program,
+                symbol_name=ep_def.export_name or "main",
+                symbol_visibility=None if ep_def.public else "private",
+            )
 
         # Instantiate procs.
         # TODO: This should be done in two phases, first binding the symbols

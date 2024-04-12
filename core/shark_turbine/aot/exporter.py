@@ -4,16 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Optional, Sequence, Union
-import functools
+from typing import overload, Any, Dict, List, Optional, Sequence, Tuple, Type, Union
 import io
 from pathlib import Path
 import platform
+import warnings
 
 import torch
 
 from iree.compiler.api import (
-    Invocation,
     Session,
     Source,
     Output,
@@ -27,18 +26,25 @@ from ..support.ir_imports import (
 from .builtins import *
 from .compiled_module import (
     CompiledModule,
-    CompiledModuleMeta,
-    ExportProcDef,
+    ImportPhase,
 )
-from .support.procedural import (
-    AbstractTypedef,
-)
+from .fx_programs import FxPrograms
+from . import decompositions
 
+__all__ = [
+    "export",
+    "ExportOutput",
+]
 
 _is_windows = platform.system() == "Windows"
 
 
-ModuleLike = Union[torch.nn.Module, CompiledModuleMeta]
+ModuleLike = Union[
+    torch.nn.Module,
+    Type[CompiledModule],
+    torch.export.ExportedProgram,
+    FxPrograms,
+]
 SaveableTarget = Union[str, Path, None, Output]
 
 
@@ -81,8 +87,12 @@ class ExportOutput:
             else:
                 self.mlir_module.print(file=f, binary=True)
 
-    def _run_import(self):
-        CompiledModule.run_import(self.compiled_module)
+    def import_to(self, import_to: Union[ImportPhase, str]):
+        """Compiles the modules to a mnemonic import phase.
+
+        This is a no-op if already compiled to this phase.
+        """
+        CompiledModule.run_import(self.compiled_module, import_to)
 
     def compile(
         self,
@@ -112,8 +122,8 @@ class ExportOutput:
             save_to = Path(save_to)
             output = Output.open_file(str(save_to))
         else:
-            assert isinstance(output, Output)
             output = save_to
+            assert isinstance(output, Output)
 
         target_backends = (
             target_backends
@@ -146,46 +156,135 @@ class ExportOutput:
             return None
 
 
-# Decorator which explicitly exports a function.
-# TODO: Make this a public API on CompiledModule.
-# See https://github.com/nod-ai/SHARK-Turbine/issues/126
-def export_proc(f=None, *, signature: Sequence[AbstractTypedef]) -> ExportProcDef:
-    if f is None:
-        return functools.partial(export_proc, signature=signature)
-    return ExportProcDef(f.__name__, f, signature=signature)
+@overload
+def export(
+    module: torch.nn.Module,
+    /,
+    *,
+    args: Optional[tuple] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+    dynamic_shapes: Dict[str, Any] | Tuple[Any] | List[Any] | None = None,
+    module_name: Optional[str] = None,
+    function_name: Optional[str] = None,
+) -> ExportOutput:
+    """Exports a torch.nn.Module.
+
+    This is done by first invoking torch.export.export with args, kwargs,
+    and dynamic_shapes.
+    """
+    ...
 
 
-def export(mdl: ModuleLike, *example_args: torch.Tensor) -> ExportOutput:
-    """One shot export of an nn.Module.
+@overload
+def export(compiled_module: Type[CompiledModule], /) -> ExportOutput:
+    """Exports a CompiledModule and returns the output."""
+    ...
 
-    This is a very restrictive API vs the lower level `CompiledModule`
-    facility. It is suitable for one-shot modules, with a single
-    entrypoint and static example arguments where no additional
-    configuration is needed for mutable parameters/buffers or state
-    management. Dynamic shape constraints are also not presently
-    exposed via this API, but we expect to allow this in the future.
+
+@overload
+def export(
+    exported_program: torch.export.ExportedProgram,
+    /,
+    *,
+    module_name: Optional[str] = None,
+    function_name: Optional[str] = None,
+) -> ExportOutput:
+    """Exports a single entry-point module consisting of an ExportedProgram."""
+    ...
+
+
+@overload
+def export(
+    exported_programs: FxPrograms,
+    /,
+    *,
+    module_name: Optional[str] = None,
+) -> ExportOutput:
+    """Exports a multi entry-point ExportedProgram."""
+    ...
+
+
+def export(
+    mdl: ModuleLike,
+    /,
+    *example_args: torch.Tensor,
+    args: Optional[tuple] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+    dynamic_shapes: Dict[str, Any] | Tuple[Any] | List[Any] | None = None,
+    module_name: Optional[str] = None,
+    function_name: Optional[str] = None,
+) -> ExportOutput:
+    """Generic export of supported entities.
+
+    See a more specific overload for accepted forms.
+
+    This function behaves differently based on the type of the `mdl` argument:
+
+    * nn.Module: The module is traced with torch.export.export passing it
+      `args`, `kwargs`, and `dynamic_shapes`.
+    * CompiledModule: The module is imported to IR. Additional arguments are
+      illegal in this case.
+    * torch.export.ExportedProgram: A pre-exported program can be passed and
+      it will be used to construct a single-entrypoint module.
 
     Args:
       mdl: The nn.Module to export.
       *example_args: Example tensors.
+      args: Example arguments to torch.export (if present, then *example_args
+        must be empty.
+      kwargs: Example keyword arguments.
+      dynamic_shapes: Dynamic shape specs to pass to torch.export.
 
     Returns:
       An ExportOutput object that wraps the compilation and provides
       easy access.
     """
-    if isinstance(mdl, torch.nn.Module):
-        signature = [abstractify(t) for t in example_args]
+    if len(example_args) > 0:
+        warnings.warn(
+            DeprecationWarning(
+                "extra `example_args` positional parameters are deprecated: pass `args=tuple(...)` instead."
+            )
+        )
 
-        class Exported(CompiledModule, export_name=mdl._get_name()):
-            params = export_parameters(mdl)
+    TransformedModule: Any
+    current_decomps = decompositions.current_aot_decompositions()
+    if isinstance(mdl, torch.export.ExportedProgram):
+        TransformedModule = CompiledModule.create_from_dict(
+            "LambdaCompiledModule",
+            {(function_name or "main"): mdl},
+            export_name=module_name or "module",
+        )
 
-            @export_proc(signature=signature)
-            def main(self, *args):
-                return jittable(mdl.forward)(*args)
+    elif isinstance(mdl, FxPrograms):
+        TransformedModule = CompiledModule.create_from_dict(
+            "LambdaCompiledModule", mdl.programs, export_name=module_name or "module"
+        )
+    elif isinstance(mdl, torch.nn.Module):
+        # Normalize arguments for torch.export.
+        if args is None:
+            args = example_args
+        elif len(example_args) > 0:
+            raise ValueError(
+                "Cannot pass args= and positional example_args at the same time"
+            )
+        nn_module = mdl
+        exported_program = torch.export.export(
+            nn_module, args=args, kwargs=kwargs, dynamic_shapes=dynamic_shapes
+        )
+        if current_decomps:
+            from .decompositions import _patch_op_dispatch_for_export
 
+            _patch_op_dispatch_for_export()
+            exported_program = exported_program.run_decompositions(current_decomps)
+
+        TransformedModule = CompiledModule.create_from_dict(
+            "LambdaCompiledModule",
+            {(function_name or "main"): exported_program},
+            export_name=module_name or "module",
+        )
     else:
-        assert isinstance(mdl, CompiledModuleMeta)
-        Exported = mdl
+        assert issubclass(type(mdl), CompiledModule)
+        TransformedModule = mdl
 
     session = Session()
     # There are some bugs with respect to Session/context interop that we
@@ -197,5 +296,5 @@ def export(mdl: ModuleLike, *example_args: torch.Tensor) -> ExportOutput:
     else:
         context = Context()
 
-    cm = Exported(context=context, import_to="import")
+    cm = TransformedModule(context=context, import_to="import")
     return ExportOutput(session, cm, importer_uses_session=importer_uses_session)

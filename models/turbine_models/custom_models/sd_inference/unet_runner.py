@@ -52,6 +52,7 @@ def run_unet(
     sample,
     timestep,
     encoder_hidden_states,
+    guidance_scale,
     vmfb_path,
     hf_model_name,
     hf_auth_token,
@@ -63,13 +64,19 @@ def run_unet(
         ireert.asdevicearray(runner.config.device, sample),
         ireert.asdevicearray(runner.config.device, timestep),
         ireert.asdevicearray(runner.config.device, encoder_hidden_states),
+        ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
     results = runner.ctx.modules.compiled_unet["main"](*inputs)
     return results
 
 
 def run_torch_unet(
-    hf_model_name, hf_auth_token, sample, timestep, encoder_hidden_states
+    hf_model_name,
+    hf_auth_token,
+    sample,
+    timestep,
+    encoder_hidden_states,
+    guidance_scale,
 ):
     from diffusers import UNet2DConditionModel
 
@@ -83,7 +90,7 @@ def run_torch_unet(
             )
             self.guidance_scale = 7.5
 
-        def forward(self, sample, timestep, encoder_hidden_states):
+        def forward(self, sample, timestep, encoder_hidden_states, guidance_scale):
             samples = torch.cat([sample] * 2)
             unet_out = self.unet.forward(
                 samples, timestep, encoder_hidden_states, return_dict=False
@@ -98,7 +105,9 @@ def run_torch_unet(
         hf_model_name,
         hf_auth_token,
     )
-    results = unet_model.forward(sample, timestep, encoder_hidden_states)
+    results = unet_model.forward(
+        sample, timestep, encoder_hidden_states, guidance_scale
+    )
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
 
@@ -109,6 +118,7 @@ if __name__ == "__main__":
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
     )
     timestep = torch.zeros(1, dtype=torch.float32)
+    guidance_scale = torch.Tensor([7.5], dtype=torch.float32)
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
         encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
@@ -119,6 +129,7 @@ if __name__ == "__main__":
         sample,
         timestep,
         encoder_hidden_states,
+        guidance_scale,
         args.vmfb_path,
         args.hf_model_name,
         args.hf_auth_token,
@@ -141,6 +152,7 @@ if __name__ == "__main__":
             sample,
             timestep,
             encoder_hidden_states,
+            guidance_scale,
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         err = utils.largest_error(torch_output, turbine_output)

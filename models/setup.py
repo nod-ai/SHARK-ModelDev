@@ -58,8 +58,10 @@ setup(
         "brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b",
         "protobuf",
         "sentencepiece",
-        "transformers",
+        "transformers==4.37.1",
         "accelerate",
         "diffusers==0.24.0",
+        "azure-storage-blob",
+        "einops",
     ],
 )

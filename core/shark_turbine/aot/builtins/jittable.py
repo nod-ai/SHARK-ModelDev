@@ -9,26 +9,23 @@
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+import warnings
+
 import torch
 from torch._decomp import get_decompositions
 import torch._dynamo as dynamo
-from torch.export import (
-    Constraint,
-    dynamic_dim,
-)
 from torch.fx import (
-    Graph,
     GraphModule,
 )
-from torch.fx.passes.shape_prop import TensorMetadata
-
-from ...dynamo.passes import (
-    DEFAULT_DECOMPOSITIONS,
+from torch.utils._pytree import (
+    tree_flatten,
+    tree_unflatten,
 )
 
-from ...importers.fx_importer import (
+from iree.compiler.extras.fx_importer import (
     GraphNodeImporter,
     FxImporter,
+    FxImporterHooks,
 )
 
 from ...support.ir_imports import (
@@ -43,14 +40,11 @@ from ...support.ir_imports import (
     util_d,
 )
 
+from ...support.logging import aot_logger as logger
+
+from ..decompositions import current_aot_decompositions
 from ..passes import (
     functorch_functionalize,
-)
-
-from ..support.utils import (
-    logger,
-    tree_flatten,
-    tree_unflatten,
 )
 
 from ..support.ir_utils import (
@@ -68,23 +62,33 @@ from ..support.procedural import (
 StringAttrOrStr = Union[StringAttr, str]
 
 
-def _make_literal_resolver(module_builder: ModuleBuilder):
-    # When we first encounter a global during import, we have to pull it
-    # into the local module being populated by the GraphNodeImporter. This
-    # will exactly match the global in the target module we are merging into
-    # and exists so that the IR is valid during Fx import. We keep the set of
-    # symbols we have done this to here.
-    cloned_global_symbols: Set[str] = set()
+class _Hooks(FxImporterHooks):
+    __slots__ = [
+        "cloned_global_symbols",
+        "module_builder",
+    ]
 
-    def resolver(py_value: Any, gni: GraphNodeImporter) -> Optional[Value]:
+    def __init__(self, module_builder: ModuleBuilder):
+        self.module_builder = module_builder
+        # When we first encounter a global during import, we have to pull it
+        # into the local module being populated by the GraphNodeImporter. This
+        # will exactly match the global in the target module we are merging into
+        # and exists so that the IR is valid during Fx import. We keep the set of
+        # symbols we have done this to here.
+        self.cloned_global_symbols: set[str] = set()
+
+    def resolve_literal(self, gni: GraphNodeImporter, literal: Any) -> Optional[Value]:
+        module_builder = self.module_builder
+        cloned_global_symbols = self.cloned_global_symbols
+
         # We support resolution of tracked reference types. Currently this
         # only includes Tensors. All others we let the importer do what it
         # is going to do.
-        if not isinstance(py_value, torch.Tensor):
+        if not isinstance(literal, torch.Tensor):
             return None
 
         # See if we know about it.
-        mapping = module_builder.global_ref_tracker.track(py_value)
+        mapping = module_builder.global_ref_tracker.track(literal)
         if mapping.is_empty:
             # If it is unknown, just let the default importer take it on.
             return None
@@ -101,7 +105,7 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
             cloned_global_symbols.add(materialized_global.symbol_name)
 
         # Emit a global load and conversion.
-        vtensor_type = gni._cc.tensor_to_vtensor_type(py_value)
+        vtensor_type = gni._cc.tensor_to_vtensor_type(literal)
         loaded_value = util_d.GlobalLoadOp(
             materialized_global.ir_type, materialized_global.symbol_name
         ).result
@@ -111,8 +115,6 @@ def _make_literal_resolver(module_builder: ModuleBuilder):
             operands=[loaded_value],
         ).result
         return converted_value
-
-    return resolver
 
 
 ALL_PASSES: Set[str] = set(["functorch_functionalize"])
@@ -137,19 +139,14 @@ class jittable(CallableIntrinsic):
         self,
         wrapped_f,
         *,
-        decompose_ops: Optional[List[torch._ops.OpOverload]] = None,
-        decomposition_table: Optional[
-            Dict[torch._ops.OpOverload, Callable[..., Any]]
-        ] = None,
-        constraints: Optional[List[Constraint]] = None,
+        decompose_ops: Optional[List[Any]] = None,
+        decomposition_table: Optional[Dict[Any, Callable[..., Any]]] = None,
+        constraints: Optional[List[Any]] = None,
         function_name: Optional[str] = None,
         passes: Sequence[str] = DEFAULT_PASSES,
     ):
         if decomposition_table is None:
-            decomposition_table = {}
-        if decompose_ops is None:
-            decompose_ops = DEFAULT_DECOMPOSITIONS
-
+            decomposition_table = current_aot_decompositions()
         if decompose_ops:
             decomposition_table.update(get_decompositions(decompose_ops))
 
@@ -169,7 +166,7 @@ class jittable(CallableIntrinsic):
         self,
         proc_trace: IrTrace,
         *py_args,
-        constraints: Optional[List[Constraint]] = None,
+        constraints: Optional[List[Any]] = None,
         **py_kwargs,
     ):
         type_converter = proc_trace.module_builder.native_type_converter
@@ -180,6 +177,17 @@ class jittable(CallableIntrinsic):
             constraints = list(constraints)
         if self.constraints is not None:
             constraints.extend(self.constraints)
+
+        export_kwargs = {}
+        if len(constraints) > 0:
+            warnings.warn(
+                "Compiling program with the old PyTorch constraints system "
+                "for dynamic shapes is deprecated and will break on PyTorch "
+                "nightlies after the 2.3 release cut (expect either a PyTorch "
+                "warning or exception to follow)",
+                DeprecationWarning,
+            )
+            export_kwargs["constraints"] = constraints
 
         # Convert procedural trace values to things that Dynamo can handle.
         flat_py_args, args_tree = tree_flatten((py_args, py_kwargs))
@@ -212,13 +220,13 @@ class jittable(CallableIntrinsic):
         exported_f = dynamo.export(
             transformed_f,
             aten_graph=True,
-            decomposition_table=self.decomposition_table,
-            constraints=constraints,
+            decomposition_table=self.decomposition_table,  # type: ignore
             assume_static_by_default=True,
+            **export_kwargs,  # type: ignore
         )
         logger.debug("Invoking dynamo trace")
         gm, guards = exported_f(*flat_pytorch_args)
-        logger.debug("Dyanmo trace complete")
+        logger.debug("Dynamo trace complete")
 
         # TODO: Add debug logging for the exported graph module.
         # gm.print_readable()
@@ -234,7 +242,7 @@ class jittable(CallableIntrinsic):
         fx_importer = FxImporter(
             context=proc_trace.context,
             config_check=False,
-            literal_resolver_callback=_make_literal_resolver(proc_trace.module_builder),
+            hooks=_Hooks(proc_trace.module_builder),
             py_attr_tracker=proc_trace.module_builder.fx_py_attr_tracker,
         )
         fx_importer.import_stateless_graph(gm.graph, func_name=self.function_name)
@@ -295,6 +303,7 @@ class jittable(CallableIntrinsic):
         assert len(flat_ir_results) == len(result_tensor_infos)
         flat_py_results = []
         for ir_result, result_tensor_info in zip(flat_ir_results, result_tensor_infos):
+            assert result_tensor_info is not None
             (dtype,) = result_tensor_info
             native_ir_result = type_converter.materialize_torch_to_native(ir_result)
             if dtype is not None:
@@ -307,7 +316,7 @@ class jittable(CallableIntrinsic):
         tree_py_results = tree_unflatten(flat_py_results, out_spec)
         return tree_py_results
 
-    def _split_py_arg(self, arg, constraints: List[Constraint]) -> Tuple[Value, Any]:
+    def _split_py_arg(self, arg, constraints: List[Any]) -> Tuple[Value, Any]:
         if isinstance(arg, IrTensor):
             meta_tensor, meta_constraints = arg._to_meta_tensor()
             constraints.extend(meta_constraints)
@@ -462,5 +471,5 @@ def _extract_graph_output_metadata(
                 dtype = tensor_meta.dtype
             elif fake_val is not None:
                 dtype = fake_val.dtype
-            output_metadata.append((dtype,))
+            output_metadata.append((dtype,) if dtype is not None else None)
     return out_spec, output_metadata

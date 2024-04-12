@@ -1,6 +1,6 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from iree import runtime as ireert
 import torch
 import time
@@ -168,12 +168,14 @@ def run_llm(
     streaming_llm=False,
     chat_mode=False,
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
+    tokenizer=None,
 ):
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
+    if tokenizer == None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            hf_model_name,
+            use_fast=False,
+            token=hf_auth_token,
+        )
     llm = SharkLLM(
         device=device,
         vmfb_path=vmfb_path,
@@ -204,28 +206,32 @@ def run_torch_llm(
     prompt,
     streaming_llm=False,
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
+    model=None,
+    tokenizer=None,
 ):
-    from turbine_models.model_builder import HFTransformerBuilder
-    from transformers import AutoModelForCausalLM
-
-    model_builder = HFTransformerBuilder(
-        example_input=None,
-        hf_id=hf_model_name,
-        auto_model=AutoModelForCausalLM,
-        hf_auth_token=hf_auth_token,
-        auto_tokenizer=AutoTokenizer,
-    )
+    if model == None:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model_name,
+            torch_dtype=torch.float,
+            token=hf_auth_token,
+        )
+    if tokenizer == None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            hf_model_name,
+            use_fast=False,
+            token=hf_auth_token,
+        )
     if streaming_llm is True:
-        enable_llama_pos_shift_attention(model_builder.model)
+        enable_llama_pos_shift_attention(model)
 
     def get_token_from_logits(logits):
         return torch.argmax(logits[:, -1, :], dim=1)
 
     prompt = append_user_prompt(chat_sys_prompt, prompt)
-    initial_input = model_builder.tokenizer(prompt, return_tensors="pt")
+    initial_input = tokenizer(prompt, return_tensors="pt")
     example_input_id = initial_input.input_ids
 
-    model_results = model_builder.model.forward(example_input_id)
+    model_results = model.forward(example_input_id)
     model_token = get_token_from_logits(model_results.logits)
 
     pkv = model_results.past_key_values
@@ -233,14 +239,14 @@ def run_torch_llm(
     torch_results = []
     torch_results.append(int(model_token))
     while model_token != 2:
-        model_results = model_builder.model.forward(
+        model_results = model.forward(
             torch.unsqueeze(model_token, 0), past_key_values=pkv
         )
         model_token = get_token_from_logits(model_results.logits)
         pkv = model_results.past_key_values
         torch_results.append(int(model_token[0]))
 
-    return model_builder.tokenizer.decode(torch_results)
+    return tokenizer.decode(torch_results)
 
 
 if __name__ == "__main__":

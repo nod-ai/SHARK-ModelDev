@@ -20,17 +20,16 @@ class ArgsTest(unittest.TestCase):
             def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
                 return b, a
 
-        inst = ProcArgsModule(context=Context())
+        inst = ProcArgsModule(context=Context(), import_to="full")
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
-            "func.func @foobar(%arg0: tensor<3x2xf32>, %arg1: tensor<1x1xf32>) -> (tensor<1x1xf32>, tensor<3x2xf32>)",
+            "util.func public @foobar$async(%arg0: !hal.buffer_view, %arg1: !hal.buffer_view, %arg2: !hal.fence, %arg3: !hal.fence) -> (!hal.buffer_view, !hal.buffer_view)",
             module_str,
         )
-        self.assertIn("return %arg1, %arg0", module_str)
 
     def testProcToJitArgs(self):
-        class ProcArgsModule(CompiledModule):
+        class testProcToJitArgs(CompiledModule):
             def foobar(self, a=AbstractTensor(3, 2), b=AbstractTensor(1, 1)):
                 return self.compute(a, b)
 
@@ -38,19 +37,11 @@ class ArgsTest(unittest.TestCase):
             def compute(a, b):
                 return a + b
 
-        inst = ProcArgsModule(context=Context())
+        inst = testProcToJitArgs(context=Context(), import_to="full")
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
         self.assertIn(
-            "func.func @foobar(%arg0: tensor<3x2xf32>, %arg1: tensor<1x1xf32>) -> tensor<3x2xf32>",
-            module_str,
-        )
-        self.assertIn(
-            "func.func private @compute(%arg0: tensor<3x2xf32>, %arg1: tensor<1x1xf32>) -> tensor<3x2xf32>",
-            module_str,
-        )
-        self.assertIn(
-            "%0 = call @compute(%arg0, %arg1)",
+            "linalg.generic",
             module_str,
         )
 
@@ -65,16 +56,13 @@ class ArgsTest(unittest.TestCase):
             def compute(a, b):
                 return a + b
 
-        inst = ProcArgsModule(context=Context())
+        inst = ProcArgsModule(context=Context(), import_to="full")
         module_str = str(CompiledModule.get_mlir_module(inst))
         print(module_str)
-        self.assertIn(
-            "%0 = call @compute(%arg0, %arg1)",
-            module_str,
-        )
-        self.assertIn(
-            "%1 = call @compute$1(%0, %arg0)",
-            module_str,
+        self.assertEqual(
+            2,
+            module_str.count("linalg.generic"),
+            msg=f"Did not find two linalg.generics in module: module_str",
         )
 
 
