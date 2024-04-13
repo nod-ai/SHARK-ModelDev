@@ -2,11 +2,13 @@ from typing import (
     Type,
     Callable,
     Optional,
+    Dict
 )
 
 import inspect
 import math
 import shark_turbine.kernel.lang as tkl
+import shark_turbine.kernel as tk
 
 import torch
 import torch.fx as fx
@@ -43,6 +45,7 @@ from ..compiler.ir import (
 )
 
 from ..functional.codegen import WaveEmitter
+from ..lang.functional_types import Register
 from .constraints import ConstraintsMeta, WorkgroupConstraint, TilingConstraint, ThreadConstraint
 
 __all__ = [
@@ -134,34 +137,71 @@ class LaunchableWave(Launchable):
                 current_thread[-1] = it
                 self._eager_function(*bound.args, **bound.kwargs)
 
-    """
-    Trace the args of each fx.Node till we find the first placeholder
-    node.
-    """
-    def find_placeholder(self, arg):
-        queue = [arg]
-        visited = []
-        done = False
-        while not done > 0:
-            node = queue[0]
-            queue.pop(0)
-            if isinstance(node, fx.Node) and node not in visited:
-                if node.op == 'placeholder':
-                    if node.name in self.placeholders:
-                        return node.name
-                    for arg in node.args:
-                        queue.append(arg)
-                else:
-                    for arg in node.args:
-                        queue.append(arg)
-            visited.append(node)
-            if len(queue) == 0:
-                done = True
-        return None
+    def propagate_types_in_graph(self, graph: fx.Graph, type_map: Dict[str, Type],
+                                 subgraphs: Dict[str, fx.Node]):
+        def look_for_type(node: fx.Node) -> Type:
+            for input in node.all_input_nodes:
+                if input.name in type_map:
+                    return type_map[input.name]
+            return None
 
-    def propagate_constraints(self, trace: CapturedTrace):
+        for node in graph.nodes:
+            if node.op == 'placeholder':
+                if node.name in type_map:
+                    node.meta['type'] = type_map[node.name]
+                    continue
+                node.meta['type'] = type_map[node.name] = node.type
+            if node.name == 'construct_register_from_metadata':
+                args = [x for x in node.args[0]] + [node.args[1]]
+                type_map[node.name] = node.meta['type'] = Register[*args]
+            if 'write' in node.name or 'read' in node.name:
+                arg_type = look_for_type(node)
+                if arg_type is not None:
+                    type_map[node.name] = node.meta['type'] = arg_type
+            if 'subgraph' in node.kwargs:
+                subgraph = subgraphs[node.kwargs['subgraph']]
+                implicit_capture_nodes = []
+                if 'implicit_capture' in node.kwargs:
+                    implicit_capture_nodes += node.kwargs['implicit_capture']
+                subgraph_inputs = list(set(node.all_input_nodes) - set(implicit_capture_nodes))
+                i = 0
+                for subnode in subgraph.nodes:
+                    if 'type' not in subnode.meta:
+                        subnode.meta['type'] = {}
+                    if subnode.op == 'placeholder':
+                        if subnode.name in type_map:
+                            subnode.meta['type'] = type_map[subnode.name]
+                            continue
+                        subnode.meta['type'] = type_map[subnode.name] = type_map[subgraph_inputs[i].name]
+                        i += 1
+        return type_map
+
+    """
+    At the end of this function, all the placeholders in the graph
+    should be annotated with a type accessible in the node's metadata
+    node.meta['type']. Furthermore, we also annotate
+    nodes that are registers constructed from metadata, and all
+    the read and write nodes.
+    """
+    def propagate_types(self, trace: CapturedTrace):
         root_graph = trace.get_root_graph()
         subgraphs = trace.region_graph.subgraphs
+        type_map = {}
+        for graph in subgraphs.values():
+            for node in graph.nodes:
+                if 'type' not in node.meta:
+                    node.meta['type'] = None
+        type_map = self.propagate_types_in_graph(root_graph, type_map, subgraphs)
+        for graph in subgraphs.values():
+            if graph == root_graph:
+                continue
+            type_map = self.propagate_types_in_graph(graph, type_map, subgraphs)
+
+    def propagate_constraints(self, trace: CapturedTrace):
+
+        subgraphs = trace.region_graph.subgraphs
+        root_graph = trace.get_root_graph()
+        self.placeholders = {}
         self.induction_vars = {}
         i = 0
         for node in root_graph.nodes:
@@ -169,49 +209,38 @@ class LaunchableWave(Launchable):
                 self.induction_vars[node.args[0]] = tkl.IndexSymbol('ARG' + str(i))
                 i += 1
 
-        self.placeholders = {}
-        for node in root_graph.nodes:
-            if node.op == 'placeholder':
-                self.placeholders[node.name] = node
-                shape = node.type.symbolic_shape
-                if 'index' not in node.meta:
-                    node.meta['index'] = [0 for _ in range(len(shape))]
-                for idx, dim in enumerate(shape):
-                    for constraint in self.constraints:
-                        if isinstance(constraint, WorkgroupConstraint):
-                            if dim == constraint.dim:
-                                node.meta['index'][idx] += constraint.apply()
-                        if isinstance(constraint, TilingConstraint):
-                            if dim == constraint.dim:
-                                node.meta['index'][idx] += constraint.apply(self.induction_vars[dim])
-
+        # Get thread constraints
         self.thread_constraints = []
         for constraint in self.constraints:
             if isinstance(constraint, ThreadConstraint):
                 self.thread_constraints.append(constraint)
 
+        # Propagate constraints in root graph and subgraphs.
         for graph in subgraphs.values():
             for node in graph.nodes:
+                if node.meta['type'] is not None:
+                    shape = node.meta['type'].symbolic_shape
+                    if 'index' not in node.meta:
+                        node.meta['index'] = [0 for _ in range(len(shape))]
+                    for idx, dim in enumerate(shape):
+                        for constraint in self.constraints:
+                            if isinstance(constraint, WorkgroupConstraint):
+                                if dim == constraint.dim:
+                                    node.meta['index'][idx] += constraint.apply()
+                            if isinstance(constraint, TilingConstraint):
+                                if dim == constraint.dim:
+                                    node.meta['index'][idx] += constraint.apply(self.induction_vars[dim])
                 if node.name == 'mma':
                     for i, arg in enumerate(node.args):
-                        name = self.find_placeholder(arg)
-                        if name is None:
-                            breakpoint()
-                        print(name)
-                        if name is not None:
-                            for constraint in self.thread_constraints:
-                                matrix_type = None
-                                match i:
-                                    case 0: matrix_type = 'A'
-                                    case 1: matrix_type = 'B'
-                                    case 2: matrix_type = 'C'
-                                offset = constraint.apply(matrix_type)
-                                for j in range(len(offset)):
-                                    self.placeholders[name].meta['index'][j] += offset[j]
-
-        for node in self.placeholders.values():
-            print(node.meta['index'])
-        breakpoint()
+                        for constraint in self.thread_constraints:
+                            matrix_type = None
+                            match i:
+                                case 0: matrix_type = 'A'
+                                case 1: matrix_type = 'B'
+                                case 2: matrix_type = 'C'
+                            offset = constraint.apply(matrix_type)
+                            for j in range(len(offset)):
+                                arg.meta['index'][j] += offset[j]
 
     def _trace_and_get_kernel_signature(
         self,
@@ -238,6 +267,8 @@ class LaunchableWave(Launchable):
 
         idxc.finalize()
 
+        # Do type propagation to all nodes in subgraphs
+        self.propagate_types(trace)
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
 

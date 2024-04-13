@@ -8,18 +8,16 @@ import shark_turbine.kernel.functional as tkf
 
 class Test(unittest.TestCase):
     def testGemm(self):
-        # Tensor dimensions
+
+        # Wave tile sizes (determined by constraints below)
         M = tkl.sym.M
         N = tkl.sym.N
         K = tkl.sym.K
-        # Tiled dimensions (come from user constraints)
+
+        # Workgroup tile sizes
         BLOCK_M = tkl.sym.BLOCK_M
         BLOCK_N = tkl.sym.BLOCK_N
         BLOCK_K = tkl.sym.BLOCK_K
-        # Wave dimensions (come from hardware constraints)
-        WAVE_M = tkl.sym.WAVE_M
-        WAVE_N = tkl.sym.WAVE_N
-        WAVE_K = tkl.sym.WAVE_K
         # Address space (for GPU, shared(1) or global(0))
         ADDRESS_SPACE = tkl.sym.ADDRESS_SPACE
         # Other hyperparameters
@@ -48,14 +46,14 @@ class Test(unittest.TestCase):
             # This microkernel encodes the fact that if the reduction
             # dimension were tiled, then we would need to materialize a loop.
             # c_reg: tkf.Register[WAVE_M, WAVE_N, tkl.f32]
-            c_reg = tkf.construct_register_from_metadata((WAVE_M, WAVE_N), tkl.f32, 0.0)
+            c_reg = tkf.construct_register_from_metadata((M, N), tkl.f32, 0.0)
 
             # Do we maybe rather need the info that this is a reduction dimension?
             # This could be called tkf.dim(K) or tkf.reduction(K) ?
             @tkf.tiled_loop(K, init_args=[c_reg])
-            def repeat(c_reg) -> tkf.Register[WAVE_M, WAVE_N, tkl.f32]:
-                # a_reg: tkf.Register[WAVE_M, WAVE_K, tkl.f16]
-                # b_reg: tkf.Register[WAVE_N, WAVE_K, tkl.f16]
+            def repeat(c_reg) -> tkf.Register[M, N, tkl.f32]:
+                # a_reg: tkf.Register[M, K, tkl.f16]
+                # b_reg: tkf.Register[N, K, tkl.f16]
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)
                 b_reg = tkf.read(b, elements_per_thread=LOAD_ELEMS_PER_THREAD)
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
@@ -74,9 +72,6 @@ class Test(unittest.TestCase):
             BLOCK_M: 32,
             BLOCK_N: 128,
             BLOCK_K: 64,
-            WAVE_M: 16,
-            WAVE_N: 16,
-            WAVE_K: 16,
             M: 64,
             N: 256,
             K: 128,
