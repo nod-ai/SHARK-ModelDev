@@ -95,6 +95,11 @@ class ThreadConstraint(ConstraintsMeta):
             }
         return indices
 
+    def get_vector_shape(self, matrix_type):
+        if self.mma_type == 'MFMA_F32_16x16x16_F16':
+            return 4;
+        return None;
+
     def apply(self, matrix_type):
         indices = self.mma_indices(self.mma_type)
         lane = (self.thread_ids[0] \

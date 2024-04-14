@@ -222,7 +222,9 @@ def _(emitter: WaveEmitter, node: fx.Node):
         shape, dtype, value = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
-    vector_shape = cast_py_literal(emitter, shape)
+    # TODO: This vector shape needs to be propagated through the graph.
+    # For now, just hardcoding to get MLIR emission working again.
+    vector_shape = cast_py_literal(emitter, (4,))
     element_type = IrType.parse(dtype.ir_type_asm())
     register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
     emitter.bind_node_proxy(node, register)
@@ -236,7 +238,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    vector_shape = cast_py_literal(emitter, (16, 16))
+    vector_shape = cast_py_literal(emitter, (elements_per_thread,))
     # memory has no IR node yet.
     kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, memory)
     ref_shape = kb_py_type.symbolic_shape
@@ -248,14 +250,10 @@ def _(emitter: WaveEmitter, node: fx.Node):
     ]
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
-    pad_attr = ScalarBuilder.zero_attr(element_type)
-    pad_value = arith_d.constant(element_type, pad_attr)
-    result = vector_d.transfer_read(
+    result = vector_d.load(
         vector_type,
         kb_src,
-        start_indices,
-        AffineMap.get_minor_identity(len(ref_shape), len(vector_shape)),
-        pad_value,
+        start_indices
     )
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
@@ -292,12 +290,10 @@ def _(emitter: WaveEmitter, node: fx.Node):
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
     permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
-    vector_d.transfer_write(
-        None,
+    vector_d.store(
         insert_vector,
         kb_dest,
-        start_indices,
-        AffineMapAttr.get(permutation_map),
+        start_indices
     )
 
 
@@ -316,7 +312,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
-    vector_type = VectorType(lhs.type)
+    vector_type = VectorType(acc.type)
     element_type = vector_type.element_type
     rank = vector_type.rank
 
