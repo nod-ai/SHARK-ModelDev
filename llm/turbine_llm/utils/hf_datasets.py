@@ -113,6 +113,22 @@ Dataset(
     ),
 ).alias_to("open_llama_3b_v2_q8_0_gguf")
 
+Dataset(
+    "SlyEcho/open_llama_3b_v2_q4_1_gguf",
+    (
+        RemoteFile(
+            "gguf", "SlyEcho/open_llama_3b_v2_gguf", "open-llama-3b-v2-q4_1.gguf"
+        ),
+        RemoteFile(
+            "tokenizer_config.json",
+            "openlm-research/open_llama_3b_v2",
+            "tokenizer_config.json",
+            extra_filenames=["tokenizer.model"],
+        ),
+    ),
+).alias_to("open_llama_3b_v2_q4_1_gguf")
+
+
 ################################################################################
 # Tool entrypoint
 ################################################################################
