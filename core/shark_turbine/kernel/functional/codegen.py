@@ -61,6 +61,7 @@ from ..compiler.ir import (
     stream_d,
 )
 
+
 from .. import lang as tkl
 
 from ..compiler.kernel_codegen import (
@@ -213,6 +214,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     values = emitter.lookup_node_values(node.args[0])
     emitter.bind_node_proxy(node, values[0])
 
+
 ###############################################################################
 # Memory Ops
 ###############################################################################
@@ -244,17 +246,22 @@ def _(emitter: WaveEmitter, node: fx.Node):
     ref_shape = kb_py_type.symbolic_shape
     # slice_spec = cast_slice_spec(emitter, ref_shape, None)
     # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
+
+    # TODO: In this phase the node already has all info to generate the correct
+    #       indexing. See node.meta['index'][0] for indexing expression in dimension 0.
+    #       The question is how we do codegen for this. This is a sympy expression
+    #       with free variables that need to be connected to the correct nodes.
+    #       With this connection we could see about reusing the sympy codegen module.
+    #       I suspect simply walking the AST and emitting the respective MLIR ops
+    #       should be sufficient in first instance.
+
     start_indices = [
         arith_d.constant(IndexType.get(), 0),
         arith_d.constant(IndexType.get(), 0),
     ]
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
-    result = vector_d.load(
-        vector_type,
-        kb_src,
-        start_indices
-    )
+    result = vector_d.load(vector_type, kb_src, start_indices)
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
@@ -290,11 +297,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
     permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
-    vector_d.store(
-        insert_vector,
-        kb_dest,
-        start_indices
-    )
+    vector_d.store(insert_vector, kb_dest, start_indices)
 
 
 ###############################################################################

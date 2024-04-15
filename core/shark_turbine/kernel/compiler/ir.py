@@ -27,6 +27,7 @@ from iree.compiler.ir import (
     StringAttr,
     SymbolTable,
     Type as IrType,
+    UnitAttr,
     Value,
     VectorType,
 )
@@ -42,4 +43,5 @@ from iree.compiler.dialects import (
     stream as stream_d,
     vector as vector_d,
     scf as scf_d,
+    transform as transform_d,
 )

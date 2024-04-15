@@ -40,8 +40,23 @@ from ..compiler import (
 )
 
 from ..compiler.ir import (
+    builtin_d,
     Context,
+    InsertionPoint,
+    Location,
     Operation,
+    transform_d,
+    UnitAttr,
+)
+
+from iree.compiler.dialects.transform import (
+    interpreter as transform_interpreter,
+    any_op_t,
+)
+
+from iree.compiler.dialects.transform.extras import apply_patterns, named_sequence
+from iree.compiler.dialects import (
+    _structured_transform_ops_gen as structured_transform_ops,
 )
 
 from ..functional.codegen import WaveEmitter
@@ -129,6 +144,55 @@ class LaunchableWave(Launchable):
                 root_name, _ = subtracer.trace(self._f)
                 trace = CapturedTrace(region_graph, root_name)
         return trace
+
+    def canonicalize_module(self, module: Operation):
+        with module.context, Location.unknown():
+
+            @builtin_d.module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+            def transform_module():
+                @named_sequence("__transform_main", [any_op_t()], [])
+                def sequence(target: any_op_t()):
+                    # TODO: For now no canonicalization as that also removes
+                    #       dead code. Currently in particular the workgroup_id 
+                    #       and thread_id operations.
+                    # @apply_patterns(target)
+                    # def patterns():
+                    #     transform_d.apply_patterns_canonicalization()
+                    loops = structured_transform_ops.structured_match(
+                        any_op_t(), target, ops=["scf.for"]
+                    )
+                    transform_d.apply_licm(loops)
+                    # transform_d.apply_cse(target)
+
+            transform_interpreter.apply_named_sequence(
+                module,
+                transform_module.regions[0].blocks[0].operations[0],
+                transform_module,
+            )
+
+    def lower_module(self, module: Operation):
+        with module.context, Location.unknown():
+
+            @builtin_d.module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+            def transform_module():
+                @named_sequence("__transform_main", [any_op_t()], [])
+                def sequence(target: any_op_t()):
+                    target = transform_d.ApplyRegisteredPassOp(
+                        any_op_t(), target, "convert-scf-to-cf"
+                    )
+                    # TODO: This one does not work as one of our functions does
+                    #       not respect IREE conventions:
+                    #       public functions on executables must be () -> ()
+
+                    # transform_d.ApplyRegisteredPassOp(
+                    #     any_op_t(), target, "iree-convert-to-llvm"
+                    # )
+
+            transform_interpreter.apply_named_sequence(
+                module,
+                transform_module.regions[0].blocks[0].operations[0],
+                transform_module,
+            )
 
     def eager_execute(self, args, kwargs):
         grid = self.grid_type()
@@ -410,6 +474,8 @@ class LaunchableWave(Launchable):
         emitter.emit()
         emitter.finish()
 
+        self.canonicalize_module(mb.module_op)
+        # self.lower_module(mb.module_op)
         mb.module_op.verify()
 
         return mb, exe, kernel_sig, entrypoint_name
