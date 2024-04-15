@@ -68,18 +68,28 @@ class TilingConstraint(ConstraintsMeta):
 
 """
 A constraint of the form
-    tkf.ThreadConstraint(threads_per_block = [tx, ty, tz],
-                         mma_type = 'MFMA_F32_16x16x16_F16')
-specifies that we want all mma operations in the microkernel to be
-mapped to a hardware mma instruction of shape (M, N, K) and that
-we want to distribute to threads as per the threads per block specification.
-This translates to the following index constraint
-A: shape[M, K] -> index += ()
-B: shape[N, K] -> index += ()
-C: shape[M, N] -> index += ()
+    tkf.ThreadConstraint(threads_per_block = [tx, ty, tz])
+specifies that we want to distribute to threads as per the threads per block specification.
+By itself, this imposes no index constraints. It needs to be coupled
+with a hardware constraint.
 """
 class ThreadConstraint(ConstraintsMeta):
-    def __init__(self, threads_per_block, threads_per_wave, mma_type) -> None:
+    def __init__(self, threads_per_block) -> None:
+        super().__init__()
+        self.threads_per_block = threads_per_block
+
+
+"""
+A constraint of the form
+    tkf.HardwareConstraint(threads_per_wave = N,
+                           mma_type = 'MFMA_F32_16x16x16_F16')
+specifies that the hardware supports N threads per wave and that
+we want all mma operations in the microkernel to be
+mapped to a hardware mma instruction of shape (M, N, K).
+This translates to a hardware specific index constraint.
+"""
+class HardwareConstraint(ConstraintsMeta):
+    def __init__(self, threads_per_wave, mma_type, threads_per_block=None) -> None:
         super().__init__()
         self.threads_per_block = threads_per_block
         self.threads_per_wave = threads_per_wave
@@ -108,4 +118,3 @@ class ThreadConstraint(ConstraintsMeta):
              % self.threads_per_wave
         gpr = 0
         return indices[matrix_type](lane, gpr)
-
