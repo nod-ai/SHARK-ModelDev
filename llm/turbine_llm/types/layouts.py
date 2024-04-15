@@ -16,16 +16,23 @@ import torch
 
 from .tensors import QuantizedLayout
 
+from .layout_utils import promote_linear_i4_block_to_i8
+
+__all__ = [
+    "BlockScaledI4Layout",
+    "BlockScaledLayout",
+]
+
 
 class BlockScaledLayout(QuantizedLayout):
-    """Block-quantized representation which consists of a scale (`d`) per
-    block in a higher precision type. This arrangement does not apply an offset,
-    and is therefore in the family of symmetric quantization schemes.
+    """Block-quantized representation which consists of a scale (`d`)
+    and offset (`m`) per block in a higher precision type. The offset, if
+    present, is pre-scaled.
 
     The dequantization formula:
 
     ```
-    result = d.to(dtype) * qs.to(dtype)
+    result = d.to(dtype) * qs.to(dtype) + m.to(dtype)
     ```
 
     The inner-most dims will retain block structure. For example, if the
@@ -33,12 +40,23 @@ class BlockScaledLayout(QuantizedLayout):
     shapes would be:
 
     * `d`: `[N, K // 32, 1]`
+    * `m`: `[N, K // 32, 1]`
     * `qs`: `[N, K // 32, 32]`
+
+    Note that the offset (`m`) is optional.
     """
 
-    def __init__(self, shape: list[int], d: torch.Tensor, qs: torch.Tensor):
+    def __init__(
+        self,
+        shape: list[int],
+        d: torch.Tensor,
+        qs: torch.Tensor,
+        *,
+        m: Optional[torch.Tensor] = None,
+    ):
         self._shape = shape
         self._d = d
+        self._m = m
         self._qs = qs
 
     @property
@@ -52,6 +70,11 @@ class BlockScaledLayout(QuantizedLayout):
         return self._d
 
     @property
+    def m(self) -> torch.Tensor:
+        """Per block offsets."""
+        return self._m
+
+    @property
     def qs(self) -> torch.Tensor:
         """Per sample quantized values."""
         return self._qs
@@ -61,16 +84,50 @@ class BlockScaledLayout(QuantizedLayout):
 
     def dequant_blocked(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         d = self.d
+        m = self.m
         qs = self.qs
         if dtype:
             d = d.to(dtype)
+            if m is not None:
+                m = m.to(dtype)
         else:
             dtype = d.dtype
+            assert m is None or m.dtype == d.dtype
         scaled = d * qs.to(dtype)
-        return scaled
+        shifted = scaled if m is None else scaled + m
+        return shifted
 
     def __repr__(self):
-        return (
+        r = (
             f"{type(self).__name__}(d({list(self.d.shape)}, dtype={self.d.dtype}), "
             f"qs({list(self.qs.shape)}, dtype={self.qs.dtype}))"
         )
+        if self.m is not None:
+            r += f", m({list(self.m.shape)}, dtype={self.m.dtype})"
+        return r
+
+
+class BlockScaledI4Layout(BlockScaledLayout):
+    def __init__(
+        self,
+        shape: list[int],
+        d: torch.Tensor,
+        qs: torch.Tensor,
+        *,
+        m: Optional[torch.Tensor] = None,
+        signed: bool = False,
+    ):
+        super().__init__(shape, d, qs, m=m)
+        self.signed = signed
+
+    @property
+    def qs(self) -> torch.Tensor:
+        # `qs` is defined as something that we can do integer arithmetic on
+        # for cases where we only have non-packed kernels available. Therefore,
+        # we promote it to i8. The `qs_packed` is available for the sub-byte
+        # bit pattern.
+        return promote_linear_i4_block_to_i8(self._qs, signed=self.signed)
+
+    @property
+    def qs_packed(self) -> torch.Tensor:
+        return self._qs

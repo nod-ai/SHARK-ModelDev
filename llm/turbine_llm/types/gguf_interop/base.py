@@ -60,6 +60,7 @@ def _load_properties(reader: GGUFReader) -> dict[str, Any]:
 
 
 _quantized_types = {
+    "Q4_1": layouts.Q4_1,
     "Q8_0": layouts.Q8_0,
 }
 
