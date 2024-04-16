@@ -53,6 +53,11 @@ def add_tokenizer_options(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--tokenizer-type", help="Tokenizer type or infer from dataset if not specified"
     )
+    parser.add_argument(
+        "--tokenizer-config-json",
+        help="Direct path to a tokenizer_config.json file",
+        type=Path,
+    )
 
 
 def get_gguf_data_files(args) -> Dict[str, Path]:
@@ -77,6 +82,13 @@ def get_tokenizer(
     If the data_files= dict is present and explicit tokenizer options are not
     set, we will try to infer a tokenizer from the data files.
     """
+    if data_files is None:
+        data_files = {}
+    else:
+        data_files = dict(data_files)
+    if args.tokenizer_config_json is not None:
+        data_files["tokenizer_config.json"] = args.tokenizer_config_json
+
     tokenizer_type = args.tokenizer_type
     if tokenizer_type is None:
         if "tokenizer_config.json" in data_files:

@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from ..layers import *
+from ..types import *
 
 
 def main():
@@ -15,7 +16,7 @@ def main():
     args = cli.parse(parser)
 
     data_files = cli.get_gguf_data_files(args)
-    config = gguf.load_file(data_files["gguf"])
+    config = gguf_interop.load_file(data_files["gguf"])
 
     print(f"Properties:")
     for key, value in config.properties.items():
@@ -36,8 +37,11 @@ def main():
                 f"  : QuantizedTensor({tensor.layout_type.__name__})="
                 f"torch.Tensor({list(raw.shape)}, dtype={raw.dtype})"
             )
-            unpacked = tensor.unpack()
-            print(f"    {unpacked}")
+            try:
+                unpacked = tensor.unpack()
+                print(f"    {unpacked}")
+            except NotImplementedError:
+                print(f"     NOT IMPLEMENTED")
 
 
 if __name__ == "__main__":

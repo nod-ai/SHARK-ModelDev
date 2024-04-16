@@ -21,6 +21,7 @@ from ..layout_utils import (
 
 __all__ = [
     "Q4_1",
+    "Q4_K",
     "Q8_0",
 ]
 
@@ -60,6 +61,60 @@ class Q8_0(QuantizedTensor[BlockScaledLayout]):
 
     def __repr__(self):
         return f"Q8_0({self.name}, {self.shape})"
+
+
+class Q4_K(QuantizedTensor[BlockScaledI4Layout]):
+    """"""
+
+    def __init__(self, *, name: str, raw: torch.Tensor, shape: list[int]):
+        super().__init__(name, shape=shape, layout_type=BlockScaledI4Layout)
+        self.raw = raw
+
+    def unpack(self) -> BlockScaledI4Layout:
+        raise NotImplementedError
+
+    @property
+    def globals(self):
+        return {self.name: self.raw}
+
+    def __repr__(self):
+        return f"Q4_K({self.name}, {self.shape})"
+
+
+class Q5_K(QuantizedTensor[BlockScaledI4Layout]):
+    """"""
+
+    def __init__(self, *, name: str, raw: torch.Tensor, shape: list[int]):
+        super().__init__(name, shape=shape, layout_type=BlockScaledI4Layout)
+        self.raw = raw
+
+    def unpack(self) -> BlockScaledI4Layout:
+        raise NotImplementedError
+
+    @property
+    def globals(self):
+        return {self.name: self.raw}
+
+    def __repr__(self):
+        return f"Q5_K({self.name}, {self.shape})"
+
+
+class Q6_K(QuantizedTensor[BlockScaledI4Layout]):
+    """"""
+
+    def __init__(self, *, name: str, raw: torch.Tensor, shape: list[int]):
+        super().__init__(name, shape=shape, layout_type=BlockScaledI4Layout)
+        self.raw = raw
+
+    def unpack(self) -> BlockScaledI4Layout:
+        raise NotImplementedError
+
+    @property
+    def globals(self):
+        return {self.name: self.raw}
+
+    def __repr__(self):
+        return f"Q6_K({self.name}, {self.shape})"
 
 
 class Q4_1(QuantizedTensor[BlockScaledI4Layout]):
