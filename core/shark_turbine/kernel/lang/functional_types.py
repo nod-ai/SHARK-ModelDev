@@ -13,20 +13,26 @@ __all__ = [
 
 MemoryTypeT = TypeVar("MemoryTypeT")
 
+
 class AddressSpace(Enum):
     REGISTER = 0
     SHARED_MEMORY = 1
     GLOBAL_MEMORY = 2
 
+
 class _MemoryStorage(ShapedDataType):
-    def new_subtype(cls: Type[MemoryTypeT],
-                    *,
-                    symbolic_shape: tuple[IndexExpr, ...],
-                    address_space: AddressSpace,
-                    dtype: DataType) -> Type[MemoryTypeT]:
+    def new_subtype(
+        cls: Type[MemoryTypeT],
+        *,
+        symbolic_shape: tuple[IndexExpr, ...],
+        address_space: AddressSpace,
+        dtype: DataType,
+    ) -> Type[MemoryTypeT]:
         init_symbolic_shape = symbolic_shape
         init_dtype = dtype
-        init_address_space = address_space if address_space else AddressSpace.REGISTER.value
+        init_address_space = (
+            address_space if address_space else AddressSpace.REGISTER.value
+        )
 
         class MemoryType(cls):
             symbolic_shape = init_symbolic_shape
@@ -70,12 +76,17 @@ class Memory(metaclass=_MemoryStorage):
         if not isinstance(dtype, DataType):
             raise TypeError(f"Expected dtype to be a DataType, got {dtype}")
         if not isinstance(addressSpace, IndexExpr):
-            raise TypeError(f"Expected addressSpace to be a AddressSpace, got {addressSpace}")
+            raise TypeError(
+                f"Expected addressSpace to be a AddressSpace, got {addressSpace}"
+            )
 
         shape = cast(tuple[IndexExpr, ...], shape)
         dtype = cast(DataType, dtype)
         addressSpace = cast(AddressSpace, addressSpace)
-        return cls.new_subtype(symbolic_shape=shape, address_space=addressSpace, dtype=dtype)
+        return cls.new_subtype(
+            symbolic_shape=shape, address_space=addressSpace, dtype=dtype
+        )
+
 
 class Register(metaclass=_MemoryStorage):
     "Represents virtual registers. Parameterized by a shape and element type."
@@ -94,8 +105,9 @@ class Register(metaclass=_MemoryStorage):
     def set(self, value) -> None:
         self.value = value
 
-    def __class_getitem__(cls, shape_and_dtype: tuple[IndexExpr | DataType, ...]
-                      ) -> Type["Register"]:
+    def __class_getitem__(
+        cls, shape_and_dtype: tuple[IndexExpr | DataType, ...]
+    ) -> Type["Register"]:
 
         if not isinstance(shape_and_dtype, tuple) or len(shape_and_dtype) < 2:
             raise TypeError(f"Expected at least 2 arguments, got: {shape_and_dtype}")
@@ -105,4 +117,6 @@ class Register(metaclass=_MemoryStorage):
 
         shape = cast(tuple[IndexExpr, ...], shape)
         dtype = cast(DataType, dtype)
-        return cls.new_subtype(symbolic_shape=shape, dtype=dtype, address_space=AddressSpace.REGISTER.value)
+        return cls.new_subtype(
+            symbolic_shape=shape, dtype=dtype, address_space=AddressSpace.REGISTER.value
+        )

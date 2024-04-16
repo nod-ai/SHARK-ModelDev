@@ -16,7 +16,6 @@ import torch
 import torch.fx as fx
 import torch.utils._pytree as pytree
 
-from shark_turbine.kernel.lang.functional_types import Memory
 
 from .._support.indexing import (
     IndexExpr,
@@ -829,14 +828,14 @@ def cast_kernel_buffer(
     ir_type = value.type
     py_type = node.type
     if py_type is None:
-        py_type = node.meta['type']
+        py_type = node.meta["type"]
 
     if not MemRefType.isinstance(ir_type):
         raise CodegenError(
             f"Expected a KernelBuffer (aka. `memref`) but got `{ir_type}`"
         )
 
-    if not (issubclass(py_type, KernelBuffer) or issubclass(py_type, Memory)):
+    if not (issubclass(py_type, KernelBuffer) or issubclass(py_type, tkl.Memory)):
         raise CodegenError(
             f"Expected an lvalue of type KernelBuffer but got '{py_type}' for node {node}"
         )

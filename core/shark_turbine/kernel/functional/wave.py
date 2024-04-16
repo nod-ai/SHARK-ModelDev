@@ -200,12 +200,11 @@ class LaunchableWave(Launchable):
             def transform_module():
                 @named_sequence("__transform_main", [any_op_t()], [])
                 def sequence(target: any_op_t()):
-                    # TODO: For now no canonicalization as that also removes
-                    #       dead code. Currently in particular the workgroup_id
-                    #       and thread_id operations.
-                    # @apply_patterns(target)
-                    # def patterns():
-                    #     transform_d.apply_patterns_canonicalization()
+
+                    @apply_patterns(target)
+                    def patterns():
+                        transform_d.apply_patterns_canonicalization()
+
                     loops = structured_transform_ops.structured_match(
                         any_op_t(), target, ops=["scf.for"]
                     )

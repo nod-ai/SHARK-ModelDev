@@ -12,7 +12,7 @@ from .._support.indexing import (
 )
 
 from .._support.tracing import CapturedTrace
-from .functional_ops import (
+from .ops import (
     read,
     tiled_loop,
     write,
@@ -61,10 +61,7 @@ from ..compiler.ir import (
     stream_d,
 )
 
-__all__ = [
-    "handle_read",
-    "handle_write"
-]
+__all__ = ["handle_read", "handle_write"]
 
 from .. import lang as tkl
 
@@ -235,6 +232,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
     emitter.bind_node_proxy(node, register)
 
+
 def handle_read(emitter: WaveEmitter, node: fx.Node):
     # This is similar to tkl.store with fixed start indices for now.
     try:
@@ -266,9 +264,11 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     result = vector_d.load(vector_type, kb_src, start_indices)
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
+
 @handle_op(read)
 def _(emitter: WaveEmitter, node: fx.Node):
     handle_read(emitter, node)
+
 
 def handle_write(emitter: WaveEmitter, node: fx.Node):
     try:
@@ -303,9 +303,11 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
     vector_d.store(insert_vector, kb_dest, start_indices)
 
+
 @handle_op(write)
 def _(emitter: WaveEmitter, node: fx.Node):
     handle_write(emitter, node)
+
 
 ###############################################################################
 # Math Ops

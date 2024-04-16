@@ -21,18 +21,21 @@ from dataclasses import dataclass
 
 import torch.fx as fx
 
-from shark_turbine.kernel.lang.functional_types import _MemoryStorage
 
 from .._support.indexing import (
     IndexingContext,
     IndexSymbol,
 )
 
+
 from ..lang.kernel_buffer import (
     KernelBuffer,
     KernelBufferUsage,
     is_kernel_buffer_meta_derived,
 )
+
+from ..lang.functional_types import _MemoryStorage
+
 from ..lang.grid import Grid
 
 from .base import (
@@ -130,8 +133,16 @@ class KernelSignature:
         return [
             b
             for b in self.bindings
-            if (((b.binding_type == BindingType.KERNEL_BUFFER) and (b.kernel_buffer_type.usage == KernelBufferUsage.INPUT)) or
-                ((b.binding_type == BindingType.MEMORY) and (b.usage_type == KernelBufferUsage.INPUT)))
+            if (
+                (
+                    (b.binding_type == BindingType.KERNEL_BUFFER)
+                    and (b.kernel_buffer_type.usage == KernelBufferUsage.INPUT)
+                )
+                or (
+                    (b.binding_type == BindingType.MEMORY)
+                    and (b.usage_type == KernelBufferUsage.INPUT)
+                )
+            )
         ]
 
     @property
@@ -140,8 +151,16 @@ class KernelSignature:
         return [
             b
             for b in self.bindings
-            if (((b.binding_type == BindingType.KERNEL_BUFFER) and (b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT)) or
-                ((b.binding_type == BindingType.MEMORY) and (b.usage_type == KernelBufferUsage.OUTPUT)))
+            if (
+                (
+                    (b.binding_type == BindingType.KERNEL_BUFFER)
+                    and (b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT)
+                )
+                or (
+                    (b.binding_type == BindingType.MEMORY)
+                    and (b.usage_type == KernelBufferUsage.OUTPUT)
+                )
+            )
         ]
 
     @property

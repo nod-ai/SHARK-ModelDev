@@ -5,6 +5,7 @@ import shark_turbine.kernel as tk
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel.functional as tkf
 
+
 class Test(unittest.TestCase):
     def testGemm(self):
 
@@ -24,12 +25,15 @@ class Test(unittest.TestCase):
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
 
         # Expose user-constraints
-        constraints =  [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
+        constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
         constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
         constraints += [tkf.TilingConstraint(K, BLOCK_K)]
-        constraints += [tkf.ThreadConstraint(threads_per_block = [128, 2, 1])]
-        constraints += [tkf.HardwareConstraint(threads_per_wave = 64,
-                                               mma_type = 'MFMA_F32_16x16x16_F16')]
+        constraints += [tkf.ThreadConstraint(threads_per_block=[128, 2, 1])]
+        constraints += [
+            tkf.HardwareConstraint(
+                threads_per_wave=64, mma_type="MFMA_F32_16x16x16_F16"
+            )
+        ]
 
         # Wave-level micro-kernel.
         # Since warps are not directly addressable, there is no
@@ -38,9 +42,9 @@ class Test(unittest.TestCase):
         # we do not know the loop bounds.
         @tkf.wave(constraints)
         def gemm(
-            a: tkf.Memory[M, K, ADDRESS_SPACE, tkl.f16],
-            b: tkf.Memory[N, K, ADDRESS_SPACE, tkl.f16],
-            c: tkf.Memory[M, N, ADDRESS_SPACE, tkl.f32],
+            a: tkl.Memory[M, K, ADDRESS_SPACE, tkl.f16],
+            b: tkl.Memory[N, K, ADDRESS_SPACE, tkl.f16],
+            c: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f32],
         ):
             # This microkernel encodes the fact that if the reduction
             # dimension were tiled, then we would need to materialize a loop.
@@ -50,7 +54,7 @@ class Test(unittest.TestCase):
             # Do we maybe rather need the info that this is a reduction dimension?
             # This could be called tkf.dim(K) or tkf.reduction(K) ?
             @tkf.tiled_loop(K, init_args=[c_reg])
-            def repeat(c_reg) -> tkf.Register[M, N, tkl.f32]:
+            def repeat(c_reg) -> tkl.Register[M, N, tkl.f32]:
                 # a_reg: tkf.Register[M, K, tkl.f16]
                 # b_reg: tkf.Register[N, K, tkl.f16]
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)
