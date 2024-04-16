@@ -4,108 +4,21 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Union, Collection, TypeVar, Generic, Type
+from typing import Any, Optional, Union, Collection
+
+from types import NotImplementedType
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 
+from .tensors import InferenceTensor, PrimitiveTensor, QuantizedTensor
+
 __all__ = [
+    "BaseInferenceOps",
     "Dataset",
-    "InferenceTensor",
-    "PrimitiveTensor",
-    "QuantizedTensor",
     "Theta",
-    "QuantizedLayout",
 ]
-
-
-class QuantizedLayout(ABC):
-    @abstractmethod
-    def dequant(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        ...
-
-
-QuantizedLayoutT = TypeVar("QuantizedLayoutT", bound=QuantizedLayout)
-
-
-class InferenceTensor(ABC):
-    """Provides access to a tensor in the model used for inference.
-
-    InferenceTensors have a richer structure than "normal" training tensors
-    since they often involve a degree of layout on top of the raw data tensor.
-    """
-
-    def __init__(self, name: str, shape: list[int]):
-        self.name = name
-        self.shape = shape
-
-    @property
-    @abstractmethod
-    def globals(self) -> dict[str, torch.Tensor]:
-        """Returns a mapping of global name to root tensor.
-
-        The primary accessors on an InferenceTensor access the root tensors in
-        the global set, all of which in a root Theta must have unique names.
-        """
-        ...
-
-
-class PrimitiveTensor(InferenceTensor):
-    """An InferenceTensor without any kind of special layout.
-
-    These can be directly operated on as a torch.Tensor.
-    """
-
-    @abstractmethod
-    def as_torch(self, *, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        """Accesses the raw data as a torch tensor.
-
-        If the tensor is packed in some way, this may bare no resemblance to
-        the logical arrangement of the data.
-        """
-        ...
-
-
-class DefaultPrimitiveTensor(PrimitiveTensor):
-    """Concrete implementation of a PrimitiveTensor based on a single tensor."""
-
-    def __init__(self, name: str, data: torch.Tensor):
-        super().__init__(name, list(data.shape))
-        self._data = data
-
-    def as_torch(self, *, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        if dtype is not None:
-            return self._data.to(dtype)
-        return self._data
-
-    @property
-    def globals(self) -> dict[str, torch.Tensor]:
-        return {
-            self.name: self._data,
-        }
-
-    def __repr__(self):
-        return f"PrimitiveTensor({self.name}, {self.shape})"
-
-
-class QuantizedTensor(InferenceTensor, Generic[QuantizedLayoutT]):
-    """An inference tensor that is quantized/packed."""
-
-    def __init__(
-        self,
-        name: str,
-        shape: list[int],
-        *,
-        layout_type: Type[QuantizedLayout],
-    ):
-        super().__init__(name, shape)
-        self.layout_type = layout_type
-
-    @abstractmethod
-    def unpack(self) -> QuantizedLayoutT:
-        ...
 
 
 class Theta:
@@ -115,11 +28,17 @@ class Theta:
         self,
         tensors: dict,
         *,
-        ops: Optional["InferenceOps"] = None,
+        ops: Optional["BaseInferenceOps"] = None,
         already_nested: bool = False,
     ):
         self._tensors = tensors if already_nested else _flat_to_nested_dict(tensors)
-        self.ops = ops if ops is not None else InferenceOps()
+        if ops is None:
+            # Use the custom op library by default. Note that since the ops
+            # namespace depends on types, we have to lazy load it.
+            from ..ops import CustomInferenceOps
+
+            ops = CustomInferenceOps()
+        self.ops = ops
 
     def flatten(self) -> dict[str, InferenceTensor]:
         results = {}
@@ -208,7 +127,7 @@ class Dataset:
     root_theta: Theta
 
 
-class InferenceOps:
+class BaseInferenceOps:
     """Operations involving InferenceTensors.
 
     There are really only a handful of operations that are ever done on packed
@@ -219,6 +138,11 @@ class InferenceOps:
 
     The InferenceOps class can be accessed on any Theta object, which also
     provides a single place where it can be customized.
+
+    This class was designed to be subclassed. Ops will generally attempt to
+    dispatch to a private function of the same name (with leading underscore)
+    and will only execute the default Torch implementation if it returns
+    NotImplemented.
     """
 
     def embedding_lookup(
@@ -226,13 +150,16 @@ class InferenceOps:
         input: torch.Tensor,
         embedding_matrix: Union[torch.Tensor, InferenceTensor],
         dtype: torch.dtype,
-    ):
+    ) -> torch.Tensor:
         """Performs the equivalent of F.embedding(input, embedding_matrix).
 
         Note that the default algorithm will unquantize the embedding_matrix to
         do the lookup, which is inefficient. Specializations should decompose
         this as appropriate for quantized arithmetic.
         """
+        delegated = self._embedding_lookup(input, embedding_matrix, dtype)
+        if delegated is not NotImplemented:
+            return delegated
         if isinstance(embedding_matrix, InferenceTensor):
             if isinstance(embedding_matrix, QuantizedTensor):
                 embedding_matrix = embedding_matrix.unpack().dequant(dtype)
@@ -243,6 +170,14 @@ class InferenceOps:
                     f"Unsupported InferenceTensor: {type(embedding_matrix)}"
                 )
         return F.embedding(input, embedding_matrix)  # type: ignore
+
+    def _embedding_lookup(
+        self,
+        input: torch.Tensor,
+        embedding_matrix: Union[torch.Tensor, InferenceTensor],
+        dtype: torch.dtype,
+    ) -> Union[NotImplementedType, torch.Tensor]:
+        return NotImplemented
 
     def matmul(
         self,
@@ -261,14 +196,14 @@ class InferenceOps:
 
         Args:
         lhs: Left hand side tensor. Can have dimensionality > 2 for batch.
-        rhs: Right hand side tensor.
+        rhs: Right hand side tensor. Must be 2d.
         transpose_rhs: Whether the right hand side should be transposed prior
             to matmul.
         """
-        if transpose_rhs:
-            assert (
-                len(rhs.shape) == 2
-            ), f"Expected 2d rhs for transpose_rhs=True. Got: {rhs.shape}"
+        assert len(rhs.shape) == 2, f"Expected 2d matmul rhs for. Got: {rhs.shape}"
+        delegated = self._matmul(lhs, rhs, transpose_rhs=transpose_rhs)
+        if delegated is not NotImplemented:
+            return delegated
 
         if isinstance(rhs, QuantizedTensor):
             # By default, unpack and dequantize the rhs. This produces correct results
@@ -293,14 +228,26 @@ class InferenceOps:
             assert isinstance(rhs, torch.Tensor)
             return _matmul_torch(lhs, rhs, transpose_rhs=transpose_rhs)
 
+    def _matmul(
+        self,
+        lhs: torch.Tensor,
+        rhs: Union[torch.Tensor, InferenceTensor],
+        *,
+        transpose_rhs: bool = True,
+    ) -> Union[NotImplementedType, torch.Tensor]:
+        return NotImplemented
+
     def rms_norm(
         self,
         x: torch.Tensor,
         weight: Union[torch.Tensor, InferenceTensor],
         *,
         epsilon: float,
-    ):
+    ) -> torch.Tensor:
         """Computes the full, unbiased RMS normalization of an input."""
+        delegated = self._rms_norm(x, weight, epsilon=epsilon)
+        if delegated is not NotImplemented:
+            return delegated
         if isinstance(weight, InferenceTensor):
             if isinstance(weight, QuantizedTensor):
                 weight = weight.unpack().dequant(x.dtype)
@@ -312,6 +259,15 @@ class InferenceOps:
         output = x * torch.rsqrt(variance + epsilon)
         output = output * weight
         return output
+
+    def _rms_norm(
+        self,
+        x: torch.Tensor,
+        weight: Union[torch.Tensor, InferenceTensor],
+        *,
+        epsilon: float,
+    ) -> Union[NotImplementedType, torch.Tensor]:
+        return NotImplemented
 
 
 def _matmul_torch(

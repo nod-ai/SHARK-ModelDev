@@ -8,7 +8,7 @@ from typing import Optional
 
 import torch
 
-from .data import Theta
+from ..types import Theta
 from .base import (
     ThetaLayer,
 )

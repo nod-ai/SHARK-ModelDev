@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import os
 
@@ -19,10 +19,13 @@ from shark_turbine.aot import (
 
 from ...utils.logging import get_logger
 
-from ..data import (
-    Dataset,
+from ..tensors import (
     DefaultPrimitiveTensor,
     InferenceTensor,
+)
+
+from ..theta import (
+    Dataset,
     Theta,
 )
 
@@ -57,17 +60,23 @@ def _load_properties(reader: GGUFReader) -> dict[str, Any]:
 
 
 _quantized_types = {
+    "Q4_1": layouts.Q4_1,
+    "Q4_K": layouts.Q4_K,
+    "Q5_K": layouts.Q5_K,
+    "Q6_K": layouts.Q6_K,
     "Q8_0": layouts.Q8_0,
 }
 
 
 def _externalize_tensor(
-    name: str, data: np.memmap, logical_shape: list[int]
+    name: str, data: np.memmap, logical_shape: Optional[list[int]] = None
 ) -> torch.Tensor:
     # Important: The annotation tag must be set on the actual leaf tensor
     # which is stored in the root theta. This means that any shaping or
     # data type massaging has to happen *before* annotating.
-    data_tensor = torch.tensor(data).reshape(logical_shape)
+    data_tensor = torch.tensor(data)
+    if logical_shape is not None:
+        data_tensor = data_tensor.reshape(logical_shape)
     ExternalTensorTrait(external_name=name, external_scope="").set(data_tensor)
     return data_tensor
 
@@ -89,7 +98,9 @@ def _wrap_tensor(
     quantized_type = _quantized_types.get(type_name)
     if quantized_type is not None:
         return quantized_type(
-            name=name, raw=_externalize_tensor(name, data), shape=logical_shape
+            name=name,
+            raw=_externalize_tensor(name, data),
+            shape=logical_shape,
         )
 
     raise ValueError(f"Unsupported gguf tensor type: {type_name}")

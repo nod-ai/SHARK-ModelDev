@@ -98,6 +98,69 @@ Dataset(
     ),
 ).alias_to("open_llama_3b_v2_f16_gguf")
 
+Dataset(
+    "SlyEcho/open_llama_3b_v2_q8_0_gguf",
+    (
+        RemoteFile(
+            "gguf", "SlyEcho/open_llama_3b_v2_gguf", "open-llama-3b-v2-q8_0.gguf"
+        ),
+        RemoteFile(
+            "tokenizer_config.json",
+            "openlm-research/open_llama_3b_v2",
+            "tokenizer_config.json",
+            extra_filenames=["tokenizer.model"],
+        ),
+    ),
+).alias_to("open_llama_3b_v2_q8_0_gguf")
+
+Dataset(
+    "SlyEcho/open_llama_3b_v2_q4_1_gguf",
+    (
+        RemoteFile(
+            "gguf", "SlyEcho/open_llama_3b_v2_gguf", "open-llama-3b-v2-q4_1.gguf"
+        ),
+        RemoteFile(
+            "tokenizer_config.json",
+            "openlm-research/open_llama_3b_v2",
+            "tokenizer_config.json",
+            extra_filenames=["tokenizer.model"],
+        ),
+    ),
+).alias_to("open_llama_3b_v2_q4_1_gguf")
+
+Dataset(
+    "TheBloke/Llama-2-70B-GGUF_q4_k_m",
+    (
+        RemoteFile(
+            "gguf",
+            "TheBloke/Llama-2-70B-GGUF",
+            "llama-2-70b.Q4_K_M.gguf",
+        ),
+        RemoteFile(
+            "tokenizer_config.json",
+            "TheBloke/Llama-2-70B-fp16",
+            "tokenizer_config.json",
+            extra_filenames=["tokenizer.model"],
+        ),
+    ),
+).alias_to("llama2_70b_q4_k_m_gguf")
+
+Dataset(
+    "TheBloke/Llama-2-70B-GGUF_q4_k_s",
+    (
+        RemoteFile(
+            "gguf",
+            "TheBloke/Llama-2-70B-GGUF",
+            "llama-2-70b.Q4_K_S.gguf",
+        ),
+        RemoteFile(
+            "tokenizer_config.json",
+            "TheBloke/Llama-2-70B-fp16",
+            "tokenizer_config.json",
+            extra_filenames=["tokenizer.model"],
+        ),
+    ),
+).alias_to("llama2_70b_q4_k_s_gguf")
 
 ################################################################################
 # Tool entrypoint

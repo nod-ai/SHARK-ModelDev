@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 
-from .data import (
+from ..types import (
     InferenceTensor,
     Theta,
 )

@@ -12,6 +12,7 @@ import sys
 import torch
 
 from ..layers import *
+from ..types import *
 
 # TODO: Should be using a base class with the protocol supported.
 from ..models.llama.llama import *
@@ -213,7 +214,7 @@ def main():
 
     data_files = cli.get_gguf_data_files(args)
     tokenizer = cli.get_tokenizer(args, data_files=data_files)
-    dataset = gguf.load_file(data_files["gguf"])
+    dataset = gguf_interop.load_file(data_files["gguf"])
     prompts = args.prompt
 
     config = LlamaModelConfig(
