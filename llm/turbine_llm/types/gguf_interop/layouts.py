@@ -102,19 +102,5 @@ class Q4_1(QuantizedTensor[BlockScaledI4Layout]):
     def __repr__(self):
         return f"Q4_1({self.name}, {self.shape})"
 
-    def _reorder_q4_data(self, q4_tensor: torch.Tensor) -> torch.Tensor:
-        v1 = q4_tensor & 0xF
-        v2 = q4_tensor >> 4
-        block_size = q4_tensor.size(-1)
-        even_idx = torch.tensor(range(0, block_size, 2))
-        odd_idx = torch.tensor(range(1, block_size, 2))
-        v1_even = v1.index_select(-1, even_idx)
-        v1_odd = v1.index_select(-1, odd_idx)
-        v2_even = v2.index_select(-1, even_idx)
-        v2_odd = v2.index_select(-1, odd_idx)
-        v1_packed = torch.bitwise_or(v1_even, v1_odd << 4)
-        v2_packed = torch.bitwise_or(v2_even, v2_odd << 4)
-        return torch.cat([v1_packed, v2_packed], dim=-1)
-
 
 # TODO: Bring the other variants over from ggml_structs.py.
