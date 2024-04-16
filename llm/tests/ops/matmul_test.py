@@ -13,7 +13,7 @@ import unittest
 import torch
 
 from turbine_llm import ops
-from turbine_llm.types import layout_utils 
+from turbine_llm.types import layout_utils
 
 
 class mmtfp_test(unittest.TestCase):
