@@ -199,34 +199,52 @@ class LaunchableWave(Launchable):
     def canonicalize_module(self, module: Operation):
         with module.context, Location.unknown():
 
-            @builtin_d.module(attrs={"transform.with_named_sequence": UnitAttr.get()})
-            def transform_module():
-                @named_sequence("__transform_main", [any_op_t()], [])
-                def sequence(target: any_op_t()):
+            transform_module = builtin_d.Module.create()
+            transform_module_op = module.operation
+            transform_module_op.attributes["transform.with_named_sequence"] = (
+                UnitAttr.get()
+            )
+            with InsertionPoint(transform_module.body):
+                named_seqence = transform_d.NamedSequenceOp(
+                    "__transform_main", [any_op_t()], []
+                )
+                with InsertionPoint(named_seqence.body):
+                    target = named_seqence.body.arguments[0]
+                    # TODO: For now no canonicalization as that also removes
+                    #       dead code. Currently in particular the workgroup_id
+                    #       and thread_id operations.
+                    # @apply_patterns(target)
+                    # def patterns():
 
-                    @apply_patterns(target)
-                    def patterns():
+                    apply_patterns = transform_d.ApplyPatternsOp(target)
+                    with InsertionPoint(apply_patterns.regions[0].blocks[0]):
                         transform_d.apply_patterns_canonicalization()
 
                     loops = structured_transform_ops.structured_match(
                         any_op_t(), target, ops=["scf.for"]
                     )
                     transform_d.apply_licm(loops)
-                    # transform_d.apply_cse(target)
-
+                    transform_d.YieldOp([target])
             transform_interpreter.apply_named_sequence(
                 module,
-                transform_module.regions[0].blocks[0].operations[0],
+                transform_module.body.operations[0],
                 transform_module,
             )
 
     def lower_module(self, module: Operation):
         with module.context, Location.unknown():
 
-            @builtin_d.module(attrs={"transform.with_named_sequence": UnitAttr.get()})
-            def transform_module():
-                @named_sequence("__transform_main", [any_op_t()], [])
-                def sequence(target: any_op_t()):
+            transform_module = builtin_d.Module.create()
+            transform_module_op = module.operation
+            transform_module_op.attributes["transform.with_named_sequence"] = (
+                UnitAttr.get()
+            )
+            with InsertionPoint(transform_module.body):
+                named_seqence = transform_d.NamedSequenceOp(
+                    "__transform_main", [any_op_t()], []
+                )
+                with InsertionPoint(named_seqence.body):
+                    target = named_seqence.body.arguments[0]
                     target = transform_d.ApplyRegisteredPassOp(
                         any_op_t(), target, "convert-scf-to-cf"
                     )
@@ -240,7 +258,7 @@ class LaunchableWave(Launchable):
 
             transform_interpreter.apply_named_sequence(
                 module,
-                transform_module.regions[0].blocks[0].operations[0],
+                transform_module.body.operations[0],
                 transform_module,
             )
 
