@@ -63,7 +63,8 @@ class Q8_0(QuantizedTensor[BlockScaledLayout]):
 
 
 class Q4_1(QuantizedTensor[BlockScaledI4Layout]):
-    """
+    """Support quantized tensors in the Q4_1 format.
+
     ```
     #define QK4_1 32
     typedef struct {
@@ -72,6 +73,12 @@ class Q4_1(QuantizedTensor[BlockScaledI4Layout]):
         uint8_t qs[QK4_1 / 2];  // nibbles / quants
     } block_q4_1;
     ```
+
+    This scheme has some quirks:
+
+    * The `qs` are interleaved vs laid out linearly.
+    * Nibbles are unsigned quantities.
+    * `m` is pre-scaled by `delta`.
     """
 
     def __init__(self, *, name: str, raw: torch.Tensor, shape: list[int]):

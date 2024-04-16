@@ -14,13 +14,18 @@ import torch.nn.functional as F
 from ..types import (
     BaseInferenceOps,
     BlockScaledLayout,
+    BlockScaledI4Layout,
     InferenceTensor,
     PrimitiveTensor,
     QuantizedTensor,
     gguf_interop,
 )
 
-from .matmul import mmtfp, mmt_block_scaled_q8
+from .matmul import (
+    mmtfp,
+    mmt_block_scaled_offset_q4_unsigned,
+    mmt_block_scaled_q8,
+)
 
 __all__ = [
     "BaseInferenceOps",
@@ -68,7 +73,21 @@ def _mmt_block_scaled(lhs: torch.Tensor, rhs: QuantizedTensor[BlockScaledLayout]
     potential if specializing further to the packed layout.
     """
     rhs_unpacked = rhs.unpack()
+    assert rhs_unpacked.m is None, "NYI: Q8 block scaled with offset"
     return mmt_block_scaled_q8(lhs, rhs_unpacked.d, rhs_unpacked.qs)
 
 
-_QMMT_DISPATCH: dict[type, Callable] = {gguf_interop.Q8_0: _mmt_block_scaled}
+def _mmt_block_scaled_q4(lhs: torch.Tensor, rhs: QuantizedTensor[BlockScaledI4Layout]):
+    """Generic fallback kernel for an unsigned, block scaled Q4."""
+    rhs_unpacked = rhs.unpack()
+    assert rhs_unpacked.m is not None, "NYI: Q4 without offset not"
+    assert not rhs_unpacked.signed, "NYI: Q4 signed"
+    return mmt_block_scaled_offset_q4_unsigned(
+        a=lhs, d=rhs_unpacked.d, qs=rhs_unpacked.qs_bit_packed, m=rhs_unpacked.m
+    )
+
+
+_QMMT_DISPATCH: dict[type, Callable] = {
+    gguf_interop.Q4_1: _mmt_block_scaled_q4,
+    gguf_interop.Q8_0: _mmt_block_scaled,
+}

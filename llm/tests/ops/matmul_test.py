@@ -40,6 +40,18 @@ class mmt_block_scaled_q8_test(unittest.TestCase):
         qs = (torch.rand([3200, 100, 32], dtype=torch.float32) * 127.0).to(torch.int8)
         result = ops.mmt_block_scaled_q8(a, d, qs)
         print(result)
+        # TODO: DO NOT SUBMIT: Add numerical test.
+
+
+class mmt_block_scaled_offset_q4_unsigned_test(unittest.TestCase):
+    def test_basic(self):
+        a = torch.rand([4, 16, 3200], dtype=torch.float32)
+        d = torch.rand([3200, 100, 1], dtype=torch.float16)
+        qs = (torch.rand([3200, 100, 16], dtype=torch.float32) * 256).to(torch.uint8)
+        m = torch.rand([3200, 100, 1], dtype=torch.float16)
+        result = ops.mmt_block_scaled_offset_q4_unsigned(a, d, qs, m)
+        print(result)
+        # TODO: DO NOT SUBMIT: Add numerical test.
 
 
 if __name__ == "__main__":

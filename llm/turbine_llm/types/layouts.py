@@ -108,6 +108,19 @@ class BlockScaledLayout(QuantizedLayout):
 
 
 class BlockScaledI4Layout(BlockScaledLayout):
+    """A BlockScaledLayout where the `qs` are internally packed 2 values per byte.
+
+    Per convention, the `qs` property returns a tensor as either uint8 or
+    int8 (depending on `signed=`) that can be used directly for arithmetic.
+    The underlying bit-packed tensor can be accessed via `qs_bit_packed` and
+    it is laid out in little endian bit order, linearly across the block
+    dimension. There are an arbitrary ways to organize such things, and
+    if more specificity is needed, a dedicated layout class should be used. In
+    general, for these "generic" layouts, we choose defaults that mate well
+    with how the compiler infra and prevailing targets are built and trust that
+    optimizations that care will choose a specific packing.
+    """
+
     def __init__(
         self,
         shape: list[int],
@@ -129,5 +142,5 @@ class BlockScaledI4Layout(BlockScaledLayout):
         return promote_linear_i4_block_to_i8(self._qs, signed=self.signed)
 
     @property
-    def qs_packed(self) -> torch.Tensor:
+    def qs_bit_packed(self) -> torch.Tensor:
         return self._qs
