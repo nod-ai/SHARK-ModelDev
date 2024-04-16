@@ -59,6 +59,7 @@ class Memory(metaclass=_MemoryStorage):
     def __init__(self, tensor: torch.Tensor) -> None:
         assert isinstance(tensor, torch.Tensor), f"Expected Tensor but got {tensor}"
         self._tensor = tensor
+        self.symbolic_shape = None
 
     def __class_getitem__(
         cls, shape_and_dtype: tuple[IndexExpr | DataType, ...]

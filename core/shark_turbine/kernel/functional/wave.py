@@ -2,6 +2,7 @@ from typing import Type, Callable, Optional, Dict
 
 import inspect
 import math
+
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
 
@@ -25,6 +26,8 @@ from .._support.tracing import (
 )
 
 from .._support.indexing import IndexingContext
+
+from .._support.nodes import *
 
 from ..compiler import (
     kernel_codegen,
@@ -376,7 +379,7 @@ class LaunchableWave(Launchable):
                             for j in range(len(offset)):
                                 arg.meta["index"][j] += offset[j]
 
-    def get_string(self, node: fx.Node, i: int, nested_region: bool):
+    def get_string(self, node: fx.Node, i: int, nested_region: bool) -> str:
         prefix = " "
         nested_region_prefix = "b" if nested_region else ""
 
@@ -406,14 +409,16 @@ class LaunchableWave(Launchable):
             return asm_str + self.get_string(node.next, i + 1, nested_region)
 
         asm_str = initialize(prefix, nested_region)
-        if "construct_register_from_metadata" in node.name:
-            shape, dtype, value = node.args
-            simt_shape = None
-            if "simt_shape" in node.meta:
-                simt_shape = node.meta["simt_shape"]
-            asm_str += f"%{i} = construct_register_from_metadata [value = {value}] -> Register<{shape}, {dtype}> -> Register<{simt_shape}, {dtype}>\n"
-            self.index_map[node.name] = f"{i}"
-            return asm_str + self.get_string(node.next, i + 1, nested_region)
+
+        typed_node = getNode(node)
+        if not isinstance(typed_node, UnknownNode):
+            self.index_map[node.name] = f"{nested_region_prefix}{i}"
+            return (prefix if not nested_region else prefix + prefix) + (
+                f"%{nested_region_prefix}{i} = {typed_node.custom_string(self.index_map)}"
+                + self.get_string(node.next, i + 1, nested_region)
+            )
+
+        # TODO: Move the other ops below also to custom nodes
         if "tiled_loop" in node.name:
             if nested_region:
                 j = self.parent_id
@@ -436,28 +441,6 @@ class LaunchableWave(Launchable):
             asm_str += f"%{nested_region_prefix}{i} = alloc : Memory<{shape}, {dtype}, #shared>\n"
             self.index_map[node.name] = f"{nested_region_prefix}{i}"
             return asm_str + self.get_string(node.next, i + 1, nested_region)
-        if "read" in node.name:
-            type = node.args[0].meta["type"]
-            shape = type.symbolic_shape
-            dtype = type.dtype
-            simt_shape = node.args[1]
-            asm_str += f"%{nested_region_prefix}{i} = {node.name} %{self.index_map[node.args[0].name]} -> Register<{shape}, {dtype}> -> Register<{simt_shape}, {dtype}>\n"
-            self.index_map[node.name] = f"{nested_region_prefix}{i}"
-            return asm_str + self.get_string(node.next, i + 1, nested_region)
-        if "mma" in node.name:
-            lhs = node.args[0]
-            lhs_type = lhs.meta["type"]
-            lhs_shape = self.hardware_constraints[0].get_vector_shape("A")
-            rhs = node.args[1]
-            rhs_type = rhs.meta["type"]
-            rhs_shape = self.hardware_constraints[0].get_vector_shape("B")
-            acc = node.args[2]
-            acc_type = acc.meta["type"]
-            acc_shape = self.hardware_constraints[0].get_vector_shape("C")
-            asm_str += f"%{nested_region_prefix}{i} = mma %{self.index_map[lhs.name]}, %{self.index_map[rhs.name]}, %{self.index_map[acc.name]} : "
-            asm_str += f"Register<{lhs_shape}, {lhs_type.dtype}>, Register<{rhs_shape}, {rhs_type.dtype}> -> Register<{acc_shape}, {acc_type.dtype}>\n"
-            self.index_map[node.name] = f"{nested_region_prefix}{i}"
-            return asm_str + self.get_string(node.next, i + 1, nested_region)
         if "output" in node.name:
             if self.parent is not None:
                 asm_str += "scf.yield "
@@ -472,15 +455,7 @@ class LaunchableWave(Launchable):
             else:
                 asm_str += "\n}\n"
             return asm_str
-        if "write" in node.name:
-            memory_type = node.args[1].meta["type"]
-            memory_shape = memory_type.symbolic_shape
-            memory_dtype = memory_type.dtype
-            asm_str += (
-                f"%{nested_region_prefix}{i} = {node.name} %{self.index_map[node.args[0].name]}, %{self.index_map[node.args[1].name]}"
-                + f" : Memory<{memory_shape}, {memory_dtype}>\n"
-            )
-            return asm_str + self.get_string(node.next, i + 1, nested_region)
+
         return asm_str
 
     def print(self, trace: CapturedTrace):
@@ -530,6 +505,8 @@ class LaunchableWave(Launchable):
         new_ops = []
         for graph in subgraphs.values():
             for node in graph.nodes:
+                # typed_node = getNode(node)
+                # TODO: rewrite this to use the match..case syntax with typed_node
                 if "read" in node.name and "shared" not in node.name:
                     for arg in node.all_input_nodes:
                         if arg.meta["type"] is not None:
@@ -648,6 +625,8 @@ class LaunchableWave(Launchable):
         emitter = WaveEmitter(dispatch_entrypoint, trace)
 
         # Add handlers for new ops that we introduced during promotion
+        # TODO: Why is this required here? I think we should define the newly introduced
+        # ops in ops.py then the registration happens automatically
         for target_func in new_ops:
             WaveEmitter.OP_HANDLERS[target_func] = target_func
 
