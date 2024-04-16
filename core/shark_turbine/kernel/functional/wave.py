@@ -43,10 +43,16 @@ from ..compiler.ir import (
     builtin_d,
     Context,
     InsertionPoint,
+    IrType,
     Location,
     Operation,
+    gpu_d,
     transform_d,
+    memref_d,
     UnitAttr,
+    MemRefType,
+    IntegerAttr,
+    IndexType
 )
 
 from iree.compiler.dialects.transform import (
@@ -59,9 +65,30 @@ from iree.compiler.dialects import (
     _structured_transform_ops_gen as structured_transform_ops,
 )
 
-from ..functional.codegen import WaveEmitter
-from ..lang.functional_types import Register
+from ..functional.codegen import WaveEmitter, handle_read, handle_write
+
+from ..lang.functional_types import Register, AddressSpace, Memory
 from .constraints import ConstraintsMeta, WorkgroupConstraint, TilingConstraint, ThreadConstraint, HardwareConstraint
+
+from ..compiler.builder import (
+    IRProxyValue,
+    ScalarBuilder,
+)
+
+from ..compiler.base import (
+    CodegenError,
+    NDEBUG,
+    ValidationError,
+)
+
+from ..compiler.vector_codegen import (
+    cast_py_literal,
+    cast_py_value,
+    cast_kernel_buffer,
+    cast_slice_spec,
+    cast_vector,
+    extract_slice_starts,
+)
 
 __all__ = [
     "wave",
@@ -153,7 +180,7 @@ class LaunchableWave(Launchable):
                 @named_sequence("__transform_main", [any_op_t()], [])
                 def sequence(target: any_op_t()):
                     # TODO: For now no canonicalization as that also removes
-                    #       dead code. Currently in particular the workgroup_id 
+                    #       dead code. Currently in particular the workgroup_id
                     #       and thread_id operations.
                     # @apply_patterns(target)
                     # def patterns():
@@ -366,13 +393,19 @@ class LaunchableWave(Launchable):
             self.parent = node
             self.parent_id = i
             return asm_str + self.get_string(first_node, 0, True)
+        if 'alloc' in node.name:
+            shape = node.args[0]
+            dtype = node.args[1]
+            asm_str += f'%{nested_region_prefix}{i} = alloc : Memory<{shape}, {dtype}, #shared>\n'
+            self.index_map[node.name] = f'{nested_region_prefix}{i}'
+            return asm_str + self.get_string(node.next, i+1, nested_region)
         if 'read' in node.name:
-            type = node.args[0].type
+            type = node.args[0].meta['type']
             shape = type.symbolic_shape
             dtype = type.dtype
             simt_shape = node.args[1]
-            asm_str += f'%{nested_region_prefix}{i} = read %{self.index_map[node.args[0].name]} -> Register<{shape}, {dtype}> -> Register<{simt_shape}, {dtype}>\n'
-            self.index_map[node.name] = f'b{i}'
+            asm_str += f'%{nested_region_prefix}{i} = {node.name} %{self.index_map[node.args[0].name]} -> Register<{shape}, {dtype}> -> Register<{simt_shape}, {dtype}>\n'
+            self.index_map[node.name] = f'{nested_region_prefix}{i}'
             return asm_str + self.get_string(node.next, i+1, nested_region)
         if 'mma' in node.name:
             lhs = node.args[0]
@@ -386,7 +419,7 @@ class LaunchableWave(Launchable):
             acc_shape = self.hardware_constraints[0].get_vector_shape('C')
             asm_str += f'%{nested_region_prefix}{i} = mma %{self.index_map[lhs.name]}, %{self.index_map[rhs.name]}, %{self.index_map[acc.name]} : '
             asm_str += f'Register<{lhs_shape}, {lhs_type.dtype}>, Register<{rhs_shape}, {rhs_type.dtype}> -> Register<{acc_shape}, {acc_type.dtype}>\n'
-            self.index_map[node.name] = f'b{i}'
+            self.index_map[node.name] = f'{nested_region_prefix}{i}'
             return asm_str + self.get_string(node.next, i+1, nested_region)
         if 'output' in node.name:
             if self.parent is not None:
@@ -406,15 +439,9 @@ class LaunchableWave(Launchable):
             memory_type = node.args[1].meta['type']
             memory_shape = memory_type.symbolic_shape
             memory_dtype = memory_type.dtype
-            asm_str += f'%{nested_region_prefix}{i} = write %{self.index_map[node.args[0].name]}, %{self.index_map[node.args[1].name]}' \
+            asm_str += f'%{nested_region_prefix}{i} = {node.name} %{self.index_map[node.args[0].name]}, %{self.index_map[node.args[1].name]}' \
                      + f' : Memory<{memory_shape}, {memory_dtype}>\n'
             return asm_str + self.get_string(node.next, i+1, nested_region)
-
-            #arg_index = 0
-            #implicit_capture = [x.name for x in node.kwargs['implicit_capture']]
-            #for node in subgraphs[node.kwargs['subgraph']].nodes:
-            #asm_str += prefix + '}\n'
-        breakpoint()
         return asm_str
 
     def print(self, trace: CapturedTrace):
@@ -425,6 +452,80 @@ class LaunchableWave(Launchable):
         root = list(trace.get_root_graph().nodes)[0]
         asm_str = self.get_string(root, 0, False)
         print(asm_str)
+
+    @staticmethod
+    def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
+        try:
+            shape, dtype = node.args
+        except ValueError as e:
+            raise ValidationError("Malformed arguments") from e
+        memref_shape = cast_py_literal(emitter, shape)
+        element_type = IrType.parse(dtype.ir_type_asm())
+        address_space = IntegerAttr.get(IndexType.get(), gpu_d.AddressSpace.Workgroup)
+        memref_type = MemRefType.get(memref_shape, element_type, None, address_space)
+        alloc = memref_d.alloc(memref_type, [], [])
+        emitter.bind_node_proxy(node, IRProxyValue(alloc))
+
+    @staticmethod
+    def handle_read_shared(emitter: WaveEmitter, node: fx.Node):
+        handle_read(emitter, node)
+
+    @staticmethod
+    def handle_write_shared(emitter: WaveEmitter, node: fx.Node):
+        handle_write(emitter, node)
+
+    """
+    Promotes tkf.reads to reads from shared memory if the
+    address space of the memory operand is shared memory.
+    Introduces additional nodes in the fx graph for
+    readign and writing from registers to shared memory,
+    as well as a shared memory allocation.
+    """
+    def promote_to_shared_memory(self, trace: CapturedTrace, idxc: IndexingContext):
+        subgraphs = trace.region_graph.subgraphs
+        root_graph = trace.get_root_graph()
+        # Add additional frozen subs for shared memory
+        SMEM_SPACE = tkl.sym.SMEM_SPACE
+        idxc.frozen_subs.append((SMEM_SPACE, AddressSpace.SHARED_MEMORY.value))
+        new_ops = []
+        for graph in subgraphs.values():
+            for node in graph.nodes:
+                if 'read' in node.name and 'shared' not in node.name:
+                    for arg in node.all_input_nodes:
+                        if arg.meta['type'] is not None:
+                            shape = arg.meta['type'].symbolic_shape
+                            dtype = arg.meta['type'].dtype
+                            address_space = arg.meta['type'].address_space
+                            for (sym, val) in idxc.frozen_subs:
+                                if sym == address_space:
+                                    address_space = val
+                                    break
+                            if address_space != AddressSpace.SHARED_MEMORY.value:
+                                continue
+                            for user in node.users.keys():
+                                if 'write_shared' in user.name:
+                                    continue
+                            # Create alloc node
+                            alloc = root_graph.create_node("call_function", self.handle_alloc_shared, args=(shape, dtype,), kwargs=None, name='alloc_shared')
+                            new_ops.append(self.handle_alloc_shared)
+                            alloc.meta['type'] = Memory[*list(shape) + [SMEM_SPACE, dtype]]
+                            current = root_graph._root
+                            while current.next.op == 'placeholder':
+                                current = current.next
+                            current.append(alloc)
+                            # Create read shared node
+                            read_shared = graph.create_node("call_function", self.handle_read_shared, args=(alloc, node.args[1],), kwargs=None, name='read_shared')
+                            new_ops.append(self.handle_read_shared)
+                            read_shared.meta['type'] = Register[*list(shape) + [dtype]]
+                            node.replace_all_uses_with(read_shared)
+                            # Create write shared node
+                            write_shared = graph.create_node("call_function", self.handle_write_shared, args=(node, alloc, node.args[1],), kwargs=None, name='write_shared')
+                            new_ops.append(self.handle_write_shared)
+                            write_shared.meta['type'] = None
+                            node.append(write_shared)
+                            write_shared.append(read_shared)
+
+        return new_ops
 
     def _trace_and_get_kernel_signature(
         self,
@@ -453,6 +554,10 @@ class LaunchableWave(Launchable):
 
         # Do type propagation to all nodes in subgraphs
         self.propagate_types(trace)
+
+        # Do shared memory promotion if required
+        new_ops = self.promote_to_shared_memory(trace, idxc)
+
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
 
@@ -471,6 +576,11 @@ class LaunchableWave(Launchable):
         exe = dispatch_codegen.StreamExecutable(mb, name=entrypoint_name)
         dispatch_entrypoint = exe.define_entrypoint(entrypoint_name, kernel_sig, grid)
         emitter = WaveEmitter(dispatch_entrypoint, trace)
+
+        # Add handlers for new ops that we introduced during promotion
+        for target_func in new_ops:
+            WaveEmitter.OP_HANDLERS[target_func] = target_func
+
         emitter.emit()
         emitter.finish()
 
@@ -489,7 +599,6 @@ class LaunchableWave(Launchable):
         print(mb.module_op.get_asm())
 
     def aot_execute(self, args, kwargs):
-        launch_context = LaunchContext.current()
         assert isinstance(launch_context, AOTLaunchContext)
 
         module = launch_context.module

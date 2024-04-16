@@ -61,6 +61,10 @@ from ..compiler.ir import (
     stream_d,
 )
 
+__all__ = [
+    "handle_read",
+    "handle_write"
+]
 
 from .. import lang as tkl
 
@@ -231,9 +235,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
     emitter.bind_node_proxy(node, register)
 
-
-@handle_op(read)
-def _(emitter: WaveEmitter, node: fx.Node):
+def handle_read(emitter: WaveEmitter, node: fx.Node):
     # This is similar to tkl.store with fixed start indices for now.
     try:
         memory, elements_per_thread = node.args
@@ -264,9 +266,11 @@ def _(emitter: WaveEmitter, node: fx.Node):
     result = vector_d.load(vector_type, kb_src, start_indices)
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
-
-@handle_op(write)
+@handle_op(read)
 def _(emitter: WaveEmitter, node: fx.Node):
+    handle_read(emitter, node)
+
+def handle_write(emitter: WaveEmitter, node: fx.Node):
     try:
         register, memory, elements_per_thread = node.args
     except ValueError as e:
@@ -299,6 +303,9 @@ def _(emitter: WaveEmitter, node: fx.Node):
     permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
     vector_d.store(insert_vector, kb_dest, start_indices)
 
+@handle_op(write)
+def _(emitter: WaveEmitter, node: fx.Node):
+    handle_write(emitter, node)
 
 ###############################################################################
 # Math Ops

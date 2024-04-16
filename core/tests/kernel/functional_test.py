@@ -5,7 +5,6 @@ import shark_turbine.kernel as tk
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel.functional as tkf
 
-
 class Test(unittest.TestCase):
     def testGemm(self):
 
@@ -66,7 +65,7 @@ class Test(unittest.TestCase):
             # tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
 
         hyperparams = {
-            ADDRESS_SPACE: 1,
+            ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
             BLOCK_M: 32,

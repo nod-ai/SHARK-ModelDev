@@ -808,6 +808,10 @@ def cast_py_lvalue(emitter: ThreadEmitter, py_value: fx.Node) -> tuple[Value, fx
             assert (
                 len(node_values) == 1
             ), f"Expected exactly one value for node {py_value}"
+            # TODO: This seems unnecessary. Not sure why someplaces we have
+            # IRProxyValue and others mlir Values.
+            if isinstance(node_values[0], IRProxyValue):
+                return node_values[0].ir_value, py_value
             return node_values[0], py_value
         except KeyError:
             raise CodegenError(f"Producer node `{py_value}` has no IR Value")
@@ -824,6 +828,8 @@ def cast_kernel_buffer(
     value, node = cast_py_lvalue(emitter, kb)
     ir_type = value.type
     py_type = node.type
+    if py_type is None:
+        py_type = node.meta['type']
 
     if not MemRefType.isinstance(ir_type):
         raise CodegenError(

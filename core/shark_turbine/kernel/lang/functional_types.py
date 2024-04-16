@@ -8,6 +8,7 @@ import torch
 __all__ = [
     "Memory",
     "Register",
+    "AddressSpace",
 ]
 
 MemoryTypeT = TypeVar("MemoryTypeT")
@@ -25,7 +26,7 @@ class _MemoryStorage(ShapedDataType):
                     dtype: DataType) -> Type[MemoryTypeT]:
         init_symbolic_shape = symbolic_shape
         init_dtype = dtype
-        init_address_space = address_space if address_space else AddressSpace.REGISTER
+        init_address_space = address_space if address_space else AddressSpace.REGISTER.value
 
         class MemoryType(cls):
             symbolic_shape = init_symbolic_shape
@@ -104,4 +105,4 @@ class Register(metaclass=_MemoryStorage):
 
         shape = cast(tuple[IndexExpr, ...], shape)
         dtype = cast(DataType, dtype)
-        return cls.new_subtype(symbolic_shape=shape, dtype=dtype, address_space=AddressSpace.REGISTER)
+        return cls.new_subtype(symbolic_shape=shape, dtype=dtype, address_space=AddressSpace.REGISTER.value)
