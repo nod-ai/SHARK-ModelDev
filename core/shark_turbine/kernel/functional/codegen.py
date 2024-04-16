@@ -199,9 +199,11 @@ class WaveEmitter:
 
 
 def handle_op(op):
-    def decorator(f: Callable[["WaveEmitter", fx.Node], None]):
+    def decorator(
+        f: Callable[[WaveEmitter, fx.Node], None]
+    ) -> Callable[[WaveEmitter, fx.Node], None]:
         WaveEmitter.OP_HANDLERS[op] = f
-        return None
+        return f
 
     return decorator
 
@@ -210,7 +212,7 @@ def handle_op(op):
 # Python/scalar ops
 ###############################################################################
 @handle_op("__call__")
-def _(emitter: WaveEmitter, node: fx.Node):
+def handle_call(emitter: WaveEmitter, node: fx.Node):
     # TODO: This currently only handles returning a single result
     values = emitter.lookup_node_values(node.args[0])
     emitter.bind_node_proxy(node, values[0])
@@ -220,7 +222,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
 # Memory Ops
 ###############################################################################
 @handle_op(construct_register_from_metadata)
-def _(emitter: WaveEmitter, node: fx.Node):
+def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node):
     try:
         shape, dtype, value = node.args
     except ValueError as e:
@@ -233,6 +235,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
     emitter.bind_node_proxy(node, register)
 
 
+@handle_op(read)
 def handle_read(emitter: WaveEmitter, node: fx.Node):
     # This is similar to tkl.store with fixed start indices for now.
     try:
@@ -265,11 +268,7 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
-@handle_op(read)
-def _(emitter: WaveEmitter, node: fx.Node):
-    handle_read(emitter, node)
-
-
+@handle_op(write)
 def handle_write(emitter: WaveEmitter, node: fx.Node):
     try:
         register, memory, elements_per_thread = node.args
@@ -304,16 +303,11 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     vector_d.store(insert_vector, kb_dest, start_indices)
 
 
-@handle_op(write)
-def _(emitter: WaveEmitter, node: fx.Node):
-    handle_write(emitter, node)
-
-
 ###############################################################################
 # Math Ops
 ###############################################################################
 @handle_op(mma)
-def _(emitter: WaveEmitter, node: fx.Node):
+def handle_mma(emitter: WaveEmitter, node: fx.Node):
     # TODO: lhs, rhs, acc are actually registers, not vectors.
     #       Currently this is handled exactly like tkl.dot
     try:
@@ -353,7 +347,7 @@ def _(emitter: WaveEmitter, node: fx.Node):
 
 
 @handle_op(tiled_loop)
-def _(emitter: WaveEmitter, node: fx.Node):
+def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
     # Note: Adapted from tk.for_loop
     try:
         axis, init_args = node.args
