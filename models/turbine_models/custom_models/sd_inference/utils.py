@@ -14,34 +14,18 @@ gfx94X_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
-        "--iree-rocm-waves-per-eu=2",
         "--iree-opt-data-tiling=false",
-        "--iree-codegen-log-swizzle-tile=4",
-        "--iree-llvmgpu-promote-filter=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
-        "--iree-codegen-llvmgpu-use-conv-vector-distribute-pipeline",
-        "--iree-codegen-llvmgpu-reduce-skinny-matmuls",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
-        "--iree-codegen-winograd-use-forall",
     ],
-    "clip": [
-        "--iree-codegen-llvmgpu-use-vector-distribution",
-        "--iree-codegen-llvmgpu-reduce-skinny-matmuls",
-        "--iree-global-opt-only-sink-transposes=true",
-    ],
-    "vae": [
-        "--iree-codegen-llvmgpu-use-conv-vector-distribute-pipeline",
-        "--iree-codegen-llvmgpu-use-vector-distribution",
-        "--iree-global-opt-only-sink-transposes=true",
-        "--iree-codegen-winograd-use-forall",
-    ],
+    "clip": [],
+    "vae": [],
 }
 
 
@@ -97,8 +81,8 @@ def compile_to_vmfb(
                 "--iree-opt-data-tiling=False",
             ]
         )
-        if "unet" in safe_name:
-            flags.extend(["--iree-codegen-llvmgpu-use-vector-distribution"])
+        if target_triple == "gfx942":
+            flags.extend(["--iree-rocm-waves-per-eu=2"])
     elif device == "cuda":
         flags.extend(
             [
@@ -124,7 +108,7 @@ def compile_to_vmfb(
         if flag not in [None, "", " "]:
             flags.append(flag)
 
-    if target_triple in ["gfx940", "gfx941", "gfx942"]:
+    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx1100"]:
         if "unet" in safe_name:
             flags.extend(gfx94X_flags["unet"])
         elif any(x in safe_name for x in ["clip", "prompt_encoder"]):
