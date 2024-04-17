@@ -13,6 +13,7 @@ from .._support.indexing import (
 
 from .._support.tracing import CapturedTrace
 from .ops import (
+    alloc_shared,
     read,
     tiled_loop,
     write,
@@ -56,6 +57,7 @@ from ..compiler.ir import (
     func_d,
     gpu_d,
     math_d,
+    memref_d,
     vector_d,
     scf_d,
     stream_d,
@@ -221,6 +223,20 @@ def handle_call(emitter: WaveEmitter, node: fx.Node):
 ###############################################################################
 # Memory Ops
 ###############################################################################
+@handle_op(alloc_shared)
+def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
+    try:
+        shape, dtype, type = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+    memref_shape = cast_py_literal(emitter, shape)
+    element_type = IrType.parse(dtype.ir_type_asm())
+    address_space = IntegerAttr.get(IndexType.get(), gpu_d.AddressSpace.Workgroup)
+    memref_type = MemRefType.get(memref_shape, element_type, None, address_space)
+    alloc = memref_d.alloc(memref_type, [], [])
+    emitter.bind_node_proxy(node, IRProxyValue(alloc))
+
+
 @handle_op(construct_register_from_metadata)
 def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node):
     try:

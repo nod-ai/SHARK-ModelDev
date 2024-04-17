@@ -1,7 +1,7 @@
 from abc import ABC
 from calendar import c
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence, Type, TypedDict
+from typing import Any, Optional, Sequence, Type, TypedDict, Union
 import torch.fx as fx
 from .regions import RegionGraph
 from ..lang.functional_types import Memory
@@ -76,6 +76,9 @@ class UnknownNode(CustomNode):
         return cls(node.graph, node.op, node.args, node.kwargs)
 
 
+# Nodes modeling TKL operations in the kernel language
+
+
 @dataclass
 class ConstructRegisterFromMetadataNode(CustomNode):
     shape: tuple[IndexExpr, ...]
@@ -111,26 +114,61 @@ class MmaNode(CustomNode):
 
 @dataclass
 class ReadNode(CustomNode):
-    memory: fx.Proxy
+    memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any] = None
 
     def custom_string(self, value_map: dict[str, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         simt_shape = self.elements_per_thread
-        memory_type: Memory = self.memory.meta["type"]
-        return f"{name} %{value_map[self.memory.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}> // register sizes hardcoded\n"
+        # TODO: remove this when fx.Proxy is wrapped with a similar interface
+        if isinstance(self.memory, AllocSharedNode):
+            memory_type: Memory = self.memory.type
+            memory_fx_node = self.memory.fx_node
+        else:
+            memory_type: Memory = self.memory.meta["type"]
+            memory_fx_node = self.memory
+        return f"{name} %{value_map[memory_fx_node.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}> // register sizes hardcoded\n"
 
 
 @dataclass
 class WriteNode(CustomNode):
     register_: fx.Proxy
-    memory: fx.Proxy
+    memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any]
 
     def custom_string(self, value_map: dict[str, str]) -> str:
         name = get_node_name(self.__class__.__name__)
-        memory_type: Memory = self.memory.meta["type"]
-        return f"{name} %{value_map[self.register_.name]}, %{value_map[self.memory.name]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        # TODO: remove this when fx.Proxy is wrapped with a similar interface
+        if isinstance(self.memory, AllocSharedNode):
+            memory_type: Memory = self.memory.type
+            memory_fx_node = self.memory.fx_node
+        else:
+            memory_type: Memory = self.memory.meta["type"]
+            memory_fx_node = self.memory
+        return f"{name} %{value_map[self.register_.name]}, %{value_map[memory_fx_node.name]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+
+
+# Nodes modeling TKL operations emitted only during codegen
+
+
+@dataclass
+class AllocSharedNode(CustomNode):
+    shape: tuple[IndexExpr, ...]
+    dtype: DataType
+    type: Memory
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="alloc_shared",
+            kwargs={},
+        )
+
+    def custom_string(self, value_map: dict[str, str]) -> str:
+        return f"alloc : Memory<{self.shape}, {self.dtype}, #shared>\n"
 
 
 # TODO: Use a decorator to register these properly
@@ -138,6 +176,7 @@ nodeTypes["construct_register_from_metadata"] = ConstructRegisterFromMetadataNod
 nodeTypes["mma"] = MmaNode
 nodeTypes["read"] = ReadNode
 nodeTypes["write"] = WriteNode
+nodeTypes["alloc_shared"] = AllocSharedNode
 
 
 def getNode(node: fx.Node) -> CustomNode:

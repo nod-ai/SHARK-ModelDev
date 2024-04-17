@@ -64,6 +64,7 @@ from iree.compiler.dialects import (
 )
 
 from ..functional.codegen import WaveEmitter, handle_read, handle_write
+from ..functional.ops import alloc_shared
 
 from ..lang.functional_types import Register, AddressSpace, Memory
 from .constraints import (
@@ -453,12 +454,6 @@ class LaunchableWave(Launchable):
             self.parent = node
             self.parent_id = i
             return asm_str + self.get_string(first_node, 0, True)
-        if "alloc" in node.name:
-            shape = node.args[0]
-            dtype = node.args[1]
-            asm_str += f"%{nested_region_prefix}{i} = alloc : Memory<{shape}, {dtype}, #shared>\n"
-            self.index_map[node.name] = f"{nested_region_prefix}{i}"
-            return asm_str + self.get_string(node.next, i + 1, nested_region)
         if "output" in node.name:
             if self.parent is not None:
                 asm_str += "scf.yield "
@@ -541,24 +536,18 @@ class LaunchableWave(Launchable):
                                 if "write_shared" in user.name:
                                     continue
                             # Create alloc node
-                            alloc = root_graph.create_node(
-                                "call_function",
-                                self.handle_alloc_shared,
-                                args=(
-                                    shape,
-                                    dtype,
-                                ),
-                                kwargs=None,
-                                name="alloc_shared",
-                            )
-                            new_ops.append(self.handle_alloc_shared)
-                            alloc.meta["type"] = Memory[
-                                *list(shape) + [SMEM_SPACE, dtype]
-                            ]
                             current = root_graph._root
                             while current.next.op == "placeholder":
                                 current = current.next
-                            current.append(alloc)
+                            root_graph.inserting_after(current)
+                            type = Memory[*list(shape) + [SMEM_SPACE, dtype]]
+                            alloc_node = AllocSharedNode(
+                                root_graph, alloc_shared, shape, dtype, type
+                            )
+                            alloc_node.emit()
+                            alloc = alloc_node.fx_node
+                            alloc.meta["type"] = type
+
                             # Create read shared node
                             read_shared = graph.create_node(
                                 "call_function",
