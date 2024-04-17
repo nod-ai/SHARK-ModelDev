@@ -9,14 +9,15 @@ import sys
 import torch
 
 from turbine_llm.layers import *
+from turbine_llm.types import *
 from turbine_llm.models.llama.llama import *
 
 
 def main(args: list[str]):
     torch.no_grad().__enter__()
-    config = gguf.load_file(args[0])
+    config = gguf_interop.load_file(args[0])
     hp = configs.LlamaHParams.from_gguf_props(config.properties)
-    model = PagedLlamaModelV1(config.root_theta, hp)
+    model = PagedLlamaModelV1(config.root_theta, LlamaModelConfig(hp))
     cache_state = model.cache.paged.allocate(128, torch.float32)
     start_index = 0
     next_batch = torch.tensor(

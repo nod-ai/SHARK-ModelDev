@@ -15,12 +15,13 @@ import sys
 import torch
 
 from turbine_llm.layers import *
+from turbine_llm.types import *
 from turbine_llm.models.llama.llama_ref import *
 
 
 def main(args: list[str]):
     torch.no_grad().__enter__()
-    config = gguf.load_file(args[0])
+    config = gguf_interop.load_file(args[0])
     hp = configs.LlamaHParams.from_gguf_props(config.properties)
     model = DirectCacheLlamaModelV1(config.root_theta, hp)
 
