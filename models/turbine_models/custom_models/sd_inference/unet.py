@@ -190,7 +190,8 @@ if __name__ == "__main__":
         args.iree_target_triple,
         args.vulkan_max_allocation,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+    if mod_str is not None:
+        safe_name = utils.create_safe_name(args.hf_model_name, "-unet")
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to", safe_name + ".mlir")
