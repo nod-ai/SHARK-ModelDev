@@ -37,7 +37,6 @@ def main():
     for tensor in config.root_theta.flatten().values():
         if args.tensor_regex is not None:
             if not re.search(args.tensor_regex, tensor.name):
-                print(f"  {tensor} (SKIPPED based on --tensor-regex)")
                 continue
         print(f"  {tensor}")
         if isinstance(tensor, PrimitiveTensor):

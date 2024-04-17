@@ -159,19 +159,19 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
         *,
         d: torch.Tensor,
         dmin: torch.Tensor,
-        sb_scales_low: torch.Tensor,
         sb_scales_high: torch.Tensor,
-        sb_mins_low: torch.Tensor,
+        sb_scales_low: torch.Tensor,
         sb_mins_high: torch.Tensor,
+        sb_mins_low: torch.Tensor,
         qs: torch.Tensor,
     ):
         self._shape = shape
         self._d = d
         self._dmin = dmin
-        self._sb_scales_low = sb_scales_low
         self._sb_scales_high = sb_scales_high
-        self._sb_mins_low = sb_mins_low
+        self._sb_scales_low = sb_scales_low
         self._sb_mins_high = sb_mins_high
+        self._sb_mins_low = sb_mins_low
         self._qs = qs
 
     @property
@@ -222,7 +222,7 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
 
         Returned as hi_2_bits, low_4_bits tensors.
         """
-        return self._sb_scales_high, self._sb_mins_low
+        return self._sb_scales_high, self._sb_scales_low
 
     @property
     def sb_mins_bit_packed(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -261,13 +261,13 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
         qs = self.qs
         sb_scales = self.sb_scales
         sb_mins = self.sb_mins
-        print(
-            f"D: {d.shape}\nDMIN: {dmin.shape}\nQS: {qs.shape}\nSB_SCALES: {sb_scales.shape}\nSB_MINS: {sb_mins.shape}"
-        )
+        # print(
+        #     f"D: {d.shape}\nDMIN: {dmin.shape}\nQS: {qs.shape}\nSB_SCALES: {sb_scales.shape}\nSB_MINS: {sb_mins.shape}"
+        # )
 
         d_scaled = (d * sb_scales).unsqueeze(-1)
         dmin_scaled = (dmin * sb_mins).unsqueeze(-1)
-        print(f"D_SCALED: {d_scaled.shape}\nDMIN_SCALED: {dmin_scaled.shape}")
+        # print(f"D_SCALED: {d_scaled.shape}\nDMIN_SCALED: {dmin_scaled.shape}")
         return d_scaled * qs - dmin_scaled
 
     def __repr__(self):

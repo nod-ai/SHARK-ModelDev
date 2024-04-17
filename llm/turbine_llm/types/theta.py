@@ -278,4 +278,4 @@ def _matmul_torch(
 ):
     if transpose_rhs:
         rhs = rhs.T
-    return torch.matmul(lhs, rhs)
+    return torch.matmul(lhs, rhs.to(lhs.dtype))

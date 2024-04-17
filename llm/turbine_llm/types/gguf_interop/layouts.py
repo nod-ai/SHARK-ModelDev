@@ -64,7 +64,7 @@ class Q8_0(QuantizedTensor[BlockScaledLayout]):
         return f"Q8_0({self.name}, {self.shape})"
 
 
-class Q4_K(QuantizedTensor[BlockScaledI4Layout]):
+class Q4_K(QuantizedTensor[SuperBlockOffsetScaled_4_6_Layout]):
     """Implements the Q4_K quantization scheme.
 
     ```
@@ -99,10 +99,12 @@ class Q4_K(QuantizedTensor[BlockScaledI4Layout]):
     """
 
     def __init__(self, *, name: str, raw: torch.Tensor, shape: list[int]):
-        super().__init__(name, shape=shape, layout_type=BlockScaledI4Layout)
+        super().__init__(
+            name, shape=shape, layout_type=SuperBlockOffsetScaled_4_6_Layout
+        )
         self.raw = raw
 
-    def unpack(self) -> BlockScaledI4Layout:
+    def unpack(self) -> SuperBlockOffsetScaled_4_6_Layout:
         # Blocks are 72 i16s, so start there.
         # [0] f16: d
         # [1] f16: dmin
@@ -121,9 +123,16 @@ class Q4_K(QuantizedTensor[BlockScaledI4Layout]):
         )
 
         # TODO: qs are not swizzled correctly.
-        qs_raw = blocks[..., 8:].view(torch.uint8).unflatten(dim=-1, sizes=(8, -1))
-        qs = linearize_interleaved_i4_block(qs_raw)
-
+        qs_raw = blocks[..., 8:].view(torch.uint8)
+        # print(f"QS_RAW: {qs_raw.shape}")
+        qs_blocked = qs_raw.unflatten(dim=-1, sizes=(4, -1))
+        # print(f"QS_BLOCKED: {qs_blocked.shape}")
+        # qs = qs_blocked
+        # De-interleave at the 2 sub-block granularity (64 qs).
+        qs = linearize_interleaved_i4_block(qs_blocked)
+        # Then reshape it back to the view of 8 32 sample blocks.
+        qs = qs.flatten(-2).unflatten(dim=-1, sizes=(8, -1))
+        # print(f"QS: {qs.shape}")
         return SuperBlockOffsetScaled_4_6_Layout(
             self.shape,
             d=d,
@@ -172,16 +181,15 @@ def _unpack_gguf_i6_scale_mins(
         ((raw[..., 0] & 0xC0) >> 6)
         | ((raw[..., 1] & 0xC0) >> 4)
         | ((raw[..., 2] & 0xC0) >> 2)
-        | (raw[..., 3] & 0xC)
+        | (raw[..., 3] & 0xC0)
     )
     d_high = torch.stack([d_0_3_high, d_4_7_high], dim=-1)
 
     # m_low
     m_0_1_low = (raw[..., 4] & 0xF) | ((raw[..., 5] & 0xF) << 4)
     m_2_3_low = (raw[..., 6] & 0xF) | ((raw[..., 7] & 0xF) << 4)
-
-    m_4_5_low = ((raw[..., 8] & 0xF0) >> 4) | (raw[..., 9] & 0xF0)
-    m_6_7_low = ((raw[..., 10] & 0xF0) >> 4) | (raw[..., 11] & 0xF0)
+    m_4_5_low = (raw[..., 8] >> 4) | (raw[..., 9] & 0xF0)
+    m_6_7_low = (raw[..., 10] >> 4) | (raw[..., 11] & 0xF0)
     m_low = torch.stack([m_0_1_low, m_2_3_low, m_4_5_low, m_6_7_low], dim=-1)
 
     # m_high
@@ -195,7 +203,7 @@ def _unpack_gguf_i6_scale_mins(
         ((raw[..., 4] & 0xC0) >> 6)
         | ((raw[..., 5] & 0xC0) >> 4)
         | ((raw[..., 6] & 0xC0) >> 2)
-        | (raw[..., 7] & 0xC)
+        | (raw[..., 7] & 0xC0)
     )
     m_high = torch.stack([m_0_3_high, m_4_7_high], dim=-1)
 
@@ -276,7 +284,7 @@ class Q4_1(QuantizedTensor[BlockScaledI4Layout]):
         # We need to repack to the [0, 1, 2, ...] order, which we define as
         # the "correct" basis packing.
         qs = linearize_interleaved_i4_block(qs_raw)
-        return SuperBlockOffsetScaled_4_6_Layout(self.shape, d, qs, m=m, signed=False)
+        return BlockScaledI4Layout(self.shape, d, qs, m=m, signed=False)
 
     @property
     def globals(self):
