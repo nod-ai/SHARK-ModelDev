@@ -498,6 +498,18 @@ class TensorArg:
         # how to dispatch.
         self.maybe_tensor_value: Tensor = t
 
+    def specialize_all_dims(self):
+        """Marks all dimensions as specialized."""
+        self.spec_dims = list(self.t.shape)
+
+    def specialize_dims(self, *indices: int):
+        """Specializes individual dimensions.
+        
+        `i` can have negative indexing.
+        """
+        for i in indices:
+            self.spec_dims[i] = self.t.size(i)
+
     def __repr__(self):
         return (
             f"TensorArg(shape={self.t.shape}, dtype={self.t.dtype}, "

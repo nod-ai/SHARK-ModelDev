@@ -18,6 +18,7 @@ from ..types import (
     InferenceTensor,
     PrimitiveTensor,
     QuantizedTensor,
+    SuperBlockOffsetScaled_4_6_Layout,
     gguf_interop,
 )
 
@@ -25,6 +26,7 @@ from .matmul import (
     mmtfp,
     mmt_block_scaled_offset_q4_unsigned,
     mmt_block_scaled_q8,
+    mmt_super_block_scaled_offset_q4_unsigned,
 )
 
 __all__ = [
@@ -59,7 +61,7 @@ class CustomInferenceOps(BaseInferenceOps):
             return NotImplemented
 
         # Handle quantized tensor layout switched.
-        handler = _QMMT_DISPATCH.get(type(rhs))
+        handler = _QMMT_DISPATCH.get(rhs.layout_type)
         if handler is None:
             return NotImplemented
         return handler(lhs, rhs)
@@ -86,8 +88,18 @@ def _mmt_block_scaled_q4(lhs: torch.Tensor, rhs: QuantizedTensor[BlockScaledI4La
         a=lhs, d=rhs_unpacked.d, qs=rhs_unpacked.qs_bit_packed, m=rhs_unpacked.m
     )
 
+def _mmt_super_block_offset_scaled_4_6_q4(lhs: torch.Tensor, rhs: QuantizedTensor[SuperBlockOffsetScaled_4_6_Layout]):
+    rhs_unpacked = rhs.unpack()
+    sb_scales_hi, sb_scales_low = rhs_unpacked.sb_scales_bit_packed
+    sb_mins_hi, sb_mins_low = rhs_unpacked.sb_mins_bit_packed
+    return mmt_super_block_scaled_offset_q4_unsigned(
+        lhs, rhs_unpacked.d, rhs_unpacked.dmin, sb_scales_hi, sb_scales_low,
+        sb_mins_hi, sb_mins_low, rhs_unpacked.qs_bit_packed
+    )
+
 
 _QMMT_DISPATCH: dict[type, Callable] = {
-    gguf_interop.Q4_1: _mmt_block_scaled_q4,
-    gguf_interop.Q8_0: _mmt_block_scaled,
+    BlockScaledI4Layout: _mmt_block_scaled_q4,
+    BlockScaledLayout: _mmt_block_scaled,
+    SuperBlockOffsetScaled_4_6_Layout: _mmt_super_block_offset_scaled_4_6_q4,
 }

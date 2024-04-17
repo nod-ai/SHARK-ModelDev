@@ -210,9 +210,7 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
     def sb_mins(self) -> torch.Tensor:
         """Returns sub-block mins combined and cast to a uint8 tensor.
 
-        Shape:
-            high = [N, SUPER_COUNT, SUB_COUNT // 4]
-            low  = [N, SUPER_COUNT, SUB_COUNT // 2]
+        Shape: [N, SUPER_COUNT, SUB_COUNT]
         """
         return promote_linear_i6_block_to_i8(self._sb_mins_high, self._sb_mins_low)
 
@@ -220,7 +218,12 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
     def sb_scales_bit_packed(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Bit packed sub-block scales.
 
-        Returned as hi_2_bits, low_4_bits tensors.
+        Shape:
+            high = [N, SUPER_COUNT, SUB_COUNT // 4]
+            low  = [N, SUPER_COUNT, SUB_COUNT // 2]
+
+        The 'high' tensor contains upper 2 bits of each. The 'low' tensor
+        contains the lower nibble.
         """
         return self._sb_scales_high, self._sb_scales_low
 
@@ -228,7 +231,12 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
     def sb_mins_bit_packed(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Bit packed sub-block mins.
 
-        Returned as hi_2_bits, low_4_bits tensors.
+        Shape:
+            high = [N, SUPER_COUNT, SUB_COUNT // 4]
+            low  = [N, SUPER_COUNT, SUB_COUNT // 2]
+
+        The 'high' tensor contains upper 2 bits of each. The 'low' tensor
+        contains the lower nibble.
         """
         return self._sb_mins_high, self._sb_mins_low
 
