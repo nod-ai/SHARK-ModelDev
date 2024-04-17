@@ -93,10 +93,12 @@ def compile_to_vmfb(
             [
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
-                "--verify=false",
                 "--iree-opt-const-eval=false",
+                "--iree-opt-data-tiling=False",
             ]
         )
+        if "unet" in safe_name:
+            flags.extend(["--iree-codegen-llvmgpu-use-vector-distribution"])
     elif device == "cuda":
         flags.extend(
             [

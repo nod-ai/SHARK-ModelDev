@@ -108,7 +108,7 @@ def export_unet_model(
     if (
         (attn_spec in ["default"])
         and decomp_attn == False
-        and ("gfx9" in target_triple)
+        and ("gfx" in target_triple)
     ):
         attn_spec = os.path.join(
             os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
