@@ -11,6 +11,7 @@ __all__ = [
     "interleave_linear_i4_block",
     "linearize_interleaved_i4_block",
     "promote_linear_i4_block_to_i8",
+    "promote_linear_i6_block_to_i8",
 ]
 
 
@@ -80,9 +81,34 @@ def promote_linear_i4_block_to_i8(
     high = high.unsqueeze(-1)
     stacked = torch.cat([low, high], dim=-1)
     flat = stacked.flatten(start_dim=-2)
-    if signed:
-        return flat.view(torch.int8)
     return flat
+
+
+def promote_linear_i2_block_to_i8(linear_i2_data: torch.Tensor) -> torch.Tensor:
+    """Promote a linear i4 blocked tensor to i8."""
+    linear_i2_data = _view_uint8_tensor(linear_i2_data)
+    assert linear_i2_data.dtype == torch.uint8, "NYI: Signed i2 promote to i8"
+    d0 = linear_i2_data & 0x3
+    d1 = (linear_i2_data >> 2) & 0x3
+    d2 = (linear_i2_data >> 4) & 0x3
+    d3 = (linear_i2_data >> 6) & 0x3
+    stacked = torch.cat(
+        [d0.unsqueeze(-1), d1.unsqueeze(-1), d2.unsqueeze(-1), d3.unsqueeze(-1)], dim=-1
+    )
+    flat = stacked.flatten(start_dim=-2)
+    return flat
+
+
+def promote_linear_i6_block_to_i8(
+    i6_data_high: torch.Tensor, i6_data_low: torch.Tensor
+) -> torch.Tensor:
+    """Combines a 4 bit and 2 bit tensor into i8 values."""
+    i4_data_low = promote_linear_i4_block_to_i8(i6_data_low)
+    i2_data_high = promote_linear_i2_block_to_i8(i6_data_high)
+    assert (
+        i4_data_low.shape == i2_data_high.shape
+    ), "i4 low/high tensors should have the same shape"
+    return i4_data_low | (i2_data_high << 4)
 
 
 def debug_map_tensor_as_hex_string(data: torch.Tensor) -> list:
