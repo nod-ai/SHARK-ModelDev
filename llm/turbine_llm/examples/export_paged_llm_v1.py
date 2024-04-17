@@ -10,10 +10,11 @@ import torch
 
 from shark_turbine.aot import *
 
-from ..layers import *
+from turbine_llm.layers import *
+from turbine_llm.types import *
 
 # TODO: Should be using a base class with the protocol supported.
-from ..models.llama.llama import PagedLlamaModelV1
+from ..models.llama.llama import LlamaModelConfig, PagedLlamaModelV1
 
 
 def main():
@@ -24,10 +25,10 @@ def main():
     args = cli.parse(parser)
 
     data_files = cli.get_gguf_data_files(args)
-    dataset = gguf.load_file(data_files["gguf"])
+    dataset = gguf_interop.load_file(data_files["gguf"])
 
     hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
-    model = PagedLlamaModelV1(dataset.root_theta, hp)
+    model = PagedLlamaModelV1(dataset.root_theta, LlamaModelConfig(hp))
 
     # Unrolling cache updates by batch row makes dynamo sad without an
     # override. There may be a better way to do this.
