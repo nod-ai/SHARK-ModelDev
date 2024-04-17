@@ -65,6 +65,7 @@ from iree.compiler.dialects import (
 
 from ..functional.codegen import WaveEmitter, handle_read, handle_write
 from ..functional.ops import alloc_shared
+from ..functional import modulo_scheduling as ms
 
 from ..lang.functional_types import Register, AddressSpace, Memory
 from .constraints import (
@@ -581,6 +582,156 @@ class LaunchableWave(Launchable):
 
         return new_ops
 
+    """
+    This function returns the resource reservation table (RRT) for
+    different types of nodes. We assume the target machine
+    has G global read/write units, S shared read/write units
+    and M mfma units.
+    ---------------------------------------------------
+    |  Global Read/Write |  Shared Read/Write |  MMA  |
+    ---------------------------------------------------
+    |        G           |         S          |   M   |
+    ---------------------------------------------------
+    Every op in the graph can specify how many units it
+    utilizes and for how long. For example, say we have
+    a complex op that utilizes 2 units of the global memory subsytem
+    and then uses 2 units of mma after, it would be represented
+    as below.
+    ---------------------------------------------------
+    |  Global Read/Write |  Shared Read/Write |  MMA  |
+    ---------------------------------------------------
+    |        2           |         0          |   0   |
+    ---------------------------------------------------
+    |        0           |         0          |   2   |
+    ---------------------------------------------------
+    This function returns the RRT for a given op.
+    """
+
+    def get_rrt(self, name: str):
+        if "read" in name or "write" in name:
+            if "shared" not in name:
+                return [[1, 0, 0]]
+            else:
+                return [[0, 1, 0]]
+        if "mma" in name:
+            return [[0, 0, 1]]
+        if "output" in name:
+            return [[0, 0, 0]]
+        return None
+
+    """
+    This function returns the delay of a given op in cycles.
+    """
+
+    def get_delay(self, name: str):
+        if "read" in name or "write" in name:
+            if "shared" not in name:
+                return 5
+            else:
+                return 1
+        if "mma" in name:
+            return 2
+        if "output" in name:
+            return 0
+        return None
+
+    """
+    This function determines a pipelining schedule for the ops that
+    are inside the body of a tiled loop.
+    """
+
+    def do_scheduling(self, trace):
+        ms_nodes = {}
+        subgraphs = trace.region_graph.subgraphs
+        root_graph = trace.get_root_graph()
+        root_placeholders = []
+        for node in root_graph.nodes:
+            if node.op == "placeholder":
+                root_placeholders.append(node.name)
+        placeholders = []
+        output_node = None
+        for subgraph in subgraphs.values():
+            if subgraph == root_graph:
+                continue
+            for node in subgraph.nodes:
+                if node.name == "output":
+                    output_node = node
+                if node.op == "placeholder":
+                    if node.name not in root_placeholders:
+                        placeholders.append(node)
+                    continue
+                ms_nodes[node] = ms.Node(node.name, self.get_rrt(node.name))
+
+        dependenceGraph = ms.Graph()
+        for node, ms_node in ms_nodes.items():
+            dependenceGraph.addNode(ms_node)
+            from_node = node
+            for user in node.users.keys():
+                to_node = user
+                label = (f"{from_node.name} -> {to_node.name}",)
+                delay = self.get_delay(from_node.name)
+                print(f"Creating edge {label} with delay {delay}")
+                dependenceGraph.addEdge(
+                    ms.Edge(
+                        label,
+                        ms_node,
+                        ms_nodes[to_node],
+                        delay,
+                        0,
+                    )
+                )
+
+        # The above loop will not capture dependencies between reading/writing to
+        # shared memory as well as iteration carried dependencies. So we need to
+        # add edges for those as well.
+        for node, ms_node in ms_nodes.items():
+            args = [arg for arg in node.args if "alloc" in arg.name]
+            if len(args) > 0:
+                for arg in args:
+                    for arg_user in arg.users.keys():
+                        if arg_user == node:
+                            continue
+                        # Create shared read-write dependency
+                        if "read" in node.name and "write" in arg_user.name:
+                            dependenceGraph.addEdge(
+                                ms.Edge(
+                                    f"{node.name} -> {arg_user.name}",
+                                    ms_nodes[node],
+                                    ms_nodes[arg_user],
+                                    self.get_delay(node.name),
+                                    0,
+                                )
+                            )
+
+        # Create edge for iteration carried dependencies. The placeholders
+        # are all iteration arguments, so we can use them to generate the
+        # dependencies.
+        for node in placeholders:
+            for user in node.users.keys():
+                dependenceGraph.addEdge(
+                    ms.Edge(
+                        f"output -> {user.name}",
+                        ms_nodes[output_node],
+                        ms_nodes[user],
+                        self.get_delay("output"),
+                        1,
+                    )
+                )
+
+        for node, edges in dependenceGraph.edges.items():
+            for edge in edges:
+                print(edge.label)
+
+        for node in dependenceGraph.nodes:
+            try:
+                print(node.label)
+            except:
+                breakpoint()
+
+        resourceVector = [2, 2, 2]
+        scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
+        scheduler.generateSchedule()
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -614,6 +765,9 @@ class LaunchableWave(Launchable):
 
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
+
+        # Determine a schedule for pipelining
+        # self.do_scheduling(trace)
 
         # MLIR-style debug print of the graph
         self.print(trace)
