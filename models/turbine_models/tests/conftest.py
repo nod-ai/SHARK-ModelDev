@@ -36,7 +36,7 @@ def pytest_addoption(parser):
     # General Options
     parser.addoption("--compile_to", action="store", default=None)
     parser.addoption("--external_weights", action="store", default="safetensors")
-    parser.addoption("--decomp_attn", action="store", default=True)
+    parser.addoption("--decomp_attn", action="store", default=False)
     parser.addoption("--attn_spec", action="store", default="")
     # Compiler Options
     parser.addoption("--device", action="store", default="cpu")
