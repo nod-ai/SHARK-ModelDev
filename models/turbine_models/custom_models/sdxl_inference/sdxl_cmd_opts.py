@@ -170,7 +170,7 @@ p.add_argument(
 p.add_argument(
     "--vae_decomp_attn",
     type=bool,
-    default=True,
+    default=False,
     help="Decompose attention for VAE decode only at fx graph level",
 )
 
