@@ -111,10 +111,10 @@ class ParameterArchiveBuilder:
         """Saves the archive."""
         self._index.create_archive_file(str(file_path))
 
-    def add_tensor(self, name: str, tensor: torch.Tensor):
+    def add_tensor(self, name: str, tensor: torch.Tensor, *, metadata: Union[str, bytes, None] = None):
         """Adds an named tensor to the archive."""
         host_array = tensor.detach().cpu().contiguous().numpy()
-        self._index.add_buffer(name, host_array)
+        self._index.add_buffer(name, host_array, metadata=metadata)
 
     def add_module(self, module: nn.Module, *, prefix: str = ""):
         """Adds all parameters and persistent buffers from a module hierarchy."""

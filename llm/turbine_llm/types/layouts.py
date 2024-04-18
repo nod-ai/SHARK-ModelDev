@@ -8,13 +8,21 @@
 
 These are typically logical, planar layouts over some fundamental data types.
 Concrete sub-classes implement any necessary physical to logical mapping.
+
+While many of these layouts will have one or more vendor specific, custom
+packed realizations as a QuantizedTensor subtype, each also has a generic
+planar QuantizedTensor which carries its tensors unpacked.
 """
 
 from typing import Optional
 
 import torch
 
-from .tensors import QuantizedLayout
+from .tensors import (
+    register_quantized_layout,
+    MetaDataValueType,
+    QuantizedLayout,
+)
 
 from .layout_utils import (
     promote_linear_i4_block_to_i8,
@@ -28,6 +36,7 @@ __all__ = [
 ]
 
 
+@register_quantized_layout
 class BlockScaledLayout(QuantizedLayout):
     """Block-quantized representation which consists of a scale (`d`)
     and offset (`m`) per block in a higher precision type. The offset, if
@@ -62,6 +71,31 @@ class BlockScaledLayout(QuantizedLayout):
         self._d = d
         self._m = m
         self._qs = qs
+
+    @classmethod
+    def serialized_name(self) -> str:
+        return "BlockScaledLayout"
+
+    @classmethod
+    def create(
+        cls,
+        shape: list[int],
+        metadata: dict[str, MetaDataValueType],
+        planes: dict[str, torch.Tensor],
+    ):
+        m = planes.get("m")
+        return cls(shape, planes["d"], planes["qs"], m=m)
+
+    @property
+    def planes(self) -> dict[str, torch.Tensor]:
+        p = {
+            "d": self._d,
+            "m": self._m,
+            "qs": self._qs,
+        }
+        if self._m is not None:
+            p["m"] = self._m
+        return p
 
     @property
     def shape(self) -> list[int]:
@@ -111,6 +145,7 @@ class BlockScaledLayout(QuantizedLayout):
         return r
 
 
+@register_quantized_layout
 class BlockScaledI4Layout(BlockScaledLayout):
     """A BlockScaledLayout where the `qs` are internally packed 2 values per byte.
 
@@ -137,6 +172,24 @@ class BlockScaledI4Layout(BlockScaledLayout):
         super().__init__(shape, d, qs, m=m)
         self.signed = signed
 
+    @classmethod
+    def serialized_name(self) -> str:
+        return "BlockScaledI4Layout"
+
+    @classmethod
+    def create(
+        cls,
+        shape: list[int],
+        metadata: dict[str, MetaDataValueType],
+        planes: dict[str, torch.Tensor],
+    ):
+        m = planes.get("m")
+        return cls(shape, planes["d"], planes["qs"], m=m, signed=metadata["signed"])
+
+    @property
+    def metadata(self) -> dict[str, MetaDataValueType]:
+        return {"signed", self.signed}
+
     @property
     def qs(self) -> torch.Tensor:
         # `qs` is defined as something that we can do integer arithmetic on
@@ -150,6 +203,7 @@ class BlockScaledI4Layout(BlockScaledLayout):
         return self._qs
 
 
+@register_quantized_layout
 class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
     """Effectively a planarized version of the ggml Q4_K layout."""
 
@@ -173,6 +227,40 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
         self._sb_mins_high = sb_mins_high
         self._sb_mins_low = sb_mins_low
         self._qs = qs
+
+    @classmethod
+    def serialized_name(self) -> str:
+        return "SuperBlockOffsetScaled_4_6_Layout"
+
+    @classmethod
+    def create(
+        cls,
+        shape: list[int],
+        metadata: dict[str, MetaDataValueType],
+        planes: dict[str, torch.Tensor],
+    ):
+        return cls(
+            shape,
+            d=planes["d"],
+            dmin=planes["dmin"],
+            sb_scales_high=planes["sb_scales_high"],
+            sb_scales_low=planes["sb_scales_low"],
+            sb_mins_high=planes["sb_mins_high"],
+            sb_mins_low=planes["sb_mins_low"],
+            qs=planes["qs"],
+        )
+
+    @property
+    def planes(self) -> dict[str, torch.Tensor]:
+        return {
+            "d": self._d,
+            "dmin": self._dmin,
+            "sb_scales_high": self._sb_scales_high,
+            "sb_scales_low": self._sb_scales_low,
+            "sb_mins_high": self._sb_mins_high,
+            "sb_mins_low": self._sb_mins_low,
+            "qs": self._qs,
+        }
 
     @property
     def shape(self) -> list[int]:

@@ -4,13 +4,17 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Any, Optional, Union, Collection
+from typing import Any, Callable, Optional, Union, Collection
+
+from pathlib import Path
 
 from types import NotImplementedType
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
+
+from shark_turbine.aot import ParameterArchiveBuilder
 
 from .tensors import InferenceTensor, PrimitiveTensor, QuantizedTensor
 
@@ -19,6 +23,8 @@ __all__ = [
     "Dataset",
     "Theta",
 ]
+
+IOReportCallback = Callable[[str], None]
 
 
 class Theta:
@@ -88,6 +94,18 @@ class Theta:
     def __repr__(self):
         return f"Theta({self.keys})"
 
+    def add_tensors_to_archive(
+        self,
+        irpa: ParameterArchiveBuilder,
+        *,
+        io_report_callback: Optional[IOReportCallback] = None,
+    ):
+        """Adds tensors to the given archive builder."""
+        for inference_tensor in self.flatten().values():
+            if io_report_callback:
+                io_report_callback(f"Add {inference_tensor}")
+            inference_tensor.add_to_archive(irpa)
+
 
 def _flat_to_nested_dict(flat: dict[str, Any]) -> dict[str, Any]:
     nested: dict = {}
@@ -125,6 +143,20 @@ class Dataset:
 
     properties: dict[str, Any]
     root_theta: Theta
+
+    def save(
+        self,
+        path: Union[str, Path],
+        *,
+        io_report_callback: Optional[IOReportCallback] = None,
+    ):
+        builder = ParameterArchiveBuilder()
+        self.root_theta.add_tensors_to_archive(
+            builder, io_report_callback=io_report_callback
+        )
+        if io_report_callback:
+            io_report_callback("Saving file")
+            builder.save(path)
 
 
 class BaseInferenceOps:
