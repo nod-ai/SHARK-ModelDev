@@ -8,7 +8,7 @@
 dispatcher.
 """
 
-from typing import Any, Callable, Optional, Sequence, Type, Union, cast
+from typing import Any, Callable, List, Optional, Sequence, Type, Union, cast
 
 from abc import ABC, abstractmethod
 import functools
@@ -478,6 +478,9 @@ class IntArg:
         return "i64"
 
 
+_NoneInt: Optional[int] = None
+
+
 class TensorArg:
     __slots__ = [
         "t",
@@ -491,7 +494,7 @@ class TensorArg:
     def __init__(self, t: Tensor):
         self.t = t
         # Any static dims that we are specializing. Defaults to all dynamic.
-        self.spec_dims: Sequence[Optional[int]] = len(t.shape) * [None]
+        self.spec_dims = len(t.shape) * [_NoneInt]
         # All descriptors have an attribute to indicate their value
         # as a tensor, and those that aren't are fixated to None.
         # This is to enable fast lookup in the hot path of determining
