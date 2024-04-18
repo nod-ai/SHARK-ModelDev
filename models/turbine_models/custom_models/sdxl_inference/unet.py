@@ -105,13 +105,6 @@ def export_unet_model(
     else:
         do_classifier_free_guidance = True
 
-    if (attn_spec in ["default"]) and decomp_attn == False and ("gfx" in target_triple):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-        )
-    elif decomp_attn:
-        attn_spec = None
-
     safe_name = utils.create_safe_name(
         hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
     )

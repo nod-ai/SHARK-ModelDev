@@ -118,6 +118,11 @@ def compile_to_vmfb(
         flags.extend(gfx94X_flags["all"])
 
     if attn_spec not in [None, "", " "]:
+        if (attn_spec in ["default"]) and ("gfx" in target_triple):
+            attn_spec = os.path.join(
+                os.path.realpath(os.path.dirname(__file__)),
+                "default_mfma_attn_spec.mlir",
+            )
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)

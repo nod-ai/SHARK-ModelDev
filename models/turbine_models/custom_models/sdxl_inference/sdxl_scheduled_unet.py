@@ -139,16 +139,6 @@ def export_scheduled_unet_model(
         do_classifier_free_guidance = False
     else:
         do_classifier_free_guidance = True
-    if (
-        (attn_spec in ["default"])
-        and decomp_attn == False
-        and ("gfx9" in iree_target_triple)
-    ):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-        )
-    elif decomp_attn:
-        attn_spec = None
 
     if pipeline_dir:
         safe_name = os.path.join(
