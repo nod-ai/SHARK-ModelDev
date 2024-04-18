@@ -2,6 +2,7 @@
 # Modulo Scheduling for Cyclic Graphs
 from copy import deepcopy
 import numpy as np
+import pygraphviz as pgv
 
 
 class Node:
@@ -26,6 +27,7 @@ class Graph:
     def __init__(self) -> None:
         self.nodes = []
         self.edges = {}
+        self.debug = False
 
     def addNode(self, node):
         self.nodes.append(node)
@@ -34,6 +36,19 @@ class Graph:
         if edge.fromNode not in self.edges:
             self.edges[edge.fromNode] = []
         self.edges[edge.fromNode].append(edge)
+
+    def generateDotGraph(self):
+        G = pgv.AGraph(directed=True)
+        for node in self.nodes:
+            G.add_node(node.label)
+        for node, edges in self.edges.items():
+            for edge in edges:
+                G.add_edge(
+                    node.label,
+                    edge.toNode.label,
+                    label=f"{edge.delay, edge.iterationDelay}",
+                )
+        G.draw("dependence_graph.png", prog="dot")
 
     def runDFSLoop(self, edges, iter):
         self.exploredNodes = []
@@ -55,7 +70,8 @@ class Graph:
         self.t += 1
         if iter == 0:
             node.f = self.t
-            print("finishing time for " + node.label + " is " + str(node.f))
+            if self.debug:
+                print("finishing time for " + node.label + " is " + str(node.f))
 
     def findSCC(self):
         reversedEdges = {}
@@ -82,15 +98,19 @@ class Graph:
             self.SCCs[node.leader].append(node)
 
         for leader, nodes in self.SCCs.items():
-            print("Leader = ", leader.label)
+            if self.debug:
+                print("Leader = ", leader.label)
             for node in nodes:
-                print("has node = ", node.label)
+                if self.debug:
+                    print("has node = ", node.label, node.f)
 
 
 class ModuloScheduler:
-    def __init__(self, resourceVector, dependenceGraph: Graph) -> None:
+    def __init__(self, resourceVector, dependenceGraph: Graph, debug=False) -> None:
         self.resourceVector = resourceVector
         self.dependenceGraph = dependenceGraph
+        self.dependenceGraph.debug = debug
+        self.debug = debug
 
     def computeResMII(self):
         usage = [0 for _ in range(len(self.resourceVector))]
@@ -153,20 +173,25 @@ class ModuloScheduler:
                 self.estar = self.estar | newEdges
 
         for (fromNode, toNode), edge in self.estar.items():
-            print(edge.label, edge.delta)
+            if self.debug:
+                print(edge.label, edge.delta)
 
     def SCCScheduled(self, RT, T, c, first, s):
-        print(f"Scheduling {first.label} at time = ", s)
+        if self.debug:
+            print(f"Scheduling {first.label} at time = ", s)
         RTp = deepcopy(RT)
         if not self.nodeScheduled(RTp, T, first, s):
             return False
-        print(RTp)
+        if self.debug:
+            print(RTp)
         # TODO: Prioritize the traversal of these nodes
         for node in c:
             if node == first:
-                print("Skipping ...", node.label)
+                if self.debug:
+                    print("Skipping ...", node.label)
                 continue
-            print(f"Scheduling {node.label} ...")
+            if self.debug:
+                print(f"Scheduling {node.label} ...")
             slmax = 0
             for (fromNode, toNode), edge in self.estar.items():
                 if (
@@ -190,15 +215,18 @@ class ModuloScheduler:
                         sumin = su
 
             schedulingSucceeded = False
-            print("Range = ", slmax, min(sumin, slmax + T - 1))
+            if self.debug:
+                print("Range = ", slmax, min(sumin, slmax + T - 1))
             for s in range(slmax, min(sumin, slmax + T - 1) + 1):
-                print(f"Scheduling {node.label} at time = ", s)
+                if self.debug:
+                    print(f"Scheduling {node.label} at time = ", s)
                 if self.nodeScheduled(RTp, T, node, s):
                     schedulingSucceeded = True
                     break
 
             if not schedulingSucceeded:
-                print("Scheduling failed!\n")
+                if self.debug:
+                    print("Scheduling failed!\n")
                 return False
         RT[:] = deepcopy(RTp)
         return True
@@ -207,8 +235,10 @@ class ModuloScheduler:
         RTP = deepcopy(RT)
         for i, row in enumerate(n.RRT):
             RTP[(s + i) % T] = list(np.array(RTP[(s + i) % T]) + np.array(row))
-        print("Original:", RT)
-        print("Updated:", RTP)
+        if self.debug:
+            print("Original:", RT)
+        if self.debug:
+            print("Updated:", RTP)
 
         validResourceUsage = True
         for row in RTP:
@@ -259,7 +289,8 @@ class ModuloScheduler:
         Tmax = T0 * 3
         sorted_SCCs = self.sortSCCs(self.dependenceGraph.SCCs)
         for T in range(T0, T0 + Tmax):
-            print("T = ", T)
+            if self.debug:
+                print("T = ", T)
             self.schedule = {}
             self.RT = [
                 [0 for _ in range(len(self.resourceVector))] for _ in range(int(T))
@@ -286,3 +317,85 @@ class ModuloScheduler:
                     break
             if self.allSCCScheduled(sorted_SCCs):
                 break
+
+        if schedulingSucceeded:
+            print("Success!")
+        else:
+            print("Failed to schedule!")
+        print("Schedule = ", [(t, x.label) for x, t in self.schedule.items()])
+        print("RRT = ", self.RT)
+
+    """
+    Constructs the prolog, kernel and epilog from the determined schedule.
+    The kernel constructed from scheduling consists of instructions from
+    multiple stages. Instructions from a stage greater than 0 are from
+    a previous stage.
+    """
+
+    def reconstructLoop(self):
+        T = len(self.RT)
+        # Group operations by stage in kernel
+        self.kernel = {}
+        for node, t in self.schedule.items():
+            mod_t = t // T
+            if mod_t not in self.kernel:
+                self.kernel[mod_t] = []
+            self.kernel[mod_t].append(node)
+
+        # Follow dependence graph backwards to get prologue
+        self.prolog = {}
+        for node, t in self.schedule.items():
+            mod_t = t // T
+            if mod_t not in self.prolog:
+                self.prolog[mod_t] = []
+            nodes = [node]
+            visited = []
+            while len(nodes) > 0:
+                toNode = nodes[0]
+                nodes.pop(0)
+                if "output" in toNode.label:
+                    continue
+                for fromNode, edges in self.dependenceGraph.edges.items():
+                    for edge in edges:
+                        if edge.toNode == toNode:
+                            if (
+                                fromNode not in self.prolog[mod_t]
+                                and fromNode not in self.kernel[mod_t]
+                                and "output" not in fromNode.label
+                            ):
+                                if self.debug:
+                                    print(
+                                        f"Adding {fromNode.label}, because graph has {toNode.label} and {edge.label}"
+                                    )
+                                self.prolog[mod_t].append(fromNode)
+                                if fromNode not in visited:
+                                    nodes.append(fromNode)
+                visited.append(toNode)
+
+        # Trace dependence graph forward to get epilogue
+        self.epilog = {}
+        for node, t in self.schedule.items():
+            mod_t = t // T
+            if mod_t not in self.epilog:
+                self.epilog[mod_t] = []
+            nodes = [node]
+            visited = []
+            while len(nodes) > 0:
+                fromNode = nodes[0]
+                nodes.pop(0)
+                if "output" in fromNode.label:
+                    continue
+                for edge in self.dependenceGraph.edges[fromNode]:
+                    if (
+                        edge.toNode not in self.epilog[mod_t]
+                        and edge.toNode not in self.kernel[mod_t]
+                        and "output" not in edge.toNode.label
+                    ):
+                        if self.debug:
+                            print(
+                                f"Adding {edge.toNode.label}, because graph has {fromNode.label} and {edge.label}"
+                            )
+                        self.epilog[mod_t].append(edge.toNode)
+                        if edge.toNode not in visited:
+                            nodes.append(edge.toNode)
+                        visited.append(edge.toNode)

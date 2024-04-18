@@ -640,7 +640,22 @@ class LaunchableWave(Launchable):
     are inside the body of a tiled loop.
     """
 
-    def do_scheduling(self, trace):
+    def do_scheduling(self, trace, idxc, debug=False):
+
+        # Determine how many nodes there are in the final graph.
+        hardware_constraint = self.hardware_constraints[0]
+        mma_m, mma_n, mma_k = hardware_constraint.mma_matrix_shapes()
+        for sym, val in idxc.frozen_subs:
+            if sym.name == "BLOCK_M":
+                block_m = val
+            if sym.name == "BLOCK_N":
+                block_n = val
+            if sym.name == "BLOCK_K":
+                block_k = val
+        batch_m = 2  # block_m // mma_m
+        batch_n = 2  # block_n // mma_n
+        batch_k = 2  # block_k // mma_k
+
         ms_nodes = {}
         subgraphs = trace.region_graph.subgraphs
         root_graph = trace.get_root_graph()
@@ -650,6 +665,7 @@ class LaunchableWave(Launchable):
                 root_placeholders.append(node.name)
         placeholders = []
         output_node = None
+        dependenceGraph = ms.Graph()
         for subgraph in subgraphs.values():
             if subgraph == root_graph:
                 continue
@@ -660,31 +676,99 @@ class LaunchableWave(Launchable):
                     if node.name not in root_placeholders:
                         placeholders.append(node)
                     continue
-                ms_nodes[node] = ms.Node(node.name, self.get_rrt(node.name))
+                if node not in ms_nodes:
+                    ms_nodes[node] = []
+                # Reads and writes need to be duplicated (M*K) or (N*K) times.
+                if "read" in node.name or "write" in node.name:
+                    dims = node.args[0].meta["type"].symbolic_shape
+                    ranges = []
+                    for dim in dims:
+                        if dim.name == "M":
+                            ranges.append(batch_m)
+                        if dim.name == "N":
+                            ranges.append(batch_n)
+                        if dim.name == "K":
+                            ranges.append(batch_k)
+                    ms_nodes[node] = [[] for _ in range(ranges[0])]
+                    for i in range(ranges[0]):
+                        for j in range(ranges[1]):
+                            name = node.name + "_" + str(i) + "_" + str(j)
+                            if debug:
+                                print("Creating node = ", name)
+                            ms_nodes[node][i].append(
+                                ms.Node(name, self.get_rrt(node.name))
+                            )
+                            dependenceGraph.addNode(ms_nodes[node][i][j])
+                # Output nodes need to be duplicated (M*N) times
+                if "output" in node.name:
+                    ms_nodes[node] = [[] for _ in range(batch_m)]
+                    for i in range(batch_m):
+                        for j in range(batch_n):
+                            name = node.name + "_" + str(i) + "_" + str(j)
+                            if debug:
+                                print("Creating node = ", name)
+                            ms_nodes[node][i].append(
+                                ms.Node(name, self.get_rrt(node.name))
+                            )
+                            dependenceGraph.addNode(ms_nodes[node][i][j])
+                # MMA nodes need to be duplicated (M*N*K) times
+                if "mma" in node.name:
+                    ms_nodes[node] = [[] for _ in range(batch_m)]
+                    for i in range(batch_m):
+                        ms_nodes[node][i] = [[] for _ in range(batch_n)]
+                    for i in range(batch_m):
+                        for j in range(batch_n):
+                            for k in range(batch_k):
+                                name = (
+                                    node.name
+                                    + "_"
+                                    + str(i)
+                                    + "_"
+                                    + str(j)
+                                    + "_"
+                                    + str(k)
+                                )
+                                if debug:
+                                    print("Creating node = ", name)
+                                ms_nodes[node][i][j].append(
+                                    ms.Node(name, self.get_rrt(node.name))
+                                )
+                                dependenceGraph.addNode(ms_nodes[node][i][j][k])
 
-        dependenceGraph = ms.Graph()
-        for node, ms_node in ms_nodes.items():
-            dependenceGraph.addNode(ms_node)
-            from_node = node
-            for user in node.users.keys():
-                to_node = user
-                label = (f"{from_node.name} -> {to_node.name}",)
-                delay = self.get_delay(from_node.name)
-                print(f"Creating edge {label} with delay {delay}")
-                dependenceGraph.addEdge(
-                    ms.Edge(
-                        label,
-                        ms_node,
-                        ms_nodes[to_node],
-                        delay,
-                        0,
+        for node, m_nodes in ms_nodes.items():
+            for i in range(len(m_nodes)):
+                for j in range(len(m_nodes[i])):
+                    from_node = node
+                    from_read_write_node = (
+                        "read" in from_node.name or "write" in from_node.name
                     )
-                )
+                    for user in node.users.keys():
+                        to_node = user
+                        to_read_write_node = (
+                            "read" in to_node.name or "write" in to_node.name
+                        )
+                        if from_read_write_node and to_read_write_node:
+                            # Reads and writes have simpler indexing
+                            label = (
+                                f"{from_node.name}[{i}][{j}] -> {to_node.name}[{i}][{j}]",
+                            )
+                            delay = self.get_delay(from_node.name)
+                            if debug:
+                                print(f"Creating edge {label} with delay {delay}")
+                            dependenceGraph.addEdge(
+                                ms.Edge(
+                                    label,
+                                    m_nodes[i][j],
+                                    ms_nodes[to_node][i][j],
+                                    delay,
+                                    0,
+                                )
+                            )
 
         # The above loop will not capture dependencies between reading/writing to
         # shared memory as well as iteration carried dependencies. So we need to
         # add edges for those as well.
-        for node, ms_node in ms_nodes.items():
+        for node, m_nodes in ms_nodes.items():
             args = [arg for arg in node.args if "alloc" in arg.name]
             if len(args) > 0:
                 for arg in args:
@@ -692,45 +776,118 @@ class LaunchableWave(Launchable):
                         if arg_user == node:
                             continue
                         # Create shared read-write dependency
-                        if "read" in node.name and "write" in arg_user.name:
-                            dependenceGraph.addEdge(
-                                ms.Edge(
-                                    f"{node.name} -> {arg_user.name}",
-                                    ms_nodes[node],
-                                    ms_nodes[arg_user],
-                                    self.get_delay(node.name),
-                                    0,
+                        if "write" in node.name and "read" in arg_user.name:
+                            for i in range(len(m_nodes)):
+                                for j in range(len(m_nodes[i])):
+                                    label = (
+                                        f"{node.name}[{i}][{j}] -> {arg_user.name}[{i}][{j}]",
+                                    )
+                                    delay = self.get_delay(node.name)
+                                    if debug:
+                                        print(
+                                            f"Creating edge {label} with delay {delay}"
+                                        )
+                                    dependenceGraph.addEdge(
+                                        ms.Edge(
+                                            label,
+                                            ms_nodes[node][i][j],
+                                            ms_nodes[arg_user][i][j],
+                                            delay,
+                                            0,
+                                        )
+                                    )
+
+        # Create edges between shared reads and mmas, as well as previous and next mmas.
+        for node, m_nodes in ms_nodes.items():
+            if node.name == "mma":
+                args = [x for x in node.all_input_nodes if x.op != "placeholder"]
+                for i in range(batch_m):
+                    for j in range(batch_n):
+                        for k in range(batch_k):
+                            if debug:
+                                print("i, j, k = ", i, j, k)
+                            # TODO: Implicit assumption here about shapes, needs to be generalized
+                            for l in range(2):
+                                if l == 0:
+                                    input_node = ms_nodes[args[l]][i][k]
+                                    label = (
+                                        f"{args[l].name}[{i}][{k}] -> {node.name}[{i}][{j}][{k}]",
+                                    )
+                                else:
+                                    input_node = ms_nodes[args[l]][j][k]
+                                    label = (
+                                        f"{args[l].name}[{j}][{k}] -> {node.name}[{i}][{j}][{k}]",
+                                    )
+                                delay = self.get_delay(args[l].name)
+                                if debug:
+                                    print(f"Creating edge {label} with delay {delay}")
+                                dependenceGraph.addEdge(
+                                    ms.Edge(
+                                        label,
+                                        input_node,
+                                        ms_nodes[node][i][j][k],
+                                        delay,
+                                        0,
+                                    )
                                 )
-                            )
+                            # Create edges between consecutive mma ops
+                            if k < batch_k - 1:
+                                label = (
+                                    f"{node.name}[{i}][{j}][{k}] -> {node.name}[{i}][{j}][{k+1}]",
+                                )
+                                delay = self.get_delay(node.name)
+                                if debug:
+                                    print(f"Creating edge {label} with delay {delay}")
+                                dependenceGraph.addEdge(
+                                    ms.Edge(
+                                        label,
+                                        ms_nodes[node][i][j][k],
+                                        ms_nodes[node][i][j][k + 1],
+                                        delay,
+                                        0,
+                                    )
+                                )
+                            # Create edges between output and first and last mmas.
+                            # This is an iteration carried dependency.
+                            if k == 0:
+                                label = (
+                                    f"output[{i}][{j}] -> {node.name}[{i}][{j}][{k}]",
+                                )
+                                delay = self.get_delay(output_node.name)
+                                if debug:
+                                    print(f"Creating edge {label} with delay {delay}")
+                                dependenceGraph.addEdge(
+                                    ms.Edge(
+                                        label,
+                                        ms_nodes[output_node][i][j],
+                                        ms_nodes[node][i][j][k],
+                                        delay,
+                                        1,
+                                    )
+                                )
+                            if k == batch_k - 1:
+                                label = (
+                                    f"{node.name}[{i}][{j}][{k}] -> output[{i}][{j}]",
+                                )
+                                delay = self.get_delay(node.name)
+                                if debug:
+                                    print(f"Creating edge {label} with delay {delay}")
+                                dependenceGraph.addEdge(
+                                    ms.Edge(
+                                        label,
+                                        ms_nodes[node][i][j][k],
+                                        ms_nodes[output_node][i][j],
+                                        delay,
+                                        0,
+                                    )
+                                )
 
-        # Create edge for iteration carried dependencies. The placeholders
-        # are all iteration arguments, so we can use them to generate the
-        # dependencies.
-        for node in placeholders:
-            for user in node.users.keys():
-                dependenceGraph.addEdge(
-                    ms.Edge(
-                        f"output -> {user.name}",
-                        ms_nodes[output_node],
-                        ms_nodes[user],
-                        self.get_delay("output"),
-                        1,
-                    )
-                )
-
-        for node, edges in dependenceGraph.edges.items():
-            for edge in edges:
-                print(edge.label)
-
-        for node in dependenceGraph.nodes:
-            try:
-                print(node.label)
-            except:
-                breakpoint()
-
+        dependenceGraph.generateDotGraph()
+        resourceVector = [8, 8, 8]
         resourceVector = [2, 2, 2]
-        scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
-        scheduler.generateSchedule()
+        self.scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
+        self.scheduler.generateSchedule()
+        self.scheduler.reconstructLoop()
 
     def _trace_and_get_kernel_signature(
         self,
@@ -766,8 +923,10 @@ class LaunchableWave(Launchable):
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
 
-        # Determine a schedule for pipelining
-        # self.do_scheduling(trace)
+        # Determine a schedule for pipelining.
+        # At the end of this, we have a prologue, kernel and epilogue with
+        # a specified schedule.
+        self.do_scheduling(trace, idxc)
 
         # MLIR-style debug print of the graph
         self.print(trace)
