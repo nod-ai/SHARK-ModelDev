@@ -108,7 +108,7 @@ def compile_to_vmfb(
         if flag not in [None, "", " "]:
             flags.append(flag)
 
-    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx1100"]:
+    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx1100", "gfx90a"]:
         if "unet" in safe_name:
             flags.extend(gfx94X_flags["unet"])
         elif any(x in safe_name for x in ["clip", "prompt_encoder"]):
