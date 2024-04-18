@@ -613,30 +613,30 @@ if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
 
     mlirs = {
-        "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
+        "vae_decode": None,
         "pipeline": None,
         "full_pipeline": None,
     }
     vmfbs = {
-        "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
+        "vae_decode": None,
         "pipeline": None,
         "full_pipeline": None,
     }
     weights = {
-        "vae_decode": None,
         "prompt_encoder": None,
         "scheduled_unet": None,
+        "vae_decode": None,
         "pipeline": None,
         "full_pipeline": None,
     }
     ireec_flags = {
+        "clip": args.ireec_flags + args.clip_flags,
         "unet": args.ireec_flags + args.unet_flags,
         "vae": args.ireec_flags + args.vae_flags,
-        "clip": args.ireec_flags + args.clip_flags,
         "pipeline": args.ireec_flags,
     }
     if not args.pipeline_dir:

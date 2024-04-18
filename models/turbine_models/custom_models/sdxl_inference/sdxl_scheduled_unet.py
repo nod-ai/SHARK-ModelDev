@@ -173,7 +173,7 @@ def export_scheduled_unet_model(
                 torch.ops.aten._scaled_dot_product_flash_attention.default,
             ]
         )
-
+    print(decomp_list)
     dtype = torch.float16 if precision == "fp16" else torch.float32
 
     if precision == "fp16":
