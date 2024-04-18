@@ -120,14 +120,6 @@ def export_prompt_encoder(
         do_classifier_free_guidance = False
     else:
         do_classifier_free_guidance = True
-
-    if (attn_spec in ["default"]) and ("gfx9" in target_triple):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-        )
-    else:
-        attn_spec = None
-
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, "prompt_encoder")
     else:
