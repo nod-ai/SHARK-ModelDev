@@ -504,7 +504,7 @@ class TensorArg:
 
     def specialize_dims(self, *indices: int):
         """Specializes individual dimensions.
-        
+
         `i` can have negative indexing.
         """
         for i in indices:
