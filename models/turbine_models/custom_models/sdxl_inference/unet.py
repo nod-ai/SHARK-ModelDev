@@ -96,7 +96,7 @@ def export_unet_model(
     ireec_flags=None,
     decomp_attn=False,
     exit_on_vmfb=False,
-    attn_spec="default",
+    attn_spec=None,
     input_mlir=None,
     weights_only=False,
 ):

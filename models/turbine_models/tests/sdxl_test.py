@@ -240,6 +240,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             target_triple=arguments["iree_target_triple"],
             ireec_flags=arguments["ireec_flags"],
             decomp_attn=arguments["decomp_attn"],
+            attn_spec=arguments["attn_spec"],
         )
         arguments["external_weight_path"] = (
             self.safe_model_name
@@ -349,6 +350,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             ireec_flags=arguments["ireec_flags"],
             variant="decode",
             decomp_attn=arguments["decomp_attn"],
+            attn_spec=arguments["attn_spec"],
             exit_on_vmfb=True,
         )
         arguments["external_weight_path"] = (
