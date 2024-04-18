@@ -122,17 +122,20 @@ class Q4_K(QuantizedTensor[SuperBlockOffsetScaled_4_6_Layout]):
             raw_sb_scale_mins
         )
 
-        # TODO: qs are not swizzled correctly.
+        # Each super-block contains 8 sub-blocks in pairs of two packed into
+        # each byte: the low order nibble is plane 0 and the high order nibble
+        # is plane 1. To linearize, we first group by 4 to match this physical
+        # layout, then de-interleave the nibbles into two distinct planes where
+        # each nibble of each byte belongs to the same plane.
+        # Then ungroup and regroup to 8.
+        # See: https://bit.ly/ggml-q4k-vis for a visualization of the
+        # layout.
         qs_raw = blocks[..., 8:].view(torch.uint8)
-        # print(f"QS_RAW: {qs_raw.shape}")
         qs_blocked = qs_raw.unflatten(dim=-1, sizes=(4, -1))
-        # print(f"QS_BLOCKED: {qs_blocked.shape}")
-        # qs = qs_blocked
         # De-interleave at the 2 sub-block granularity (64 qs).
         qs = linearize_interleaved_i4_block(qs_blocked)
         # Then reshape it back to the view of 8 32 sample blocks.
         qs = qs.flatten(-2).unflatten(dim=-1, sizes=(8, -1))
-        # print(f"QS: {qs.shape}")
         return SuperBlockOffsetScaled_4_6_Layout(
             self.shape,
             d=d,
@@ -156,8 +159,7 @@ def _unpack_gguf_i6_scale_mins(
     raw: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     # GGML bit-packs 16 6 bit scales/mins into 12 bytes with a fairly bespoke
-    # layout. See here for a visualization:
-    # https://docs.google.com/spreadsheets/d/1XbwCZRTQiXaEHB3PVM1FgMcLlplzmUB9JD5olVZj9ks/edit?usp=sharing
+    # layout. See here for a visualization: https://bit.ly/ggml-q4k-vis
     # We unpack it into four planar tensors with the low 4 bits and high 2 bits
     # of each separate. We refer to scales as `d` and mins as `m` for brevity.
     assert raw.dtype == torch.uint8

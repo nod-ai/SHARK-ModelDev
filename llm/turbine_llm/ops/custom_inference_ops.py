@@ -88,13 +88,22 @@ def _mmt_block_scaled_q4(lhs: torch.Tensor, rhs: QuantizedTensor[BlockScaledI4La
         a=lhs, d=rhs_unpacked.d, qs=rhs_unpacked.qs_bit_packed, m=rhs_unpacked.m
     )
 
-def _mmt_super_block_offset_scaled_4_6_q4(lhs: torch.Tensor, rhs: QuantizedTensor[SuperBlockOffsetScaled_4_6_Layout]):
+
+def _mmt_super_block_offset_scaled_4_6_q4(
+    lhs: torch.Tensor, rhs: QuantizedTensor[SuperBlockOffsetScaled_4_6_Layout]
+):
     rhs_unpacked = rhs.unpack()
     sb_scales_hi, sb_scales_low = rhs_unpacked.sb_scales_bit_packed
     sb_mins_hi, sb_mins_low = rhs_unpacked.sb_mins_bit_packed
     return mmt_super_block_scaled_offset_q4_unsigned(
-        lhs, rhs_unpacked.d, rhs_unpacked.dmin, sb_scales_hi, sb_scales_low,
-        sb_mins_hi, sb_mins_low, rhs_unpacked.qs_bit_packed
+        lhs,
+        rhs_unpacked.d,
+        rhs_unpacked.dmin,
+        sb_scales_hi,
+        sb_scales_low,
+        sb_mins_hi,
+        sb_mins_low,
+        rhs_unpacked.qs_bit_packed,
     )
 
 

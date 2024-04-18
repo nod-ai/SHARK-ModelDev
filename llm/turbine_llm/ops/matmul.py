@@ -99,7 +99,7 @@ class mmtfp(CustomOp):
 @CustomOp.register(library=LIBRARY)
 class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
     """Super block scaled q4 matmul with transposed RHS.
-    
+
     Arguments:
 
     * `a`: [B, M, K]
@@ -109,7 +109,7 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
     * `sb_scales_lo`: [N, SUP_COUNT, SUB_COUNT // 2]
     * `sb_min_hi`: [N, SUP_COUNT, SUB_COUNT // 4]
     * `sb_mins_lo`: [N, SUP_COUNT, SUB_COUNT // 2]
-    * `qs`: [N, SUP_COUNT, SUB_COUNT, BS]
+    * `qs`: [N, SUP_COUNT, SUB_COUNT, BS // 2]
 
     Where: `K == SUP_COUNT * SUB_COUNT * BS`
 
@@ -122,6 +122,7 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
     return d_scaled * qs - dmin_scaled
     ```
     """
+
     signature = (
         "mmt_super_block_scaled_offset_q4_unsigned("
         "Tensor a, Tensor d, Tensor dmin, "
@@ -210,11 +211,10 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
                 f"mmt_super_block_scaled_offset_q4_unsigned arg 'sb_mins_low': Incorrect shape (got {sb_mins_low_desc.t.shape})"
             )
 
-        # c return        
+        # c return
         c = torch.empty(batch_dims + [m, n], dtype=a_desc.t.dtype)
         c_desc = ksel.return_tensor(c)  # Shape batch..., m, n
         c_desc.specialize_dims(-1)
-
 
     def generate(self, ksel: KernelSelection, kb: KernelBuilder):
         a = kb.arg_value(0)
@@ -230,9 +230,7 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
         scale_type_str = str(d_tensor_type.element_type)
 
         template_file = "mmt_super_block_scaled_offset_q4_unsigned_3d.mlir"
-        target_function_name = (
-            f"mmt_super_block_scaled_offset_q4_unsigned_3d_{n}_{k}_{sup_count}_{sub_count}_{bs}_{a_type_str}"
-        )
+        target_function_name = f"mmt_super_block_scaled_offset_q4_unsigned_3d_{n}_{k}_{sup_count}_{sub_count}_{bs}_{a_type_str}"
 
         target_function = inline_template_function(
             kb,
@@ -251,7 +249,6 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
         )
         kb.yield_results(*call_function(target_function, *kb.arg_bindings))
         print(kb.module_body.owner)
-
 
 
 @CustomOp.register(library=LIBRARY)

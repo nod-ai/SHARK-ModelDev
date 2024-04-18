@@ -10,6 +10,7 @@ __all__ = [
     "debug_map_tensor_as_hex_string",
     "interleave_linear_i4_block",
     "linearize_interleaved_i4_block",
+    "promote_linear_i2_block_to_i8",
     "promote_linear_i4_block_to_i8",
     "promote_linear_i6_block_to_i8",
 ]
@@ -107,7 +108,7 @@ def promote_linear_i6_block_to_i8(
     i2_data_high = promote_linear_i2_block_to_i8(i6_data_high)
     assert (
         i4_data_low.shape == i2_data_high.shape
-    ), "i4 low/high tensors should have the same shape"
+    ), f"i4 low/high tensors should have the same shape ({i4_data_low.shape} vs {i2_data_high.shape})"
     return i4_data_low | (i2_data_high << 4)
 
 

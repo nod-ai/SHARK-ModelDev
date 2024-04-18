@@ -269,13 +269,9 @@ class SuperBlockOffsetScaled_4_6_Layout(QuantizedLayout):
         qs = self.qs
         sb_scales = self.sb_scales
         sb_mins = self.sb_mins
-        # print(
-        #     f"D: {d.shape}\nDMIN: {dmin.shape}\nQS: {qs.shape}\nSB_SCALES: {sb_scales.shape}\nSB_MINS: {sb_mins.shape}"
-        # )
 
         d_scaled = (d * sb_scales).unsqueeze(-1)
         dmin_scaled = (dmin * sb_mins).unsqueeze(-1)
-        # print(f"D_SCALED: {d_scaled.shape}\nDMIN_SCALED: {dmin_scaled.shape}")
         return d_scaled * qs - dmin_scaled
 
     def __repr__(self):
