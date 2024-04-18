@@ -6,6 +6,7 @@ import re
 from diffusers import (
     PNDMScheduler,
     EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
 )
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
@@ -208,6 +209,10 @@ def get_schedulers(model_id):
         subfolder="scheduler",
     )
     schedulers["Euler"] = EulerDiscreteScheduler.from_pretrained(
+        model_id,
+        subfolder="scheduler",
+    )
+    schedulers["EulerA"] = EulerAncestralDiscreteScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
     )
