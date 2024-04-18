@@ -1,5 +1,7 @@
-from typing import Type, TypeVar, cast, ClassVar
+from typing import Optional, Type, TypeVar, cast, ClassVar
 from enum import Enum
+
+from ..lang.kernel_buffer import KernelBufferUsage
 from .._support.indexing import IndexExpr
 from .._support.shaped_type import ShapedDataType
 from .._support.dtype import DataType, f32
@@ -27,18 +29,21 @@ class _MemoryStorage(ShapedDataType):
         symbolic_shape: tuple[IndexExpr, ...],
         address_space: AddressSpace,
         dtype: DataType,
+        usage: Optional[KernelBufferUsage] = None,
     ) -> Type[MemoryTypeT]:
         init_symbolic_shape = symbolic_shape
         init_dtype = dtype
         init_address_space = (
             address_space if address_space else AddressSpace.REGISTER.value
         )
+        init_usage = usage
 
         class MemoryType(cls):
             symbolic_shape = init_symbolic_shape
             rank = len(symbolic_shape)
             address_space = init_address_space
             dtype = init_dtype
+            usage = init_usage
 
         return cast(Type[MemoryTypeT], MemoryType)
 
@@ -55,6 +60,7 @@ class Memory(metaclass=_MemoryStorage):
     address_space: ClassVar[int]
     rank: ClassVar[int]
     dtype: ClassVar[DataType]
+    usage: ClassVar[Optional[KernelBufferUsage]]
 
     def __init__(self, tensor: torch.Tensor) -> None:
         assert isinstance(tensor, torch.Tensor), f"Expected Tensor but got {tensor}"
@@ -64,13 +70,18 @@ class Memory(metaclass=_MemoryStorage):
     def __class_getitem__(
         cls, shape_and_dtype: tuple[IndexExpr | DataType, ...]
     ) -> Type["Memory"]:
-        """Syntax: `Memory[shape1, ...., shapeN, addressSpace, dtype]"""
+        """Syntax: `Memory[shape1, ...., shapeN, addressSpace, dtype, Optional[usage]]"""
         if not isinstance(shape_and_dtype, tuple) or len(shape_and_dtype) < 3:
             raise TypeError(f"Expected at least 3 arguments, got: {shape_and_dtype}")
 
-        shape = shape_and_dtype[:-2]
-        addressSpace = shape_and_dtype[-2]
-        dtype = shape_and_dtype[-1]
+        shift = 0
+        usage = None
+        if isinstance(shape_and_dtype[-1], KernelBufferUsage):
+            shift = 1
+            usage = shape_and_dtype[-1]
+        shape = shape_and_dtype[: -2 - shift]
+        addressSpace = shape_and_dtype[-2 - shift]
+        dtype = shape_and_dtype[-1 - shift]
 
         if not all(isinstance(s, IndexExpr) for s in shape):
             raise TypeError(f"Expected shape to be a tuple of IndexExpr, got {shape}")
@@ -84,8 +95,9 @@ class Memory(metaclass=_MemoryStorage):
         shape = cast(tuple[IndexExpr, ...], shape)
         dtype = cast(DataType, dtype)
         addressSpace = cast(AddressSpace, addressSpace)
+
         return cls.new_subtype(
-            symbolic_shape=shape, address_space=addressSpace, dtype=dtype
+            symbolic_shape=shape, address_space=addressSpace, dtype=dtype, usage=usage
         )
 
 
@@ -121,3 +133,7 @@ class Register(metaclass=_MemoryStorage):
         return cls.new_subtype(
             symbolic_shape=shape, dtype=dtype, address_space=AddressSpace.REGISTER.value
         )
+
+
+def is_memory_meta_derived(t: type) -> bool:
+    return isinstance(t, _MemoryStorage)

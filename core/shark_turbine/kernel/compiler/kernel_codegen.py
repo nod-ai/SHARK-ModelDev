@@ -34,7 +34,7 @@ from ..lang.kernel_buffer import (
     is_kernel_buffer_meta_derived,
 )
 
-from ..lang.functional_types import _MemoryStorage
+from ..lang.functional_types import Memory, is_memory_meta_derived
 
 from ..lang.grid import Grid
 
@@ -82,7 +82,7 @@ class BindingDesc:
 
     # If an INPUT_BUFFER, OUTPUT_BUFFER, or TEMPORARY_BUFFER, then this
     # is the backing KernelBuffer type.
-    kernel_buffer_type: Optional[Type[KernelBuffer]] = None
+    kernel_buffer_type: Optional[Type[KernelBuffer] | Type[Memory]] = None
 
     # If a SYMBOL_VALUE, then this is the corresponding IndexSymbol.
     symbol_type: Optional[Type[IndexSymbol]] = None
@@ -134,15 +134,10 @@ class KernelSignature:
             b
             for b in self.bindings
             if (
-                (
-                    (b.binding_type == BindingType.KERNEL_BUFFER)
-                    and (b.kernel_buffer_type.usage == KernelBufferUsage.INPUT)
-                )
-                or (
-                    (b.binding_type == BindingType.MEMORY)
-                    and (b.usage_type == KernelBufferUsage.INPUT)
-                )
+                b.binding_type == BindingType.KERNEL_BUFFER
+                or b.binding_type == BindingType.MEMORY
             )
+            and (b.kernel_buffer_type.usage == KernelBufferUsage.INPUT)
         ]
 
     @property
@@ -153,13 +148,10 @@ class KernelSignature:
             for b in self.bindings
             if (
                 (
-                    (b.binding_type == BindingType.KERNEL_BUFFER)
-                    and (b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT)
+                    b.binding_type == BindingType.KERNEL_BUFFER
+                    or b.binding_type == BindingType.MEMORY
                 )
-                or (
-                    (b.binding_type == BindingType.MEMORY)
-                    and (b.usage_type == KernelBufferUsage.OUTPUT)
-                )
+                and b.kernel_buffer_type.usage == KernelBufferUsage.OUTPUT
             )
         ]
 
@@ -200,7 +192,7 @@ class KernelSignature:
                         symbol_type=t,
                     )
                 )
-            elif isinstance(t, _MemoryStorage):
+            elif is_memory_meta_derived(t):
                 self.bindings.append(
                     BindingDesc(
                         ("node", node),
@@ -254,16 +246,24 @@ class KernelSignature:
                     break
             if index == None:
                 continue
-            if only_read_dependencies(node):
-                self.bindings[index].usage_type = KernelBufferUsage.INPUT
             # TODO: remove this hack, this is just to make things pass
             # I did not investigate yet why it does not correctly determine the
             # buffer to only have read dependencies, even though that is the case
-            self.bindings[index].usage_type = KernelBufferUsage.INPUT
+            usage = KernelBufferUsage.INPUT
+            if only_read_dependencies(node):
+                usage = KernelBufferUsage.INPUT
 
             if only_write_dependencies(node):
-                self.bindings[index].usage_type = KernelBufferUsage.OUTPUT
+                usage = KernelBufferUsage.OUTPUT
 
+            # Create new Memory type with the correct usage
+            memory_type = self.bindings[index].kernel_buffer_type
+            self.bindings[index].kernel_buffer_type = Memory[
+                *memory_type.symbolic_shape,
+                memory_type.address_space,
+                memory_type.dtype,
+                usage,
+            ]
         return
 
 
