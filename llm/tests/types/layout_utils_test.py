@@ -64,6 +64,35 @@ class I4Shuffle(unittest.TestCase):
             r0,
         )
 
+    def test_promote_i2_block_to_i8(self):
+        data = torch.tensor([[0xC1, 0xB2, 0xA3, 0x94, 0x85]], dtype=torch.uint8)
+        expected = torch.tensor(
+            # fmt: off
+            [[
+                1, 0, 0, 3,  # 0xC1
+                2, 0, 3, 2,  # 0xB2
+                3, 0, 2, 2,  # 0xA3
+                0, 1, 1, 2,  # 0x94
+                1, 1, 0, 2   # 0x85
+            ]],
+            dtype=torch.uint8,
+            # fmt: on
+        )
+        r0 = promote_linear_i2_block_to_i8(data)
+        torch.testing.assert_close(r0, expected)
+
+    def test_promote_i6_block_to_i8(self):
+        # High 2 bit values: 0, 3, 1, 3, 1, 3, 0, 3
+        high = torch.tensor([[0xDC, 0xCD]], dtype=torch.uint8)
+        # Low 4 bit values:
+        # '0xb', '0xc', '0x2', '0x3', '0x1', '0x1', '0x6', '0x7'
+        low = torch.tensor([[0xCB, 0x32, 0x11, 0x76]], dtype=torch.uint8)
+        r0 = promote_linear_i6_block_to_i8(high, low)
+        r_debug = repr(debug_map_tensor_as_hex_string(r0))
+        self.assertEqual(
+            r_debug, "[['0xb', '0x3c', '0x12', '0x33', '0x11', '0x31', '0x6', '0x37']]"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
