@@ -1,5 +1,18 @@
 # Stable Diffusion XL with SHARK-Turbine
 
+## Support
+
+Following is a table that shows current status of turbine SDXL inference support for a few AMDGPU targets. This is not an exhaustive list of supported targets.
+
+| Target Chip | Attention Decomposed? | CLIP          | UNet                           | VAE Decode                     | Txt2Img        |
+|-------------|-----------------------|---------------|--------------------------------|--------------------------------|----------------|
+| gfx1100     | Yes                   | 💚 | 💛 (numerics with vector distribution)| 💚                  | 💚  |
+|             | No                    |               | 💔 (Attn lowering) | 💔 (Attn lowering) | 💔 |
+| gfx90a      | Yes                   | 💚 | 💚                  | 💚                  | 💚  |
+|             | No                    |               | 💔 (Shared Memory) | 💚                  | 💔 |
+| gfx942      | Yes                   | 💚 | 💚                  | 💚                  | 💚  |
+|             | No                    |               | 💚                  | 💚                  | 💚  |
+
 ## Setup SHARK-Turbine for importing and running the SDXL pipeline or submodels.
 
 Linux:
