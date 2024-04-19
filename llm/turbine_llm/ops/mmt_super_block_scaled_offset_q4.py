@@ -165,4 +165,3 @@ class mmt_super_block_scaled_offset_q4_unsigned(CustomOp):
             scale_type=scale_type_str,
         )
         kb.yield_results(*call_function(target_function, *kb.arg_bindings))
-        print(kb.module_body.owner)

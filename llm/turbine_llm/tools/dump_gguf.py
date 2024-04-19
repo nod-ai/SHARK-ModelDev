@@ -59,7 +59,7 @@ def main():
             )
         else:
             assert isinstance(tensor, QuantizedTensor), f"Got {type(tensor)}"
-            print(f"  : QuantizedTensor({tensor.layout_type.__name__})=")
+            print(f"  : QuantizedTensor({tensor.layout_type.__name__})")
             try:
                 unpacked = tensor.unpack()
                 print(f"    {unpacked}")

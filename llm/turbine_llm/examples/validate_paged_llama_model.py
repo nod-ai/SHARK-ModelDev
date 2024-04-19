@@ -15,7 +15,7 @@ from turbine_llm.models.llama.llama import *
 
 def main(args: list[str]):
     torch.no_grad().__enter__()
-    config = gguf_interop.load_file(args[0])
+    config = Dataset.load(args[0])
     hp = configs.LlamaHParams.from_gguf_props(config.properties)
     model = PagedLlamaModelV1(config.root_theta, LlamaModelConfig(hp))
     cache_state = model.cache.paged.allocate(128, torch.float32)

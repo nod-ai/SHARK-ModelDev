@@ -16,6 +16,7 @@ import torch
 import torch.nn.functional as F
 
 from shark_turbine.aot import (
+    ExternalTensorTrait,
     ParameterArchive,
     ParameterArchiveEntry,
     ParameterArchiveBuilder,
@@ -475,6 +476,12 @@ class DatasetMetadata:
                         f"InferenceTensor missing one of its tensor components"
                     ) from e
                 raw_tensor = raw_entry.as_tensor()
+                # Tag the tensor as originating from external storage. This will
+                # make any subsequent compilation with it expect to load it from
+                # the same parameter archive.
+                ExternalTensorTrait(external_name=global_name, external_scope="").set(
+                    raw_tensor
+                )
                 raw_tensors[local_name] = raw_tensor
 
             # Instantiate the tensor.

@@ -25,7 +25,7 @@ def main():
     args = cli.parse(parser)
 
     data_files = cli.get_gguf_data_files(args)
-    dataset = gguf_interop.load_file(data_files["gguf"])
+    dataset = Dataset.load(data_files["gguf"])
 
     hp = configs.LlamaHParams.from_gguf_props(dataset.properties)
     model = PagedLlamaModelV1(dataset.root_theta, LlamaModelConfig(hp))
