@@ -51,7 +51,27 @@ class mmtfp_test(unittest.TestCase):
                 "b": {},
             },
         )
-        asm = str(aot.export(ep).mlir_module)
+        output = aot.export(ep)
+        output.verify()
+        asm = str(output.mlir_module)
+        self.assertIn("@turbine_llm_mmtfp_3d_256_32_f32f32", asm)
+
+    def testExportStaticDims(self):
+        class MyModule(torch.nn.Module):
+            def forward(self, a, b):
+                return ops.mmtfp(a, b)
+
+        mod = MyModule()
+        ep = torch.export.export(
+            mod,
+            args=(
+                torch.rand([4, 128, 32], dtype=torch.float32),
+                torch.rand([256, 32], dtype=torch.float32),
+            ),
+        )
+        output = aot.export(ep)
+        output.verify()
+        asm = str(output.mlir_module)
         self.assertIn("@turbine_llm_mmtfp_3d_256_32_f32f32", asm)
 
     def testExportTooDynamic(self):

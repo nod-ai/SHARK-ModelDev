@@ -57,7 +57,31 @@ class mmt_block_scaled_offset_q4_unsigned_test(unittest.TestCase):
                 "m": {},
             },
         )
-        asm = str(aot.export(ep).mlir_module)
+        output = aot.export(ep)
+        output.verify()
+        asm = str(output.mlir_module)
+        self.assertIn(
+            "@turbine_llm_mmt_block_scaled_offset_q4_unsigned_3d_3200_3200_32_f32", asm
+        )
+
+    def testExportStaticDims(self):
+        class MyModule(torch.nn.Module):
+            def forward(self, a, d, qs, m):
+                return ops.mmt_block_scaled_offset_q4_unsigned(a, d, qs, m)
+
+        mod = MyModule()
+        ep = torch.export.export(
+            mod,
+            args=(
+                torch.rand([4, 16, 3200], dtype=torch.float32),
+                torch.rand([3200, 100, 1], dtype=torch.float16),
+                (torch.rand([3200, 100, 16], dtype=torch.float32) * 32).to(torch.uint8),
+                torch.rand([3200, 100, 1], dtype=torch.float16),
+            ),
+        )
+        output = aot.export(ep)
+        output.verify()
+        asm = str(output.mlir_module)
         self.assertIn(
             "@turbine_llm_mmt_block_scaled_offset_q4_unsigned_3d_3200_3200_32_f32", asm
         )
