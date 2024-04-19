@@ -632,14 +632,57 @@ class LaunchableWave(Launchable):
             return 2
         return 0
 
-    """
-    This pass creates a new fx.Graph that corresponds to the "macrokernel".
-    We use the "microkernel" graph (that we obtained from tracing the
-    tkf program) and expand it to the "macrokernel" based on the user
-    specified constraints.
-    """
+    def create_scheduled_graph(self, expanded_graph, scheduler, trace):
+        """
+        This pass uses the macrokernel graph and the generated schedule
+        and constructs a scheduled macrokernel graph that can be used
+        for MLIR emission.
+        """
+        root_graph = trace.get_root_graph()
+        scheduled_graph = fx.Graph()
+
+        def arg_mapper(target_name: str, node: fx.Node):
+            if "c_reg" not in node.name:
+                return node
+            for node in scheduled_graph.nodes:
+                if node.name == target_name:
+                    return node
+            return None
+
+        for node in root_graph.nodes:
+            if "tiled_loop" in node.name:
+                # Emit prologue
+                for stage, nodes in scheduler.prolog.items():
+                    for subnode in nodes:
+                        mapped_node = self.inverse_mapper[subnode]
+                        mapped_node.meta["stage"] = stage - 1
+                        scheduled_graph.node_copy(
+                            mapped_node,
+                            partial(arg_mapper, "construct_register_from_metadata"),
+                        )
+                # Emit kernel
+                scheduled_graph.node_copy(node)
+                # Emit epilogue
+                for stage, nodes in scheduler.prolog.items():
+                    for subnode in nodes:
+                        mapped_node = self.inverse_mapper[subnode]
+                        mapped_node.meta["stage"] = stage
+                        scheduled_graph.node_copy(
+                            mapped_node, partial(arg_mapper, "tiled_loop")
+                        )
+                continue
+            scheduled_graph.node_copy(node)
+
+        return scheduled_graph
 
     def create_expanded_graph(self, trace, idxc, debug=False):
+        """
+        This pass creates a new fx.Graph that corresponds to the "macrokernel".
+        We use the "microkernel" graph (that we obtained from tracing the
+        tkf program) and expand it to the "macrokernel" based on the user
+        specified constraints.
+        """
+
         # Determine how many nodes there are in the final graph.
         hardware_constraint = self.hardware_constraints[0]
         mma_m, mma_n, mma_k = hardware_constraint.mma_matrix_shapes()
@@ -752,13 +795,13 @@ class LaunchableWave(Launchable):
     def construct_schedule(self, graph, debug=True):
         dependenceGraph = ms.Graph()
         node_mapper = {}
-        output_node = None
+        self.inverse_mapper = {}
         for node in graph.nodes:
             # No need to add output, since we have c_reg
             if "output" in node.name:
-                output_node = node
                 continue
             node_mapper[node] = ms.Node(node.name, self.get_rrt(node.name))
+            self.inverse_mapper[node_mapper[node]] = node
             dependenceGraph.addNode(node_mapper[node])
 
         def get_output_to_node(node: fx.Node):
@@ -810,9 +853,10 @@ class LaunchableWave(Launchable):
 
         dependenceGraph.generateDotGraph()
         resourceVector = [2, 2, 2]
-        self.scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
-        self.scheduler.generateSchedule()
-        self.scheduler.reconstructLoop()
+        scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
+        scheduler.generateSchedule()
+        scheduler.reconstructLoop()
+        return scheduler
 
     def _trace_and_get_kernel_signature(
         self,
@@ -851,7 +895,8 @@ class LaunchableWave(Launchable):
         # Create "macrokernel" graph
         expanded_graph = self.create_expanded_graph(trace, idxc)
         # Schedule "macrokernel" graph
-        self.construct_schedule(expanded_graph)
+        scheduler = self.construct_schedule(expanded_graph)
+        scheduled_graph = self.create_scheduled_graph(expanded_graph, scheduler, trace)
 
         # MLIR-style debug print of the graph
         self.print(trace)
