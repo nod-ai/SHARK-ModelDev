@@ -196,7 +196,7 @@ class AOTKernelSelection(KernelSelection):
                 else:
                     # Make sure specialized dim matches.
                     actual_dim = rtt.get_dim_size(i)
-                    if actual_dim != spec_dim:
+                    if spec_dim is not None and actual_dim != spec_dim:
                         raise ValueError(
                             f"Custom op {self.op}, arg {arg} has a mismatched static "
                             f"dim at index {i}: actual = {actual_dim}, expected = {spec_dim}"
