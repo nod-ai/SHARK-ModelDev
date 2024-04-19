@@ -471,16 +471,24 @@ class DatasetMetadata:
                 try:
                     raw_entry = entries[global_name]
                 except KeyError as e:
-                    raise IOError(f"InferenceTensor missing one of its tensor components") from e
+                    raise IOError(
+                        f"InferenceTensor missing one of its tensor components"
+                    ) from e
                 raw_tensor = raw_entry.as_tensor()
                 raw_tensors[local_name] = raw_tensor
 
             # Instantiate the tensor.
             try:
-                tensor_clazz = REGISTERED_INFERENCE_TENSOR_CLASSES[tensor_meta.type_name]
+                tensor_clazz = REGISTERED_INFERENCE_TENSOR_CLASSES[
+                    tensor_meta.type_name
+                ]
             except KeyError as e:
-                raise IOError(f"Unregistered InferenceTensor deserialization type") from e
-            inference_tensor = tensor_clazz.create(tensor_name, raw_tensors, tensor_meta.extra_properties)
+                raise IOError(
+                    f"Unregistered InferenceTensor deserialization type"
+                ) from e
+            inference_tensor = tensor_clazz.create(
+                tensor_name, raw_tensors, tensor_meta.extra_properties
+            )
             inference_tensors[tensor_name] = inference_tensor
 
         return DatasetMetadata(properties_obj, inference_tensors)

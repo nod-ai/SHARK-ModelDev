@@ -95,9 +95,10 @@ class InferenceTensorMetadata:
         try:
             clazz = REGISTERED_INFERENCE_TENSOR_CLASSES[self.type_name]
         except KeyError as e:
-            raise IOError(f"Unable to create instance of unregistered type {self.type_name}") from e
+            raise IOError(
+                f"Unable to create instance of unregistered type {self.type_name}"
+            ) from e
         assert issubclass(clazz, InferenceTensor)
-        
 
     def to_json(self) -> dict:
         d = {
@@ -146,9 +147,16 @@ class InferenceTensor(ABC):
         self.shape = shape
 
     @classmethod
-    def create(cls, name: str, raw_tensors: dict[str, torch.Tensor], extra_properties: dict[str, Any]) -> "InferenceTensor":
-        raise NotImplementedError(f"InferenceTensor {cls} cannot be deserialized "
-                                  f"because it does not implement create()")
+    def create(
+        cls,
+        name: str,
+        raw_tensors: dict[str, torch.Tensor],
+        extra_properties: dict[str, Any],
+    ) -> "InferenceTensor":
+        raise NotImplementedError(
+            f"InferenceTensor {cls} cannot be deserialized "
+            f"because it does not implement create()"
+        )
 
     @classmethod
     def serialized_name(cls) -> str:
@@ -223,7 +231,12 @@ class DefaultPrimitiveTensor(PrimitiveTensor):
         return "PrimitiveTensor"
 
     @classmethod
-    def create(cls, name: str, raw_tensors: dict[str, torch.Tensor], extra_properties: dict[str, Any]) -> "InferenceTensor":
+    def create(
+        cls,
+        name: str,
+        raw_tensors: dict[str, torch.Tensor],
+        extra_properties: dict[str, Any],
+    ) -> "InferenceTensor":
         try:
             data = raw_tensors[""]
         except KeyError as e:
@@ -319,24 +332,30 @@ class PlanarQuantizedTensor(QuantizedTensor):
         return {f"{global_name}:{k}": v for k, v in planes.items()}
 
     @classmethod
-    def create(cls, name: str, raw_tensors: dict[str, torch.Tensor], extra_properties: dict[str, Any]) -> "InferenceTensor":
+    def create(
+        cls,
+        name: str,
+        raw_tensors: dict[str, torch.Tensor],
+        extra_properties: dict[str, Any],
+    ) -> "InferenceTensor":
         try:
             shape = extra_properties["shape"]
             layout_type_name = extra_properties["layout_type"]
             layout_metadata = extra_properties.get("layout_metadata")
         except KeyError as e:
             raise IOError(f"Missing PlanarQuantizedTensor deserialization prop") from e
-        
+
         shape = [int(d) for d in shape]
         try:
             layout_clazz = REGISTERED_LAYOUT_CLASSES[layout_type_name]
         except KeyError:
-            raise IOError(f"Cannot deserialize PlanarQuantizedTensor because of unregistered layout "
-                          f"{layout_type_name}")
-        
+            raise IOError(
+                f"Cannot deserialize PlanarQuantizedTensor because of unregistered layout "
+                f"{layout_type_name}"
+            )
+
         layout = layout_clazz.create(shape, layout_metadata, raw_tensors)
         return PlanarQuantizedTensor(name, shape, layout)
-
 
     def add_to_archive(
         self, builder: ParameterArchiveBuilder
