@@ -327,9 +327,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
     def test03_ExportVaeModelDecode(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Compilation error on vulkan; To be tested on cuda."
-            )
+            self.skipTest("Compilation error on vulkan; To be tested on cuda.")
         vae.export_vae_model(
             vae_model=self.vae_model,
             # This is a public model, so no auth required
