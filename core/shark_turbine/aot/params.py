@@ -261,10 +261,11 @@ class ParameterArchiveBuilder:
 
     def add_blob(self, key: str, blob):
         """Adds a raw blob to the index.
-        
+
         The blob must be interpretable as a buffer.
         """
         self._index.add_buffer(key, blob)
+
 
 def _yield_saveable_tensors(
     module: nn.Module, *, prefix: str = ""
