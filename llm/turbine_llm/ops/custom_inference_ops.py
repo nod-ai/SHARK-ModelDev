@@ -4,12 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Callable, Type, Union
+from typing import Callable, Union
 
 from types import NotImplementedType
 
 import torch
-import torch.nn.functional as F
 
 from ..types import (
     BaseInferenceOps,
@@ -19,15 +18,12 @@ from ..types import (
     PrimitiveTensor,
     QuantizedTensor,
     SuperBlockOffsetScaled_4_6_Layout,
-    gguf_interop,
 )
 
-from .matmul import (
-    mmtfp,
-    mmt_block_scaled_offset_q4_unsigned,
-    mmt_block_scaled_q8,
-    mmt_super_block_scaled_offset_q4_unsigned,
-)
+from .mmtfp import mmtfp
+from .mmt_block_scaled_offset_q4 import mmt_block_scaled_offset_q4_unsigned
+from .mmt_block_scaled_q8 import mmt_block_scaled_q8
+from .mmt_super_block_scaled_offset_q4 import mmt_super_block_scaled_offset_q4_unsigned
 
 __all__ = [
     "BaseInferenceOps",
