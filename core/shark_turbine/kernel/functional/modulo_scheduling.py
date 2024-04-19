@@ -334,6 +334,7 @@ class ModuloScheduler:
 
     def reconstructLoop(self):
         T = len(self.RT)
+        output_label = "c_reg"
         # Group operations by stage in kernel
         self.kernel = {}
         for node, t in self.schedule.items():
@@ -354,7 +355,7 @@ class ModuloScheduler:
             while len(nodes) > 0:
                 toNode = nodes[0]
                 nodes.pop(0)
-                if "output" in toNode.label:
+                if output_label in toNode.label:
                     continue
                 for fromNode, edges in self.dependenceGraph.edges.items():
                     for edge in edges:
@@ -362,7 +363,7 @@ class ModuloScheduler:
                             if (
                                 fromNode not in self.prolog[mod_t]
                                 and fromNode not in self.kernel[mod_t]
-                                and "output" not in fromNode.label
+                                and output_label not in fromNode.label
                             ):
                                 if self.debug:
                                     print(
@@ -387,13 +388,13 @@ class ModuloScheduler:
             while len(nodes) > 0:
                 fromNode = nodes[0]
                 nodes.pop(0)
-                if "output" in fromNode.label:
+                if output_label in fromNode.label:
                     continue
                 for edge in self.dependenceGraph.edges[fromNode]:
                     if (
                         edge.toNode not in self.epilog[mod_t]
                         and edge.toNode not in self.kernel[mod_t]
-                        and "output" not in edge.toNode.label
+                        and output_label not in edge.toNode.label
                     ):
                         if self.debug:
                             print(

@@ -2,6 +2,7 @@ from typing import Type, Callable, Optional, Dict
 
 import inspect
 import math
+from functools import partial
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -615,9 +616,7 @@ class LaunchableWave(Launchable):
                 return [[0, 1, 0]]
         if "mma" in name:
             return [[0, 0, 1]]
-        if "output" in name:
-            return [[0, 0, 0]]
-        return None
+        return [[0, 0, 0]]
 
     """
     This function returns the delay of a given op in cycles.
@@ -631,9 +630,189 @@ class LaunchableWave(Launchable):
                 return 1
         if "mma" in name:
             return 2
-        if "output" in name:
-            return 0
-        return None
+        return 0
+
+    """
+    This pass creates a new fx.Graph that corresponds to the "macrokernel".
+    We use the "microkernel" graph (that we obtained from tracing the
+    tkf program) and expand it to the "macrokernel" based on the user
+    specified constraints.
+    """
+
+    def create_expanded_graph(self, trace, idxc, debug=False):
+        # Determine how many nodes there are in the final graph.
+        hardware_constraint = self.hardware_constraints[0]
+        mma_m, mma_n, mma_k = hardware_constraint.mma_matrix_shapes()
+        for sym, val in idxc.frozen_subs:
+            if sym.name == "BLOCK_M":
+                block_m = val
+            if sym.name == "BLOCK_N":
+                block_n = val
+            if sym.name == "BLOCK_K":
+                block_k = val
+        batch_m = 2  # block_m // mma_m
+        batch_n = 2  # block_n // mma_n
+        batch_k = 2  # block_k // mma_k
+        repeat_times = {"M": batch_m, "N": batch_n, "K": batch_k}
+
+        subgraphs = trace.region_graph.subgraphs
+        root_graph = trace.get_root_graph()
+        expanded_graph = fx.Graph()
+
+        index_suffix = lambda i, j: "_" + str(i) + "_" + str(j)
+        mma_index_suffix = lambda i, j, k: index_suffix(i, j) + "_" + str(k)
+
+        def transform_args(i: int, j: int, arg: fx.Node):
+            if arg.op == "placeholder" or "alloc" in arg.name:
+                return arg
+            new_arg_name = arg.name + index_suffix(i, j)
+            for node in expanded_graph.nodes:
+                if node.name == new_arg_name:
+                    return node
+            return None
+
+        def transform_mma_args(i: int, j: int, k: int, arg: fx.Node):
+            if arg.op == "placeholder":
+                if k == 0:
+                    new_arg_name = arg.name + index_suffix(i, j)
+                else:
+                    new_arg_name = "mma" + mma_index_suffix(i, j, k - 1)
+                for node in expanded_graph.nodes:
+                    if node.name == new_arg_name:
+                        return node
+                return None
+
+            # Determine if this is the lhs or rhs of the mma operation
+            for user in arg.users.keys():
+                if user.name == "mma":
+                    for c, user_arg in enumerate(user.args):
+                        if user_arg == arg:
+                            index = c
+                            break
+            match index:
+                case 0:
+                    new_arg_name = arg.name + index_suffix(i, k)
+                case 1:
+                    new_arg_name = arg.name + index_suffix(j, k)
+                case _:
+                    return None
+            for node in expanded_graph.nodes:
+                if node.name == new_arg_name:
+                    return node
+            return None
+
+        def duplicate_node(m: int, k: int, node: fx.Node):
+            for i in range(m):
+                for j in range(k):
+                    new_node = expanded_graph.node_copy(
+                        node, partial(transform_args, i, j)
+                    )
+                    new_node.name = node.name + index_suffix(i, j)
+
+        def duplicate_mma_node(M: int, N: int, K: int, node: fx.Node):
+            outputs = []
+            for i in range(M):
+                for j in range(N):
+                    for k in range(K):
+                        new_node = expanded_graph.node_copy(
+                            node, partial(transform_mma_args, i, j, k)
+                        )
+                        new_node.name = node.name + mma_index_suffix(i, j, k)
+                    outputs.append(new_node)
+            return outputs
+
+        for graph in subgraphs.values():
+            if graph == root_graph:
+                continue
+            outputs = None
+            for node in graph.nodes:
+                if node.op == "placeholder" and "c_reg" not in node.name:
+                    continue
+                if "mma" in node.name:
+                    outputs = duplicate_mma_node(batch_m, batch_n, batch_k, node)
+                    continue
+                if "output" in node.name:
+                    new_node = expanded_graph.node_copy(node)
+                    new_node.args = tuple(
+                        [outputs],
+                    )
+                    continue
+                node_type = node.meta["type"]
+                if node_type is None:
+                    # If type not available, must be a write, so get it
+                    # from args.
+                    for arg in node.args:
+                        if arg.meta["type"] is not None:
+                            node_type = arg.meta["type"]
+                            break
+                dim0, dim1 = [x.name for x in node_type.symbolic_shape]
+                duplicate_node(repeat_times[dim0], repeat_times[dim1], node)
+        return expanded_graph
+
+    def construct_schedule(self, graph, debug=True):
+        dependenceGraph = ms.Graph()
+        node_mapper = {}
+        output_node = None
+        for node in graph.nodes:
+            # No need to add output, since we have c_reg
+            if "output" in node.name:
+                output_node = node
+                continue
+            node_mapper[node] = ms.Node(node.name, self.get_rrt(node.name))
+            dependenceGraph.addNode(node_mapper[node])
+
+        def get_output_to_node(node: fx.Node):
+            _, i, j, _ = node.name.split("_")
+            to_node_name = f"c_reg_{i}_{j}"
+            for node in graph.nodes:
+                if node.name == to_node_name:
+                    return node
+            return None
+
+        for fromNode in graph.nodes:
+            for toNode in fromNode.users.keys():
+                iteration_delay = 0
+                if "c_reg" in fromNode.name:
+                    iteration_delay = 1
+                if "output" in toNode.name:
+                    toNode = get_output_to_node(fromNode)
+                edge_label = f"{fromNode.name} -> {toNode.name}"
+                dependenceGraph.addEdge(
+                    ms.Edge(
+                        edge_label,
+                        node_mapper[fromNode],
+                        node_mapper[toNode],
+                        self.get_delay(fromNode.name),
+                        iteration_delay,
+                    )
+                )
+
+        # Create edges between write and read from shared memory.
+        for node in graph.nodes:
+            if "write_shared" in node.name:
+                i, j = node.name.split("_")[-2:]
+                prefix = "_".join(node.name.split("_")[:-2]).replace("write", "read")
+                read_shared_name = prefix + "_" + str(i) + "_" + str(j)
+                fromNode = node
+                for nodej in graph.nodes:
+                    if nodej.name == read_shared_name:
+                        toNode = nodej
+                        break
+                dependenceGraph.addEdge(
+                    ms.Edge(
+                        edge_label,
+                        node_mapper[fromNode],
+                        node_mapper[toNode],
+                        self.get_delay(fromNode.name),
+                        0,
+                    )
+                )
+
+        dependenceGraph.generateDotGraph()
+        resourceVector = [2, 2, 2]
+        self.scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
+        self.scheduler.generateSchedule()
+        self.scheduler.reconstructLoop()
 
     """
     This function determines a pipelining schedule for the ops that
@@ -923,10 +1102,10 @@ class LaunchableWave(Launchable):
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
 
-        # Determine a schedule for pipelining.
-        # At the end of this, we have a prologue, kernel and epilogue with
-        # a specified schedule.
-        self.do_scheduling(trace, idxc)
+        # Create "macrokernel" graph
+        expanded_graph = self.create_expanded_graph(trace, idxc)
+        # Schedule "macrokernel" graph
+        self.construct_schedule(expanded_graph)
 
         # MLIR-style debug print of the graph
         self.print(trace)
