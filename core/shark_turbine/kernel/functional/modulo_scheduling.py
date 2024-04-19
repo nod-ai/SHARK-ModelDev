@@ -349,6 +349,7 @@ class ModuloScheduler:
             if mod_t not in self.prolog:
                 self.prolog[mod_t] = []
             nodes = [node]
+            prolog_nodes = []
             visited = []
             while len(nodes) > 0:
                 toNode = nodes[0]
@@ -367,10 +368,13 @@ class ModuloScheduler:
                                     print(
                                         f"Adding {fromNode.label}, because graph has {toNode.label} and {edge.label}"
                                     )
-                                self.prolog[mod_t].append(fromNode)
                                 if fromNode not in visited:
                                     nodes.append(fromNode)
+                                    prolog_nodes.append(fromNode)
                 visited.append(toNode)
+
+            if len(prolog_nodes) > 0:
+                self.prolog[mod_t] += prolog_nodes[::-1]
 
         # Trace dependence graph forward to get epilogue
         self.epilog = {}
