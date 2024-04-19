@@ -38,6 +38,12 @@ __all__ = [
 logger = get_logger("gguf")
 
 
+def _sanitize_scalar(scalar):
+    if isinstance(scalar, np.generic):
+        return scalar.tolist()  # Returns Python scalar type, not a list.
+    return scalar
+
+
 def _load_properties(reader: GGUFReader) -> dict[str, Any]:
     # TODO: Figure out what to do with tables.
     tables: dict[str, Any] = {}
@@ -53,7 +59,7 @@ def _load_properties(reader: GGUFReader) -> dict[str, Any]:
             if curr_type == GGUFValueType.STRING:
                 properties[field.name] = str(bytes(field.parts[-1]), encoding="utf8")
             elif field.types[0] in reader.gguf_scalar_to_np:
-                properties[field.name] = field.parts[-1][0]
+                properties[field.name] = _sanitize_scalar(field.parts[-1][0])
         else:
             tables[field.name] = field.parts
     return properties

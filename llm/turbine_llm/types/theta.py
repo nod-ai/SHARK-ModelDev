@@ -6,17 +6,28 @@
 
 from typing import Any, Callable, Optional, Union, Collection
 
+import json
 from pathlib import Path
-
 from types import NotImplementedType
 from dataclasses import dataclass
+import warnings
 
 import torch
 import torch.nn.functional as F
 
-from shark_turbine.aot import ParameterArchiveBuilder
+from shark_turbine.aot import (
+    ParameterArchive,
+    ParameterArchiveEntry,
+    ParameterArchiveBuilder,
+)
 
-from .tensors import InferenceTensor, PrimitiveTensor, QuantizedTensor
+from .tensors import (
+    InferenceTensor,
+    PrimitiveTensor,
+    QuantizedTensor,
+    InferenceTensorMetadata,
+    REGISTERED_INFERENCE_TENSOR_CLASSES,
+)
 
 __all__ = [
     "BaseInferenceOps",
@@ -25,6 +36,22 @@ __all__ = [
 ]
 
 IOReportCallback = Callable[[str], None]
+
+
+################################################################################
+# Theta object
+# A theta object represents a hierarchical pack of parameters. All parameters
+# are InferenceTensor objects, meaning that they can either be raw PyTorch
+# tensors or composite/packed QuantizedTensors.
+#
+# As in classic implementations, we separate the theta parameter pack from the
+# model code because there are many interesting transformations that can be
+# done on it in isolation.
+#
+# The theta object also carries with it side-car policy objects for making use
+# of the contained tensors. Key among these is the concrete InferenceOps
+# implementation for operating on the InferenceTensors.
+################################################################################
 
 
 class Theta:
@@ -97,6 +124,7 @@ class Theta:
     def add_tensors_to_archive(
         self,
         irpa: ParameterArchiveBuilder,
+        inference_tensor_metas: dict[str, InferenceTensorMetadata],
         *,
         io_report_callback: Optional[IOReportCallback] = None,
     ):
@@ -104,7 +132,11 @@ class Theta:
         for inference_tensor in self.flatten().values():
             if io_report_callback:
                 io_report_callback(f"Add {inference_tensor}")
-            inference_tensor.add_to_archive(irpa)
+            name = inference_tensor.name
+            if name in inference_tensor_metas:
+                warnings.warn(f"Duplicate inference tensor added to archive: {name}")
+            meta = inference_tensor.add_to_archive(irpa)
+            inference_tensor_metas[name] = meta
 
 
 def _flat_to_nested_dict(flat: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +163,23 @@ def _flat_to_nested_dict(flat: dict[str, Any]) -> dict[str, Any]:
     return nested
 
 
+################################################################################
+# Dataset objects
+#
+# A dataset object combines a root theta and a dictionary of properties
+# defining the computation characteristics that the parameters were trained for
+# (i.e. hyperparams).
+#
+# Note that model implementation parameters are represented elsewhere (i.e. for
+# things that involve selecting an implementation that meets certain
+# characteristics).
+################################################################################
+
+PropertyValueType = Union[
+    int, float, bool, list["PropertyValueType"], dict[str, "PropertyValueType"]
+]
+
+
 @dataclass
 class Dataset:
     """Top level configuration for a model.
@@ -141,7 +190,7 @@ class Dataset:
     * Root theta with materialized parameters (Theta).
     """
 
-    properties: dict[str, Any]
+    properties: dict[str, PropertyValueType]
     root_theta: Theta
 
     def save(
@@ -150,13 +199,31 @@ class Dataset:
         *,
         io_report_callback: Optional[IOReportCallback] = None,
     ):
-        builder = ParameterArchiveBuilder()
-        self.root_theta.add_tensors_to_archive(
-            builder, io_report_callback=io_report_callback
-        )
-        if io_report_callback:
-            io_report_callback("Saving file")
-            builder.save(path)
+        """Saves a parameter archive consisting of properties and theta.
+
+        By default, all quantized tensors in theta which do not have a custom
+        packed serialization are converted to a generic planar form.
+
+        Sufficient metadata is stored such that `load()` can reconstitute the
+        Dataset.
+        """
+        _dataset_save_helper(self, path, io_report_callback=io_report_callback)
+
+    @staticmethod
+    def load(path: Union[str, Path]) -> "Dataset":
+        """Loads a dataset from a parameter archive constructed with save."""
+        return _dataset_load_helper(path)
+
+
+################################################################################
+# Inference ops
+# Key operations on InferenceTensors are represented here and our models and
+# layers use them when appropriate. The default implementation defines them
+# in terms of bespoke torch ops. Subclasses can be swapped that allow dispatch
+# to more specialized implementations, which can be selected based on the
+# characteristics of the tensors being operated on.
+# TODO: This doesn't really belong here. Find it a better home.
+################################################################################
 
 
 class BaseInferenceOps:
@@ -311,3 +378,161 @@ def _matmul_torch(
     if transpose_rhs:
         rhs = rhs.T
     return torch.matmul(lhs, rhs.to(lhs.dtype))
+
+
+################################################################################
+# Dataset I/O helpers
+################################################################################
+
+
+@dataclass
+class DatasetMetadata:
+    """Container for serialization state of a dataset.
+
+    When saved to an IRPA file, it will be saved with multiple keys:
+
+    * properties: __SHARK_DATASET__
+    * inference_tensors: __SHARK_INFERENCE_TENSORS__
+    """
+
+    properties: dict
+    inference_tensors: dict[str, InferenceTensorMetadata]
+
+    def save(
+        self,
+        builder: ParameterArchiveBuilder,
+        *,
+        io_report_callback: Optional[IOReportCallback] = None,
+    ):
+        properties_object = self.properties
+        properties_object["SHARK_DATASET_VERSION"] = 1
+        inference_tensors_object = {
+            k: v.to_json() for k, v in self.inference_tensors.items()
+        }
+
+        # __SHARK_DATASET__ properties blob.
+        try:
+            properties_json_blob = json.dumps(properties_object, indent=2)
+        except TypeError as e:
+            raise TypeError(
+                f"Illegal dataset properties object: {properties_object}"
+            ) from e
+        if io_report_callback:
+            import textwrap
+
+            io_report_callback(
+                f"Add __SHARK_DATASET__:\n{textwrap.indent(properties_json_blob, '    ')}"
+            )
+        builder.add_blob("__SHARK_DATASET__", properties_json_blob.encode())
+
+        # __SHARK_INFERENCE_TENSORS__ blob.
+        try:
+            inference_tensors_blob = json.dumps(inference_tensors_object, indent=2)
+        except TypeError as e:
+            raise TypeError(
+                f"Illegal inference tensor object: {inference_tensors_object}"
+            ) from e
+        if io_report_callback:
+            import textwrap
+
+            io_report_callback(
+                f"Add __SHARK_INFERENCE_TENSORS__:\n{textwrap.indent(inference_tensors_blob, '    ')}"
+            )
+        builder.add_blob("__SHARK_INFERENCE_TENSORS__", inference_tensors_blob.encode())
+
+    @staticmethod
+    def load(entries: dict[str, ParameterArchiveEntry]) -> "DatasetMetadata":
+        # Load properties.
+        try:
+            properties_entry = entries["__SHARK_DATASET__"]
+        except KeyError:
+            raise IOError(
+                f"Parameter archive does not contains __SHARK_DATASET__. Was it produced by this tool?"
+            )
+        properties_obj = json.loads(bytes(properties_entry.raw.file_view))
+        assert isinstance(properties_obj, dict)
+
+        # Load inference tensors.
+        try:
+            inference_tensors_entry = entries["__SHARK_INFERENCE_TENSORS__"]
+        except KeyError:
+            raise IOError(
+                f"Parameter archive does not contains __SHARK_INFERENCE_TENSORS__. Was it produced by this tool?"
+            )
+        inference_tensors_obj = json.loads(bytes(inference_tensors_entry.raw.file_view))
+        assert isinstance(inference_tensors_obj, dict)
+
+        inference_tensors: dict[str, InferenceTensorMetadata] = {}
+        for tensor_name, tensor_meta_obj in inference_tensors_obj.items():
+            tensor_meta = InferenceTensorMetadata.from_json(tensor_meta_obj)
+            # Map the raw_tensors dict to tensors from the archive.
+            raw_tensors = {}
+            for local_name, global_name in tensor_meta.raw_tensors.items():
+                try:
+                    raw_entry = entries[global_name]
+                except KeyError as e:
+                    raise IOError(f"InferenceTensor missing one of its tensor components") from e
+                raw_tensor = raw_entry.as_tensor()
+                raw_tensors[local_name] = raw_tensor
+
+            # Instantiate the tensor.
+            try:
+                tensor_clazz = REGISTERED_INFERENCE_TENSOR_CLASSES[tensor_meta.type_name]
+            except KeyError as e:
+                raise IOError(f"Unregistered InferenceTensor deserialization type") from e
+            inference_tensor = tensor_clazz.create(tensor_name, raw_tensors, tensor_meta.extra_properties)
+            inference_tensors[tensor_name] = inference_tensor
+
+        return DatasetMetadata(properties_obj, inference_tensors)
+
+
+def _dataset_save_helper(
+    dataset: Dataset,
+    path: Union[str, Path],
+    *,
+    io_report_callback: Optional[IOReportCallback] = None,
+):
+    builder = ParameterArchiveBuilder()
+    ds_meta = DatasetMetadata(dict(dataset.properties), {})
+    # Add tensors.
+    # TODO: We need some form of streaming save upstream and then use that.
+    # For computed tensors, the memory overhead of this style is large
+    # because intermediates are retained until the `builder.save()`.
+    dataset.root_theta.add_tensors_to_archive(
+        builder,
+        ds_meta.inference_tensors,
+        io_report_callback=io_report_callback,
+    )
+
+    # Serialize the metadata.
+    ds_meta.save(builder, io_report_callback=io_report_callback)
+
+    if io_report_callback:
+        io_report_callback("Saving file")
+    builder.save(path)
+
+
+def _dataset_load_helper(
+    path: Union[str, Path], *, file_type: Optional[str] = None
+) -> Dataset:
+    path = Path(path)
+    suffixes = path.suffixes
+    if file_type == "gguf" or suffixes == [".gguf"]:
+        from . import gguf_interop
+
+        return gguf_interop.load_file(path)
+    elif file_type == "irpa" or suffixes == [".irpa"]:
+        return _dataset_load_irpa(path)
+    else:
+        raise IOError(
+            f"Unknown file type '{''.join(path.suffixes)} for loading a Dataset"
+        )
+
+
+def _dataset_load_irpa(path: Path) -> Dataset:
+    archive = ParameterArchive(path)
+    # Note that there may be duplicates. Last wins.
+    entries = {k: v for k, v in archive.items()}
+    meta = DatasetMetadata.load(entries)
+    dataset = Dataset(meta.properties, Theta(meta.inference_tensors))
+    return dataset

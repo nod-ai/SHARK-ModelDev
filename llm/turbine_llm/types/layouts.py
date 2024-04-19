@@ -188,7 +188,7 @@ class BlockScaledI4Layout(BlockScaledLayout):
 
     @property
     def metadata(self) -> dict[str, MetaDataValueType]:
-        return {"signed", self.signed}
+        return {"signed": self.signed}
 
     @property
     def qs(self) -> torch.Tensor:

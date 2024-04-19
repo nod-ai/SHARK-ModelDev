@@ -9,4 +9,3 @@ from .tensors import *
 from .theta import *
 
 from . import gguf_interop
-from . import irpa_interop

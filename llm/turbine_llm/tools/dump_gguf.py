@@ -31,7 +31,7 @@ def main():
     args = cli.parse(parser)
 
     data_files = cli.get_gguf_data_files(args)
-    config = gguf_interop.load_file(data_files["gguf"])
+    config = Dataset.load(data_files["gguf"])
 
     if args.save is not None:
 
@@ -59,10 +59,8 @@ def main():
             )
         else:
             assert isinstance(tensor, QuantizedTensor), f"Got {type(tensor)}"
-            raw = tensor.raw  # type: ignore
             print(
                 f"  : QuantizedTensor({tensor.layout_type.__name__})="
-                f"torch.Tensor({list(raw.shape)}, dtype={raw.dtype})"
             )
             try:
                 unpacked = tensor.unpack()
