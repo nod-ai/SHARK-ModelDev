@@ -90,7 +90,6 @@ class BlockScaledLayout(QuantizedLayout):
     def planes(self) -> dict[str, torch.Tensor]:
         p = {
             "d": self._d,
-            "m": self._m,
             "qs": self._qs,
         }
         if self._m is not None:
