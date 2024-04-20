@@ -214,7 +214,7 @@ def main():
 
     data_files = cli.get_gguf_data_files(args)
     tokenizer = cli.get_tokenizer(args, data_files=data_files)
-    dataset = gguf_interop.load_file(data_files["gguf"])
+    dataset = Dataset.load(data_files["gguf"])
     prompts = args.prompt
 
     config = LlamaModelConfig(

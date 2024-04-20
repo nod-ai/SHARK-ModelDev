@@ -25,10 +25,22 @@ def main():
     parser.add_argument(
         "--tensor-regex", type=str, help="Only dumps tensors matching a regex"
     )
+    parser.add_argument(
+        "--save", type=Path, help="Save the GGUF dataset to an IRPA file"
+    )
     args = cli.parse(parser)
 
     data_files = cli.get_gguf_data_files(args)
-    config = gguf_interop.load_file(data_files["gguf"])
+    config = Dataset.load(data_files["gguf"])
+
+    if args.save is not None:
+
+        def report(s):
+            print(f"Save: {s}")
+
+        print(f"Saving to: {args.save}")
+        config.save(args.save, io_report_callback=report)
+        return
 
     print(f"Properties:")
     for key, value in config.properties.items():
@@ -47,11 +59,7 @@ def main():
             )
         else:
             assert isinstance(tensor, QuantizedTensor), f"Got {type(tensor)}"
-            raw = tensor.raw  # type: ignore
-            print(
-                f"  : QuantizedTensor({tensor.layout_type.__name__})="
-                f"torch.Tensor({list(raw.shape)}, dtype={raw.dtype})"
-            )
+            print(f"  : QuantizedTensor({tensor.layout_type.__name__})")
             try:
                 unpacked = tensor.unpack()
                 print(f"    {unpacked}")
