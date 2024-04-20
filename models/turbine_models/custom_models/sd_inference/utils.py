@@ -57,6 +57,7 @@ def compile_to_vmfb(
                 "--iree-llvmcpu-target-cpu-features=host",
                 "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
                 "--iree-llvmcpu-distribution-size=32",
+                "--iree-opt-const-eval=false",
             ]
         )
         device = "llvm-cpu"
