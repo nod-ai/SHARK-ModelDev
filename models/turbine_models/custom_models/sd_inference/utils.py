@@ -10,7 +10,7 @@ from diffusers import (
 )
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
-gfx94X_flags = {
+amdgpu_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
@@ -18,11 +18,11 @@ gfx94X_flags = {
         "--iree-llvmgpu-enable-prefetch=true",
         "--verify=false",
         "--iree-opt-data-tiling=false",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "clip": [],
     "vae": [],
@@ -110,20 +110,24 @@ def compile_to_vmfb(
 
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx1100", "gfx90a"]:
         if "unet" in safe_name:
-            flags.extend(gfx94X_flags["unet"])
+            flags.extend(amdgpu_flags["unet"])
         elif any(x in safe_name for x in ["clip", "prompt_encoder"]):
-            flags.extend(gfx94X_flags["clip"])
+            flags.extend(amdgpu_flags["clip"])
         elif "vae" in safe_name:
-            flags.extend(gfx94X_flags["vae"])
-        flags.extend(gfx94X_flags["all"])
+            flags.extend(amdgpu_flags["vae"])
+        flags.extend(amdgpu_flags["all"])
 
+    # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
+    # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
+    # This is a temporary solution, and should be removed or largely disabled once the functionality of
+    # the TD spec is implemented in C++.
     if attn_spec not in [None, "", " "]:
-        if attn_spec == "default":
+        if attn_spec in ["default", "mfma"]:
             attn_spec = os.path.join(
                 os.path.realpath(os.path.dirname(__file__)),
                 "default_mfma_attn_spec.mlir",
             )
-        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)
 
