@@ -108,7 +108,7 @@ class Theta:
 
     @property
     def tensors(self) -> Collection[InferenceTensor]:
-        return self._tensors.values()
+        return [v for v in self._tensors.values() if isinstance(v, InferenceTensor)]
 
     def __call__(self, *name_path: Union[str, int]) -> "Theta":
         current_ts = self._tensors
@@ -211,9 +211,11 @@ class Dataset:
         _dataset_save_helper(self, path, io_report_callback=io_report_callback)
 
     @staticmethod
-    def load(path: Union[str, Path]) -> "Dataset":
+    def load(
+        path: Union[str, Path], *, file_type: Optional[str] = None, mmap: bool = True
+    ) -> "Dataset":
         """Loads a dataset from a parameter archive constructed with save."""
-        return _dataset_load_helper(path)
+        return _dataset_load_helper(path, file_type=file_type, mmap=mmap)
 
 
 ################################################################################
@@ -528,7 +530,10 @@ def _dataset_save_helper(
 
 
 def _dataset_load_helper(
-    path: Union[str, Path], *, file_type: Optional[str] = None
+    path: Union[str, Path],
+    *,
+    file_type: Optional[str] = None,
+    mmap: bool = True,
 ) -> Dataset:
     path = Path(path)
     suffixes = path.suffixes
@@ -537,15 +542,15 @@ def _dataset_load_helper(
 
         return gguf_interop.load_file(path)
     elif file_type == "irpa" or suffixes == [".irpa"]:
-        return _dataset_load_irpa(path)
+        return _dataset_load_irpa(path, mmap=mmap)
     else:
         raise IOError(
             f"Unknown file type '{''.join(path.suffixes)} for loading a Dataset"
         )
 
 
-def _dataset_load_irpa(path: Path) -> Dataset:
-    archive = ParameterArchive(path)
+def _dataset_load_irpa(path: Path, mmap: bool) -> Dataset:
+    archive = ParameterArchive(path, mmap=mmap)
     # Note that there may be duplicates. Last wins.
     entries = {k: v for k, v in archive.items()}
     meta = DatasetMetadata.load(entries)

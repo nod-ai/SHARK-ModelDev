@@ -17,6 +17,8 @@ __all__ = [
     "register_quantized_layout",
     "InferenceTensor",
     "MetaDataValueType",
+    "DefaultPrimitiveTensor",
+    "PlanarQuantizedTensor",
     "PrimitiveTensor",
     "QuantizedTensor",
     "QuantizedLayout",
