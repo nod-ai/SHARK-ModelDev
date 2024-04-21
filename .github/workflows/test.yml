@@ -42,26 +42,15 @@ jobs:
           pip install -r core/pytorch-cpu-requirements.txt
           pip install --upgrade \
             -r core/requirements.txt \
-            -r mypy-requirements.txt \
-            -r serving/requirements.txt
-          pip install -e core[testing] -e serving[testing]
+            -r mypy-requirements.txt
+          pip install -e core[testing]
 
       - name: Run core tests
         if: ${{ !cancelled() }}
         run: |
           pytest -n 4 core/
 
-      - name: Run serving tests
-        if: ${{ !cancelled() }}
-        run: |
-          pytest -n 4 serving/
-
       - name: MyPy Type Checking Core
         if: ${{ !cancelled() }}
         run: |
           (cd core && mypy)
-
-      - name: MyPy Type Checking Serving
-        if: ${{ !cancelled() }}
-        run: |
-          (cd serving && mypy)
