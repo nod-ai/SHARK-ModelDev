@@ -335,6 +335,7 @@ class ModuloScheduler:
     def reconstructLoop(self):
         T = len(self.RT)
         output_label = "c_reg"
+
         # Group operations by stage in kernel
         self.kernel = {}
         for node, t in self.schedule.items():
@@ -343,7 +344,9 @@ class ModuloScheduler:
                 self.kernel[mod_t] = []
             self.kernel[mod_t].append(node)
 
-        # Follow dependence graph backwards to get prologue
+        # Follow dependence graph backwards to get prologue. Also keep
+        # track of what values are requires as they will need to be passed
+        # in as init_args.
         self.prolog = {}
         for node, t in self.schedule.items():
             mod_t = t // T

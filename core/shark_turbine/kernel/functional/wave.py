@@ -652,23 +652,21 @@ class LaunchableWave(Launchable):
         for node in root_graph.nodes:
             if "tiled_loop" in node.name:
                 # Emit prologue
-                for stage, nodes in scheduler.prolog.items():
+                for stage, nodes in self.prologue.items():
                     for subnode in nodes:
-                        mapped_node = self.inverse_mapper[subnode]
-                        mapped_node.meta["stage"] = stage - 1
+                        subnode.meta["stage"] = stage - 1
                         scheduled_graph.node_copy(
-                            mapped_node,
+                            subnode,
                             partial(arg_mapper, "construct_register_from_metadata"),
                         )
                 # Emit kernel
                 scheduled_graph.node_copy(node)
                 # Emit epilogue
-                for stage, nodes in scheduler.prolog.items():
+                for stage, nodes in self.epilogue.items():
                     for subnode in nodes:
-                        mapped_node = self.inverse_mapper[subnode]
-                        mapped_node.meta["stage"] = stage
+                        subnode.meta["stage"] = stage
                         scheduled_graph.node_copy(
-                            mapped_node, partial(arg_mapper, "tiled_loop")
+                            subnode, partial(arg_mapper, "tiled_loop")
                         )
                 continue
             scheduled_graph.node_copy(node)
@@ -793,16 +791,16 @@ class LaunchableWave(Launchable):
         return expanded_graph
 
     def construct_schedule(self, graph, debug=True):
-        dependenceGraph = ms.Graph()
-        node_mapper = {}
+        self.dependenceGraph = ms.Graph()
+        self.node_mapper = {}
         self.inverse_mapper = {}
         for node in graph.nodes:
             # No need to add output, since we have c_reg
             if "output" in node.name:
                 continue
-            node_mapper[node] = ms.Node(node.name, self.get_rrt(node.name))
-            self.inverse_mapper[node_mapper[node]] = node
-            dependenceGraph.addNode(node_mapper[node])
+            self.node_mapper[node] = ms.Node(node.name, self.get_rrt(node.name))
+            self.inverse_mapper[self.node_mapper[node]] = node
+            self.dependenceGraph.addNode(self.node_mapper[node])
 
         def get_output_to_node(node: fx.Node):
             _, i, j, _ = node.name.split("_")
@@ -820,11 +818,11 @@ class LaunchableWave(Launchable):
                 if "output" in toNode.name:
                     toNode = get_output_to_node(fromNode)
                 edge_label = f"{fromNode.name} -> {toNode.name}"
-                dependenceGraph.addEdge(
+                self.dependenceGraph.addEdge(
                     ms.Edge(
                         edge_label,
-                        node_mapper[fromNode],
-                        node_mapper[toNode],
+                        self.node_mapper[fromNode],
+                        self.node_mapper[toNode],
                         self.get_delay(fromNode.name),
                         iteration_delay,
                     )
@@ -841,22 +839,142 @@ class LaunchableWave(Launchable):
                     if nodej.name == read_shared_name:
                         toNode = nodej
                         break
-                dependenceGraph.addEdge(
+                self.dependenceGraph.addEdge(
                     ms.Edge(
                         edge_label,
-                        node_mapper[fromNode],
-                        node_mapper[toNode],
+                        self.node_mapper[fromNode],
+                        self.node_mapper[toNode],
                         self.get_delay(fromNode.name),
                         0,
                     )
                 )
 
-        dependenceGraph.generateDotGraph()
+        self.dependenceGraph.generateDotGraph()
         resourceVector = [2, 2, 2]
-        scheduler = ms.ModuloScheduler(resourceVector, dependenceGraph)
+        scheduler = ms.ModuloScheduler(resourceVector, self.dependenceGraph)
         scheduler.generateSchedule()
         scheduler.reconstructLoop()
         return scheduler
+
+    def construct_prologue_and_epilogue(self, scheduler):
+
+        # We introduce these dependencies to ensure the reads are scheduled
+        # after the writes. Can be thought of as another way to represent a barrier.
+        def get_write_dependency(node: fx.Node):
+            ms_node = self.node_mapper[node]
+            for node, edges in self.dependenceGraph.edges.items():
+                for edge in edges:
+                    if edge.toNode == ms_node and "write_shared" in edge.fromNode.label:
+                        return self.inverse_mapper[edge.fromNode]
+
+        def get_read_dependency(node: fx.Node):
+            ms_node = self.node_mapper[node]
+            for edge in self.dependenceGraph.edges[ms_node]:
+                if "read_shared" in edge.toNode.label:
+                    return self.inverse_mapper[edge.toNode]
+
+        def get_ancestors(node: fx.Node):
+            inputs = node.all_input_nodes
+            # Add write_shared dependency
+            if "read_shared" in node.name:
+                inputs.append(get_write_dependency(node))
+            return inputs
+
+        def get_descendents(node: fx.Node):
+            outputs = list(node.users.keys())
+            # Add write_shared dependency
+            if "write_shared" in node.name:
+                outputs.append(get_read_dependency(node))
+            return outputs
+
+        def criteria(node: fx.Node):
+            if (
+                node.op == "placeholder"
+                or "alloc" in node.name
+                or "c_reg" in node.name
+                or "output" in node.name
+            ):
+                return False
+            return True
+
+        def dfs(root: fx.Node, get_neighbors, criteria):
+            all_nodes_traversed = []
+            visited = set()
+            nodes = []
+            nodes.append(root)
+            while len(nodes) > 0:
+                node = nodes.pop()
+                if node in visited:
+                    continue
+                visited.add(node)
+                for neighbor in get_neighbors(node):
+                    if criteria(neighbor):
+                        all_nodes_traversed.append(neighbor)
+                        nodes.append(neighbor)
+            return all_nodes_traversed
+
+        # Determine the init_args of the loop.
+        initiation_iterval = len(scheduler.RT)
+        sorted_schedule = dict(sorted(scheduler.schedule.items(), key=lambda x: x[1]))
+
+        # Partition graph by stage and go back to using the fx.Nodes.
+        nodes_by_stage = {}
+        max_stage = 0
+        for node, t in sorted_schedule.items():
+            stage = t // initiation_iterval
+            if stage not in nodes_by_stage:
+                nodes_by_stage[stage] = []
+            inverse_node = self.inverse_mapper[node]
+            if criteria(inverse_node):
+                nodes_by_stage[stage].append(inverse_node)
+            max_stage = stage
+
+        # For each stage, determine the prolog args (to construct the prologue)
+        # and epilog args (to construct the epilogue). Also keep track of the
+        # iter args for the for loop that we are going to construct. The iter args
+        # are the args required for each stage of the kernel. So for example,
+        # they will contain the intermediate results computed at stage(i) that
+        # will be required for stage(i+1).
+
+        # Prolog args = input args for nodes in each subgraph that are not already present in
+        #             the subgraph.
+        # Epilog args = users of nodes in each subgraph that are not already present in
+        #             the subgraph.
+        prolog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
+        for stage, nodes in nodes_by_stage.items():
+            for node in nodes:
+                for neighbor in get_ancestors(node):
+                    if criteria(neighbor):
+                        prolog_args_by_stage[stage].append(neighbor)
+            prolog_args_by_stage[stage] = set(prolog_args_by_stage[stage]) - set(
+                nodes_by_stage[stage]
+            )
+
+        epilog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
+        for stage, nodes in nodes_by_stage.items():
+            for node in nodes:
+                for neighbor in get_descendents(node):
+                    if criteria(neighbor):
+                        epilog_args_by_stage[stage].append(neighbor)
+            epilog_args_by_stage[stage] = set(epilog_args_by_stage[stage]) - set(
+                nodes_by_stage[stage]
+            )
+
+        # To construct the prologue, we follow the edges from the prolog_args backwards.
+        self.prologue = {}
+        for stage, nodes in prolog_args_by_stage.items():
+            self.prologue[stage] = []
+            for node in nodes:
+                node_list = dfs(node, get_ancestors, criteria)
+                self.prologue[stage] += node_list[::-1]
+
+        # To construct the epilogue, we follow the edges from the epilog_args forwards.
+        self.epilogue = {}
+        for stage, nodes in epilog_args_by_stage.items():
+            self.epilogue[stage] = []
+            for node in nodes:
+                node_list = dfs(node, get_descendents, criteria)
+                self.epilogue[stage] += node_list
 
     def _trace_and_get_kernel_signature(
         self,
@@ -896,6 +1014,8 @@ class LaunchableWave(Launchable):
         expanded_graph = self.create_expanded_graph(trace, idxc)
         # Schedule "macrokernel" graph
         scheduler = self.construct_schedule(expanded_graph)
+        # Construct prologue and epilogue
+        self.construct_prologue_and_epilogue(scheduler)
         scheduled_graph = self.create_scheduled_graph(expanded_graph, scheduler, trace)
 
         # MLIR-style debug print of the graph
