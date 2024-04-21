@@ -853,7 +853,6 @@ class LaunchableWave(Launchable):
         resourceVector = [2, 2, 2]
         scheduler = ms.ModuloScheduler(resourceVector, self.dependenceGraph)
         scheduler.generateSchedule()
-        scheduler.reconstructLoop()
         return scheduler
 
     def construct_prologue_and_epilogue(self, scheduler):
