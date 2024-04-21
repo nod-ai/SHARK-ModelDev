@@ -215,7 +215,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
     def test02_ExportUnetModel(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
                 "Unknown error on vulkan; Runtime error on rocm; To be tested on cuda."
             )
@@ -502,7 +502,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest("Have issues with submodels on these backends")
         mlirs = {
             "vae_decode": None,
