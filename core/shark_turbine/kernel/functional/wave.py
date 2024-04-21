@@ -641,32 +641,41 @@ class LaunchableWave(Launchable):
         root_graph = trace.get_root_graph()
         scheduled_graph = fx.Graph()
 
-        def arg_mapper(target_name: str, node: fx.Node):
+        def arg_mapper(target_node: fx.Node, node: fx.Node):
             if "c_reg" not in node.name:
                 return node
-            for node in scheduled_graph.nodes:
-                if node.name == target_name:
-                    return node
-            return None
+            return target_node
 
+        c_reg_node = None
+        new_tiled_loop = None
         for node in root_graph.nodes:
+            if "construct_register_in_metadata" in node.name:
+                c_reg_node = node
             if "tiled_loop" in node.name:
                 # Emit prologue
                 for stage, nodes in self.prologue.items():
                     for subnode in nodes:
                         subnode.meta["stage"] = stage - 1
                         scheduled_graph.node_copy(
-                            subnode,
-                            partial(arg_mapper, "construct_register_from_metadata"),
+                            subnode, partial(arg_mapper, c_reg_node)
                         )
-                # Emit kernel
-                scheduled_graph.node_copy(node)
+
+                init_args = []
+                for stage, nodes in self.prolog_args_by_stage.items():
+                    for subnode in nodes:
+                        init_args.append(subnode)
+                new_tiled_loop = scheduled_graph.node_copy(node)
+                new_tiled_loop.kwargs = {
+                    "subgraph": "expanded_region_0",
+                    "implicit_capture": node.kwargs["implicit_capture"] + init_args,
+                }
+
                 # Emit epilogue
                 for stage, nodes in self.epilogue.items():
                     for subnode in nodes:
                         subnode.meta["stage"] = stage
                         scheduled_graph.node_copy(
-                            subnode, partial(arg_mapper, "tiled_loop")
+                            subnode, partial(arg_mapper, new_tiled_loop)
                         )
                 continue
             scheduled_graph.node_copy(node)
@@ -887,12 +896,11 @@ class LaunchableWave(Launchable):
             return outputs
 
         def criteria(node: fx.Node):
-            if (
-                node.op == "placeholder"
-                or "alloc" in node.name
-                or "c_reg" in node.name
-                or "output" in node.name
-            ):
+            input_nodes = ["a", "b"]
+            if node.name in input_nodes and node.op == "placeholder":
+                return False
+            ignore_nodes = ["alloc", "output"]
+            if any([x in node.name for x in ignore_nodes]):
                 return False
             return True
 
@@ -901,6 +909,7 @@ class LaunchableWave(Launchable):
             visited = set()
             nodes = []
             nodes.append(root)
+            all_nodes_traversed.append(root)
             while len(nodes) > 0:
                 node = nodes.pop()
                 if node in visited:
@@ -924,7 +933,8 @@ class LaunchableWave(Launchable):
             if stage not in nodes_by_stage:
                 nodes_by_stage[stage] = []
             inverse_node = self.inverse_mapper[node]
-            if criteria(inverse_node):
+            # Ignore c_regs because we dont want to trace from c_reg nodes
+            if criteria(inverse_node) and "c_reg" not in inverse_node.name:
                 nodes_by_stage[stage].append(inverse_node)
             max_stage = stage
 
@@ -939,29 +949,29 @@ class LaunchableWave(Launchable):
         #             the subgraph.
         # Epilog args = users of nodes in each subgraph that are not already present in
         #             the subgraph.
-        prolog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
+        self.prolog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
         for stage, nodes in nodes_by_stage.items():
             for node in nodes:
                 for neighbor in get_ancestors(node):
                     if criteria(neighbor):
-                        prolog_args_by_stage[stage].append(neighbor)
-            prolog_args_by_stage[stage] = set(prolog_args_by_stage[stage]) - set(
-                nodes_by_stage[stage]
-            )
+                        self.prolog_args_by_stage[stage].append(neighbor)
+            self.prolog_args_by_stage[stage] = set(
+                self.prolog_args_by_stage[stage]
+            ) - set(nodes_by_stage[stage])
 
-        epilog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
+        self.epilog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
         for stage, nodes in nodes_by_stage.items():
             for node in nodes:
                 for neighbor in get_descendents(node):
                     if criteria(neighbor):
-                        epilog_args_by_stage[stage].append(neighbor)
-            epilog_args_by_stage[stage] = set(epilog_args_by_stage[stage]) - set(
-                nodes_by_stage[stage]
-            )
+                        self.epilog_args_by_stage[stage].append(neighbor)
+            self.epilog_args_by_stage[stage] = set(
+                self.epilog_args_by_stage[stage]
+            ) - set(nodes_by_stage[stage])
 
         # To construct the prologue, we follow the edges from the prolog_args backwards.
         self.prologue = {}
-        for stage, nodes in prolog_args_by_stage.items():
+        for stage, nodes in self.prolog_args_by_stage.items():
             self.prologue[stage] = []
             for node in nodes:
                 node_list = dfs(node, get_ancestors, criteria)
@@ -969,7 +979,7 @@ class LaunchableWave(Launchable):
 
         # To construct the epilogue, we follow the edges from the epilog_args forwards.
         self.epilogue = {}
-        for stage, nodes in epilog_args_by_stage.items():
+        for stage, nodes in self.epilog_args_by_stage.items():
             self.epilogue[stage] = []
             for node in nodes:
                 node_list = dfs(node, get_descendents, criteria)

@@ -161,10 +161,13 @@ class WaveEmitter:
             gpu_d.thread_id(gpu_d.Dimension.z),
         ]
 
-    def emit(self):
+    def emit(self, graph: fx.Graph = None):
         with self.ip, Location.unknown():
             self.emit_program_invariants()
-            self.emit_graph(self.trace.get_root_graph())
+            if graph is not None:
+                self.emit_graph(graph)
+            else:
+                self.emit_graph(self.trace.get_root_graph())
 
     def emit_function_call_node(self, node: fx.Node):
         target_op = node.target
