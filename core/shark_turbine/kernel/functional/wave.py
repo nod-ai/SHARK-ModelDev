@@ -123,16 +123,6 @@ def tiledLoop(*symbolic_dims: IndexExpr):
     return decorator
 
 
-class TiledLoop:
-    def __init__(self, reduction_dims, name, function: Callable):
-        self._name = name
-        self._reduction_dims = reduction_dims
-        self._f = function
-
-    def __repr__(self):
-        return f"tk.tiledLoop @{self._name}[{self._reduction_dims}]"
-
-
 class LaunchableWave(Launchable):
     def __init__(
         self,
@@ -258,6 +248,7 @@ class LaunchableWave(Launchable):
                     # transform_d.ApplyRegisteredPassOp(
                     #     any_op_t(), target, "iree-convert-to-llvm"
                     # )
+                    transform_d.YieldOp([target])
 
             transform_interpreter.apply_named_sequence(
                 module,
@@ -301,6 +292,7 @@ class LaunchableWave(Launchable):
             return None
 
         for node in graph.nodes:
+            typed_node = getNode(node)
             if node.op == "placeholder":
                 if node.name in type_map:
                     node.meta["type"] = type_map[node.name]
@@ -313,11 +305,11 @@ class LaunchableWave(Launchable):
                 arg_type = look_for_type(node)
                 if arg_type is not None:
                     type_map[node.name] = node.meta["type"] = arg_type
-            if "subgraph" in node.kwargs:
-                subgraph = subgraphs[node.kwargs["subgraph"]]
+            if isinstance(typed_node, TiledLoop):
+                subgraph = subgraphs[typed_node.subgraph_name]
                 implicit_capture_nodes = []
-                if "implicit_capture" in node.kwargs:
-                    implicit_capture_nodes += node.kwargs["implicit_capture"]
+                # if "implicit_capture" in node.kwargs:
+                implicit_capture_nodes += typed_node.implicit_captures
                 subgraph_inputs = list(
                     set(node.all_input_nodes) - set(implicit_capture_nodes)
                 )
@@ -432,7 +424,9 @@ class LaunchableWave(Launchable):
         asm_str = initialize(prefix, nested_region)
 
         typed_node = getNode(node)
-        if not isinstance(typed_node, UnknownNode):
+        if not isinstance(typed_node, UnknownNode) and not isinstance(
+            typed_node, TiledLoop
+        ):
             self.index_map[node.name] = f"{nested_region_prefix}{i}"
             return (prefix if not nested_region else prefix + prefix) + (
                 f"%{nested_region_prefix}{i} = {typed_node.custom_string(self.index_map)}"
@@ -452,7 +446,7 @@ class LaunchableWave(Launchable):
             for j, iter_arg in enumerate(node.args[1]):
                 args_str += f"%{nested_region_prefix}{str(j)} = %{self.index_map[iter_arg.name]}, "
             asm_str += f"scf.for (K, iter_args = [{args_str}]) {{\n"
-            first_node = list(self.subgraphs[node.kwargs["subgraph"]].nodes)[0]
+            first_node = list(self.subgraphs[typed_node.subgraph_name].nodes)[0]
             self.parent = node
             self.parent_id = i
             return asm_str + self.get_string(first_node, 0, True)
@@ -649,9 +643,10 @@ class LaunchableWave(Launchable):
         c_reg_node = None
         new_tiled_loop = None
         for node in root_graph.nodes:
+            typed_node = getNode(node)
             if "construct_register_in_metadata" in node.name:
                 c_reg_node = node
-            if "tiled_loop" in node.name:
+            if isinstance(typed_node, TiledLoop):
                 # Emit prologue
                 for stage, nodes in self.prologue.items():
                     for subnode in nodes:
@@ -667,7 +662,7 @@ class LaunchableWave(Launchable):
                 new_tiled_loop = scheduled_graph.node_copy(node)
                 new_tiled_loop.kwargs = {
                     "subgraph": "expanded_region_0",
-                    "implicit_capture": node.kwargs["implicit_capture"] + init_args,
+                    "implicit_capture": typed_node.implicit_captures + init_args,
                 }
 
                 # Emit kernel and add an output node

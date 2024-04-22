@@ -346,21 +346,12 @@ class CompiledContext(BaseContext):
     def handle_tiled_loop(self, op, axis: IndexExpr, init_args=[]):
         def wrapper(f):
             with self.region_graph.subtracer() as subtracer:
-                # TODO: We could extend trace to also accept a name for the
-                #       subgraph.
                 subgraph_name, implicit_capture = subtracer.trace(f)
-            # Create a call to this subgraph
-            ret = self.region_graph.create_proxy(
-                "call_function",
-                target=op,
-                name="tiled_loop",
-                args=(axis, init_args),
-                kwargs={
-                    "subgraph": subgraph_name,
-                    "implicit_capture": implicit_capture,
-                },
+            node = TiledLoop(
+                self.region_graph, op, axis, init_args, subgraph_name, implicit_capture
             )
-            return ret
+            node.emit()
+            return node.fx_node
 
         return wrapper
 

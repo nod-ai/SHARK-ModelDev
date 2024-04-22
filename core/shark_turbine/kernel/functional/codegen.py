@@ -369,9 +369,7 @@ def handle_mma(emitter: WaveEmitter, node: fx.Node):
 def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
     # Note: Adapted from tk.for_loop
     try:
-        axis, init_args = node.args
-        subgraph = node.kwargs["subgraph"]
-        implicit_capture = node.kwargs["implicit_capture"]
+        axis, init_args, subgraph, implicit_capture = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
@@ -409,10 +407,6 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
             for node in subgraph.nodes
             if node.op == "placeholder" and "lifted" not in node.meta
         ]
-        # Add mapping for induction variable argument.
-        # emitter.bind_node_proxy(
-        #    subgraph_args[0], IRProxyValue(forOp.induction_variable)
-        # )
         # Add mapping for iter_args.
         for i, v in enumerate(forOp.inner_iter_args):
             emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))

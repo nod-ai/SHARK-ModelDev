@@ -1,5 +1,4 @@
 from abc import ABC
-from calendar import c
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence, Type, TypedDict, Union
 import torch.fx as fx
@@ -131,6 +130,17 @@ class ReadNode(CustomNode):
 
 
 @dataclass
+class TiledLoop(CustomNode):
+    axis: IndexExpr
+    init_args: Sequence[Any]
+    subgraph_name: str
+    implicit_captures: Sequence[fx.Proxy]
+
+    def emit(self):
+        return super().emit()
+
+
+@dataclass
 class WriteNode(CustomNode):
     register_: fx.Proxy
     memory: Union[fx.Proxy, "AllocSharedNode"]
@@ -177,6 +187,7 @@ nodeTypes["mma"] = MmaNode
 nodeTypes["read"] = ReadNode
 nodeTypes["write"] = WriteNode
 nodeTypes["alloc_shared"] = AllocSharedNode
+nodeTypes["tiled_loop"] = TiledLoop
 
 
 def getNode(node: fx.Node) -> CustomNode:
