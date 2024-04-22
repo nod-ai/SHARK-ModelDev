@@ -573,6 +573,17 @@ class LaunchableWave(Launchable):
             return 2
         return 0
 
+    def create_loop_graph(self):
+        kernel = fx.Graph()
+        for stage, nodes in self.nodes_by_stage.items():
+            for node in nodes:
+                if "alloc" in node.name:
+                    continue
+                node.meta["stage"] = stage - 1
+                kernel.node_copy(node)
+        kernel.create_node("output", "output", (self.iter_args,))
+        return kernel
+
     def create_scheduled_graph(self, expanded_graph, scheduler, trace):
         """
         This pass uses the macrokernel graph and the generated schedule
@@ -582,69 +593,55 @@ class LaunchableWave(Launchable):
         root_graph = trace.get_root_graph()
         scheduled_graph = fx.Graph()
 
-        def arg_mapper(target_node: fx.Node, node: fx.Node):
-            if "c_reg" not in node.name:
-                return node
-            return target_node
-
         c_reg_node = None
         new_tiled_loop = None
+        new_iter_args = []
         for node in root_graph.nodes:
             typed_node = getNode(node)
-            if "construct_register_in_metadata" in node.name:
+            if "construct_register_from_metadata" in node.name:
                 c_reg_node = node
             if isinstance(typed_node, TiledLoop):
                 # Emit prologue
-                for stage, nodes in self.prologue.items():
-                    for subnode in nodes:
+                for stage in reversed(self.prologue.keys()):
+                    for subnode in self.prologue[stage]:
                         subnode.meta["stage"] = stage - 1
-                        scheduled_graph.node_copy(
-                            subnode, partial(arg_mapper, c_reg_node)
+                        new_node = scheduled_graph.node_copy(
+                            subnode,
+                            lambda node: (
+                                node if "c_reg" not in node.name else c_reg_node
+                            ),
                         )
+                        new_node.name = subnode.name + "_prolog" + str(stage - 1)
+                        if subnode in self.iter_args:
+                            new_iter_args.append(new_node)
 
-                init_args = []
-                for stage, nodes in self.prolog_args_by_stage.items():
-                    for subnode in nodes:
-                        init_args.append(subnode)
+                # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
+                init_args = []
+                for node in new_iter_args:
+                    if "mma" in node.name:
+                        init_args.append(c_reg_node)
+                    else:
+                        init_args.append(node)
                 new_tiled_loop.kwargs = {
                     "subgraph": "expanded_region_0",
                     "implicit_capture": typed_node.implicit_captures + init_args,
                 }
-
-                # Emit kernel and add an output node
-                def find_mma_node(node: fx.Node):
-                    indices = node.name.split("_")[-2:]
-                    mma_node_name = "_".join(["mma"] + indices + ["1"])
-                    for nodes in self.nodes_by_stage.values():
-                        for node in nodes:
-                            if node.name == mma_node_name:
-                                return node
-
-                kernel = fx.Graph()
-                for stage, nodes in self.nodes_by_stage.items():
-                    for node in nodes:
-                        if "alloc" in node.name:
-                            continue
-                        node.meta["stage"] = stage - 1
-                        kernel.node_copy(node)
-                output_args = []
-                for nodes in self.prolog_args_by_stage.values():
-                    for node in nodes:
-                        if "write" in node.name:
-                            continue
-                        if "c_reg" in node.name:
-                            node = find_mma_node(node)
-                        output_args.append(node)
-                kernel.create_node("output", "output", (output_args,))
+                loop_body = self.create_loop_graph()
 
                 # Emit epilogue
-                for stage, nodes in self.epilogue.items():
-                    for subnode in nodes:
+                for stage in reversed(self.epilogue.keys()):
+                    for subnode in self.epilogue[stage]:
                         subnode.meta["stage"] = stage
-                        scheduled_graph.node_copy(
-                            subnode, partial(arg_mapper, new_tiled_loop)
+                        new_node = scheduled_graph.node_copy(
+                            subnode,
+                            lambda node: (
+                                new_tiled_loop
+                                if node in self.iter_args or "c_reg" in node.name
+                                else node
+                            ),
                         )
+                        new_node.name = subnode.name + "_epilog" + str(stage)
                 continue
             scheduled_graph.node_copy(node)
 
@@ -668,10 +665,10 @@ class LaunchableWave(Launchable):
                 block_n = val
             if sym.name == "BLOCK_K":
                 block_k = val
-        batch_m = 2  # block_m // mma_m
-        batch_n = 2  # block_n // mma_n
-        batch_k = 2  # block_k // mma_k
-        repeat_times = {"M": batch_m, "N": batch_n, "K": batch_k}
+        self.batch_m = 2  # block_m // mma_m
+        self.batch_n = 2  # block_n // mma_n
+        self.batch_k = 2  # block_k // mma_k
+        repeat_times = {"M": self.batch_m, "N": self.batch_n, "K": self.batch_k}
 
         subgraphs = trace.region_graph.subgraphs
         root_graph = trace.get_root_graph()
@@ -747,7 +744,9 @@ class LaunchableWave(Launchable):
                 if node.op == "placeholder" and "c_reg" not in node.name:
                     continue
                 if "mma" in node.name:
-                    outputs = duplicate_mma_node(batch_m, batch_n, batch_k, node)
+                    outputs = duplicate_mma_node(
+                        self.batch_m, self.batch_n, self.batch_k, node
+                    )
                     continue
                 if "output" in node.name:
                     new_node = expanded_graph.node_copy(node)
@@ -833,61 +832,32 @@ class LaunchableWave(Launchable):
         return scheduler
 
     def construct_prologue_and_epilogue(self, scheduler):
+        """
+        This function constructs the prologue and epilogue for a given schedule.
+        The given schedule is broken into N stages. All stages > 0 have a contribution
+        to the prologue. So the prologue for stage i, will be all the instructions in
+        stages [0,i-1].
 
-        # We introduce these dependencies to ensure the reads are scheduled
-        # after the writes. Can be thought of as another way to represent a barrier.
-        def get_write_dependency(node: fx.Node):
-            ms_node = self.node_mapper[node]
-            for node, edges in self.dependenceGraph.edges.items():
-                for edge in edges:
-                    if edge.toNode == ms_node and "write_shared" in edge.fromNode.label:
-                        return self.inverse_mapper[edge.fromNode]
+        Similarly, for the epilogue, all stages < N - 1 have a contribution to the
+        epilogue. The epilogue for stage i, will be all the instructions from
+        stages [i+1, N-1].
 
-        def get_read_dependency(node: fx.Node):
-            ms_node = self.node_mapper[node]
-            for edge in self.dependenceGraph.edges[ms_node]:
-                if "read_shared" in edge.toNode.label:
-                    return self.inverse_mapper[edge.toNode]
+        We also keep track of the iter args that will be need to construct the for loop
+        during mlir emission. In order to determine the iter args, we go through each
+        stage and create a list of all the incoming arguments that are not in the stage.
+        Alternatively, we can keep track of all the nodes that have uses that are not
+        in the current stage.
+        """
 
-        def get_ancestors(node: fx.Node):
-            inputs = node.all_input_nodes
-            # Add write_shared dependency
-            if "read_shared" in node.name:
-                inputs.append(get_write_dependency(node))
-            return inputs
-
-        def get_descendents(node: fx.Node):
-            outputs = list(node.users.keys())
-            # Add write_shared dependency
-            if "write_shared" in node.name:
-                outputs.append(get_read_dependency(node))
-            return outputs
-
+        # Ignore input placeholders, allocations and outputs
         def criteria(node: fx.Node):
             input_nodes = ["a", "b"]
             if node.name in input_nodes and node.op == "placeholder":
                 return False
-            ignore_nodes = ["alloc", "output"]
+            ignore_nodes = ["alloc", "c_reg"]
             if any([x in node.name for x in ignore_nodes]):
                 return False
             return True
-
-        def dfs(root: fx.Node, get_neighbors, criteria):
-            all_nodes_traversed = []
-            visited = set()
-            nodes = []
-            nodes.append(root)
-            all_nodes_traversed.append(root)
-            while len(nodes) > 0:
-                node = nodes.pop()
-                if node in visited:
-                    continue
-                visited.add(node)
-                for neighbor in get_neighbors(node):
-                    if criteria(neighbor):
-                        all_nodes_traversed.append(neighbor)
-                        nodes.append(neighbor)
-            return all_nodes_traversed
 
         # Determine the init_args of the loop.
         initiation_iterval = len(scheduler.RT)
@@ -895,63 +865,34 @@ class LaunchableWave(Launchable):
 
         # Partition graph by stage and go back to using the fx.Nodes.
         self.nodes_by_stage = {}
-        max_stage = 0
         for node, t in sorted_schedule.items():
             stage = t // initiation_iterval
             if stage not in self.nodes_by_stage:
                 self.nodes_by_stage[stage] = []
             inverse_node = self.inverse_mapper[node]
-            # Ignore c_regs because we dont want to trace from c_reg nodes
-            if criteria(inverse_node) and "c_reg" not in inverse_node.name:
+            if criteria(inverse_node):
                 self.nodes_by_stage[stage].append(inverse_node)
             max_stage = stage
 
-        # For each stage, determine the prolog args (to construct the prologue)
-        # and epilog args (to construct the epilogue). Also keep track of the
-        # iter args for the for loop that we are going to construct. The iter args
-        # are the args required for each stage of the kernel. So for example,
-        # they will contain the intermediate results computed at stage(i) that
-        # will be required for stage(i+1).
+        self.prologue = {stage: [] for stage in range(max_stage + 1)}
+        self.epilogue = {stage: [] for stage in range(max_stage + 1)}
+        for stage in self.prologue.keys():
+            for i in range(0, stage):
+                self.prologue[stage] += self.nodes_by_stage[i]
+        for stage in self.epilogue.keys():
+            for i in range(stage + 1, max_stage + 1):
+                self.epilogue[stage] += self.nodes_by_stage[i]
 
-        # Prolog args = input args for nodes in each subgraph that are not already present in
-        #             the subgraph.
-        # Epilog args = users of nodes in each subgraph that are not already present in
-        #             the subgraph.
-        self.prolog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
-        for stage, nodes in self.nodes_by_stage.items():
+        self.iter_args = []
+        # Find the nodes whose users are not in the current stage
+        for stage, nodes in self.prologue.items():
             for node in nodes:
-                for neighbor in get_ancestors(node):
-                    if criteria(neighbor):
-                        self.prolog_args_by_stage[stage].append(neighbor)
-            self.prolog_args_by_stage[stage] = set(
-                self.prolog_args_by_stage[stage]
-            ) - set(self.nodes_by_stage[stage])
-
-        self.epilog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
-        for stage, nodes in self.nodes_by_stage.items():
-            for node in nodes:
-                for neighbor in get_descendents(node):
-                    if criteria(neighbor):
-                        self.epilog_args_by_stage[stage].append(neighbor)
-            self.epilog_args_by_stage[stage] = set(
-                self.epilog_args_by_stage[stage]
-            ) - set(self.nodes_by_stage[stage])
-
-        # To construct the prologue, we follow the edges from the prolog_args backwards.
-        self.prologue = {}
-        for stage, nodes in self.prolog_args_by_stage.items():
-            self.prologue[stage] = []
-            for node in nodes:
-                node_list = dfs(node, get_ancestors, criteria)
-                self.prologue[stage] += node_list[::-1]
-
-        # To construct the epilogue, we follow the edges from the epilog_args forwards.
-        self.epilogue = {}
-        for stage, nodes in self.epilog_args_by_stage.items():
-            self.epilogue[stage] = []
-            for node in nodes:
-                node_list = dfs(node, get_descendents, criteria)
-                self.epilogue[stage] += node_list
+                for user in list(node.users.keys()):
+                    if user not in nodes:
+                        self.iter_args.append(node)
+        # Remove writes as they dont represent loop carried dependencies
+        self.iter_args = set(self.iter_args)
+        self.iter_args = [node for node in self.iter_args if "write" not in node.name]
 
     def _trace_and_get_kernel_signature(
         self,
