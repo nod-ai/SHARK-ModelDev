@@ -259,30 +259,7 @@ class LaunchableWave(Launchable):
             )
 
     def eager_execute(self, args, kwargs):
-        grid = self.grid_type()
-        rank = grid.rank
-        with EagerContext(rank=rank) as context:
-            sig = self._sig
-            bound = sig.bind(*args, *kwargs)
-            bound.apply_defaults()
-            # Transform args to KernelBuffers.
-            for arg_name in list(bound.arguments.keys()):
-                arg_value = bound.arguments[arg_name]
-                param = sig.parameters[arg_name]
-                param_type = param.annotation
-                if isinstance(param_type, type) and issubclass(
-                    param_type, KernelBuffer
-                ):
-                    kernel_buffer = param_type(arg_value)
-                    bound.arguments[arg_name] = kernel_buffer
-            volume = math.prod(grid)
-            current_thread = context.current_thread
-            for it in range(volume):
-                for i in range(rank - 1):
-                    current_thread[i] = it // grid[i]
-                    it = it % grid[i]
-                current_thread[-1] = it
-                self._eager_function(*bound.args, **bound.kwargs)
+        raise NotImplementedError("Eager execution for wave not implemented yet.")
 
     def propagate_types_in_graph(
         self, graph: fx.Graph, type_map: Dict[str, Type], subgraphs: Dict[str, fx.Node]
@@ -477,27 +454,6 @@ class LaunchableWave(Launchable):
         root = list(trace.get_root_graph().nodes)[0]
         asm_str = self.get_string(root, 0, False)
         print(asm_str)
-
-    @staticmethod
-    def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
-        try:
-            shape, dtype = node.args
-        except ValueError as e:
-            raise ValidationError("Malformed arguments") from e
-        memref_shape = cast_py_literal(emitter, shape)
-        element_type = IrType.parse(dtype.ir_type_asm())
-        address_space = IntegerAttr.get(IndexType.get(), gpu_d.AddressSpace.Workgroup)
-        memref_type = MemRefType.get(memref_shape, element_type, None, address_space)
-        alloc = memref_d.alloc(memref_type, [], [])
-        emitter.bind_node_proxy(node, IRProxyValue(alloc))
-
-    @staticmethod
-    def handle_read_shared(emitter: WaveEmitter, node: fx.Node):
-        handle_read(emitter, node)
-
-    @staticmethod
-    def handle_write_shared(emitter: WaveEmitter, node: fx.Node):
-        handle_write(emitter, node)
 
     """
     Promotes tkf.reads to reads from shared memory if the
