@@ -670,6 +670,32 @@ class LaunchableWave(Launchable):
                     "implicit_capture": node.kwargs["implicit_capture"] + init_args,
                 }
 
+                # Emit kernel and add an output node
+                def find_mma_node(node: fx.Node):
+                    indices = node.name.split("_")[-2:]
+                    mma_node_name = "_".join(["mma"] + indices + ["1"])
+                    for nodes in self.nodes_by_stage.values():
+                        for node in nodes:
+                            if node.name == mma_node_name:
+                                return node
+
+                kernel = fx.Graph()
+                for stage, nodes in self.nodes_by_stage.items():
+                    for node in nodes:
+                        if "alloc" in node.name:
+                            continue
+                        node.meta["stage"] = stage - 1
+                        kernel.node_copy(node)
+                output_args = []
+                for nodes in self.prolog_args_by_stage.values():
+                    for node in nodes:
+                        if "write" in node.name:
+                            continue
+                        if "c_reg" in node.name:
+                            node = find_mma_node(node)
+                        output_args.append(node)
+                kernel.create_node("output", "output", (output_args,))
+
                 # Emit epilogue
                 for stage, nodes in self.epilogue.items():
                     for subnode in nodes:
@@ -926,16 +952,16 @@ class LaunchableWave(Launchable):
         sorted_schedule = dict(sorted(scheduler.schedule.items(), key=lambda x: x[1]))
 
         # Partition graph by stage and go back to using the fx.Nodes.
-        nodes_by_stage = {}
+        self.nodes_by_stage = {}
         max_stage = 0
         for node, t in sorted_schedule.items():
             stage = t // initiation_iterval
-            if stage not in nodes_by_stage:
-                nodes_by_stage[stage] = []
+            if stage not in self.nodes_by_stage:
+                self.nodes_by_stage[stage] = []
             inverse_node = self.inverse_mapper[node]
             # Ignore c_regs because we dont want to trace from c_reg nodes
             if criteria(inverse_node) and "c_reg" not in inverse_node.name:
-                nodes_by_stage[stage].append(inverse_node)
+                self.nodes_by_stage[stage].append(inverse_node)
             max_stage = stage
 
         # For each stage, determine the prolog args (to construct the prologue)
@@ -950,24 +976,24 @@ class LaunchableWave(Launchable):
         # Epilog args = users of nodes in each subgraph that are not already present in
         #             the subgraph.
         self.prolog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
-        for stage, nodes in nodes_by_stage.items():
+        for stage, nodes in self.nodes_by_stage.items():
             for node in nodes:
                 for neighbor in get_ancestors(node):
                     if criteria(neighbor):
                         self.prolog_args_by_stage[stage].append(neighbor)
             self.prolog_args_by_stage[stage] = set(
                 self.prolog_args_by_stage[stage]
-            ) - set(nodes_by_stage[stage])
+            ) - set(self.nodes_by_stage[stage])
 
         self.epilog_args_by_stage = {stage: [] for stage in range(max_stage + 1)}
-        for stage, nodes in nodes_by_stage.items():
+        for stage, nodes in self.nodes_by_stage.items():
             for node in nodes:
                 for neighbor in get_descendents(node):
                     if criteria(neighbor):
                         self.epilog_args_by_stage[stage].append(neighbor)
             self.epilog_args_by_stage[stage] = set(
                 self.epilog_args_by_stage[stage]
-            ) - set(nodes_by_stage[stage])
+            ) - set(self.nodes_by_stage[stage])
 
         # To construct the prologue, we follow the edges from the prolog_args backwards.
         self.prologue = {}
