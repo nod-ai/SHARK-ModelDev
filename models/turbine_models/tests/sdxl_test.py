@@ -502,7 +502,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest("Have issues with submodels on these backends")
         mlirs = {
             "vae_decode": None,
