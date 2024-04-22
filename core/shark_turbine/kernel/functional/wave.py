@@ -4,8 +4,6 @@ import inspect
 import math
 from functools import partial
 
-from regex import W
-
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
 
@@ -275,6 +273,7 @@ class LaunchableWave(Launchable):
             if node.op == "placeholder":
                 if node.name in type_map:
                     node.meta["type"] = type_map[node.name]
+                    node.type = type_map[node.name]
                     continue
                 node.meta["type"] = type_map[node.name] = node.type
             if node.name == "construct_register_from_metadata":
@@ -503,14 +502,16 @@ class LaunchableWave(Launchable):
 
                             # Create read shared node
                             read_shared_node = ReadSharedNode(
-                                graph, read_shared, alloc, node.args[1]
+                                graph,
+                                read_shared,
+                                alloc,
+                                node.args[1],
+                                type=Register[*list(shape) + [dtype]],
                             )
 
                             read_shared_node.emit()
                             read_shared_fx = read_shared_node.fx_node
-                            read_shared_fx.meta["type"] = Register[
-                                *list(shape) + [dtype]
-                            ]
+                            read_shared_fx.meta["type"] = read_shared_node.type
                             node.replace_all_uses_with(read_shared_fx)
 
                             # Create write shared node
