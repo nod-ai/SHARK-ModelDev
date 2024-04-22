@@ -9,7 +9,7 @@ Following is a table that shows current status of turbine SDXL inference support
 | gfx1100     | Yes                   | 💚 | 💛 (numerics with vector distribution)| 💚                  | 💚  |
 |             | No                    |               | 💔 (Attn lowering) | 💔 (Attn lowering) | 💔 |
 | gfx90a      | Yes                   | 💚 | 💚                  | 💚                  | 💚  |
-|             | No                    |               | 💔 (Shared Memory) | 💚                  | 💔 |
+|             | No                    |               | 💛 (Numerics with mfma) | 💚                  | 💛 |
 | gfx942      | Yes                   | 💚 | 💚                  | 💚                  | 💚  |
 |             | No                    |               | 💚                  | 💚                  | 💚  |
 
