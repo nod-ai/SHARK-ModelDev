@@ -181,9 +181,66 @@ class AllocSharedNode(CustomNode):
         return f"alloc : Memory<{self.shape}, {self.dtype}, #shared>\n"
 
 
+@dataclass
+class ReadSharedNode(CustomNode):
+    memory: Union[fx.Proxy, "AllocSharedNode"]
+    elements_per_thread: Optional[Any] = None
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="read_shared",
+            kwargs={},
+        )
+
+    def custom_string(self, value_map: dict[str, str]) -> str:
+        name = get_node_name(self.__class__.__name__)
+        simt_shape = self.elements_per_thread
+        if isinstance(self.memory, AllocSharedNode):
+            memory_type: Memory = self.memory.type
+            memory_fx_node = self.memory.fx_node
+        else:
+            memory_type: Memory = self.memory.meta["type"]
+            memory_fx_node = self.memory
+        return f"{name} %{value_map[memory_fx_node.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}> // register sizes hardcoded\n"
+
+
+@dataclass
+class WriteSharedNode(CustomNode):
+    register_: fx.Proxy
+    memory: Union[fx.Proxy, "AllocSharedNode"]
+    elements_per_thread: Optional[Any]
+
+    def custom_string(self, value_map: dict[str, str]) -> str:
+        name = get_node_name(self.__class__.__name__)
+        # TODO: remove this when fx.Proxy is wrapped with a similar interface
+        if isinstance(self.memory, AllocSharedNode):
+            memory_type: Memory = self.memory.type
+            memory_fx_node = self.memory.fx_node
+        else:
+            memory_type: Memory = self.memory.meta["type"]
+            memory_fx_node = self.memory
+        return f"{name} %{value_map[self.register_.name]}, %{value_map[memory_fx_node.name]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="write_shared",
+            kwargs={},
+        )
+
+
 # TODO: Use a decorator to register these properly
 nodeTypes["construct_register_from_metadata"] = ConstructRegisterFromMetadataNode
 nodeTypes["mma"] = MmaNode
+nodeTypes["read_shared"] = ReadSharedNode
+nodeTypes["write_shared"] = WriteSharedNode
 nodeTypes["read"] = ReadNode
 nodeTypes["write"] = WriteNode
 nodeTypes["alloc_shared"] = AllocSharedNode

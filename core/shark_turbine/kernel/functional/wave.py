@@ -4,6 +4,8 @@ import inspect
 import math
 from functools import partial
 
+from regex import W
+
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
 
@@ -65,7 +67,7 @@ from iree.compiler.dialects import (
 )
 
 from ..functional.codegen import WaveEmitter, handle_read, handle_write
-from ..functional.ops import alloc_shared
+from ..functional.ops import alloc_shared, read_shared, write_shared
 from ..functional import modulo_scheduling as ms
 
 from ..lang.functional_types import Register, AddressSpace, Memory
@@ -511,7 +513,6 @@ class LaunchableWave(Launchable):
         # Add additional frozen subs for shared memory
         SMEM_SPACE = tkl.sym.SMEM_SPACE
         idxc.frozen_subs.append((SMEM_SPACE, AddressSpace.SHARED_MEMORY.value))
-        new_ops = []
         for graph in subgraphs.values():
             for node in graph.nodes:
                 # typed_node = getNode(node)
@@ -545,37 +546,26 @@ class LaunchableWave(Launchable):
                             alloc.meta["type"] = type
 
                             # Create read shared node
-                            read_shared = graph.create_node(
-                                "call_function",
-                                self.handle_read_shared,
-                                args=(
-                                    alloc,
-                                    node.args[1],
-                                ),
-                                kwargs=None,
-                                name="read_shared",
+                            read_shared_node = ReadSharedNode(
+                                graph, read_shared, alloc, node.args[1]
                             )
-                            new_ops.append(self.handle_read_shared)
-                            read_shared.meta["type"] = Register[*list(shape) + [dtype]]
-                            node.replace_all_uses_with(read_shared)
-                            # Create write shared node
-                            write_shared = graph.create_node(
-                                "call_function",
-                                self.handle_write_shared,
-                                args=(
-                                    node,
-                                    alloc,
-                                    node.args[1],
-                                ),
-                                kwargs=None,
-                                name="write_shared",
-                            )
-                            new_ops.append(self.handle_write_shared)
-                            write_shared.meta["type"] = None
-                            node.append(write_shared)
-                            write_shared.append(read_shared)
 
-        return new_ops
+                            read_shared_node.emit()
+                            read_shared_fx = read_shared_node.fx_node
+                            read_shared_fx.meta["type"] = Register[
+                                *list(shape) + [dtype]
+                            ]
+                            node.replace_all_uses_with(read_shared_fx)
+
+                            # Create write shared node
+                            write_shared_node = WriteSharedNode(
+                                graph, write_shared, node, alloc, node.args[1]
+                            )
+                            write_shared_node.emit()
+                            write_shared_fx = write_shared_node.fx_node
+                            write_shared_fx.meta["type"] = None
+                            node.append(write_shared_fx)
+                            write_shared_fx.append(read_shared_fx)
 
     """
     This function returns the resource reservation table (RRT) for
@@ -1035,7 +1025,7 @@ class LaunchableWave(Launchable):
         self.propagate_types(trace)
 
         # Do shared memory promotion if required
-        new_ops = self.promote_to_shared_memory(trace, idxc)
+        self.promote_to_shared_memory(trace, idxc)
 
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
@@ -1063,12 +1053,6 @@ class LaunchableWave(Launchable):
         exe = dispatch_codegen.StreamExecutable(mb, name=entrypoint_name)
         dispatch_entrypoint = exe.define_entrypoint(entrypoint_name, kernel_sig, grid)
         emitter = WaveEmitter(dispatch_entrypoint, trace)
-
-        # Add handlers for new ops that we introduced during promotion
-        # TODO: Why is this required here? I think we should define the newly introduced
-        # ops in ops.py then the registration happens automatically
-        for target_func in new_ops:
-            WaveEmitter.OP_HANDLERS[target_func] = target_func
 
         emitter.emit()
         emitter.finish()

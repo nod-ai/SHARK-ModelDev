@@ -1,3 +1,4 @@
+import re
 from typing import Any, Callable, Type, Optional, Sequence, Union, List
 from dataclasses import dataclass
 import torch.fx as fx
@@ -14,11 +15,13 @@ from .._support.indexing import (
 from .._support.tracing import CapturedTrace
 from .ops import (
     alloc_shared,
+    construct_register_from_metadata,
+    mma,
     read,
+    read_shared,
     tiled_loop,
     write,
-    mma,
-    construct_register_from_metadata,
+    write_shared,
 )
 from ..compiler.builder import (
     IRProxyValue,
@@ -254,6 +257,7 @@ def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node)
     emitter.bind_node_proxy(node, register)
 
 
+@handle_op(read_shared)
 @handle_op(read)
 def handle_read(emitter: WaveEmitter, node: fx.Node):
     # This is similar to tkl.store with fixed start indices for now.
@@ -287,6 +291,7 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
+@handle_op(write_shared)
 @handle_op(write)
 def handle_write(emitter: WaveEmitter, node: fx.Node):
     try:

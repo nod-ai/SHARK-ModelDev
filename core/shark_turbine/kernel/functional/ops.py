@@ -73,3 +73,13 @@ def tiled_loop(axis: "IndexExpr", init_args): ...
 # Ops used in the codegen
 @define_op
 def alloc_shared(shape, dtype): ...
+
+
+@define_op
+def read_shared(memory: "Memory", elements_pre_thread) -> "Register": ...
+
+
+@define_op
+def write_shared(
+    register: "Register", memory: "Memory", elements_pre_thread
+) -> None: ...
