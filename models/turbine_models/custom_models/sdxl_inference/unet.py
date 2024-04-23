@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import copy
 import os
 import sys
 
@@ -123,7 +124,7 @@ def export_unet_model(
         return vmfb_path
 
     mapper = {}
-    decomp_list = DEFAULT_DECOMPOSITIONS
+    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
     if decomp_attn == True:
         decomp_list.extend(
             [

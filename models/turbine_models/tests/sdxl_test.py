@@ -215,9 +215,9 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
 
     def test02_ExportUnetModel(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest(
-                "Unknown error on vulkan; Runtime error on rocm; To be tested on cuda."
+                "Unknown error on vulkan; To be tested on cuda."
             )
         unet.export_unet_model(
             unet_model=self.unet_model,
