@@ -6,6 +6,7 @@
 
 # from @aviator19941's gist : https://gist.github.com/aviator19941/4e7967bd1787c83ee389a22637c6eea7
 
+import copy
 import os
 import sys
 
@@ -165,7 +166,7 @@ def export_scheduled_unet_model(
 
     mapper = {}
 
-    decomp_list = DEFAULT_DECOMPOSITIONS
+    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
     if decomp_attn == True:
         decomp_list.extend(
             [

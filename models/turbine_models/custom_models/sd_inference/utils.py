@@ -12,16 +12,15 @@ from diffusers import (
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 amdgpu_flags = {
     "all": [
+    ],
+    "unet": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
-        "--verify=false",
         "--iree-opt-data-tiling=false",
-    ],
-    "unet": [
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "clip": [],
     "vae": [],
@@ -78,7 +77,6 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-opt-const-eval=false",
-                "--iree-opt-data-tiling=False",
             ]
         )
         if target_triple == "gfx942":
