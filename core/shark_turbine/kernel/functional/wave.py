@@ -619,8 +619,6 @@ class LaunchableWave(Launchable):
                 return c_reg_node
 
         def epilogue_arg_mapper(node: fx.Node):
-            if node in self.iter_args or "c_reg" in node.name:
-                return new_tiled_loop
             if node.name in value_map:
                 return value_map[node.name]
             return node
@@ -678,12 +676,21 @@ class LaunchableWave(Launchable):
                 # Emit epilogue
                 for stage in reversed(self.epilogue.keys()):
                     for subnode in self.epilogue[stage]:
+                        if "c_reg" in subnode.name:
+                            continue
                         subnode.meta["stage"] = stage
                         new_node = scheduled_graph.node_copy(
                             subnode, epilogue_arg_mapper
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
                         value_map[subnode.name] = new_node
+                        # Whenever we compute the last mma node in an mma-chain,
+                        # we need to update the value mapper for the corresponding
+                        # c_reg.
+                        if "mma" in subnode.name:
+                            m, n, k = subnode.name.split("_")[-3:]
+                            c_reg_name = "_".join(["c_reg", m, n])
+                            value_map[c_reg_name] = new_node
                 continue
             new_node = scheduled_graph.node_copy(
                 node, lambda node: value_map[node.name]

@@ -133,8 +133,6 @@ class WaveEmitter:
         ), f"Cannot rebind node {node}: already bound"
         if attrs is not None:
             attrs.store(node)
-        print("Binding node = ", node.name)
-        print([k for k in self._node_values.keys()])
         self._node_values[node] = [proxy]
 
     def bind_node_proxies(
