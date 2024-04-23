@@ -597,13 +597,14 @@ class LaunchableWave(Launchable):
         kernel.create_node("output", "output", (mapped_iter_args,))
         return kernel
 
-    def create_scheduled_graph(self, expanded_graph, scheduler, trace):
+    def create_scheduled_graph(
+        self, expanded_graph: fx.Graph, expanded_root_graph: fx.Graph, scheduler, trace
+    ):
         """
         This pass uses the macrokernel graph and the generated schedule
         and constructs a scheduled macrokernel graph that can be used
         for MLIR emission.
         """
-        root_graph = trace.get_root_graph()
         scheduled_graph = fx.Graph()
 
         value_map = {}
@@ -623,7 +624,7 @@ class LaunchableWave(Launchable):
                 return value_map[node.name]
             return node
 
-        for node in root_graph.nodes:
+        for node in expanded_root_graph.nodes:
             typed_node = getNode(node)
             if isinstance(typed_node, TiledLoop):
                 # Emit prologue
@@ -813,13 +814,56 @@ class LaunchableWave(Launchable):
                 if node_type is None:
                     # If type not available, must be a write, so get it
                     # from args.
-                    for arg in node.args:
+                    for arg in node.all_input_nodes:
                         if arg.meta["type"] is not None:
                             node_type = arg.meta["type"]
                             break
                 dim0, dim1 = [x.name for x in node_type.symbolic_shape]
                 duplicate_node(repeat_times[dim0], repeat_times[dim1], node)
-        return expanded_graph
+
+        expanded_root_graph = fx.Graph()
+        duplicate_map = {}
+
+        def duplicate_root_node(m: int, k: int, node: fx.Node):
+            duplicates = []
+            for i in range(m):
+                for j in range(k):
+                    new_node = expanded_root_graph.node_copy(node)
+                    new_node.name = node.name + index_suffix(i, j)
+                    duplicates.append(new_node)
+            return duplicates
+
+        for node in root_graph.nodes:
+            node_type = node.meta["type"]
+            if "tiled_loop" in node.name:
+                new_node = expanded_root_graph.node_copy(node)
+                # Update iter_args if they have been duplicated
+                new_iter_args = []
+                for iter_arg in new_node.args[1]:
+                    if iter_arg in duplicate_map:
+                        new_iter_args += duplicate_map[iter_arg]
+                if len(new_iter_args) > 0:
+                    new_node.args = tuple(
+                        x if i != 1 else new_iter_args for i, x in enumerate(node.args)
+                    )
+                continue
+            if node.op == "placeholder" or "alloc" in node.name or node_type is None:
+                expanded_root_graph.node_copy(node)
+                continue
+            if node_type is None:
+                # If type not available, must be a write, so get it
+                # from args.
+                for arg in node.all_input_nodes:
+                    if arg.meta["type"] is not None:
+                        node_type = arg.meta["type"]
+                        break
+            dim0, dim1 = [x.name for x in node_type.symbolic_shape]
+            duplicates = duplicate_root_node(
+                repeat_times[dim0], repeat_times[dim1], node
+            )
+            duplicate_map[node] = duplicates
+
+        return expanded_graph, expanded_root_graph
 
     def construct_schedule(self, graph, debug=True):
         self.dependenceGraph = ms.Graph()
@@ -988,12 +1032,14 @@ class LaunchableWave(Launchable):
         self.propagate_constraints(trace)
 
         # Create "macrokernel" graph
-        expanded_graph = self.create_expanded_graph(trace, idxc)
+        expanded_graph, expanded_root_graph = self.create_expanded_graph(trace, idxc)
         # Schedule "macrokernel" graph
         scheduler = self.construct_schedule(expanded_graph)
         # Construct prologue and epilogue
         self.construct_prologue_and_epilogue(scheduler)
-        scheduled_graph = self.create_scheduled_graph(expanded_graph, scheduler, trace)
+        scheduled_graph = self.create_scheduled_graph(
+            expanded_graph, expanded_root_graph, scheduler, trace
+        )
 
         # MLIR-style debug print of the graph
         self.print(trace)
