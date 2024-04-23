@@ -65,7 +65,7 @@ from iree.compiler.dialects import (
 )
 
 from ..functional.codegen import WaveEmitter, handle_read, handle_write
-from ..functional.ops import alloc_shared, read_shared, write_shared
+from ..functional.ops import alloc_shared, get_result, read_shared, write_shared
 from ..functional import modulo_scheduling as ms
 
 from ..lang.functional_types import Register, AddressSpace, Memory
@@ -583,6 +583,8 @@ class LaunchableWave(Launchable):
                     continue
                 node.meta["stage"] = stage - 1
                 new_node = kernel.node_copy(node, lambda node: value_map[node.name])
+                # This mapping is constantly updated to only the last reference.
+                # Is that always enough?
                 value_map[node.name] = new_node
         mapped_iter_args = []
         for arg in iter_args:
@@ -664,6 +666,14 @@ class LaunchableWave(Launchable):
                     "iter_args": old_iter_args,
                 }
                 value_map[node.name] = new_tiled_loop
+
+                # Emit nodes representing indexing into the list of results of the loop
+                for idx, arg in enumerate(old_iter_args):
+                    get_res = GetResultNode(
+                        scheduled_graph, get_result, new_tiled_loop, idx
+                    )
+                    get_res.emit()
+                    value_map[arg.name] = get_res.fx_node
 
                 # Emit epilogue
                 for stage in reversed(self.epilogue.keys()):
@@ -1000,7 +1010,7 @@ class LaunchableWave(Launchable):
         emitter.emit(graph=scheduled_graph)
         emitter.finish()
 
-        self.canonicalize_module(mb.module_op)
+        # self.canonicalize_module(mb.module_op)
         # self.lower_module(mb.module_op)
         mb.module_op.verify()
 

@@ -16,6 +16,7 @@ from .._support.tracing import CapturedTrace
 from .ops import (
     alloc_shared,
     construct_register_from_metadata,
+    get_result,
     mma,
     read,
     read_shared,
@@ -433,7 +434,19 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
         scf_d.YieldOp(flat_ret_values)
 
     results = forOp.results_
+    # TODO: All results are bound to this node so we lose context here.
     emitter.bind_node_proxies(node, [IRProxyValue(v) for v in results])
+
+
+@handle_op(get_result)
+def handle_get_result(emitter: WaveEmitter, node: fx.Node):
+    try:
+        value, index = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    for_op = emitter.lookup_node_values(value)[0].ir_value.owner
+    emitter.bind_node_proxy(node, IRProxyValue(for_op.results[index]))
 
 
 ###############################################################################

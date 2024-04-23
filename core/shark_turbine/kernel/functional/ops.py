@@ -76,6 +76,10 @@ def alloc_shared(shape, dtype): ...
 
 
 @define_op
+def get_result(value, index): ...
+
+
+@define_op
 def read_shared(memory: "Memory", elements_pre_thread) -> "Register": ...
 
 

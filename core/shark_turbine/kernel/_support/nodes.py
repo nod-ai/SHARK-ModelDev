@@ -194,6 +194,22 @@ class AllocSharedNode(CustomNode):
 
 
 @dataclass
+class GetResultNode(CustomNode):
+    value: fx.Node
+    index: int
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="get_result",
+            kwargs={},
+        )
+
+
+@dataclass
 class ReadSharedNode(CustomNode):
     memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any] = None
@@ -242,6 +258,7 @@ class WriteSharedNode(CustomNode):
 
 # TODO: Use a decorator to register these properly
 nodeTypes["construct_register_from_metadata"] = ConstructRegisterFromMetadataNode
+nodeTypes["get_result"] = GetResultNode
 nodeTypes["mma"] = MmaNode
 nodeTypes["read_shared"] = ReadSharedNode
 nodeTypes["write_shared"] = WriteSharedNode
