@@ -216,9 +216,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
     def test02_ExportUnetModel(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Unknown error on vulkan; To be tested on cuda."
-            )
+            self.skipTest("Unknown error on vulkan; To be tested on cuda.")
         unet.export_unet_model(
             unet_model=self.unet_model,
             # This is a public model, so no auth required
