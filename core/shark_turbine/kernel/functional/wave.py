@@ -688,9 +688,10 @@ class LaunchableWave(Launchable):
                         # we need to update the value mapper for the corresponding
                         # c_reg.
                         if "mma" in subnode.name:
-                            m, n, k = subnode.name.split("_")[-3:]
-                            c_reg_name = "_".join(["c_reg", m, n])
-                            value_map[c_reg_name] = new_node
+                            i, j, k = subnode.name.split("_")[-3:]
+                            if int(k) == self.batch_k - 1:
+                                c_reg_name = "_".join(["c_reg", i, j])
+                                value_map[c_reg_name] = new_node
                 continue
             new_node = scheduled_graph.node_copy(
                 node, lambda node: value_map[node.name]
