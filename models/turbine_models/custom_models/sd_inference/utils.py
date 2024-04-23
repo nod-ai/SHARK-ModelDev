@@ -11,8 +11,7 @@ from diffusers import (
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 amdgpu_flags = {
-    "all": [
-    ],
+    "all": [],
     "unet": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
