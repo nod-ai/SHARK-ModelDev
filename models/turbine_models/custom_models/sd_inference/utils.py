@@ -21,8 +21,7 @@ amdgpu_flags = {
     ],
     "unet": [
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline)",
     ],
     "clip": [],
     "vae": [],
