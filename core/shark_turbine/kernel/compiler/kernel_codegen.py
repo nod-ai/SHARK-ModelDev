@@ -165,10 +165,12 @@ class KernelSignature:
             and b.kernel_buffer_type.usage == KernelBufferUsage.TEMPORARY
         ]
 
-    def add_from_graph_placeholders(self, graph: fx.Graph):
+    def add_from_graph_placeholders(self, graph: fx.Graph, ignore_criteria):
         placeholder_nodes: list[fx.Node] = []
         for node in graph.nodes:
             if node.op != "placeholder":
+                continue
+            if ignore_criteria(node):
                 continue
             placeholder_nodes.append(node)
 
@@ -276,6 +278,11 @@ class BoundKernelSignature(ABC):
         self._bindings_by_reference: dict[Any, BindingDesc] = {
             b.reference: b for b in sig.bindings
         }
+        try:
+            for k, v in self._bindings_by_reference:
+                print(k, v, id(v), v.meta)
+        except:
+            pass
 
     def resolve_by_reference(self, reference: Any) -> Value:
         binding = self._bindings_by_reference[reference]

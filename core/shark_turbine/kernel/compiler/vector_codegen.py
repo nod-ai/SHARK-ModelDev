@@ -784,7 +784,10 @@ def cast_py_value(emitter: ThreadEmitter, value) -> IRProxyValue:
     if isinstance(value, fx.Node):
         try:
             node_values = emitter.lookup_node_values(value)
-            assert len(node_values) == 1, f"Expected exactly one value for node {value}"
+            # TODO: This is a hack. We need a better way of handling multiple outputs.
+            if len(node_values) > 1:
+                return node_values[-1]
+            # assert len(node_values) == 1, f"Expected exactly one value for node {value}"
             return node_values[0]
         except KeyError:
             raise CodegenError(f"Producer node `{value}` has no IR Value")

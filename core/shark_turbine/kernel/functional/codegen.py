@@ -132,6 +132,8 @@ class WaveEmitter:
         ), f"Cannot rebind node {node}: already bound"
         if attrs is not None:
             attrs.store(node)
+        print("Binding node = ", node.name)
+        print([k for k in self._node_values.keys()])
         self._node_values[node] = [proxy]
 
     def bind_node_proxies(
@@ -167,10 +169,7 @@ class WaveEmitter:
     def emit(self, graph: fx.Graph = None):
         with self.ip, Location.unknown():
             self.emit_program_invariants()
-            if graph is not None:
-                self.emit_graph(graph)
-            else:
-                self.emit_graph(self.trace.get_root_graph())
+            self.emit_graph(graph if graph is not None else self.trace.get_root_graph())
 
     def emit_function_call_node(self, node: fx.Node):
         target_op = node.target
@@ -184,19 +183,26 @@ class WaveEmitter:
     def emit_graph(self, graph: fx.Graph):
         """Emits the given graph at the current insertion point."""
         for node in graph.nodes:
+            print("Emitting node = ", node.name)
             if node.op == "call_function" or node.op == "call_method":
                 self.emit_function_call_node(node)
             if node.op == "output":
                 return node.args
 
-    def emit_subgraph(self, subgraph: fx.Graph, implicit_capture: list[fx.Node]):
-        # Map subgraph freevars -> implicit_capture
-        freevars = self.trace.region_graph.inner_freevars[subgraph]
-        assert len(freevars) == len(
-            implicit_capture
-        ), f"Expected {len(freevars)} implicit capture args, got {len(implicit_capture)}"
-        for freevar, arg in zip(freevars, implicit_capture):
-            self._node_values[freevar.node] = self.lookup_node_values(arg)
+    def emit_subgraph(
+        self,
+        subgraph: fx.Graph,
+        implicit_capture: list[fx.Node],
+        freevars: list[fx.Node] = None,
+    ):
+        if freevars is None:
+            # Map subgraph freevars -> implicit_capture
+            freevars = self.trace.region_graph.inner_freevars[subgraph]
+            assert len(freevars) == len(
+                implicit_capture
+            ), f"Expected {len(freevars)} implicit capture args, got {len(implicit_capture)}"
+            for freevar, arg in zip(freevars, implicit_capture):
+                self._node_values[freevar.node] = self.lookup_node_values(arg)
 
         # Emit subgraph
         return self.emit_graph(subgraph)
@@ -219,11 +225,6 @@ def handle_op(op):
 ###############################################################################
 # Python/scalar ops
 ###############################################################################
-@handle_op("__call__")
-def handle_call(emitter: WaveEmitter, node: fx.Node):
-    # TODO: This currently only handles returning a single result
-    values = emitter.lookup_node_values(node.args[0])
-    emitter.bind_node_proxy(node, values[0])
 
 
 ###############################################################################
@@ -393,9 +394,12 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
     flat_init_args, init_args_spec = pytree.tree_flatten((init_args))
     flat_init_args = [cast_py_value(emitter, arg) for arg in flat_init_args]
 
-    # Get the subgraph for body of the loop.
-    assert isinstance(subgraph, str)
-    subgraph = emitter.trace.get_subgraph(subgraph)
+    if "subgraph" in node.kwargs:
+        subgraph = node.kwargs["subgraph"]
+    else:
+        # Get the subgraph for body of the loop.
+        assert isinstance(subgraph, str)
+        subgraph = emitter.trace.get_subgraph(subgraph)
 
     # Create scf.for operation.
     forOp = scf_d.ForOp(
@@ -407,16 +411,19 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
     # Enter body of for loop.
     with InsertionPoint(forOp.body):
         # TODO: Flatten subgraph args here.
-        subgraph_args = [
-            node
-            for node in subgraph.nodes
-            if node.op == "placeholder" and "lifted" not in node.meta
-        ]
+        if "iter_args" in node.kwargs:
+            subgraph_args = node.kwargs["iter_args"]
+        else:
+            subgraph_args = [
+                node
+                for node in subgraph.nodes
+                if node.op == "placeholder" and "lifted" not in node.meta
+            ]
         # Add mapping for iter_args.
         for i, v in enumerate(forOp.inner_iter_args):
             emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))
 
-        ret = emitter.emit_subgraph(subgraph, implicit_capture)
+        ret = emitter.emit_subgraph(subgraph, implicit_capture, implicit_capture)
         # Use ret in terminatory of body
         # TODO: Flatten return values here.
         flat_ret_values, ret_spec = pytree.tree_flatten((ret))

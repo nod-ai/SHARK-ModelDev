@@ -573,15 +573,26 @@ class LaunchableWave(Launchable):
             return 2
         return 0
 
-    def create_loop_graph(self):
+    def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
         for stage, nodes in self.nodes_by_stage.items():
             for node in nodes:
                 if "alloc" in node.name:
                     continue
+                if "c_reg" in node.name:
+                    continue
                 node.meta["stage"] = stage - 1
-                kernel.node_copy(node)
-        kernel.create_node("output", "output", (self.iter_args,))
+                new_node = kernel.node_copy(node, lambda node: value_map[node.name])
+                value_map[node.name] = new_node
+        mapped_iter_args = []
+        for arg in iter_args:
+            if "c_reg" in arg.name:
+                indices = arg.name.split("_")[-2:]
+                new_name = "_".join(["mma"] + indices + ["1"])
+                mapped_iter_args.append(value_map[new_name])
+            else:
+                mapped_iter_args.append(value_map[arg.name])
+        kernel.create_node("output", "output", (mapped_iter_args,))
         return kernel
 
     def create_scheduled_graph(self, expanded_graph, scheduler, trace):
@@ -593,57 +604,83 @@ class LaunchableWave(Launchable):
         root_graph = trace.get_root_graph()
         scheduled_graph = fx.Graph()
 
+        value_map = {}
         c_reg_node = None
         new_tiled_loop = None
-        new_iter_args = []
+
+        def arg_mapper(node: fx.Node):
+            if node.name in value_map:
+                return value_map[node.name]
+            if "c_reg" not in node.name:
+                return node
+            else:
+                return c_reg_node
+
+        def epilogue_arg_mapper(node: fx.Node):
+            if node in self.iter_args or "c_reg" in node.name:
+                return new_tiled_loop
+            if node.name in value_map:
+                return value_map[node.name]
+            return node
+
         for node in root_graph.nodes:
             typed_node = getNode(node)
-            if "construct_register_from_metadata" in node.name:
-                c_reg_node = node
             if isinstance(typed_node, TiledLoop):
                 # Emit prologue
+                new_iter_args = []
+                old_iter_args = []
                 for stage in reversed(self.prologue.keys()):
                     for subnode in self.prologue[stage]:
+                        if "c_reg" in subnode.name:
+                            value_map[subnode.name] = c_reg_node
+                            continue
                         subnode.meta["stage"] = stage - 1
-                        new_node = scheduled_graph.node_copy(
-                            subnode,
-                            lambda node: (
-                                node if "c_reg" not in node.name else c_reg_node
-                            ),
-                        )
+                        new_node = scheduled_graph.node_copy(subnode, arg_mapper)
                         new_node.name = subnode.name + "_prolog" + str(stage - 1)
-                        if subnode in self.iter_args:
-                            new_iter_args.append(new_node)
+                        value_map[subnode.name] = new_node
+
+                for stage, nodes in self.iter_args.items():
+                    for subnode in nodes:
+                        new_iter_args.append(value_map[subnode.name])
+                        old_iter_args.append(subnode)
+
+                for subnode in self.mma_args:
+                    if subnode.name not in value_map:
+                        value_map[subnode.name] = c_reg_node
+                    new_iter_args.append(value_map[subnode.name])
+                    old_iter_args.append(subnode)
 
                 # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
-                init_args = []
-                for node in new_iter_args:
-                    if "mma" in node.name:
-                        init_args.append(c_reg_node)
-                    else:
-                        init_args.append(node)
+                new_tiled_loop.args = (
+                    node.args[0],
+                    new_iter_args,
+                    node.args[2],
+                    [value_map[x.name] for x in node.args[3]],
+                )
+                loop_body = self.create_loop_graph(value_map, old_iter_args)
                 new_tiled_loop.kwargs = {
-                    "subgraph": "expanded_region_0",
-                    "implicit_capture": typed_node.implicit_captures + init_args,
+                    "subgraph": loop_body,
+                    "iter_args": old_iter_args,
                 }
-                loop_body = self.create_loop_graph()
+                value_map[node.name] = new_tiled_loop
 
                 # Emit epilogue
                 for stage in reversed(self.epilogue.keys()):
                     for subnode in self.epilogue[stage]:
                         subnode.meta["stage"] = stage
                         new_node = scheduled_graph.node_copy(
-                            subnode,
-                            lambda node: (
-                                new_tiled_loop
-                                if node in self.iter_args or "c_reg" in node.name
-                                else node
-                            ),
+                            subnode, epilogue_arg_mapper
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
+                        value_map[subnode.name] = new_node
                 continue
-            scheduled_graph.node_copy(node)
+            new_node = scheduled_graph.node_copy(
+                node, lambda node: value_map[node.name]
+            )
+            value_map[node.name] = new_node
+            if "construct_register_from_metadata" in node.name:
+                c_reg_node = new_node
 
         return scheduled_graph
 
@@ -843,10 +880,9 @@ class LaunchableWave(Launchable):
         stages [i+1, N-1].
 
         We also keep track of the iter args that will be need to construct the for loop
-        during mlir emission. In order to determine the iter args, we go through each
-        stage and create a list of all the incoming arguments that are not in the stage.
-        Alternatively, we can keep track of all the nodes that have uses that are not
-        in the current stage.
+        during mlir emission. The iter_args returned at the end of stage i, will be
+        inputs for stage i+1. We use this criteria to determine the iter args. In
+        addition, we also need to return the results of the final mmas.
         """
 
         # Ignore input placeholders, allocations and outputs
@@ -854,7 +890,7 @@ class LaunchableWave(Launchable):
             input_nodes = ["a", "b"]
             if node.name in input_nodes and node.op == "placeholder":
                 return False
-            ignore_nodes = ["alloc", "c_reg"]
+            ignore_nodes = ["alloc"]
             if any([x in node.name for x in ignore_nodes]):
                 return False
             return True
@@ -883,16 +919,21 @@ class LaunchableWave(Launchable):
             for i in range(stage + 1, max_stage + 1):
                 self.epilogue[stage] += self.nodes_by_stage[i]
 
-        self.iter_args = []
-        # Find the nodes whose users are not in the current stage
-        for stage, nodes in self.prologue.items():
-            for node in nodes:
+        self.iter_args = {stage: set() for stage in range(max_stage + 1)}
+        self.mma_args = []
+        for stage in self.nodes_by_stage.keys():
+            for node in self.nodes_by_stage[stage]:
+                if "c_reg" in node.name:
+                    self.mma_args.append(node)
+                    continue
+                if stage == max_stage:
+                    continue
                 for user in list(node.users.keys()):
-                    if user not in nodes:
-                        self.iter_args.append(node)
-        # Remove writes as they dont represent loop carried dependencies
-        self.iter_args = set(self.iter_args)
-        self.iter_args = [node for node in self.iter_args if "write" not in node.name]
+                    if (
+                        user not in self.nodes_by_stage[stage]
+                        and user in self.nodes_by_stage[stage + 1]
+                    ):
+                        self.iter_args[stage].add(node)
 
     def _trace_and_get_kernel_signature(
         self,
@@ -940,9 +981,13 @@ class LaunchableWave(Launchable):
         self.print(trace)
 
         kernel_sig = kernel_codegen.KernelSignature()
-        kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
+
+        def ignore_criteria(node: fx.Node):
+            return "c_reg" in node.name
+
+        kernel_sig.add_from_graph_placeholders(scheduled_graph, ignore_criteria)
         kernel_sig.add_grid(self.grid_type)
-        kernel_sig.determine_input_output_buffers(trace.get_root_graph())
+        kernel_sig.determine_input_output_buffers(scheduled_graph)
 
         grid = self.grid_type()
 
@@ -952,7 +997,7 @@ class LaunchableWave(Launchable):
         dispatch_entrypoint = exe.define_entrypoint(entrypoint_name, kernel_sig, grid)
         emitter = WaveEmitter(dispatch_entrypoint, trace)
 
-        emitter.emit()
+        emitter.emit(graph=scheduled_graph)
         emitter.finish()
 
         self.canonicalize_module(mb.module_op)
