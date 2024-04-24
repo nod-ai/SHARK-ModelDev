@@ -165,12 +165,12 @@ class KernelSignature:
             and b.kernel_buffer_type.usage == KernelBufferUsage.TEMPORARY
         ]
 
-    def add_from_graph_placeholders(self, graph: fx.Graph, ignore_criteria):
+    def add_from_graph_placeholders(self, graph: fx.Graph, ignore_criteria=None):
         placeholder_nodes: list[fx.Node] = []
         for node in graph.nodes:
             if node.op != "placeholder":
                 continue
-            if ignore_criteria(node):
+            if ignore_criteria is not None and ignore_criteria(node):
                 continue
             placeholder_nodes.append(node)
 
