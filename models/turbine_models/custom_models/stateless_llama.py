@@ -467,8 +467,6 @@ def export_transformer_model(
             flags.extend(
                 [
                     "--iree-rocm-target-chip=" + target_triple,
-                    "--iree-rocm-link-bc=true",
-                    "--iree-vm-bytecode-module-strip-source-map=true",
                     "--iree-opt-strip-assertions=true",
                     "--iree-vm-target-truncate-unsupported-floats",
                 ]
