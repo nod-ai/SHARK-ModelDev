@@ -520,7 +520,15 @@ class LaunchableWave(Launchable):
                             read_shared_fx = read_shared_node.fx_node
                             read_shared_fx.meta["type"] = read_shared_node.type
                             # Not sure about the indexing here
-                            read_shared_fx.meta["index"] = node.meta["index"]
+                            # See design doc, but I believe we can reuse the original index
+                            # with the workgroup component removed.
+                            substitutions = {
+                                x: 0 for x in self.hardware_constraints[0].workgroup_ids
+                            }
+                            shared_index = [
+                                y.subs(substitutions) for y in node.meta["index"]
+                            ]
+                            read_shared_fx.meta["index"] = shared_index
 
                             node.replace_all_uses_with(read_shared_fx)
 
@@ -532,7 +540,9 @@ class LaunchableWave(Launchable):
                             write_shared_fx = write_shared_node.fx_node
                             write_shared_fx.meta["type"] = None
                             # Not sure about the indexing here
-                            write_shared_fx.meta["index"] = node.meta["index"]
+                            # See design doc, but I believe we can reuse the original index
+                            # with the workgroup component removed.
+                            write_shared_fx.meta["index"] = shared_index
                             node.append(write_shared_fx)
                             write_shared_fx.append(read_shared_fx)
 
@@ -751,6 +761,7 @@ class LaunchableWave(Launchable):
                 block_n = val
             if sym.name == "BLOCK_K":
                 block_k = val
+        # TODO: Remove this once we are confident we are generating the correct IR.
         self.batch_m = 2  # block_m // mma_m
         self.batch_n = 2  # block_n // mma_n
         self.batch_k = 2  # block_k // mma_k
@@ -1137,9 +1148,11 @@ class LaunchableWave(Launchable):
         emitter.emit(graph=scheduled_graph)
         emitter.finish()
 
-        # self.canonicalize_module(mb.module_op)
+        self.canonicalize_module(mb.module_op)
         # self.lower_module(mb.module_op)
         mb.module_op.verify()
+        with open("mma.mlir", "w") as f:
+            f.write(mb.module_op.get_asm())
 
         return mb, exe, kernel_sig, entrypoint_name
 
