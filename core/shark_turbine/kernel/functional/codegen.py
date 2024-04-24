@@ -185,7 +185,6 @@ class WaveEmitter:
     def emit_graph(self, graph: fx.Graph):
         """Emits the given graph at the current insertion point."""
         for node in graph.nodes:
-            print("Emitting node = ", node.name)
             if node.op == "call_function" or node.op == "call_method":
                 self.emit_function_call_node(node)
             if node.op == "output":
@@ -265,7 +264,7 @@ def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node)
     emitter.bind_node_proxy(node, register)
 
 
-def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr) -> OpResult:
+def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpResult:
     stack: list[OpResult] = []
     # TODO: factor this out
     all_symbols = emitter.thread_ids + emitter.workgroup_ids + [emitter.induction_var]
@@ -283,9 +282,9 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr) -> OpResult:
                 elif term.name in dynamics.keys():
                     if dynamics[term.name] is None and term.name == "ARG0":
                         print(
-                            f"induction var is accessed outside of the loop. Setting to 0"
+                            f"induction var is accessed outside of the loop. Setting to stage"
                         )
-                        stack.append(arith_d.constant(IndexType.get(), 0))
+                        stack.append(arith_d.constant(IndexType.get(), stage))
                     else:
                         stack.append(dynamics[term.name])
                 else:
@@ -336,9 +335,12 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     # memory has no IR node yet.
     kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, memory)
 
+    stage = 0
+    if "stage" in node.meta:
+        stage = node.meta["stage"]
     start_indices = [
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0])),
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1])),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0]), stage),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1]), stage),
     ]
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
@@ -360,9 +362,12 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     # slice_spec = cast_slice_spec(emitter, ref_shape, multi_index)
     # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
 
+    stage = 0
+    if "stage" in node.meta:
+        stage = node.meta["stage"]
     start_indices = [
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0])),
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1])),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0]), stage),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1]), stage),
     ]
     if dest_rank != len(start_indices):
         raise CodegenError(
@@ -441,8 +446,8 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
 
     # Get IR values mapping to the node args.
     # TODO: Hardcoded sizes should be dynamic
-    start = arith_d.constant(IndexType.get(), 0)
-    end = arith_d.constant(IndexType.get(), 16)
+    start = arith_d.constant(IndexType.get(), node.meta["start"])
+    end = arith_d.constant(IndexType.get(), node.meta["end"])
     step = arith_d.constant(IndexType.get(), 1)
 
     # Flatten init_args and get IR values for each of them.
@@ -492,7 +497,7 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
     # Load and Store ops emitted after the loop will refer to this instead of
     # the induction var.
     # TODO: Should be dynamic and depend on the loop trip count
-    emitter.induction_var = arith_d.constant(IndexType.get(), 16)
+    emitter.induction_var = arith_d.constant(IndexType.get(), node.meta["end"])
     results = forOp.results_
     # TODO: All results are bound to this node so we lose context here.
     emitter.bind_node_proxies(node, [IRProxyValue(v) for v in results])

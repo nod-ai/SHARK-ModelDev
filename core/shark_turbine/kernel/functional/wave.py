@@ -598,6 +598,7 @@ class LaunchableWave(Launchable):
     def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
         iter_arg_map = {x.name: x for x in iter_args}
+        yield_args = {}
 
         def arg_mapper(stage: int, node: fx.Node):
             if node.name in value_map:
@@ -617,16 +618,17 @@ class LaunchableWave(Launchable):
                 value_map[node.name] = new_node
             # Update value mapping to use iter args at the end of a stage
             for node in self.iter_args[stage]:
+                yield_args[node.name] = value_map[node.name]
                 value_map[node.name] = node
 
         mapped_iter_args = []
         for arg in iter_args:
             if "c_reg" in arg.name:
                 indices = arg.name.split("_")[-2:]
-                new_name = "_".join(["mma"] + indices + ["1"])
+                new_name = "_".join(["mma"] + indices + [str(self.batch_k - 1)])
                 mapped_iter_args.append(value_map[new_name])
             else:
-                mapped_iter_args.append(value_map[arg.name])
+                mapped_iter_args.append(yield_args[arg.name])
         kernel.create_node("output", "output", (mapped_iter_args,))
         return kernel
 
@@ -673,6 +675,14 @@ class LaunchableWave(Launchable):
                 return value_map[node.name]
             return node
 
+        def map_stage(stage: int):
+            """
+            During scheduling, we have stages 0, 1, 2
+            and these map to stages 2, 1, 0.
+            """
+            reversed_stages = [2, 1, 0]
+            return reversed_stages[stage]
+
         for node in expanded_root_graph.nodes:
             typed_node = getNode(node)
             if isinstance(typed_node, TiledLoop):
@@ -684,9 +694,9 @@ class LaunchableWave(Launchable):
                     for subnode in self.prologue[stage]:
                         if "c_reg" in subnode.name:
                             continue
-                        subnode.meta["stage"] = stage - 1
                         new_node = scheduled_graph.node_copy(subnode, arg_mapper)
-                        new_node.name = subnode.name + "_prolog" + str(stage - 1)
+                        new_node.name = subnode.name + "_prolog" + str(stage)
+                        new_node.meta["stage"] = map_stage(stage)
                         update_value_map(subnode.name, new_node)
 
                 for stage, nodes in self.iter_args.items():
@@ -706,7 +716,14 @@ class LaunchableWave(Launchable):
                     node.args[2],
                     [value_map[x.name] for x in node.args[3]],
                 )
+                idxc = IndexingContext.current()
+                # TODO: Figure out how to extend to multiple tiling
+                trip_counts = int(
+                    self.tiling_constraints[0].trip_counts().subs(idxc.subs)
+                )
                 loop_body = self.create_loop_graph(placeholder_map, old_iter_args)
+                new_tiled_loop.meta["start"] = len(self.nodes_by_stage) - 1
+                new_tiled_loop.meta["end"] = trip_counts
                 new_tiled_loop.kwargs = {
                     "subgraph": loop_body,
                     "iter_args": old_iter_args,
@@ -726,11 +743,11 @@ class LaunchableWave(Launchable):
                     for subnode in self.epilogue[stage]:
                         if "c_reg" in subnode.name:
                             continue
-                        subnode.meta["stage"] = stage
                         new_node = scheduled_graph.node_copy(
                             subnode, epilogue_arg_mapper
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
+                        new_node.meta["stage"] = (trip_counts - 1) - stage
                         update_value_map(subnode.name, new_node)
                 continue
 
@@ -761,10 +778,9 @@ class LaunchableWave(Launchable):
                 block_n = val
             if sym.name == "BLOCK_K":
                 block_k = val
-        # TODO: Remove this once we are confident we are generating the correct IR.
-        self.batch_m = 2  # block_m // mma_m
-        self.batch_n = 2  # block_n // mma_n
-        self.batch_k = 2  # block_k // mma_k
+        self.batch_m = block_m // mma_m
+        self.batch_n = block_n // mma_n
+        self.batch_k = block_k // mma_k
         repeat_times = {"M": self.batch_m, "N": self.batch_n, "K": self.batch_k}
 
         subgraphs = trace.region_graph.subgraphs

@@ -74,6 +74,9 @@ class TilingConstraint(ConstraintsMeta):
         self.dim = dim
         self.tile_size = tile_size
 
+    def trip_counts(self):
+        return self.dim / self.tile_size
+
     def apply(self, induction_var):
         return induction_var * self.tile_size
 

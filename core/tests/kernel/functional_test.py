@@ -73,16 +73,16 @@ class Test(unittest.TestCase):
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
             BLOCK_M: 32,
-            BLOCK_N: 128,
-            BLOCK_K: 64,
+            BLOCK_N: 32,
+            BLOCK_K: 32,
             M: 64,
-            N: 256,
-            K: 128,
+            N: 128,
+            K: 256,
         }
         with tk.gen.TestLaunchContext(hyperparams):
-            a = torch.randn(64, 128, dtype=torch.float16)
-            b = torch.randn(256, 128, dtype=torch.float16)
-            c = torch.zeros(64, 256, dtype=torch.float32)
+            a = torch.randn(64, 256, dtype=torch.float16)
+            b = torch.randn(128, 256, dtype=torch.float16)
+            c = torch.zeros(64, 128, dtype=torch.float32)
             gemm(a, b, c)
 
 
