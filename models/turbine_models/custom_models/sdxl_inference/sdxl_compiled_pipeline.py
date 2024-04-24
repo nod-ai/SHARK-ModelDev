@@ -36,6 +36,7 @@ rt_device_list = [
     "vulkan",
     "cuda",
     "rocm",
+    "hip",
 ]
 
 empty_pipe_dict = {
@@ -430,6 +431,7 @@ class SharkSDXLPipeline:
         batch_count: int = 1,
         guidance_scale: float = 7.5,
         seed: float = -1,
+        return_imgs: bool = False,
     ):
         # TODO: implement case where this is false e.g. in SDXL Turbo
         # do_classifier_free_guidance = True
@@ -585,12 +587,18 @@ class SharkSDXLPipeline:
                     "sec",
                 )
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+        images = []
         for idx, image in enumerate(numpy_images):
             image = torch.from_numpy(image).cpu().permute(0, 2, 3, 1).float().numpy()
             image = numpy_to_pil_image(image)
+            images.append(image[0])
+        if return_imgs:
+            return images
+        for idx, image in enumerate(images):
             img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
-            image[0].save(img_path)
+            image.save(img_path)
             print(img_path, "saved")
+        return
 
 
 def numpy_to_pil_image(images):
@@ -689,5 +697,6 @@ if __name__ == "__main__":
         args.batch_count,
         args.guidance_scale,
         args.seed,
+        False,
     )
     print("Image generation complete.")
