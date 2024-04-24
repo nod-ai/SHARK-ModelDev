@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import json
+import copy
 from turbine_models.turbine_tank import turbine_tank
 
 os.environ["TORCH_LOGS"] = "dynamic"
@@ -9,6 +10,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from torch.utils import _pytree as pytree
 from shark_turbine.aot import *
+from shark_turbine.aot import decompositions
 from iree.compiler.ir import Context
 from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
     enable_llama_pos_shift_attention,
@@ -61,6 +63,11 @@ parser.add_argument(
     "--streaming_llm",
     action="store_true",
     help="Compile LLM with StreamingLLM optimizations",
+)
+parser.add_argument(
+    "--decomp_attn",
+    action="store_true",
+    help="Decompose attention ops at fx graph level.",
 )
 
 
@@ -123,6 +130,7 @@ def export_transformer_model(
     upload_ir=False,
     mod=None,
     tokenizer=None,
+    decomp_attn=False,
 ):
     if tokenizer == None:
         tokenizer = AutoTokenizer.from_pretrained(
@@ -174,6 +182,18 @@ def export_transformer_model(
         elif external_weights == "gguf":
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
+
+    initial_table = decompositions.current_aot_decompositions()
+    if decomp_attn == True:
+        with decompositions.extend_aot_decompositions(from_current=True) as init_t:
+            with decompositions.extend_aot_decompositions(
+                add_ops=[
+                    torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                    torch.ops.aten._scaled_dot_product_flash_attention.default,
+                ]
+            ):
+                current_table = decompositions.current_aot_decompositions()
+                assert len(current_table) == len(initial_table) + 1
 
     class StateUpdateModule(CompiledModule):
         if external_weights:
@@ -498,6 +518,8 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.streaming_llm,
         args.vmfb_path,
+        upload_ir=False,
+        decomp_attn=args.decomp_attn,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
