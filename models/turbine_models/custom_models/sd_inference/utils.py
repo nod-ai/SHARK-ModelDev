@@ -200,11 +200,13 @@ def get_schedulers(model_id):
         model_id,
         subfolder="scheduler",
     )
-    schedulers["Euler"] = EulerDiscreteScheduler.from_pretrained(
+    schedulers["EulerDiscrete"] = EulerDiscreteScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
     )
-    schedulers["EulerA"] = EulerAncestralDiscreteScheduler.from_pretrained(
+    schedulers[
+        "EulerAncestralDiscrete"
+    ] = EulerAncestralDiscreteScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
     )
