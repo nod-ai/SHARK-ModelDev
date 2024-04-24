@@ -76,6 +76,10 @@ def alloc_shared(shape, dtype): ...
 
 
 @define_op
+def barrier(): ...
+
+
+@define_op
 def get_result(value, index): ...
 
 

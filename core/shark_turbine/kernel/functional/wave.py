@@ -66,7 +66,13 @@ from iree.compiler.dialects import (
 )
 
 from ..functional.codegen import WaveEmitter, handle_read, handle_write
-from ..functional.ops import alloc_shared, get_result, read_shared, write_shared
+from ..functional.ops import (
+    alloc_shared,
+    barrier,
+    get_result,
+    read_shared,
+    write_shared,
+)
 from ..functional import modulo_scheduling as ms
 
 from ..lang.functional_types import Register, AddressSpace, Memory
@@ -1033,6 +1039,35 @@ class LaunchableWave(Launchable):
                         self.iter_args[stage].add(node)
         self.mma_args = self.mma_args[::-1]
 
+    def insert_barriers(self, graph: fx.Graph):
+        """
+        This function inserts barrier nodes into the graph following a very
+        simple approach - if a write to shared memory is followed by a read
+        from shared memory and vice versa, we insert a barrier node in between.
+        """
+
+        for node in graph.nodes:
+            typed_node = getNode(node)
+            if node.next is None:
+                continue
+            # read after write barrier
+            if isinstance(typed_node, ReadSharedNode) and isinstance(
+                getNode(node.next), WriteSharedNode
+            ):
+                graph.inserting_after(node)
+                barrier_node = BarrierNode(graph, barrier)
+                barrier_node.emit()
+            # write after read barrier
+            elif isinstance(typed_node, WriteSharedNode) and isinstance(
+                getNode(node.next), ReadSharedNode
+            ):
+                graph.inserting_after(node)
+                barrier_node = BarrierNode(graph, barrier)
+                barrier_node.emit()
+            elif isinstance(typed_node, TiledLoop):
+                # recurse into loop body
+                self.insert_barriers(node.kwargs["subgraph"])
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -1076,6 +1111,8 @@ class LaunchableWave(Launchable):
         scheduled_graph = self.create_scheduled_graph(
             expanded_graph, expanded_root_graph, scheduler, trace
         )
+        # Insert Barriers
+        self.insert_barriers(scheduled_graph)
 
         # MLIR-style debug print of the graph
         self.print(trace)

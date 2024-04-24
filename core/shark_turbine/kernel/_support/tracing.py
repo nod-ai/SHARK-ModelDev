@@ -297,6 +297,11 @@ class CompiledContext(BaseContext):
         node.emit()
         return node.fx_node
 
+    def handle_barrier(self, op):
+        node = BarrierNode(self.region_graph, op)
+        node.emit()
+        return node.fx_node
+
     def handle_read(self, op, memory, elements_per_thread=None):
         node = ReadNode(self.region_graph, op, memory, elements_per_thread)
         node.emit()

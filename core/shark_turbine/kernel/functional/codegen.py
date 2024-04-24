@@ -15,6 +15,7 @@ from .._support.indexing import (
 from .._support.tracing import CapturedTrace
 from .ops import (
     alloc_shared,
+    barrier,
     construct_register_from_metadata,
     get_result,
     mma,
@@ -245,6 +246,11 @@ def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
     emitter.bind_node_proxy(node, IRProxyValue(alloc))
 
 
+@handle_op(barrier)
+def handle_barrier(emitter: WaveEmitter, node: fx.Node):
+    amdgpu_d.lds_barrier()
+
+
 @handle_op(construct_register_from_metadata)
 def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node):
     try:
@@ -301,7 +307,6 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr) -> OpResult:
                 add = summand
                 for _ in range(1, len(term.args)):
                     add = arith_d.AddIOp(add, stack.pop())
-                    print("add")
                 stack.append(add)
             case sympy.Mod():
                 mod = arith_d.RemSIOp(stack.pop(), stack.pop())
