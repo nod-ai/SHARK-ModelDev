@@ -22,6 +22,7 @@ from iree.compiler.ir import (
     IntegerType,
     Location,
     Operation,
+    OpResult,
     MemRefType,
     ShapedType,
     StringAttr,

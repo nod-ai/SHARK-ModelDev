@@ -3,6 +3,7 @@ from typing import Type, Callable, Optional, Dict
 import inspect
 import math
 from functools import partial
+import sympy
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -512,6 +513,9 @@ class LaunchableWave(Launchable):
                             read_shared_node.emit()
                             read_shared_fx = read_shared_node.fx_node
                             read_shared_fx.meta["type"] = read_shared_node.type
+                            # Not sure about the indexing here
+                            read_shared_fx.meta["index"] = node.meta["index"]
+
                             node.replace_all_uses_with(read_shared_fx)
 
                             # Create write shared node
@@ -521,6 +525,8 @@ class LaunchableWave(Launchable):
                             write_shared_node.emit()
                             write_shared_fx = write_shared_node.fx_node
                             write_shared_fx.meta["type"] = None
+                            # Not sure about the indexing here
+                            write_shared_fx.meta["index"] = node.meta["index"]
                             node.append(write_shared_fx)
                             write_shared_fx.append(read_shared_fx)
 
@@ -797,6 +803,11 @@ class LaunchableWave(Launchable):
                         node, partial(transform_args, i, j)
                     )
                     new_node.name = node.name + index_suffix(i, j)
+                    if "index" in node.meta:
+                        new_node.meta["index"] = [
+                            new_node.meta["index"][0] + sympy.Mul(i, 16),
+                            new_node.meta["index"][1] + sympy.Mul(j, 16),
+                        ]
 
         def duplicate_mma_node(M: int, N: int, K: int, node: fx.Node):
             outputs = []
@@ -849,6 +860,12 @@ class LaunchableWave(Launchable):
                     new_node = expanded_root_graph.node_copy(node)
                     new_node.name = node.name + index_suffix(i, j)
                     duplicates.append(new_node)
+
+                    if "index" in node.meta:
+                        new_node.meta["index"] = [
+                            new_node.meta["index"][0] + sympy.Mul(i, 16),
+                            new_node.meta["index"][1] + sympy.Mul(j, 16),
+                        ]
             return duplicates
 
         for node in root_graph.nodes:
@@ -1044,11 +1061,11 @@ class LaunchableWave(Launchable):
         # Do type propagation to all nodes in subgraphs
         self.propagate_types(trace)
 
-        # Do shared memory promotion if required
-        self.promote_to_shared_memory(trace, idxc)
-
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
+
+        # Do shared memory promotion if required
+        self.promote_to_shared_memory(trace, idxc)
 
         # Create "macrokernel" graph
         expanded_graph, expanded_root_graph = self.create_expanded_graph(trace, idxc)

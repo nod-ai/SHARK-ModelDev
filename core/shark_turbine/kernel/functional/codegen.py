@@ -1,6 +1,6 @@
-import re
 from typing import Any, Callable, Type, Optional, Sequence, Union, List
 from dataclasses import dataclass
+import sympy
 import torch.fx as fx
 import torch.utils._pytree as pytree
 
@@ -53,6 +53,7 @@ from ..compiler.ir import (
     IrType,
     Location,
     MemRefType,
+    OpResult,
     ShapedType,
     Value,
     VectorType,
@@ -111,6 +112,7 @@ class WaveEmitter:
         self._node_values: dict[fx.Node, List[IRProxyValue]] = {}
         self._root_sig = root_sig
         self.trace = trace
+        self.induction_var: Optional[Value] = None
         self.ip = InsertionPoint(root_sig.entry_block)
         self.thread_ids = []
         self.workgroup_ids = []
@@ -257,6 +259,65 @@ def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node)
     emitter.bind_node_proxy(node, register)
 
 
+def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr) -> OpResult:
+    stack: list[OpResult] = []
+    # TODO: factor this out
+    all_symbols = emitter.thread_ids + emitter.workgroup_ids + [emitter.induction_var]
+    dynamics = dict(zip(["TX", "TY", "TZ", "WG0", "WG1", "ARG0"], all_symbols))
+    idxc = IndexingContext.current()
+    # Why affine, for now simply create indexing expressions.
+    # This can easily be adapted to affine expressions later.
+    division_flag = False
+    for term in sympy.postorder_traversal(expr):
+        match term:
+            case sympy.Symbol():
+                if term in idxc.subs.keys():
+                    cst = arith_d.constant(IndexType.get(), idxc.subs[term])
+                    stack.append(cst)
+                elif term.name in dynamics.keys():
+                    if dynamics[term.name] is None and term.name == "ARG0":
+                        print(
+                            f"induction var is accessed outside of the loop. Setting to 0"
+                        )
+                        stack.append(arith_d.constant(IndexType.get(), 0))
+                    else:
+                        stack.append(dynamics[term.name])
+                else:
+                    raise CodegenError(f"Unknown symbol {term}")
+            case sympy.Integer():
+                stack.append(arith_d.constant(IndexType.get(), int(term)))
+            case sympy.Mul():
+                factor = stack.pop()
+                operation = factor
+                for _ in range(1, len(term.args)):
+                    if not division_flag:
+                        operation = arith_d.MulIOp(operation, stack.pop())
+                    else:
+                        operation = arith_d.DivSIOp(operation, stack.pop())
+                division_flag = False
+                stack.append(operation)
+            case sympy.Add():
+                summand = stack.pop()
+                add = summand
+                for _ in range(1, len(term.args)):
+                    add = arith_d.AddIOp(add, stack.pop())
+                    print("add")
+                stack.append(add)
+            case sympy.Mod():
+                mod = arith_d.RemSIOp(stack.pop(), stack.pop())
+                stack.append(mod)
+            case sympy.Rational():
+                if term.p != 1:
+                    raise CodegenError(f"Can not handle rational {term}")
+                stack.append(arith_d.constant(IndexType.get(), term.q))
+                division_flag = True
+            case _:
+                raise CodegenError(f"Can not handle {term} yet")
+    if len(stack) != 1:
+        raise CodegenError(f"Expected single result, got {len(stack)}")
+    return stack[0]
+
+
 @handle_op(read_shared)
 @handle_op(read)
 def handle_read(emitter: WaveEmitter, node: fx.Node):
@@ -269,21 +330,10 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     vector_shape = cast_py_literal(emitter, (elements_per_thread,))
     # memory has no IR node yet.
     kb_src, kb_ir_type, kb_py_type = cast_kernel_buffer(emitter, memory)
-    ref_shape = kb_py_type.symbolic_shape
-    # slice_spec = cast_slice_spec(emitter, ref_shape, None)
-    # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
-
-    # TODO: In this phase the node already has all info to generate the correct
-    #       indexing. See node.meta['index'][0] for indexing expression in dimension 0.
-    #       The question is how we do codegen for this. This is a sympy expression
-    #       with free variables that need to be connected to the correct nodes.
-    #       With this connection we could see about reusing the sympy codegen module.
-    #       I suspect simply walking the AST and emitting the respective MLIR ops
-    #       should be sufficient in first instance.
 
     start_indices = [
-        arith_d.constant(IndexType.get(), 0),
-        arith_d.constant(IndexType.get(), 0),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0])),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1])),
     ]
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
@@ -304,9 +354,10 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     ref_shape = kb_py_type.symbolic_shape
     # slice_spec = cast_slice_spec(emitter, ref_shape, multi_index)
     # start_indices = extract_slice_starts(emitter, ref_shape, slice_spec)
+
     start_indices = [
-        arith_d.constant(IndexType.get(), 0),
-        arith_d.constant(IndexType.get(), 0),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0])),
+        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1])),
     ]
     if dest_rank != len(start_indices):
         raise CodegenError(
@@ -423,6 +474,7 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
         for i, v in enumerate(forOp.inner_iter_args):
             emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))
 
+        emitter.induction_var = forOp.induction_variable
         ret = emitter.emit_subgraph(subgraph, implicit_capture, implicit_capture)
         # Use ret in terminatory of body
         # TODO: Flatten return values here.
@@ -432,6 +484,10 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
         ]
         scf_d.YieldOp(flat_ret_values)
 
+    # Load and Store ops emitted after the loop will refer to this instead of
+    # the induction var.
+    # TODO: Should be dynamic and depend on the loop trip count
+    emitter.induction_var = arith_d.constant(IndexType.get(), 16)
     results = forOp.results_
     # TODO: All results are bound to this node so we lose context here.
     emitter.bind_node_proxies(node, [IRProxyValue(v) for v in results])
