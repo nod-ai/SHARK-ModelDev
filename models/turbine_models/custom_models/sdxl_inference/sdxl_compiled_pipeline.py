@@ -47,6 +47,13 @@ empty_pipe_dict = {
     "full_pipeline": None,
 }
 
+EMPTY_FLAGS = {
+    "clip": None,
+    "unet": None,
+    "vae": None,
+    "pipeline": None,
+}
+
 
 class SharkSDXLPipeline:
     def __init__(
@@ -61,7 +68,7 @@ class SharkSDXLPipeline:
         num_inference_steps: int,
         device: str,
         iree_target_triple: str,
-        ireec_flags: dict,
+        ireec_flags: dict = EMPTY_FLAGS,
         attn_spec: str = None,
         decomp_attn: bool = False,
         pipeline_dir: str = "./shark_vmfbs",
@@ -79,7 +86,7 @@ class SharkSDXLPipeline:
         self.num_inference_steps = num_inference_steps
         self.device = device
         self.iree_target_triple = iree_target_triple
-        self.ireec_flags = ireec_flags
+        self.ireec_flags = ireec_flags if ireec_flags else EMPTY_FLAGS
         self.attn_spec = attn_spec
         self.decomp_attn = decomp_attn
         self.pipeline_dir = pipeline_dir
