@@ -575,17 +575,28 @@ class LaunchableWave(Launchable):
 
     def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
+        iter_arg_map = {x.name: x for x in iter_args}
+
+        def arg_mapper(stage: int, node: fx.Node):
+            if node.name in value_map:
+                return value_map[node.name]
+            # This is for catching the c_reg variables.
+            if node.name in iter_arg_map:
+                return iter_arg_map[node.name]
+
         for stage, nodes in self.nodes_by_stage.items():
             for node in nodes:
                 if "alloc" in node.name:
                     continue
-                if "c_reg" in node.name:
-                    continue
                 node.meta["stage"] = stage - 1
-                new_node = kernel.node_copy(node, lambda node: value_map[node.name])
+                new_node = kernel.node_copy(node, partial(arg_mapper, stage))
                 # This mapping is constantly updated to only the last reference.
                 # Is that always enough?
                 value_map[node.name] = new_node
+            # Update value mapping to use iter args at the end of a stage
+            for node in self.iter_args[stage]:
+                value_map[node.name] = node
+
         mapped_iter_args = []
         for arg in iter_args:
             if "c_reg" in arg.name:
@@ -608,16 +619,32 @@ class LaunchableWave(Launchable):
         scheduled_graph = fx.Graph()
 
         value_map = {}
-        c_reg_node = None
+        placeholder_map = {}
         new_tiled_loop = None
+
+        # Initialize mapping between creg and construct_data_from_register
+        def initialize_creg_mapping():
+            for node in expanded_graph.nodes:
+                if "c_reg" in node.name:
+                    i, j = node.name.split("_")[-2:]
+                    reg_node_name = "_".join(["construct_register_from_metadata", i, j])
+                    update_value_map(node.name, value_map[reg_node_name])
+
+        def update_value_map(name: str, node: fx.Node):
+            value_map[name] = node
+            # Whenever we compute the last mma node in an mma-chain,
+            # we need to update the value mapper for the corresponding
+            # c_reg.
+            if "mma" in name:
+                i, j, k = name.split("_")[-3:]
+                if int(k) == self.batch_k - 1:
+                    c_reg_name = "_".join(["c_reg", i, j])
+                    value_map[c_reg_name] = new_node
 
         def arg_mapper(node: fx.Node):
             if node.name in value_map:
                 return value_map[node.name]
-            if "c_reg" not in node.name:
-                return node
-            else:
-                return c_reg_node
+            return node
 
         def epilogue_arg_mapper(node: fx.Node):
             if node.name in value_map:
@@ -627,29 +654,27 @@ class LaunchableWave(Launchable):
         for node in expanded_root_graph.nodes:
             typed_node = getNode(node)
             if isinstance(typed_node, TiledLoop):
+                initialize_creg_mapping()
                 # Emit prologue
                 new_iter_args = []
                 old_iter_args = []
                 for stage in reversed(self.prologue.keys()):
                     for subnode in self.prologue[stage]:
                         if "c_reg" in subnode.name:
-                            value_map[subnode.name] = c_reg_node
                             continue
                         subnode.meta["stage"] = stage - 1
                         new_node = scheduled_graph.node_copy(subnode, arg_mapper)
                         new_node.name = subnode.name + "_prolog" + str(stage - 1)
-                        value_map[subnode.name] = new_node
+                        update_value_map(subnode.name, new_node)
 
                 for stage, nodes in self.iter_args.items():
                     for subnode in nodes:
                         new_iter_args.append(value_map[subnode.name])
                         old_iter_args.append(subnode)
 
-                for subnode in self.mma_args:
-                    if subnode.name not in value_map:
-                        value_map[subnode.name] = c_reg_node
-                    new_iter_args.append(value_map[subnode.name])
-                    old_iter_args.append(subnode)
+                # Add original iter args
+                new_iter_args += [value_map[x.name] for x in node.args[1]]
+                old_iter_args += self.mma_args
 
                 # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
@@ -659,12 +684,12 @@ class LaunchableWave(Launchable):
                     node.args[2],
                     [value_map[x.name] for x in node.args[3]],
                 )
-                loop_body = self.create_loop_graph(value_map, old_iter_args)
+                loop_body = self.create_loop_graph(placeholder_map, old_iter_args)
                 new_tiled_loop.kwargs = {
                     "subgraph": loop_body,
                     "iter_args": old_iter_args,
                 }
-                value_map[node.name] = new_tiled_loop
+                update_value_map(node.name, new_tiled_loop)
 
                 # Emit nodes representing indexing into the list of results of the loop
                 for idx, arg in enumerate(old_iter_args):
@@ -672,7 +697,7 @@ class LaunchableWave(Launchable):
                         scheduled_graph, get_result, new_tiled_loop, idx
                     )
                     get_res.emit()
-                    value_map[arg.name] = get_res.fx_node
+                    update_value_map(arg.name, get_res.fx_node)
 
                 # Emit epilogue
                 for stage in reversed(self.epilogue.keys()):
@@ -684,22 +709,15 @@ class LaunchableWave(Launchable):
                             subnode, epilogue_arg_mapper
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
-                        value_map[subnode.name] = new_node
-                        # Whenever we compute the last mma node in an mma-chain,
-                        # we need to update the value mapper for the corresponding
-                        # c_reg.
-                        if "mma" in subnode.name:
-                            i, j, k = subnode.name.split("_")[-3:]
-                            if int(k) == self.batch_k - 1:
-                                c_reg_name = "_".join(["c_reg", i, j])
-                                value_map[c_reg_name] = new_node
+                        update_value_map(subnode.name, new_node)
                 continue
+
             new_node = scheduled_graph.node_copy(
                 node, lambda node: value_map[node.name]
             )
-            value_map[node.name] = new_node
-            if "construct_register_from_metadata" in node.name:
-                c_reg_node = new_node
+            if node.op == "placeholder" or "alloc" in node.name:
+                placeholder_map[node.name] = new_node
+            update_value_map(node.name, new_node)
 
         return scheduled_graph
 
@@ -996,6 +1014,7 @@ class LaunchableWave(Launchable):
                         and user in self.nodes_by_stage[stage + 1]
                     ):
                         self.iter_args[stage].add(node)
+        self.mma_args = self.mma_args[::-1]
 
     def _trace_and_get_kernel_signature(
         self,

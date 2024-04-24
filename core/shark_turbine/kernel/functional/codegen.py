@@ -418,6 +418,7 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
                 for node in subgraph.nodes
                 if node.op == "placeholder" and "lifted" not in node.meta
             ]
+
         # Add mapping for iter_args.
         for i, v in enumerate(forOp.inner_iter_args):
             emitter.bind_node_proxy(subgraph_args[i], IRProxyValue(v))
