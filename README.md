@@ -1,129 +1,30 @@
 # SHARK Turbine
 
-![image](https://netl.doe.gov/sites/default/files/2020-11/Turbine-8412270026_83cfc8ee8f_c.jpg)
+This repo is Nod-AI's integration repository for various model bringup
+activities and CI. In 2023 and early 2024, it played a different role
+by being the place where FX/Dynamo based torch-mlir and IREE toolsets
+were developed, including:
 
-Turbine is the set of development tools that the [SHARK Team](https://github.com/nod-ai/SHARK)
-is building for deploying all of our models for deployment to the cloud and devices. We
-are building it as we transition from our TorchScript-era 1-off export and compilation
-to a unified approach based on PyTorch 2 and Dynamo. While we use it heavily ourselves, it
-is intended to be a general purpose model compilation and execution tool.
+* [Torch-MLIR FxImporter](https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir/extras/fx_importer.py)
+* [Torch-MLIR ONNX Importer](https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir/extras/onnx_importer.py)
+* [Torch-MLIR's ONNX C Importer](https://github.com/llvm/torch-mlir/tree/main/projects/onnx_c_importer)
+* [IREE Turbine](https://github.com/iree-org/iree-turbine)
+* [Sharktank and Shortfin](https://github.com/nod-ai/sharktank)
 
-Turbine provides a collection of tools:
+As these have all found upstream homes, this repo is a bit bare. We will
+continue to use it as a staging ground for things that don't have a
+more defined spot and as a way to drive certain kinds of upstreaming
+activities.
 
-* *AOT Export*: For compiling one or more `nn.Module`s to compiled, deployment
-  ready artifacts. This operates via both a simple one-shot export API (Already upstreamed to [torch-mlir](https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir/extras/fx_importer.py))
-  for simple models and an underlying [advanced API](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/shark_turbine/aot/compiled_module.py) for complicated models
-  and accessing the full features of the runtime.
-* *Eager Execution*: A `torch.compile` backend is provided and a Turbine Tensor/Device
-  is available for more native, interactive use within a PyTorch session.
-* *Turbine Kernels*: (coming soon) A union of the [Triton](https://github.com/openai/triton) approach and
-  [Pallas](https://jax.readthedocs.io/en/latest/pallas/index.html) but based on
-  native PyTorch constructs and tracing. It is intended to complement for simple
-  cases where direct emission to the underlying, cross platform, vector programming model
-  is desirable.
-* *Turbine-LLM*: a repository of layers, model recipes, and conversion tools
-  from popular Large Language Model (LLM) quantization tooling.
 
-Under the covers, Turbine is based heavily on [IREE](https://github.com/openxla/iree) and
-[torch-mlir](https://github.com/llvm/torch-mlir) and we use it to drive evolution
-of both, upstreaming infrastructure as it becomes timely to do so.
+## Current Projects
 
-See [the roadmap](docs/roadmap.md) for upcoming work and places to contribute.
+### turbine-models
 
-## Contact Us
+The `turbine-models` project (under models/) contains ports and adaptations
+of various (mostly HF) models that we use in various ways.
 
-Turbine is under active development. If you would like to participate as it comes online,
-please reach out to us on the `#turbine` channel of the
-[nod-ai Discord server](https://discord.gg/QMmR6f8rGb).
+### CI
 
-## Quick Start for Users
+Integration CI for a variety of projects is rooted in this repo.
 
-1. Install from source:
-
-```
-pip install shark-turbine
-# Or for editable: see instructions under developers
-```
-
-The above does install some unecessary cuda/cudnn packages for cpu use. To avoid this you
-can specify pytorch-cpu and install via:
-```
-pip install -r core/pytorch-cpu-requirements.txt
-pip install shark-turbine
-```
-
-(or follow the "Developers" instructions below for installing from head/nightly)
-
-2. Try one of the samples:
-
-Generally, we use Turbine to produce valid, dynamic shaped Torch IR (from the
-[`torch-mlir torch` dialect](https://github.com/llvm/torch-mlir/tree/main/include/torch-mlir/Dialect/Torch/IR)
-with various approaches to handling globals). Depending on the use-case and status of the
-compiler, these should be compilable via IREE with `--iree-input-type=torch` for
-end to end execution. Dynamic shape support in torch-mlir is a work in progress,
-and not everything works at head with release binaries at present.
-
-  * [AOT MLP With Static Shapes](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/examples/aot_mlp/mlp_export_simple.py)
-  * [AOT MLP with a dynamic batch size](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/examples/aot_mlp/mlp_export_dynamic.py)
-  * [AOT llama2](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/examples/llama2_inference/llama2.ipynb):
-    Dynamic sequence length custom compiled module with state management internal to the model.
-  * [Eager MNIST with `torch.compile`](https://github.com/nod-ai/SHARK-Turbine/blob/main/core/examples/eager_mlp/mlp_eager_simple.py)
-
-## Developers
-
-### Getting Up and Running
-
-If only looking to develop against this project, then you need to install Python
-deps for the following:
-
-* PyTorch
-* iree-compiler (with Torch input support)
-* iree-runtime
-
-The pinned deps at HEAD require pre-release versions of all of the above, and
-therefore require additional pip flags to install. Therefore, to satisfy
-development, we provide a `requirements.txt` file which installs precise
-versions and has all flags. This can be installed prior to the package:
-
-Installing into a venv is highly recommended.
-
-```
-pip install -r core/pytorch-cpu-requirements.txt
-pip install --upgrade -r core/requirements.txt
-pip install --upgrade -e "core[torch-cpu-nightly,testing]"
-```
-
-Run tests:
-
-```
-pytest core/
-```
-
-### Using a development compiler
-
-If doing native development of the compiler, it can be useful to switch to
-source builds for iree-compiler and iree-runtime.
-
-In order to do this, check out [IREE](https://github.com/openxla/iree) and
-follow the instructions to [build from source](https://iree.dev/building-from-source/getting-started/), making
-sure to specify [additional options for the Python bindings](https://iree.dev/building-from-source/getting-started/#building-with-cmake):
-
-```
--DIREE_BUILD_PYTHON_BINDINGS=ON -DPython3_EXECUTABLE="$(which python)"
-```
-
-#### Configuring Python
-
-Uninstall existing packages:
-
-```
-pip uninstall iree-compiler
-pip uninstall iree-runtime
-```
-
-Copy the `.env` file from `iree/` to this source directory to get IDE
-support and add to your path for use from your shell:
-
-```
-source .env && export PYTHONPATH
-```
