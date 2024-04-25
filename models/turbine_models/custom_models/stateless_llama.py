@@ -2,7 +2,6 @@ import os
 import sys
 import re
 import json
-import copy
 from turbine_models.turbine_tank import turbine_tank
 
 os.environ["TORCH_LOGS"] = "dynamic"
