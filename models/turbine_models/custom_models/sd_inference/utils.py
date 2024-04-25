@@ -22,7 +22,7 @@ amdgpu_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "clip": [],
-    "vae": ["--verify=false"],
+    "vae": [],
 }
 
 
