@@ -473,7 +473,19 @@ def export_transformer_model(
             )
             ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
             if target_triple in ukernel_supported_arch:
-                flags.extend(["--iree-rocm-enable-ukernels=argmax"])
+                flags.extend(
+                    [
+                        "--iree-rocm-enable-ukernels=argmax",
+                        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-preprocessing-pad-to-intrinsics))",
+                        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
+                    ]
+                )
+                if os.path.exists("llama_argmax_td_spec.mlir"):
+                    flags.extend(
+                        [
+                            "--iree-preprocessing-transform-spec-filename=llama_argmax_td_spec.mlir",
+                        ]
+                    )
         elif device == "cuda":
             flags.extend(
                 [
@@ -499,7 +511,6 @@ def export_transformer_model(
         if upload_ir:
             return blob_name
         return module_str, tokenizer
-
 
 if __name__ == "__main__":
     args = parser.parse_args()
