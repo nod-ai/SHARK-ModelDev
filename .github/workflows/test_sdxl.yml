@@ -19,9 +19,16 @@ jobs:
           python-version: ${{matrix.version}}
 
       - name: "Checkout Code"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: ean-sd-fp16
+
+      - name: "Checkout iree-turbine"
+        uses: actions/checkout@v4
+        with:
+          repository: iree-org/iree-turbine
+          # TODO: Let the ref be passed as a parameter to run integration tests.
+          path: iree-turbine
 
       - name: Sync source deps
         # build IREE from source with -DIREE_BUILD_TRACY=ON if getting tracy profile
@@ -30,12 +37,12 @@ jobs:
           # Note: We install in three steps in order to satisfy requirements
           # from non default locations first. Installing the PyTorch CPU
           # wheels saves multiple minutes and a lot of bandwidth on runner setup.
-          pip install --index-url https://download.pytorch.org/whl/cpu \
-            -r core/pytorch-cpu-requirements.txt
-          pip install --upgrade -r core/requirements.txt
-          pip install -e core[testing,torch-cpu-nightly]
-          pip install --upgrade -r models/requirements.txt
-          pip install -e models
+          pip install --no-compile --index-url https://download.pytorch.org/whl/cpu \
+            -r ${{GITHUB_WORKSPACE}}/iree-turbine//pytorch-cpu-requirements.txt
+          pip install --no-compile --upgrade -r ${{GITHUB_WORKSPACE}}/iree-turbine/requirements.txt
+          pip install --no-compile -e ${{GITHUB_WORKSPACE}}/iree-turbine/[testing,torch-cpu-nightly]
+          pip install --no-compile --upgrade -r models/requirements.txt
+          pip install --no-compile -e models
       
       - name: Show current free memory
         run: |
