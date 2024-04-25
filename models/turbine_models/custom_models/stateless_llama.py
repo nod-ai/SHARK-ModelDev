@@ -511,6 +511,7 @@ def export_transformer_model(
             return blob_name
         return module_str, tokenizer
 
+
 if __name__ == "__main__":
     args = parser.parse_args()
     mod_str, _ = export_transformer_model(
