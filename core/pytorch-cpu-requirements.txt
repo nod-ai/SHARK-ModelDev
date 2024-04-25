@@ -1,3 +1,0 @@
---pre
---index-url https://download.pytorch.org/whl/test/cpu
--r pytorch-requirements.txt

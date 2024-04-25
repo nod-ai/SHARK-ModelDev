@@ -36,6 +36,13 @@ jobs:
           path: SHARK
           ref: "main"
 
+      - name: "Checkout iree-turbine"
+        uses: actions/checkout@v4
+        with:
+          repository: iree-org/iree-turbine
+          # TODO: Let the ref be passed as a parameter to run integration tests.
+          path: iree-turbine
+
       # TODO: Replace with a sh script from shark repo
       - name: "Install SHARK"
         run: |
