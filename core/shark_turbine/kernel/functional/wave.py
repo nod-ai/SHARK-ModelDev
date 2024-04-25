@@ -751,6 +751,14 @@ class LaunchableWave(Launchable):
                         update_value_map(subnode.name, new_node)
                 continue
 
+            # Map result nodes from the original graph to the scheduled graph.
+            # The result nodes will be the nodes corresponding to c_reg/mma
+            if "get_result" in node.name:
+                c_reg_name = "_".join(
+                    ["c_reg"] + [str(x) for x in node.meta["output_index"]]
+                )
+                value_map[node.name] = value_map[c_reg_name]
+                continue
             new_node = scheduled_graph.node_copy(
                 node, lambda node: value_map[node.name]
             )
@@ -886,11 +894,22 @@ class LaunchableWave(Launchable):
         expanded_root_graph = fx.Graph()
         duplicate_map = {}
 
-        def duplicate_root_node(m: int, k: int, node: fx.Node):
+        def duplicate_root_node(
+            m: int, k: int, node: fx.Node, loop_results: list[fx.Node]
+        ):
+            def arg_mapper(node: fx.Node):
+                if not hasattr(arg_mapper, "i"):
+                    arg_mapper.i = 0
+                if "tiled_loop" in node.name:
+                    result = loop_results[arg_mapper.i]
+                    arg_mapper.i = (arg_mapper.i + 1) % len(loop_results)
+                    return result
+                return node
+
             duplicates = []
             for i in range(m):
                 for j in range(k):
-                    new_node = expanded_root_graph.node_copy(node)
+                    new_node = expanded_root_graph.node_copy(node, arg_mapper)
                     new_node.name = node.name + index_suffix(i, j)
                     duplicates.append(new_node)
 
@@ -901,6 +920,7 @@ class LaunchableWave(Launchable):
                         ]
             return duplicates
 
+        loop_results = []
         for node in root_graph.nodes:
             node_type = node.meta["type"]
             if "tiled_loop" in node.name:
@@ -914,6 +934,16 @@ class LaunchableWave(Launchable):
                     new_node.args = tuple(
                         x if i != 1 else new_iter_args for i, x in enumerate(node.args)
                     )
+                    for idx, arg in enumerate(new_iter_args):
+                        get_res = GetResultNode(
+                            expanded_root_graph, get_result, new_node, idx
+                        )
+                        get_res.emit()
+                        get_res.fx_node.meta["output_index"] = [
+                            idx // self.batch_n,
+                            idx % self.batch_n,
+                        ]
+                        loop_results.append(get_res.fx_node)
                 continue
             if node.op == "placeholder" or "alloc" in node.name or node_type is None:
                 expanded_root_graph.node_copy(node)
@@ -927,7 +957,7 @@ class LaunchableWave(Launchable):
                         break
             dim0, dim1 = [x.name for x in node_type.symbolic_shape]
             duplicates = duplicate_root_node(
-                repeat_times[dim0], repeat_times[dim1], node
+                repeat_times[dim0], repeat_times[dim1], node, loop_results
             )
             duplicate_map[node] = duplicates
 
