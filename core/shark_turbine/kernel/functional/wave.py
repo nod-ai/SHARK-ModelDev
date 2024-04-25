@@ -1197,8 +1197,6 @@ class LaunchableWave(Launchable):
         self.canonicalize_module(mb.module_op)
         # self.lower_module(mb.module_op)
         mb.module_op.verify()
-        with open("mma.mlir", "w") as f:
-            f.write(mb.module_op.get_asm())
 
         return mb, exe, kernel_sig, entrypoint_name
 
@@ -1209,6 +1207,8 @@ class LaunchableWave(Launchable):
         host_codegen.isolated_test_call(mb, exe, kernel_sig, entrypoint_name)
 
         print(mb.module_op.get_asm())
+        with open("mma.mlir", "w") as f:
+            f.write(mb.module_op.get_asm())
 
     def aot_execute(self, args, kwargs):
         assert isinstance(launch_context, AOTLaunchContext)

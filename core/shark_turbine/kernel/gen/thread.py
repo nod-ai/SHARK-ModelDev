@@ -125,7 +125,6 @@ class LaunchableThread(Launchable):
                 idxc.bind_shaped(arg_name, param_type, list(arg_value.shape))
 
         idxc.finalize()
-        breakpoint()
 
         kernel_sig = kernel_codegen.KernelSignature()
         kernel_sig.add_from_graph_placeholders(trace.get_root_graph())
