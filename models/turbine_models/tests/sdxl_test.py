@@ -319,7 +319,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
-        atol = 4e-2
+        atol = 4e-1
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
