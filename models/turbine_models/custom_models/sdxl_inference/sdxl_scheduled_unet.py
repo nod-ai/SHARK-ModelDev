@@ -254,11 +254,11 @@ def export_scheduled_unet_model(
 
 
 def export_pipeline_module(args):
-    from turbine_models.custom_models.sdxl_inference.sdxl_compiled_pipeline import (
-        sdxl_pipeline_bench_f16,
-        sdxl_pipeline_bench_f32,
-        sdxl_sched_unet_bench_f16,
+    from turbine_models.custom_models.sdxl_inference.pipeline_ir import (
         sdxl_sched_unet_bench_f32,
+        sdxl_sched_unet_bench_f16,
+        sdxl_pipeline_bench_f32,
+        sdxl_pipeline_bench_f16,
     )
 
     pipeline_file = (
