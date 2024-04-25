@@ -74,22 +74,54 @@ def llama_pos_shift_attention_forward(
     # repeat k/v heads if n_kv_heads < n_heads
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
-    fwd_is_causal = False
-    if self.is_causal and attention_mask is None and q_len > 1:
-        fwd_is_causal = True
-    attn_output = torch.nn.functional.scaled_dot_product_attention(
-        query_states,
-        key_states,
-        value_states,
-        attn_mask=attention_mask,
-        dropout_p=self.attention_dropout if self.training else 0.0,
-        # The q_len > 1 is necessary to match with AttentionMaskConverter.to_causal_4d that does not create a causal mask in case q_len == 1.
-        is_causal=fwd_is_causal,
+    softmax_scale = 1.0 / math.sqrt(self.head_dim)
+    attn_weights = (
+        torch.matmul(query_states, key_states.transpose(2, 3)) * softmax_scale
     )
 
+    if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+        raise ValueError(
+            f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
+            f" {attn_weights.size()}"
+        )
+
+    # For causal mode, we use to get input mask, but now causal mode does not expect a mask
+    # and we need to generate the causal mask ourselves.
+    current_is_causal = False
+    if self.is_causal and attention_mask is None and q_len > 1:
+        current_is_causal = True
+    if current_is_causal and attention_mask is None:
+        bool_attention_mask = torch.ones(
+            [query_states.shape[-2], key_states.shape[-2]],
+            device=query_states.device,
+            dtype=torch.bool,
+        ).tril()
+        additive_attention_mask = torch.zeros_like(
+            bool_attention_mask, dtype=attn_weights.dtype
+        ).masked_fill(bool_attention_mask.logical_not(), -10000)
+        attn_weights = attn_weights + additive_attention_mask
+
+    # Legacy support to take in mask for non-causal mode.
+    if attention_mask is not None:
+        if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
+            )
+        attn_weights = attn_weights + attention_mask
+
+    # upcast attention to fp32
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+        query_states.dtype
+    )
+    attn_output = torch.matmul(attn_weights, value_states)
+
+    if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+        raise ValueError(
+            f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+            f" {attn_output.size()}"
+        )
     attn_output = attn_output.transpose(1, 2).contiguous()
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
     attn_output = self.o_proj(attn_output)
     return attn_output, None, past_key_value
 

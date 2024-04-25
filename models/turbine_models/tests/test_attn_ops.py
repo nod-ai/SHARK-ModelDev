@@ -10,6 +10,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from accelerate import init_empty_weights
 from transformers.modeling_utils import load_sharded_checkpoint
 import copy
+import torch
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from shark_turbine.aot import *
@@ -27,32 +28,40 @@ Be concise. You are a helpful, respectful and honest assistant. If a question do
 
 
 def main():
+    hf_model_name = "Trelis/Llama-2-7b-chat-hf-function-calling-v2"
+    hf_auth_token = "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"
     tokenizer = AutoTokenizer.from_pretrained(
-        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        hf_model_name,
         use_fast=False,
     )
-    print("prompt:", DEFAULT_PROMPT)
+    model = AutoModelForCausalLM.from_pretrained(
+        hf_model_name,
+        torch_dtype=torch.float16,
+        token=hf_auth_token,
+    )
+    device = "cuda"
+    model.to(device)
     torch_str = llm_runner.run_torch_llm(
-        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        hf_model_name,
+        None,
+        copy.copy(DEFAULT_PROMPT),
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+    )
+    torch.cuda.empty_cache()
+    rotated_torch_str = llm_runner.run_torch_llm(
+        hf_model_name,
         None,
         copy.copy(DEFAULT_PROMPT),
         streaming_llm=True,
-        model=None,
-        tokenizer=None,
-    )
-    print("REF:", torch_str)
-    print("prompt:", DEFAULT_PROMPT)
-    rotated_torch_str = llm_runner.run_torch_llm(
-        "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
-        None,
-        copy.copy(DEFAULT_PROMPT),
-        model=None,
-        tokenizer=None,
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
     )
     print("REF:", torch_str)
     print("Rotated:", rotated_torch_str)
 
 
 if __name__ == "__main__":
-    print("wut")
     main()

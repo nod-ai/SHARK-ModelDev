@@ -208,11 +208,12 @@ def run_torch_llm(
     chat_sys_prompt=DEFAULT_CHAT_SYS_PROMPT,
     model=None,
     tokenizer=None,
+    device="cpu",
 ):
     if model == None:
         model = AutoModelForCausalLM.from_pretrained(
             hf_model_name,
-            torch_dtype=torch.float,
+            torch_dtype=torch.float16,
             token=hf_auth_token,
         )
     if tokenizer == None:
@@ -224,14 +225,16 @@ def run_torch_llm(
     if streaming_llm is True:
         enable_llama_pos_shift_attention(model)
 
+    model.to(device)
+
     def get_token_from_logits(logits):
-        return torch.argmax(logits[:, -1, :], dim=1)
+        return torch.argmax(logits[:, -1, :], dim=1).to("cpu")
 
     prompt = append_user_prompt(chat_sys_prompt, prompt)
     initial_input = tokenizer(prompt, return_tensors="pt")
     example_input_id = initial_input.input_ids
 
-    model_results = model.forward(example_input_id)
+    model_results = model.forward(example_input_id.to(device))
     model_token = get_token_from_logits(model_results.logits)
 
     pkv = model_results.past_key_values
@@ -240,12 +243,13 @@ def run_torch_llm(
     torch_results.append(int(model_token))
     while model_token != 2:
         model_results = model.forward(
-            torch.unsqueeze(model_token, 0), past_key_values=pkv
+            torch.unsqueeze(model_token, 0).to(device), past_key_values=pkv
         )
         model_token = get_token_from_logits(model_results.logits)
         pkv = model_results.past_key_values
         torch_results.append(int(model_token[0]))
-
+    if device == "cuda":
+        torch.cuda.empty_cache()
     return tokenizer.decode(torch_results)
 
 
