@@ -1188,7 +1188,11 @@ class LaunchableWave(Launchable):
         mb = builder.ModuleBuilder(context=context, module_op=module_op)
         entrypoint_name = self._name
         exe = dispatch_codegen.StreamExecutable(mb, name=entrypoint_name)
-        dispatch_entrypoint = exe.define_entrypoint(entrypoint_name, kernel_sig, grid)
+        workgroup_size = self.thread_constraints[0].threads_per_block
+        subgroup_size = self.hardware_constraints[0].threads_per_wave
+        dispatch_entrypoint = exe.define_entrypoint(
+            entrypoint_name, kernel_sig, grid, workgroup_size, subgroup_size
+        )
         emitter = WaveEmitter(dispatch_entrypoint, trace)
 
         emitter.emit(graph=scheduled_graph)
