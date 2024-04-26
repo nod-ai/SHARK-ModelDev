@@ -239,7 +239,7 @@ def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
         raise ValidationError("Malformed arguments") from e
     memref_shape = cast_py_literal(emitter, shape)
     element_type = IrType.parse(dtype.ir_type_asm())
-    address_space = IntegerAttr.get(IndexType.get(), 3)
+    address_space = Attribute.parse("#gpu.address_space<workgroup>")
     memref_type = MemRefType.get(memref_shape, element_type, None, address_space)
     alloc = memref_d.alloc(memref_type, [], [])
     emitter.bind_node_proxy(node, IRProxyValue(alloc))

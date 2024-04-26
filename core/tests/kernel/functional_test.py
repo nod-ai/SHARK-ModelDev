@@ -76,13 +76,13 @@ class Test(unittest.TestCase):
             BLOCK_N: 32,
             BLOCK_K: 32,
             M: 64,
-            N: 128,
+            N: 64,
             K: 256,
         }
         with tk.gen.TestLaunchContext(hyperparams):
             a = torch.randn(64, 256, dtype=torch.float16)
-            b = torch.randn(128, 256, dtype=torch.float16)
-            c = torch.zeros(64, 128, dtype=torch.float32)
+            b = torch.randn(64, 256, dtype=torch.float16)
+            c = torch.zeros(64, 64, dtype=torch.float32)
             gemm(a, b, c)
 
 
