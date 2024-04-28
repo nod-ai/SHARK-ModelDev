@@ -308,7 +308,9 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                     add = arith_d.AddIOp(add, stack.pop())
                 stack.append(add)
             case sympy.Mod():
-                mod = arith_d.RemSIOp(stack.pop(), stack.pop())
+                rhs = stack.pop()
+                lhs = stack.pop()
+                mod = arith_d.RemSIOp(lhs, rhs)
                 stack.append(mod)
             case sympy.Rational():
                 if term.p != 1:
