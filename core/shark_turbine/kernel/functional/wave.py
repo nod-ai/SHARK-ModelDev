@@ -461,6 +461,17 @@ class LaunchableWave(Launchable):
         asm_str = self.get_string(root, 0, False)
         print(asm_str)
 
+    def get_tiled_shape(self, shape: list[IndexExpr]):
+        tiled_shape = []
+        for dim in shape:
+            for constraint in self.workgroup_constraints:
+                if dim == constraint.dim:
+                    tiled_shape.append(constraint.tile_size)
+            for constraint in self.tiling_constraints:
+                if dim == constraint.dim:
+                    tiled_shape.append(constraint.tile_size)
+        return tiled_shape
+
     """
     Promotes tkf.reads to reads from shared memory if the
     address space of the memory operand is shared memory.
@@ -499,9 +510,10 @@ class LaunchableWave(Launchable):
                             while current.next.op == "placeholder":
                                 current = current.next
                             root_graph.inserting_after(current)
-                            type = Memory[*list(shape) + [SMEM_SPACE, dtype]]
+                            tiled_shape = self.get_tiled_shape(shape)
+                            type = Memory[*list(tiled_shape) + [SMEM_SPACE, dtype]]
                             alloc_node = AllocSharedNode(
-                                root_graph, alloc_shared, shape, dtype, type
+                                root_graph, alloc_shared, tiled_shape, dtype, type
                             )
                             alloc_node.emit()
                             alloc = alloc_node.fx_node
@@ -513,7 +525,7 @@ class LaunchableWave(Launchable):
                                 read_shared,
                                 alloc,
                                 node.args[1],
-                                type=Register[*list(shape) + [dtype]],
+                                type=Register[*list(tiled_shape) + [dtype]],
                             )
 
                             read_shared_node.emit()
@@ -789,7 +801,14 @@ class LaunchableWave(Launchable):
         self.batch_m = block_m // mma_m
         self.batch_n = block_n // mma_n
         self.batch_k = block_k // mma_k
-        repeat_times = {"M": self.batch_m, "N": self.batch_n, "K": self.batch_k}
+        repeat_times = {
+            "M": self.batch_m,
+            "N": self.batch_n,
+            "K": self.batch_k,
+            "BLOCK_M": self.batch_m,
+            "BLOCK_N": self.batch_n,
+            "BLOCK_K": self.batch_k,
+        }
 
         subgraphs = trace.region_graph.subgraphs
         root_graph = trace.get_root_graph()
