@@ -21,6 +21,7 @@ from iree.compiler.ir import (
     IntegerAttr,
     IntegerType,
     Location,
+    Module,
     Operation,
     OpResult,
     MemRefType,
