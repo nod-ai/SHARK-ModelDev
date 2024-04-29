@@ -54,6 +54,8 @@ from ..compiler.ir import (
     Location,
     Module,
     Operation,
+    flow_d,
+    func_d,
     gpu_d,
     scf_d,
     transform_d,
@@ -84,8 +86,6 @@ class Interpreter:
             workgroup_ids = [0, 0]
             thread_ids = [32, 1, 0]
             sym_table = {}
-            load_indices = {}
-            alloc_map = {}
 
             def get_dtype(dtype):
                 if type(dtype) == F32Type:
@@ -168,14 +168,10 @@ class Interpreter:
                                 *result_shape, dtype=get_dtype(result_dtype)
                             )
                             # Row-major load
-                            print([int(x) for x in load_indices])
                             for i in range(*result_shape):
-                                try:
-                                    value[i] = memref[
-                                        int(load_indices[0]), int(load_indices[1] + i)
-                                    ]
-                                except:
-                                    breakpoint()
+                                value[i] = memref[
+                                    int(load_indices[0]), int(load_indices[1] + i)
+                                ]
                         case vector_d.StoreOp:
                             store_indices = []
                             for index in op.indices:
@@ -236,6 +232,10 @@ class Interpreter:
                             ):
                                 sym_table[iter_arg] = sym_table[result]
                             return
+                        case func_d.ReturnOp:
+                            return
+                        case flow_d.DispatchOp:
+                            return
                         case _:
                             breakpoint()
 
@@ -243,4 +243,3 @@ class Interpreter:
                         sym_table[op.result] = value
 
             walk_operations(op, callback)
-            breakpoint()

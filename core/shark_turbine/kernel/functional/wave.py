@@ -533,10 +533,13 @@ class LaunchableWave(Launchable):
                             read_shared_fx.meta["type"] = read_shared_node.type
                             # Not sure about the indexing here
                             # See design doc, but I believe we can reuse the original index
-                            # with the workgroup component removed.
+                            # with the workgroup component and induction variable removed.
                             substitutions = {
                                 x: 0 for x in self.hardware_constraints[0].workgroup_ids
                             }
+                            substitutions.update(
+                                {x: 0 for x in self.induction_vars.values()}
+                            )
                             shared_index = [
                                 y.subs(substitutions) for y in node.meta["index"]
                             ]
@@ -553,7 +556,7 @@ class LaunchableWave(Launchable):
                             write_shared_fx.meta["type"] = None
                             # Not sure about the indexing here
                             # See design doc, but I believe we can reuse the original index
-                            # with the workgroup component removed.
+                            # with the workgroup component and induction variable removed.
                             write_shared_fx.meta["index"] = shared_index
                             node.append(write_shared_fx)
                             write_shared_fx.append(read_shared_fx)
