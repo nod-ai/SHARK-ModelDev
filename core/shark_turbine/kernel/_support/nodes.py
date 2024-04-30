@@ -115,7 +115,7 @@ class MmaNode(CustomNode):
         rhs = getNode(self.rhs)
         acc = getNode(self.acc)
 
-        return f"{name} %{get_name(lhs, value_map)}, %{get_name(rhs, value_map)}, %{get_name(acc, value_map)} : {reg(lhs)}, {reg(rhs)} -> {reg(acc)}\n"
+        return f"{self.name} %{get_name(lhs, value_map)}, %{get_name(rhs, value_map)}, %{get_name(acc, value_map)} : {reg(lhs)}, {reg(rhs)} -> {reg(acc)}\n"
 
 
 def get_name(node: CustomNode, value_map: dict[str, str]) -> str:

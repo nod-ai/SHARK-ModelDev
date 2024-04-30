@@ -711,6 +711,13 @@ class LaunchableWave(Launchable):
             reversed_stages = [2, 1, 0]
             return reversed_stages[stage]
 
+        def transform_iter_args(args: list[fx.Node]):
+            # use the ops of the current stage for loop iter args
+            # e.g. construct_register_from_metadata -> mma
+            for arg in args:
+                c_reg_name = f"c_reg_{arg.name[-3:]}"
+                value_map[arg.name] = value_map[f"c_reg_{arg.name[-3:]}"]
+
         for node in expanded_root_graph.nodes:
             typed_node = getNode(node)
             if isinstance(typed_node, TiledLoop):
@@ -733,6 +740,7 @@ class LaunchableWave(Launchable):
                         old_iter_args.append(subnode)
 
                 # Add original iter args
+                transform_iter_args(node.args[1])
                 new_iter_args += [value_map[x.name] for x in node.args[1]]
                 old_iter_args += self.mma_args
 
@@ -903,6 +911,7 @@ class LaunchableWave(Launchable):
             outputs = None
             for node in graph.nodes:
                 if node.op == "placeholder" and "c_reg" not in node.name:
+                    # Inputs are not duplicated
                     continue
                 if "mma" in node.name:
                     outputs = duplicate_mma_node(
