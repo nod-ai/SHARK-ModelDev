@@ -115,7 +115,25 @@ class MmaNode(CustomNode):
         rhs = getNode(self.rhs)
         acc = getNode(self.acc)
 
-        return f"{name} %{value_map[lhs.name]}, %{value_map[rhs.name]}, %{value_map[acc.name]} : Register<4, {lhs.type.dtype}>, Register<4, {rhs.type.dtype}> -> Register<4, {acc.type.dtype}>\n"
+        return f"{name} %{get_name(lhs, value_map)}, %{get_name(rhs, value_map)}, %{get_name(acc, value_map)} : {reg(lhs)}, {reg(rhs)} -> {reg(acc)}\n"
+
+
+def get_name(node: CustomNode, value_map: dict[str, str]) -> str:
+    if hasattr(node, "name") and node.name in value_map:
+        return value_map[node.name]
+    if hasattr(node, "name"):
+        # This node has no mapping, it are potentially invalid
+        return node.name + "?"
+    return "?"
+
+
+def reg(node: CustomNode):
+    if isinstance(node, ConstructRegisterFromMetadataNode):
+        return f"Register<4, {node.dtype}>"
+    if hasattr(node, "type") and node.type is not None:
+        return f"Register<4, {node.type.dtype}>"
+    else:
+        return f"Register<4, ?>"
 
 
 @dataclass
@@ -142,7 +160,11 @@ class ReadNode(CustomNode):
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = self.memory.type
-        return f"{name} %{value_map[memory.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}> // register sizes hardcoded\n"
+        return f"{name} %{value_map[memory.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
+
+
+def indexing(node: CustomNode):
+    return str(node.fx_node.meta["index"])
 
 
 @dataclass
@@ -243,7 +265,7 @@ class ReadSharedNode(CustomNode):
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[memory.fx_node.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}> // register sizes hardcoded\n"
+        return f"{name} %{value_map[memory.fx_node.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
 
 
 @dataclass

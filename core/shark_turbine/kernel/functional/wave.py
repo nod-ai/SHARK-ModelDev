@@ -431,7 +431,11 @@ class LaunchableWave(Launchable):
             for j, iter_arg in enumerate(node.args[1]):
                 args_str += f"%{nested_region_prefix}{str(j)} = %{self.index_map[iter_arg.name]}, "
             asm_str += f"scf.for (K, iter_args = [{args_str}]) {{\n"
+            if "subgraph" in node.kwargs:
+                self.subgraphs[typed_node.subgraph_name] = node.kwargs["subgraph"]
+
             first_node = list(self.subgraphs[typed_node.subgraph_name].nodes)[0]
+
             self.parent = node
             self.parent_id = i
             return asm_str + self.get_string(first_node, 0, True)
@@ -442,7 +446,12 @@ class LaunchableWave(Launchable):
                 asm_str += "return"
             for arg in node.args:
                 if arg is not None:
-                    asm_str += f"%{self.index_map[arg.name]}, "
+                    if isinstance(arg, fx.Node):
+                        arg_list = [arg]
+                    else:
+                        arg_list = arg
+                    for entry in arg_list:
+                        asm_str += f"%{self.index_map[entry.name]}, "
             if self.parent is not None:
                 asm_str += "\n" + initialize(prefix, False) + "}\n"
                 return asm_str + self.get_string(self.parent, i + 1, nested_region)
@@ -452,12 +461,16 @@ class LaunchableWave(Launchable):
 
         return asm_str
 
-    def print(self, trace: CapturedTrace):
+    def print(self, trace: CapturedTrace | fx.Graph):
         self.index_map = {}
-        self.subgraphs = trace.region_graph.subgraphs
         self.parent = None
         self.parent_id = None
-        root = list(trace.get_root_graph().nodes)[0]
+        if isinstance(trace, CapturedTrace):
+            self.subgraphs = trace.region_graph.subgraphs
+            root = list(trace.get_root_graph().nodes)[0]
+        else:
+            assert isinstance(trace, fx.Graph)
+            root = list(trace.nodes)[0]
         asm_str = self.get_string(root, 0, False)
         print(asm_str)
 
@@ -1217,10 +1230,12 @@ class LaunchableWave(Launchable):
         )
         emitter = WaveEmitter(dispatch_entrypoint, trace)
 
+        self.print(scheduled_graph)
+
         emitter.emit(graph=scheduled_graph)
         emitter.finish()
 
-        self.canonicalize_module(mb.module_op)
+        # self.canonicalize_module(mb.module_op)
         # self.lower_module(mb.module_op)
         mb.module_op.verify()
 
