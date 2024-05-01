@@ -377,6 +377,9 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
         )
     # TODO: This fails currently because the register is not properly resolved.
     #       It stems from the function call.
+    idxc = IndexingContext.current()
+    store_elements = elements_per_thread.subs(idxc.subs)
+
     insert_vector = cast_vector(emitter, register, element_type=kb_ir_type.element_type)
     insert_type = VectorType(insert_vector.type)
     insert_rank = insert_type.rank
@@ -386,7 +389,25 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
         broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
-    permutation_map = AffineMap.get_minor_identity(dest_rank, insert_rank)
+    # If vector length > store elements, we need to extract one at a time and then store
+    # Assumes that vector shape will always be 1D, which may not always be true?
+    vector_shape = insert_type.shape[0]
+    if vector_shape > store_elements and store_elements == 1:
+        result_type = VectorType.get([1], kb_ir_type.element_type)
+        for i in range(vector_shape):
+            index = arith_d.constant(IndexType.get(), int(i))
+            element = vector_d.extract_strided_slice(
+                result_type,
+                insert_vector,
+                [i],
+                [1],
+                [1],
+            )
+            # TODO: This is hardcoded to match mma layout and should be deduced automatically
+            start_indices[0] = arith_d.addi(start_indices[0], index)
+            vector_d.store(element, kb_dest, start_indices)
+        return
+
     vector_d.store(insert_vector, kb_dest, start_indices)
 
 
