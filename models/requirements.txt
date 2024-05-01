@@ -1,6 +1,6 @@
 protobuf
 sentencepiece
-shark_turbine
+shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
 transformers==4.37.1
 accelerate
 diffusers @ git+https://github.com/nod-ai/diffusers@v0.24.0-release
