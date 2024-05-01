@@ -17,20 +17,16 @@ amdgpu_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-opt-data-tiling=false",
-        "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
 
     ],
-    "unet": [
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
-    ],
+    "unet": ["--iree-flow-enable-aggressive-fusion"],
     "clip": [],
-    "vae": [
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
-    ],
+    "vae": ["--iree-flow-enable-aggressive-fusion"],
 }
 
 
