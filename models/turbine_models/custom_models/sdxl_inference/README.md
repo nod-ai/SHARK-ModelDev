@@ -20,9 +20,12 @@ Linux:
 python -m venv turbine_venv
 source turbine_venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r core/pytorch-cpu-requirements.txt
-pip install --pre --upgrade -r core/requirements.txt
-pip install --pre -e core
+cd ..
+git clone https://iree-org/iree-turbine
+cd iree-turbine
+pip install -r pytorch-cpu-requirements.txt
+pip install -e .
+cd ../SHARK-Turbine
 pip install --pre --upgrade -e models -r models/requirements.txt
 ```
 
@@ -31,9 +34,12 @@ Windows:
 python -m venv turbine_venv
 turbine_venv/Scripts/activate
 python -m pip install --upgrade pip
-pip install -r core/pytorch-cpu-requirements.txt
-pip install --pre --upgrade -r core/requirements.txt
-pip install --pre -e core
+cd ..
+git clone https://iree-org/iree-turbine
+cd iree-turbine
+pip install -r pytorch-cpu-requirements.txt
+pip install -e .
+cd ../SHARK-Turbine
 pip install --pre --upgrade -e models -r models/requirements.txt
 ```
 
