@@ -428,6 +428,10 @@ class LaunchableWave(Launchable):
                 return self.get_string(node.next, j + 1, False)
             asm_str += f"%{i} = "
             args_str = ""
+            for iter_arg, init_arg in self.iter_args_to_init_args.items():
+                if init_arg.name not in self.index_map:
+                    continue
+                self.index_map[iter_arg.name] = self.index_map[init_arg.name]
             for j, iter_arg in enumerate(node.args[1]):
                 args_str += f"%{nested_region_prefix}{str(j)} = %{self.index_map[iter_arg.name]}, "
             asm_str += f"scf.for (K, iter_args = [{args_str}]) {{\n"
@@ -626,28 +630,23 @@ class LaunchableWave(Launchable):
     def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
         iter_arg_map = {x.name: x for x in iter_args}
-        yield_args = {}
 
-        def arg_mapper(stage: int, node: fx.Node):
+        def arg_mapper(node: fx.Node):
             if node.name in value_map:
                 return value_map[node.name]
-            # This is for catching the c_reg variables.
             if node.name in iter_arg_map:
                 return iter_arg_map[node.name]
 
-        for stage, nodes in self.nodes_by_stage.items():
+        for time, nodes in self.nodes_by_time.items():
             for node in nodes:
-                if "alloc" in node.name:
+                if "alloc" in node.name or "c_reg" in node.name:
                     continue
-                node.meta["stage"] = stage - 1
-                new_node = kernel.node_copy(node, partial(arg_mapper, stage))
+                stage = time // self.initiation_iterval
+                node.meta["stage"] = stage
+                new_node = kernel.node_copy(node, arg_mapper)
                 # This mapping is constantly updated to only the last reference.
                 # Is that always enough?
                 value_map[node.name] = new_node
-            # Update value mapping to use iter args at the end of a stage
-            for node in self.iter_args[stage]:
-                yield_args[node.name] = value_map[node.name]
-                value_map[node.name] = node
 
         mapped_iter_args = []
         for arg in iter_args:
@@ -656,7 +655,7 @@ class LaunchableWave(Launchable):
                 new_name = "_".join(["mma"] + indices + [str(self.batch_k - 1)])
                 mapped_iter_args.append(value_map[new_name])
             else:
-                mapped_iter_args.append(yield_args[arg.name])
+                mapped_iter_args.append(value_map[arg.name])
         kernel.create_node("output", "output", (mapped_iter_args,))
         return kernel
 
@@ -743,6 +742,9 @@ class LaunchableWave(Launchable):
                 transform_iter_args(node.args[1])
                 new_iter_args += [value_map[x.name] for x in node.args[1]]
                 old_iter_args += self.mma_args
+                self.iter_args_to_init_args = {}
+                for init_arg, iter_arg in zip(new_iter_args, old_iter_args):
+                    self.iter_args_to_init_args[iter_arg] = init_arg
 
                 # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
@@ -1100,19 +1102,25 @@ class LaunchableWave(Launchable):
             return True
 
         # Determine the init_args of the loop.
-        initiation_iterval = len(scheduler.RT)
+        self.initiation_iterval = len(scheduler.RT)
         sorted_schedule = dict(sorted(scheduler.schedule.items(), key=lambda x: x[1]))
 
         # Partition graph by stage and go back to using the fx.Nodes.
         self.nodes_by_stage = {}
+        self.nodes_by_time = {}
         for node, t in sorted_schedule.items():
-            stage = t // initiation_iterval
+            stage = t // self.initiation_iterval
+            time = t % self.initiation_iterval
             if stage not in self.nodes_by_stage:
                 self.nodes_by_stage[stage] = []
+            if time not in self.nodes_by_time:
+                self.nodes_by_time[time] = []
             inverse_node = self.inverse_mapper[node]
             if criteria(inverse_node):
                 self.nodes_by_stage[stage].append(inverse_node)
+                self.nodes_by_time[time].append(inverse_node)
             max_stage = stage
+        self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
 
         self.prologue = {stage: [] for stage in range(max_stage + 1)}
         self.epilogue = {stage: [] for stage in range(max_stage + 1)}
