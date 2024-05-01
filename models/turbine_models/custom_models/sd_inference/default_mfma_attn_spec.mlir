@@ -157,7 +157,7 @@ module attributes { transform.with_named_sequence } {
     // Step 5. Pre-process the contract and transfer ops to put it in the right form.
     // ===========================================================================
     transform.apply_patterns to %memref_func {
-      transform.apply_patterns.iree.fold_arith_ext_into_contraction
+      transform.apply_patterns.vector.fold_arith_extension
     } : !transform.any_op
 
     // Step 6. Post-bufferization vector distribution
@@ -359,7 +359,7 @@ module attributes { transform.with_named_sequence } {
     // Step 5. Pre-process the contract and transfer ops to put it in the right form.
     // ===========================================================================
     transform.apply_patterns to %memref_func {
-      transform.apply_patterns.iree.fold_arith_ext_into_contraction
+      transform.apply_patterns.vector.fold_arith_extension
     } : !transform.any_op
 
     // Step 6. Post-bufferization vector distribution
