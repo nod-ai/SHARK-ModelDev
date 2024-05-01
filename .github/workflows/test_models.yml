@@ -50,7 +50,7 @@ jobs:
           # from non default locations first. Installing the PyTorch CPU
           # wheels saves multiple minutes and a lot of bandwidth on runner setup.
           pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
-          pip install --no-compile --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
+          pip install --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
           pip install --no-compile --pre -e ${{ github.workspace }}/iree-turbine[testing]
           pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
       
