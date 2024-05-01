@@ -12,7 +12,8 @@ from turbine_models.custom_models.sd_inference import (
     clip,
     unet,
     vae,
-    utils
+    schedulers,
+    utils,
 )
 from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
@@ -236,11 +237,48 @@ class SharkSDPipeline:
         if weights_only:
             input_mlir = copy.deepcopy(SUBMODELS)
         match submodel:
-            case "scheduled_unet":
+            case "clip":
+                _, clip_vmfb = clip.export_combined_clip(
+                    self.hf_model_name,
+                    None,
+                    self.max_length,
+                    self.precision,
+                    "vmfb",
+                    self.external_weights,
+                    clip_external_weight_path,
+                    self.device,
+                    self.iree_target_triple,
+                    self.ireec_flags["clip"],
+                    exit_on_vmfb=False,
+                    pipeline_dir=self.pipeline_dir,
+                    input_mlir=input_mlir["clip"],
+                    attn_spec=self.attn_spec,
+                    weights_only=weights_only,
+                )
+                return clip_vmfb, clip_external_weight_path
+            case "scheduler":
+                scheduler_vmfb = schedulers.export_scheduler(
+                    self.hf_model_name,
+                    self.scheduler_id,
+                    self.batch_size,
+                    self.height,
+                    self.width,
+                    self.num_inference_steps,
+                    self.precision,
+                    "vmfb",
+                    self.device,
+                    self.iree_target_triple,
+                    self.ireec_flags["scheduler"],
+                    exit_on_vmfb=False,
+                    pipeline_dir=self.pipeline_dir,
+                    input_mlir=input_mlir["scheduler"],
+                )
+                return scheduler_vmfb, None
+            case "unet":
                 if input_mlir[submodel]:
                     unet_torch = None
                 else:
-                    unet_torch = self.get_torch_models("scheduled_unet")
+                    unet_torch = self.get_torch_models("unet")
                     
                 unet_vmfb = unet.export_unet_model(
                     unet_torch,
@@ -292,25 +330,7 @@ class SharkSDPipeline:
                     weights_only=weights_only,
                 )
                 return vae_decode_vmfb, vae_external_weight_path
-            case "clip":
-                _, clip_vmfb = clip.export_combined_clip(
-                    self.hf_model_name,
-                    None,
-                    self.max_length,
-                    self.precision,
-                    "vmfb",
-                    self.external_weights,
-                    clip_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
-                    self.ireec_flags["clip"],
-                    exit_on_vmfb=False,
-                    pipeline_dir=self.pipeline_dir,
-                    input_mlir=input_mlir["clip"],
-                    attn_spec=self.attn_spec,
-                    weights_only=weights_only,
-                )
-                return clip_vmfb, clip_external_weight_path
+
 
     # LOAD
 
@@ -452,7 +472,7 @@ class SharkSDPipeline:
 
             sample, add_time_ids, timesteps = self.runners["scheduler"].ctx.modules.scheduler[
                 "init"
-            ](samples[i], guidance_scale)
+            ](samples[i])
 
             for t in range(timesteps):
                 latents = self.runners["scheduler"].ctx.modules.scheduler["scale"](
