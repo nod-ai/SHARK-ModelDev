@@ -55,7 +55,7 @@ setup(
     ),
     install_requires=[
         "Shark-Turbine",
-        "brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b",
+        "brevitas",
         "protobuf",
         "sentencepiece",
         "transformers==4.37.1",
