@@ -51,7 +51,7 @@ class CustomNode(ABC):
         vars_str = ", ".join(vars_list)
         return f"{name} {vars_str}" + "\n"
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         # If a subclass does not define custom printing we revert to the default
         return str(self)
 
@@ -91,7 +91,7 @@ class ConstructRegisterFromMetadataNode(CustomNode):
     dtype: DataType
     value: float
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         # TODO: don't rely on extracting data from the fx_node. Everything required
         #       should be a field of this class
         simt_shape = None
@@ -109,16 +109,15 @@ class MmaNode(CustomNode):
     rhs: fx.Node
     acc: fx.Node
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         lhs = getNode(self.lhs)
         rhs = getNode(self.rhs)
         acc = getNode(self.acc)
+        return f"{self.name} %{value_map[self.lhs]}, %{value_map[self.rhs]}, %{value_map[self.acc]} : {reg(lhs)}, {reg(rhs)} -> {reg(acc)}\n"
 
-        return f"{self.name} %{get_name(lhs, value_map)}, %{get_name(rhs, value_map)}, %{get_name(acc, value_map)} : {reg(lhs)}, {reg(rhs)} -> {reg(acc)}\n"
 
-
-def get_name(node: CustomNode, value_map: dict[str, str]) -> str:
+def get_name(node: CustomNode, value_map: dict[fx.Node, str]) -> str:
     if hasattr(node, "name") and node.name in value_map:
         return value_map[node.name]
     if hasattr(node, "name"):
@@ -141,7 +140,7 @@ class PlaceholderNode(CustomNode):
     _name: str
     type: Optional[DataType]
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         return f"{self.name}"
 
     @classmethod
@@ -155,12 +154,12 @@ class ReadNode(CustomNode):
     elements_per_thread: Optional[Any] = None
     type: Optional[Type[Register]] = None
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = self.memory.type
-        return f"{name} %{value_map[memory.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
+        return f"{name} %{value_map[self.memory]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
 
 
 def indexing(node: CustomNode):
@@ -184,12 +183,12 @@ class WriteNode(CustomNode):
     memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any]
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         # TODO: remove this when fx.Proxy is wrapped with a similar interface
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[self.register_.name]}, %{value_map[memory.name]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        return f"{name} %{value_map[self.register_]}, %{value_map[self.memory]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
 
 
 # Nodes modeling TKL operations emitted only during codegen
@@ -211,7 +210,7 @@ class AllocSharedNode(CustomNode):
             kwargs={},
         )
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         return f"alloc : Memory<{self.shape}, {self.dtype}, #shared>\n"
 
 
@@ -260,12 +259,12 @@ class ReadSharedNode(CustomNode):
             kwargs={},
         )
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[memory.fx_node.name]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
+        return f"{name} %{value_map[memory.fx_node]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
 
 
 @dataclass
@@ -274,11 +273,11 @@ class WriteSharedNode(CustomNode):
     memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any]
 
-    def custom_string(self, value_map: dict[str, str]) -> str:
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[self.register_.name]}, %{value_map[memory.fx_node.name]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        return f"{name} %{value_map[self.register_]}, %{value_map[memory.fx_node]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
 
     def emit(self):
         arg_list = tuple([value for _, value in vars(self).items()][2:])

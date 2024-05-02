@@ -388,7 +388,7 @@ class LaunchableWave(Launchable):
             if node.name in self.index_map:
                 return self.get_string(node.next, i, nested_region)
             value_prefix = nested_region_prefix if nested_region else ""
-            self.index_map[node.name] = value_prefix + f"{str(i)}"
+            self.index_map[node] = value_prefix + f"{str(i)}"
             asm_str = ""
             if i == 0 and not nested_region:
                 asm_str = "func.func @main("
@@ -402,7 +402,7 @@ class LaunchableWave(Launchable):
                     asm_str += (
                         f"%{i}: Memory<{node.type.symbolic_shape}, {node.type.dtype}>"
                     )
-                    self.index_map[node.name] = value_prefix + f"{str(i)}"
+                    self.index_map[node] = value_prefix + f"{str(i)}"
                 asm_str += ") {\n"
             return asm_str + self.get_string(node.next, i + 1, nested_region)
 
@@ -412,7 +412,7 @@ class LaunchableWave(Launchable):
         if not isinstance(typed_node, UnknownNode) and not isinstance(
             typed_node, TiledLoop
         ):
-            self.index_map[node.name] = f"{nested_region_prefix}{i}"
+            self.index_map[node] = f"{nested_region_prefix}{i}"
             return (prefix if not nested_region else prefix + prefix) + (
                 f"%{nested_region_prefix}{i} = {typed_node.custom_string(self.index_map)}"
                 + self.get_string(node.next, i + 1, nested_region)
@@ -422,7 +422,7 @@ class LaunchableWave(Launchable):
         if "tiled_loop" in node.name:
             if nested_region:
                 j = self.parent_id
-                self.index_map[node.name] = f"{j}"
+                self.index_map[node] = f"{j}"
                 self.parent = None
                 self.parent_id = None
                 return self.get_string(node.next, j + 1, False)
@@ -431,9 +431,12 @@ class LaunchableWave(Launchable):
             for iter_arg, init_arg in self.iter_args_to_init_args.items():
                 if init_arg.name not in self.index_map:
                     continue
-                self.index_map[iter_arg.name] = self.index_map[init_arg.name]
-            for j, iter_arg in enumerate(node.args[1]):
-                args_str += f"%{nested_region_prefix}{str(j)} = %{self.index_map[iter_arg.name]}, "
+                self.index_map[iter_arg] = self.index_map[init_arg]
+            for j, init_arg in enumerate(node.args[1]):
+                args_str += f"%arg{str(j)} = %{self.index_map[init_arg]}, "
+                if init_arg in self.init_args_to_iter_args:
+                    init_arg = self.init_args_to_iter_args[init_arg]
+                self.index_map[init_arg] = f"arg{str(j)}"
             asm_str += f"scf.for (K, iter_args = [{args_str}]) {{\n"
             if "subgraph" in node.kwargs:
                 self.subgraphs[typed_node.subgraph_name] = node.kwargs["subgraph"]
@@ -455,7 +458,7 @@ class LaunchableWave(Launchable):
                     else:
                         arg_list = arg
                     for entry in arg_list:
-                        asm_str += f"%{self.index_map[entry.name]}, "
+                        asm_str += f"%{self.index_map[entry]}, "
             if self.parent is not None:
                 asm_str += "\n" + initialize(prefix, False) + "}\n"
                 return asm_str + self.get_string(self.parent, i + 1, nested_region)
@@ -629,33 +632,71 @@ class LaunchableWave(Launchable):
 
     def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
-        iter_arg_map = {x.name: x for x in iter_args}
+        # Keep track of values by stage
+        staged_value_map = {}
+        # Keep track of mapping from node to stage
+        node_to_stage = {}
+        iter_arg_names = [x.name for x in iter_args]
 
-        def arg_mapper(node: fx.Node):
-            if node.name in value_map:
+        # Populate staged values with iter args.
+        for stage, nodes in self.iter_args.items():
+            staged_value_map[stage + 1] = {}
+            for node in nodes:
+                staged_value_map[stage + 1][node] = node
+                node_to_stage[node] = stage + 1
+
+        # Add c_reg iter args
+        # TODO: Figure out how to assign a stage to these values.
+        for iter_arg in iter_args:
+            if "c_reg" in iter_arg.name:
+                node_to_stage[iter_arg] = 1
+                staged_value_map[1][iter_arg] = iter_arg
+
+        def arg_mapper(stage: int, node: fx.Node):
+            # If a node has no stage, it is a placeholder.
+            if node not in node_to_stage:
                 return value_map[node.name]
-            if node.name in iter_arg_map:
-                return iter_arg_map[node.name]
+            # Check if the node exists in the provided stage.
+            if node in staged_value_map[stage]:
+                return staged_value_map[stage][node]
+            # If not, use the node's current stage.
+            stage = node_to_stage[node]
+            if node in staged_value_map[stage]:
+                return staged_value_map[stage][node]
 
+        def get_stage(target):
+            for stage, nodes in self.nodes_by_stage.items():
+                for node in nodes:
+                    if node == target:
+                        return stage
+
+        result_map = {}
         for time, nodes in self.nodes_by_time.items():
             for node in nodes:
                 if "alloc" in node.name or "c_reg" in node.name:
                     continue
-                stage = time // self.initiation_iterval
+                stage = get_stage(node)
+                if stage not in staged_value_map:
+                    staged_value_map[stage] = {}
                 node.meta["stage"] = stage
-                new_node = kernel.node_copy(node, arg_mapper)
+                new_node = kernel.node_copy(node, partial(arg_mapper, stage))
                 # This mapping is constantly updated to only the last reference.
                 # Is that always enough?
-                value_map[node.name] = new_node
+                node_to_stage[node] = stage
+                staged_value_map[stage][node] = new_node
+                if node.name in iter_arg_names:
+                    result_map[node.name] = new_node
+                # Check for mma
+                if "mma" in node.name:
+                    last_index = int(node.name.split("_")[-1])
+                    if last_index == self.batch_k - 1:
+                        indices = node.name.split("_")[-3:-1]
+                        c_reg_name = "_".join(["c_reg"] + indices)
+                        result_map[c_reg_name] = new_node
 
         mapped_iter_args = []
         for arg in iter_args:
-            if "c_reg" in arg.name:
-                indices = arg.name.split("_")[-2:]
-                new_name = "_".join(["mma"] + indices + [str(self.batch_k - 1)])
-                mapped_iter_args.append(value_map[new_name])
-            else:
-                mapped_iter_args.append(value_map[arg.name])
+            mapped_iter_args.append(result_map[arg.name])
         kernel.create_node("output", "output", (mapped_iter_args,))
         return kernel
 
@@ -743,8 +784,10 @@ class LaunchableWave(Launchable):
                 new_iter_args += [value_map[x.name] for x in node.args[1]]
                 old_iter_args += self.mma_args
                 self.iter_args_to_init_args = {}
+                self.init_args_to_iter_args = {}
                 for init_arg, iter_arg in zip(new_iter_args, old_iter_args):
                     self.iter_args_to_init_args[iter_arg] = init_arg
+                    self.init_args_to_iter_args[init_arg] = iter_arg
 
                 # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
