@@ -28,7 +28,7 @@ class Test(unittest.TestCase):
         constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
         constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
         constraints += [tkf.TilingConstraint(K, BLOCK_K)]
-        constraints += [tkf.ThreadConstraint(threads_per_block=[128, 2, 1])]
+        constraints += [tkf.ThreadConstraint(threads_per_block=[64, 1, 1])]
         constraints += [
             tkf.HardwareConstraint(
                 threads_per_wave=64, mma_type="MFMA_F32_16x16x16_F16"
