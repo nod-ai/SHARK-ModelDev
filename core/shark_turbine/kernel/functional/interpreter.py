@@ -84,7 +84,7 @@ class Interpreter:
             op = self.m.operation
 
             workgroup_ids = [0, 0]
-            thread_ids = [32, 1, 0]
+            thread_ids = [63, 0, 0]
             sym_table = {}
 
             def get_dtype(dtype):
@@ -142,6 +142,10 @@ class Interpreter:
                             value = (
                                 sym_table[op.operands[0]] + sym_table[op.operands[1]]
                             )
+                        case arith_d.SubIOp:
+                            value = (
+                                sym_table[op.operands[0]] - sym_table[op.operands[1]]
+                            )
                         case arith_d.DivSIOp:
                             value = (
                                 sym_table[op.operands[0]] / sym_table[op.operands[1]]
@@ -168,6 +172,8 @@ class Interpreter:
                                 *result_shape, dtype=get_dtype(result_dtype)
                             )
                             # Row-major load
+                            load_indices = [int(x) for x in load_indices]
+                            print(load_indices)
                             for i in range(*result_shape):
                                 value[i] = memref[
                                     int(load_indices[0]), int(load_indices[1] + i)
@@ -188,10 +194,15 @@ class Interpreter:
                             result_type = vector.type
                             result_shape = vector.shape
                             # Row-major load
+                            store_indices = [int(x) for x in store_indices]
+                            print(store_indices)
                             for i in range(*result_shape):
-                                memref[
-                                    int(store_indices[0]), int(store_indices[1] + i)
-                                ] = vector[i]
+                                try:
+                                    memref[
+                                        int(store_indices[0]), int(store_indices[1] + i)
+                                    ] = vector[i]
+                                except:
+                                    breakpoint()
                         case stream_d.DispatchWorkgroupIDOp:
                             index = int(op.attributes["dimension"])
                             value = workgroup_ids[index]

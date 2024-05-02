@@ -2,7 +2,12 @@
 # Modulo Scheduling for Cyclic Graphs
 from copy import deepcopy
 import numpy as np
-import pygraphviz as pgv
+
+disabled_graphviz = False
+try:
+    import pygraphviz as pgv
+except:
+    disabled_graphviz = True
 
 
 class Node:
@@ -38,17 +43,18 @@ class Graph:
         self.edges[edge.fromNode].append(edge)
 
     def generateDotGraph(self):
-        G = pgv.AGraph(directed=True)
-        for node in self.nodes:
-            G.add_node(node.label)
-        for node, edges in self.edges.items():
-            for edge in edges:
-                G.add_edge(
-                    node.label,
-                    edge.toNode.label,
-                    label=f"{edge.delay, edge.iterationDelay}",
-                )
-        G.draw("dependence_graph.png", prog="dot")
+        if not disabled_graphviz:
+            G = pgv.AGraph(directed=True)
+            for node in self.nodes:
+                G.add_node(node.label)
+            for node, edges in self.edges.items():
+                for edge in edges:
+                    G.add_edge(
+                        node.label,
+                        edge.toNode.label,
+                        label=f"{edge.delay, edge.iterationDelay}",
+                    )
+            G.draw("dependence_graph.png", prog="dot")
 
     def runDFSLoop(self, edges, iter):
         self.exploredNodes = []

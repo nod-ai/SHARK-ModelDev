@@ -349,6 +349,19 @@ class LaunchableWave(Launchable):
         # Propagate constraints in root graph and subgraphs.
         for graph in subgraphs.values():
             for node in graph.nodes:
+
+                # If loop nodes, get index from output node
+                if "tiled_loop" in node.name:
+                    output = list(subgraphs[node.args[2]].nodes)[-1]
+                    node.meta["index"] = output.meta["index"]
+                    continue
+
+                # For write nodes, see if vector to be written has indices and if so use those
+                if "write" in node.name:
+                    if "index" in node.args[0].meta:
+                        node.meta["index"] = node.args[0].meta["index"]
+                        continue
+
                 if node.meta["type"] is not None:
                     shape = node.meta["type"].symbolic_shape
                     if "index" not in node.meta:
@@ -363,6 +376,7 @@ class LaunchableWave(Launchable):
                                     self.induction_vars[dim]
                                 )
                 if node.name == "mma":
+                    c_index = None
                     for i, arg in enumerate(node.args):
                         for constraint in self.hardware_constraints:
                             matrix_type = None
@@ -376,6 +390,11 @@ class LaunchableWave(Launchable):
                             offset = constraint.apply(matrix_type)
                             for j in range(len(offset)):
                                 arg.meta["index"][j] += offset[j]
+                            if matrix_type == "C":
+                                c_index = arg.meta["index"]
+                    # Also add index of result matrix
+                    for user in list(node.users.keys()):
+                        user.meta["index"] = c_index
 
     def get_string(self, node: fx.Node, i: int, nested_region: bool) -> str:
         prefix = " "

@@ -273,6 +273,7 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
     # Why affine, for now simply create indexing expressions.
     # This can easily be adapted to affine expressions later.
     division_flag = False
+    subtraction_flag = False
     for term in sympy.postorder_traversal(expr):
         match term:
             case sympy.Symbol():
@@ -299,6 +300,10 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                         operation = arith_d.MulIOp(operation, stack.pop())
                     else:
                         operation = arith_d.DivSIOp(operation, stack.pop())
+                        if subtraction_flag:
+                            zero = arith_d.constant(IndexType.get(), int(0))
+                            operation = arith_d.SubIOp(zero, operation)
+                            subtraction_flag = False
                 division_flag = False
                 stack.append(operation)
             case sympy.Add():
@@ -313,10 +318,12 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                 mod = arith_d.RemSIOp(lhs, rhs)
                 stack.append(mod)
             case sympy.Rational():
-                if term.p != 1:
+                if abs(term.p) != 1:
                     raise CodegenError(f"Can not handle rational {term}")
-                stack.append(arith_d.constant(IndexType.get(), term.q))
+                stack.append(arith_d.constant(IndexType.get(), abs(term.q)))
                 division_flag = True
+                if abs(term.p) > term.p:
+                    subtraction_flag = True
             case _:
                 raise CodegenError(f"Can not handle {term} yet")
     if len(stack) != 1:
@@ -404,8 +411,9 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
                 [1],
             )
             # TODO: This is hardcoded to match mma layout and should be deduced automatically
-            start_indices[0] = arith_d.addi(start_indices[0], index)
-            vector_d.store(element, kb_dest, start_indices)
+            modified_indices = [start_indices[0], start_indices[1]]
+            modified_indices[0] = arith_d.addi(start_indices[0], index)
+            vector_d.store(element, kb_dest, modified_indices)
         return
 
     vector_d.store(insert_vector, kb_dest, start_indices)

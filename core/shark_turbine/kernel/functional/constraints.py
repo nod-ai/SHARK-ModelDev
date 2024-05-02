@@ -116,11 +116,12 @@ class HardwareConstraint(ConstraintsMeta):
 
     def mma_indices(self, mma_type):
         # TODO: Add support for more instructions
+        integer_div = lambda x, y: (x - (x % y)) / y
         if mma_type == "MFMA_F32_16x16x16_F16":
             indices = {
-                "A": lambda lane, gpr: (lane % 16, 4 * (lane / 16) + gpr),
-                "B": lambda lane, gpr: (lane % 16, 4 * (lane / 16) + gpr),
-                "C": lambda lane, gpr: (4 * (lane / 16) + gpr, lane % 16),
+                "A": lambda lane, gpr: (lane % 16, 4 * integer_div(lane, 16) + gpr),
+                "B": lambda lane, gpr: (lane % 16, 4 * integer_div(lane, 16) + gpr),
+                "C": lambda lane, gpr: (4 * integer_div(lane, 16) + gpr, lane % 16),
             }
         return indices
 
