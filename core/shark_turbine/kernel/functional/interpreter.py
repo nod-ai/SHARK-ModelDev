@@ -172,6 +172,13 @@ class Interpreter:
                                 value[i] = memref[
                                     int(load_indices[0]), int(load_indices[1] + i)
                                 ]
+                        case vector_d.ExtractStridedSliceOp:
+                            vector = sym_table[op.vector]
+                            offsets = []
+                            sizes = []
+                            for i in range(len(op.offsets)):
+                                offsets.append(int(op.offsets[i]))
+                            value = vector[offsets]
                         case vector_d.StoreOp:
                             store_indices = []
                             for index in op.indices:
