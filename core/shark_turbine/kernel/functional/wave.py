@@ -689,6 +689,13 @@ class LaunchableWave(Launchable):
                     if node == target:
                         return stage
 
+        def find_c_node(node):
+            for arg in node.args:
+                if "mma" in arg.name:
+                    return find_c_node(arg)
+                if "c_reg" in arg.name:
+                    return arg
+
         result_map = {}
         for time, nodes in self.nodes_by_time.items():
             for node in nodes:
@@ -712,6 +719,9 @@ class LaunchableWave(Launchable):
                         indices = node.name.split("_")[-3:-1]
                         c_reg_name = "_".join(["c_reg"] + indices)
                         result_map[c_reg_name] = new_node
+                        c_reg_node = find_c_node(node)
+                        staged_value_map[stage - 1][c_reg_node] = new_node
+                        node_to_stage[c_reg_node] = stage - 1
 
         mapped_iter_args = []
         for arg in iter_args:
