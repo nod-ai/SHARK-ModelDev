@@ -156,27 +156,27 @@ class ModuloScheduler:
                 if edge.iterationDelay > 0:
                     self.estar[nodeLabel].delta -= T
 
-        # Propagation
-        done = False
-        while not done:
-            newEdges = {}
-            for (f0, t0), edge0 in self.estar.items():
-                for (f1, t1), edge1 in self.estar.items():
-                    if f0.label == f1.label:
+        for fromNode, edges in self.dependenceGraph.edges.items():
+            stack = []
+            for edge in edges:
+                stack.append(edge)
+            while stack:
+                startEdge = stack.pop(0)
+                middleNode = startEdge.toNode
+                for edge in self.dependenceGraph.edges[middleNode]:
+                    if edge.toNode == fromNode:
                         continue
-                    if f0.label == t1.label:
-                        continue
-                    if t0.label == f1.label:
-                        edgeLabel = f0.label + "->" + t1.label
-                        if (f0, t1) in self.estar:
+                    if (fromNode, edge.toNode) in self.estar:
+                        if (
+                            self.estar[(fromNode, edge.toNode)].delta
+                            > edge.delta + startEdge.delta
+                        ):
                             continue
-                        newEdge = Edge(edgeLabel, f0, t1, 0, 0)
-                        newEdge.delta = edge0.delta + edge1.delta
-                        newEdges[(f0, t1)] = newEdge
-            if len(newEdges) == 0:
-                done = True
-            else:
-                self.estar = self.estar | newEdges
+                    edgeLabel = fromNode.label + "->" + edge.toNode.label
+                    newEdge = Edge(edgeLabel, fromNode, edge.toNode, 0, 0)
+                    newEdge.delta = edge.delta + startEdge.delta
+                    self.estar[(fromNode, edge.toNode)] = newEdge
+                    stack.append(newEdge)
 
         for (fromNode, toNode), edge in self.estar.items():
             if self.debug:
