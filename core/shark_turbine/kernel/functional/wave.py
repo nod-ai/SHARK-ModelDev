@@ -4,6 +4,7 @@ import inspect
 import math
 from functools import partial
 import sympy
+import difflib
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -290,6 +291,8 @@ class LaunchableWave(Launchable):
                     node.type = type_map[node.name]
                     continue
                 node.meta["type"] = type_map[node.name] = node.type
+            if node.name == "add":
+                type_map[node.name] = node.meta["type"] = node.args[1].meta["type"]
             if node.name == "construct_register_from_metadata":
                 args = [x for x in node.args[0]] + [node.args[1]]
                 type_map[node.name] = node.meta["type"] = Register[*args]
@@ -356,7 +359,6 @@ class LaunchableWave(Launchable):
         # Propagate constraints in root graph and subgraphs.
         for graph in subgraphs.values():
             for node in graph.nodes:
-
                 # If loop nodes, get index from output node
                 if "tiled_loop" in node.name:
                     output = list(subgraphs[node.args[2]].nodes)[-1]
@@ -1012,8 +1014,17 @@ class LaunchableWave(Launchable):
                         if arg.meta["type"] is not None:
                             node_type = arg.meta["type"]
                             break
-                dim0, dim1 = [x.name for x in node_type.symbolic_shape]
-                duplicate_node(repeat_times[dim0], repeat_times[dim1], node)
+                if len(node_type.symbolic_shape) == 2:
+                    repeat0, repeat1 = [
+                        repeat_times[x.name] for x in node_type.symbolic_shape
+                    ]
+                elif len(node_type.symbolic_shape) == 1:
+                    repeat0 = repeat_times[node_type.symbolic_shape[0].name]
+                    repeat1 = 0
+                else:
+                    raise ValueError("Only 1D and 2D shapes supported.")
+
+                duplicate_node(repeat0, repeat1, node)
 
         expanded_root_graph = fx.Graph()
         duplicate_map = {}
@@ -1348,6 +1359,15 @@ class LaunchableWave(Launchable):
         print(mb.module_op.get_asm())
         with open("mma.mlir", "w") as f:
             f.write(mb.module_op.get_asm())
+
+        # with open("reference.mlir", "r") as reference_f:
+        #     with open("mma.mlir", "r") as mma_f:
+        #         ref = reference_f.readlines()
+        #         mma = mma_f.readlines()
+        #         for line in difflib.unified_diff(
+        #             mma, ref, fromfile="new", tofile="reference", lineterm=""
+        #         ):
+        #             print(line)
 
     def aot_execute(self, args, kwargs):
         assert isinstance(launch_context, AOTLaunchContext)

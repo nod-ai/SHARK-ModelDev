@@ -238,6 +238,8 @@ class KernelSignature:
             return all(["read" in x.name for x in node.users.keys()])
 
         def only_write_dependencies(node):
+            if len(node.users) == 0:
+                return False
             return all(["write" in x.name for x in node.users.keys()])
 
         for node in placeholder_nodes:
