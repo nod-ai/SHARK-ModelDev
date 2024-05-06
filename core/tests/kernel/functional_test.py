@@ -28,7 +28,8 @@ class Test(unittest.TestCase):
         constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
         constraints += [tkf.WorkgroupConstraint(N, BLOCK_N, 1)]
         constraints += [tkf.TilingConstraint(K, BLOCK_K)]
-        constraints += [tkf.ThreadConstraint(threads_per_block=[64, 1, 1])]
+        constraints += [tkf.WaveConstraint(M, BLOCK_M / 2, 0, 64)]
+        constraints += [tkf.WaveConstraint(N, BLOCK_N / 2, 1, 64)]
         constraints += [
             tkf.HardwareConstraint(
                 threads_per_wave=64, mma_type="MFMA_F32_16x16x16_F16"
@@ -72,17 +73,17 @@ class Test(unittest.TestCase):
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
-            BLOCK_M: 32,
-            BLOCK_N: 32,
+            BLOCK_M: 64,
+            BLOCK_N: 64,
             BLOCK_K: 32,
-            M: 64,
-            N: 64,
+            M: 128,
+            N: 128,
             K: 256,
         }
         with tk.gen.TestLaunchContext(hyperparams):
-            a = torch.randn(64, 256, dtype=torch.float16)
-            b = torch.randn(64, 256, dtype=torch.float16)
-            c = torch.zeros(64, 64, dtype=torch.float32)
+            a = torch.randn(128, 256, dtype=torch.float16)
+            b = torch.randn(128, 256, dtype=torch.float16)
+            c = torch.zeros(128, 128, dtype=torch.float32)
             gemm(a, b, c)
 
 

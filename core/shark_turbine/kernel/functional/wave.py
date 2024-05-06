@@ -80,7 +80,7 @@ from .constraints import (
     ConstraintsMeta,
     WorkgroupConstraint,
     TilingConstraint,
-    ThreadConstraint,
+    WaveConstraint,
     HardwareConstraint,
 )
 
@@ -139,11 +139,18 @@ class LaunchableWave(Launchable):
     ):
         super().__init__(eager_function)
         self.constraints = constraints
+        waves_per_block = [1, 1, 1]
+
+        for workgroup_constraint in self.workgroup_constraints:
+            wg_dim = workgroup_constraint.workgroup_dim
+            for wave_constraint in self.wave_constraints:
+                if wg_dim == wave_constraint.thread_dim:
+                    waves_per_block[wg_dim] = (
+                        workgroup_constraint.tile_size / wave_constraint.tile_size
+                    )
+
         for hardware_constraint in self.hardware_constraints:
-            for thread_constraint in self.thread_constraints:
-                hardware_constraint.threads_per_block = (
-                    thread_constraint.threads_per_block
-                )
+            hardware_constraint.waves_per_block = waves_per_block
 
         self.grid_type = Grid[*self.get_grid_shape(constraints)]
         self._name = name
@@ -167,11 +174,11 @@ class LaunchableWave(Launchable):
         ]
 
     @property
-    def thread_constraints(self):
+    def wave_constraints(self):
         return [
             constraint
             for constraint in self.constraints
-            if isinstance(constraint, ThreadConstraint)
+            if isinstance(constraint, WaveConstraint)
         ]
 
     @property
@@ -375,6 +382,9 @@ class LaunchableWave(Launchable):
                                 node.meta["index"][idx] += constraint.apply(
                                     self.induction_vars[dim]
                                 )
+                        for constraint in self.wave_constraints:
+                            if dim == constraint.dim:
+                                node.meta["index"][idx] += constraint.apply()
                 if node.name == "mma":
                     c_index = None
                     for i, arg in enumerate(node.args):
@@ -889,15 +899,11 @@ class LaunchableWave(Launchable):
         # Determine how many nodes there are in the final graph.
         hardware_constraint = self.hardware_constraints[0]
         mma_m, mma_n, mma_k = hardware_constraint.mma_matrix_shapes()
+        # TODO: This is hardcoded and should be deduced based on dimension mappings.
+        self.batch_m, self.batch_n, _ = hardware_constraint.waves_per_block
         for sym, val in idxc.frozen_subs:
-            if sym.name == "BLOCK_M":
-                block_m = val
-            if sym.name == "BLOCK_N":
-                block_n = val
             if sym.name == "BLOCK_K":
                 block_k = val
-        self.batch_m = block_m // mma_m
-        self.batch_n = block_n // mma_n
         self.batch_k = block_k // mma_k
         repeat_times = {
             "M": self.batch_m,
@@ -1312,7 +1318,10 @@ class LaunchableWave(Launchable):
         mb = builder.ModuleBuilder(context=context, module_op=module_op)
         entrypoint_name = self._name
         exe = dispatch_codegen.StreamExecutable(mb, name=entrypoint_name)
-        workgroup_size = self.thread_constraints[0].threads_per_block
+        workgroup_size = self.hardware_constraints[0].get_threads_per_block()
+        for i in range(len(workgroup_size)):
+            if isinstance(workgroup_size[i], IndexExpr):
+                workgroup_size[i] = workgroup_size[i].subs(idxc.subs)
         subgroup_size = self.hardware_constraints[0].threads_per_wave
         dispatch_entrypoint = exe.define_entrypoint(
             entrypoint_name, kernel_sig, grid, workgroup_size, subgroup_size

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import shark_turbine.kernel.lang as tkl
 import torch.fx as fx
 import math
+import sympy
 
 """
 Base class for constraints. Every constraint reduces to
@@ -83,17 +84,38 @@ class TilingConstraint(ConstraintsMeta):
 
 """
 A constraint of the form
-    tkf.ThreadConstraint(threads_per_block = [tx, ty, tz])
-specifies that we want to distribute to threads as per the threads per block specification.
-By itself, this imposes no index constraints. It needs to be coupled
-with a hardware constraint.
+    tkf.WaveConstraint(M, WAVE_BLOCK_M, 0)
+specifies that we want to distribute dimension M along wave dim 0
+with a wave tile size of WAVE_BLOCK_M.  This translates to an index
+constraint for all tensors of the
+shape [M, ?] -> index += (w0 * WAVE_BLOCK_M, 0)
+where (w0, w1, w2) = (tx / subgroup_size, ty, tz)
 """
 
 
-class ThreadConstraint(ConstraintsMeta):
-    def __init__(self, threads_per_block) -> None:
+class WaveConstraint(ConstraintsMeta):
+    def __init__(self, dim, tile_size, thread_dim, threads_per_wave) -> None:
         super().__init__()
-        self.threads_per_block = threads_per_block
+        self.dim = dim
+        self.tile_size = tile_size
+        self.thread_dim = thread_dim
+        self.threads_per_wave = threads_per_wave
+
+    def waves_per_block(self, block_size):
+        return block_size / self.tile_size
+
+    def apply(self):
+        w_dim = None
+        match self.thread_dim:
+            case 0:
+                w_dim = sympy.floor(self.thread_ids[0] / self.threads_per_wave)
+            case 1:
+                w_dim = self.thread_ids[1]
+            case 2:
+                w_dim = self.thread_ids[2]
+            case _:
+                raise ValueError("Invalid wave index. Expected 0, 1 or 2.")
+        return w_dim * self.tile_size
 
 
 """
@@ -108,20 +130,19 @@ This translates to a hardware specific index constraint.
 
 
 class HardwareConstraint(ConstraintsMeta):
-    def __init__(self, threads_per_wave, mma_type, threads_per_block=None) -> None:
+    def __init__(self, threads_per_wave, mma_type, waves_per_block=None) -> None:
         super().__init__()
-        self.threads_per_block = threads_per_block
+        self.waves_per_block = waves_per_block
         self.threads_per_wave = threads_per_wave
         self.mma_type = mma_type
 
     def mma_indices(self, mma_type):
         # TODO: Add support for more instructions
-        integer_div = lambda x, y: (x - (x % y)) / y
         if mma_type == "MFMA_F32_16x16x16_F16":
             indices = {
-                "A": lambda lane, gpr: (lane % 16, 4 * integer_div(lane, 16) + gpr),
-                "B": lambda lane, gpr: (lane % 16, 4 * integer_div(lane, 16) + gpr),
-                "C": lambda lane, gpr: (4 * integer_div(lane, 16) + gpr, lane % 16),
+                "A": lambda lane, gpr: (lane % 16, 4 * sympy.floor(lane / 16) + gpr),
+                "B": lambda lane, gpr: (lane % 16, 4 * sympy.floor(lane / 16) + gpr),
+                "C": lambda lane, gpr: (4 * sympy.floor(lane / 16) + gpr, lane % 16),
             }
         return indices
 
@@ -130,6 +151,14 @@ class HardwareConstraint(ConstraintsMeta):
             return (16, 16, 16)
         return None
 
+    def get_threads_per_block(self):
+        threads_per_block = []
+        for i, val in enumerate(self.waves_per_block):
+            if i == 0:
+                val *= self.threads_per_wave
+            threads_per_block.append(val)
+        return threads_per_block
+
     def get_vector_shape(self, matrix_type):
         if self.mma_type == "MFMA_F32_16x16x16_F16":
             return 4
@@ -137,10 +166,11 @@ class HardwareConstraint(ConstraintsMeta):
 
     def apply(self, matrix_type):
         indices = self.mma_indices(self.mma_type)
+        threads_per_block = self.get_threads_per_block()
         lane = (
             self.thread_ids[0]
-            + self.thread_ids[1] * self.threads_per_block[0]
-            + self.thread_ids[2] * self.threads_per_block[0] * self.threads_per_block[1]
+            + self.thread_ids[1] * threads_per_block[0]
+            + self.thread_ids[2] * threads_per_block[0] * threads_per_block[1]
         ) % self.threads_per_wave
         gpr = 0
         return indices[matrix_type](lane, gpr)

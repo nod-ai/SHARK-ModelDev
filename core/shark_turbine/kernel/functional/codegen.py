@@ -270,6 +270,8 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
     all_symbols = emitter.thread_ids + emitter.workgroup_ids + [emitter.induction_var]
     dynamics = dict(zip(["TX", "TY", "TZ", "WG0", "WG1", "ARG0"], all_symbols))
     idxc = IndexingContext.current()
+    # Substitute in frozen vars to simplify expression.
+    expr = expr.subs(idxc.subs)
     # Why affine, for now simply create indexing expressions.
     # This can easily be adapted to affine expressions later.
     division_flag = False
@@ -317,6 +319,10 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                 lhs = stack.pop()
                 mod = arith_d.RemSIOp(lhs, rhs)
                 stack.append(mod)
+            case sympy.floor():
+                # TODO: Since divsi rounds to zero, this seems to work.
+                # But check whether floordivsi is needed.
+                stack.append(stack.pop())
             case sympy.Rational():
                 if abs(term.p) != 1:
                     raise CodegenError(f"Can not handle rational {term}")
