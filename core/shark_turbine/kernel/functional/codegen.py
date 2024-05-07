@@ -45,6 +45,7 @@ from ..compiler.ir import (
     FunctionType,
     VectorType,
     DenseElementsAttr,
+    F16Type,
     F32Type,
     IndexType,
     FloatAttr,
@@ -353,10 +354,14 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
-    start_indices = [
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0]), stage),
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1]), stage),
-    ]
+    start_indices = []
+    if isinstance(node.meta["index"], sympy.Add):
+        pass
+    for dim_indexing in node.meta["index"]:
+        start_indices.append(
+            gen_sympy_index(emitter, sympy.simplify(dim_indexing), stage)
+        )
+
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
     result = vector_d.load(vector_type, kb_src, start_indices)
@@ -380,10 +385,11 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
-    start_indices = [
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][0]), stage),
-        gen_sympy_index(emitter, sympy.simplify(node.meta["index"][1]), stage),
-    ]
+    start_indices = []
+    for dim_indexing in node.meta["index"]:
+        start_indices.append(
+            gen_sympy_index(emitter, sympy.simplify(dim_indexing), stage)
+        )
     if dest_rank != len(start_indices):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(start_indices)}"
@@ -417,7 +423,7 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
                 [1],
             )
             # TODO: This is hardcoded to match mma layout and should be deduced automatically
-            modified_indices = [start_indices[0], start_indices[1]]
+            modified_indices = [index for index in start_indices]
             modified_indices[0] = arith_d.addi(start_indices[0], index)
             vector_d.store(element, kb_dest, modified_indices)
         return
@@ -460,6 +466,38 @@ def handle_mma(emitter: WaveEmitter, node: fx.Node):
         dest_c=acc,
     )
 
+    emitter.bind_node_proxy(node, IRProxyValue(result))
+
+
+@handle_op(py_operator.add)
+def handle_add(emitter: WaveEmitter, node: fx.Node):
+    try:
+        lhs, rhs = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+    lhs = cast_py_value(emitter, lhs)
+    rhs = cast_py_value(emitter, rhs)
+
+    def get_type(value: IRProxyValue):
+        return value.ir_value.type
+
+    # TODO: this is too hard coded
+    if (lhs_type := get_type(lhs)) != (rhs_type := get_type(rhs)):
+        if isinstance(lhs_type.element_type, F32Type):
+            lhs = arith_d.truncf(
+                VectorType.get(lhs_type.shape, F16Type.get()), lhs.ir_value
+            )
+            rhs = rhs.ir_value
+        elif isinstance(rhs_type.element_type, F32Type):
+            lhs = lhs.ir_value
+            rhs = arith_d.truncf(
+                VectorType.get(rhs_type.shape, F16Type.get()), rhs.ir_value
+            )
+    else:
+        lhs = lhs.ir_value
+        rhs = rhs.ir_value
+
+    result = arith_d.addf(lhs, rhs)
     emitter.bind_node_proxy(node, IRProxyValue(result))
 
 
