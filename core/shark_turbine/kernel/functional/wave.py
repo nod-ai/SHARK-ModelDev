@@ -732,8 +732,9 @@ class LaunchableWave(Launchable):
                         c_reg_name = "_".join(["c_reg"] + indices)
                         result_map[c_reg_name] = new_node
                         c_reg_node = find_c_node(node)
-                        staged_value_map[stage - 1][c_reg_node] = new_node
-                        node_to_stage[c_reg_node] = stage - 1
+                        next_stage = 0 if stage == 0 else stage - 1
+                        staged_value_map[next_stage][c_reg_node] = new_node
+                        node_to_stage[c_reg_node] = next_stage
 
         mapped_iter_args = []
         for arg in iter_args:
@@ -902,10 +903,16 @@ class LaunchableWave(Launchable):
         hardware_constraint = self.hardware_constraints[0]
         mma_m, mma_n, mma_k = hardware_constraint.mma_matrix_shapes()
         # TODO: This is hardcoded and should be deduced based on dimension mappings.
-        self.batch_m, self.batch_n, _ = hardware_constraint.waves_per_block
+        waves_m, waves_n, _ = hardware_constraint.waves_per_block
         for sym, val in idxc.frozen_subs:
+            if sym.name == "BLOCK_M":
+                block_m = val
+            if sym.name == "BLOCK_N":
+                block_n = val
             if sym.name == "BLOCK_K":
                 block_k = val
+        self.batch_m = (block_m // waves_m) // mma_m
+        self.batch_n = (block_n // waves_n) // mma_n
         self.batch_k = block_k // mma_k
         repeat_times = {
             "M": self.batch_m,
