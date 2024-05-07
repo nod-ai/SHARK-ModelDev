@@ -1,5 +1,4 @@
 from typing import Type, Callable, Optional, Dict
-
 import inspect
 import math
 from functools import partial
@@ -497,6 +496,11 @@ class LaunchableWave(Launchable):
                 asm_str += "\n}\n"
             return asm_str
 
+        asm_str += f"%{i} = {node.name}("
+        for entry in node.args:
+            asm_str += f"%{self.index_map[entry]},"
+        index = node.meta["index"]
+        asm_str += f"), indexing: {index}"
         return asm_str
 
     def print(self, trace: CapturedTrace | fx.Graph):
@@ -1049,17 +1053,31 @@ class LaunchableWave(Launchable):
                 return node
 
             duplicates = []
+            m = max(m, 1)
+            k = max(k, 1)
             for i in range(m):
                 for j in range(k):
+                    # The arg_mapper here does not correctly map the write_shared
+                    # before the add the the corresponding read.
                     new_node = expanded_root_graph.node_copy(node, arg_mapper)
                     new_node.name = node.name + index_suffix(i, j)
                     duplicates.append(new_node)
 
                     if "index" in node.meta:
-                        new_node.meta["index"] = [
-                            new_node.meta["index"][0] + sympy.Mul(i, 16),
-                            new_node.meta["index"][1] + sympy.Mul(j, 16),
-                        ]
+                        old_index = new_node.meta["index"]
+                        # For now special case for values which are indexed only in one dimension
+                        if len(old_index) == 1:
+                            if m == 1:
+                                new_node.meta["index"] = old_index[0] + sympy.Mul(i, 16)
+                            elif k == 1:
+                                new_node.meta["index"] = old_index[0] + sympy.Mul(j, 16)
+                            else:
+                                raise Exception("Invalid indexing")
+                        else:
+                            new_node.meta["index"] = [
+                                old_index[0] + sympy.Mul(i, 16),
+                                old_index[1] + sympy.Mul(j, 16),
+                            ]
             return duplicates
 
         loop_results = []
@@ -1087,7 +1105,12 @@ class LaunchableWave(Launchable):
                         ]
                         loop_results.append(get_res.fx_node)
                 continue
-            if node.op == "placeholder" or "alloc" in node.name or node_type is None:
+
+            if (
+                node.op == "placeholder"
+                or "alloc" in node.name
+                or "output" in node.name
+            ):
                 expanded_root_graph.node_copy(node)
                 continue
             if node_type is None:
@@ -1097,10 +1120,16 @@ class LaunchableWave(Launchable):
                     if arg.meta["type"] is not None:
                         node_type = arg.meta["type"]
                         break
-            dim0, dim1 = [x.name for x in node_type.symbolic_shape]
-            duplicates = duplicate_root_node(
-                repeat_times[dim0], repeat_times[dim1], node, loop_results
-            )
+            if len(node_type.symbolic_shape) == 2:
+                repeat_0, repeat_1 = [
+                    repeat_times[x.name] for x in node_type.symbolic_shape
+                ]
+            elif len(node_type.symbolic_shape) == 1:
+                repeat_0 = repeat_times[node_type.symbolic_shape[0].name]
+                repeat_1 = 0
+            else:
+                raise ValueError("Only 1D and 2D shapes supported.")
+            duplicates = duplicate_root_node(repeat_0, repeat_1, node, loop_results)
             duplicate_map[node] = duplicates
 
         return expanded_graph, expanded_root_graph
@@ -1385,7 +1414,7 @@ class LaunchableWave(Launchable):
                         print("differences to reference:")
                         for line in diff:
                             print(line)
-        except:
+        except FileNotFoundError:
             print(f"No reference output found, consider creating {reference_name}")
 
     def aot_execute(self, args, kwargs):
