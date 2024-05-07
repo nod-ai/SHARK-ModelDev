@@ -817,7 +817,7 @@ class LaunchableWave(Launchable):
                         update_value_map(subnode.name, new_node)
 
                 for stage, nodes in self.iter_args.items():
-                    for subnode in nodes:
+                    for subnode in sorted(list(nodes), key=lambda node: node.name):
                         new_iter_args.append(value_map[subnode.name])
                         old_iter_args.append(subnode)
 
@@ -1364,17 +1364,29 @@ class LaunchableWave(Launchable):
         host_codegen.isolated_test_call(mb, exe, kernel_sig, entrypoint_name)
 
         print(mb.module_op.get_asm())
-        with open("mma.mlir", "w") as f:
+        output_name = "mma.mlir"
+        reference_name = "reference.mlir"
+        with open(output_name, "w") as f:
             f.write(mb.module_op.get_asm())
 
-        # with open("reference.mlir", "r") as reference_f:
-        #     with open("mma.mlir", "r") as mma_f:
-        #         ref = reference_f.readlines()
-        #         mma = mma_f.readlines()
-        #         for line in difflib.unified_diff(
-        #             mma, ref, fromfile="new", tofile="reference", lineterm=""
-        #         ):
-        #             print(line)
+        try:
+            with open(reference_name, "r") as reference_f:
+                with open(output_name, "r") as mma_f:
+                    ref = reference_f.readlines()
+                    mma = mma_f.readlines()
+                    diff = list(
+                        difflib.unified_diff(
+                            mma, ref, fromfile="new", tofile="reference", lineterm=""
+                        )
+                    )
+                    if len(diff) == 0:
+                        print("identical to reference")
+                    else:
+                        print("differences to reference:")
+                        for line in diff:
+                            print(line)
+        except:
+            print(f"No reference output found, consider creating {reference_name}")
 
     def aot_execute(self, args, kwargs):
         assert isinstance(launch_context, AOTLaunchContext)
