@@ -1041,16 +1041,27 @@ class LaunchableWave(Launchable):
         duplicate_map = {}
 
         def duplicate_root_node(
-            m: int, k: int, node: fx.Node, loop_results: list[fx.Node]
+            m: int, k: int, node: fx.Node, loop_results: list[fx.Node], duplicates_map
         ):
-            def arg_mapper(node: fx.Node):
-                if not hasattr(arg_mapper, "i"):
-                    arg_mapper.i = 0
-                if "tiled_loop" in node.name:
-                    result = loop_results[arg_mapper.i]
-                    arg_mapper.i = (arg_mapper.i + 1) % len(loop_results)
-                    return result
-                return node
+            def arg_mapper(suffix: str):
+                def _(node: fx.Node):
+                    if not hasattr(arg_mapper, "i"):
+                        arg_mapper.i = 0
+                    if "tiled_loop" in node.name:
+                        result = loop_results[arg_mapper.i]
+                        arg_mapper.i = (arg_mapper.i + 1) % len(loop_results)
+                        return result
+                    if node.op == "placeholder" or "alloc" in node.name:
+                        return node
+
+                    if node in duplicates_map:
+                        for duplicate in duplicate_map[node]:
+                            if duplicate.name.endswith(suffix):
+                                return duplicate
+
+                    raise Exception("Could not find a valid mapping during expansion.")
+
+                return _
 
             duplicates = []
             m = max(m, 1)
@@ -1059,8 +1070,9 @@ class LaunchableWave(Launchable):
                 for j in range(k):
                     # The arg_mapper here does not correctly map the write_shared
                     # before the add the the corresponding read.
-                    new_node = expanded_root_graph.node_copy(node, arg_mapper)
-                    new_node.name = node.name + index_suffix(i, j)
+                    suffix = index_suffix(i, j)
+                    new_node = expanded_root_graph.node_copy(node, arg_mapper(suffix))
+                    new_node.name = node.name + suffix
                     duplicates.append(new_node)
 
                     if "index" in node.meta:
@@ -1068,9 +1080,13 @@ class LaunchableWave(Launchable):
                         # For now special case for values which are indexed only in one dimension
                         if len(old_index) == 1:
                             if m == 1:
-                                new_node.meta["index"] = old_index[0] + sympy.Mul(i, 16)
+                                new_node.meta["index"] = [
+                                    old_index[0] + sympy.Mul(i, 16)
+                                ]
                             elif k == 1:
-                                new_node.meta["index"] = old_index[0] + sympy.Mul(j, 16)
+                                new_node.meta["index"] = [
+                                    old_index[0] + sympy.Mul(j, 16)
+                                ]
                             else:
                                 raise Exception("Invalid indexing")
                         else:
@@ -1129,7 +1145,9 @@ class LaunchableWave(Launchable):
                 repeat_1 = 0
             else:
                 raise ValueError("Only 1D and 2D shapes supported.")
-            duplicates = duplicate_root_node(repeat_0, repeat_1, node, loop_results)
+            duplicates = duplicate_root_node(
+                repeat_0, repeat_1, node, loop_results, duplicate_map
+            )
             duplicate_map[node] = duplicates
 
         return expanded_graph, expanded_root_graph

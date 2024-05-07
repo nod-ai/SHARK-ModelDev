@@ -49,9 +49,6 @@ class Test(unittest.TestCase):
             bias_16: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f16],
             c: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f32],
         ):
-            # This microkernel encodes the fact that if the reduction
-            # dimension were tiled, then we would need to materialize a loop.
-            # c_reg: tkf.Register[WAVE_M, WAVE_N, tkl.f32]
             c_reg = tkf.construct_register_from_metadata((M, N), tkl.f32, 0.0)
 
             @tkf.tiled_loop(K, init_args=[c_reg])
@@ -59,18 +56,16 @@ class Test(unittest.TestCase):
                 a_reg = tkf.read(a, elements_per_thread=LOAD_ELEMS_PER_THREAD)
                 b_reg = tkf.read(b, elements_per_thread=LOAD_ELEMS_PER_THREAD)
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
-                b_32 = tkf.read(bias_32, elements_per_thread=LOAD_ELEMS_PER_THREAD)
+                return c_reg
 
-                fused = c_reg + b_32
-                # b_16 = tkf.read(bias_16, elements_per_thread=LOAD_ELEMS_PER_THREAD)
-                # result = fused + b_16
-                return fused
+            # TODO: bias_32 has a different dimension, we need to figure out how
+            #       to express the addition here. Simply broadcasting?
+            # b_32 = tkf.read(bias_32, elements_per_thread=LOAD_ELEMS_PER_THREAD)
+            # biased = repeat + b_32
+            b_16 = tkf.read(bias_16, elements_per_thread=LOAD_ELEMS_PER_THREAD)
+            result = repeat + b_16
 
-            # Call removed as the init arg is now explicit above.
-            # result = repeat(c_reg)
-            tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
-            # We also discussed using `repeat` directly in tkf.write:
-            # tkf.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
+            tkf.write(result, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
 
         hyperparams = {
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
