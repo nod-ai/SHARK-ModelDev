@@ -794,7 +794,7 @@ class LaunchableWave(Launchable):
             During scheduling, we have stages 0, 1, 2
             and these map to stages 2, 1, 0.
             """
-            reversed_stages = [2, 1, 0]
+            reversed_stages = list(range(self.max_stage, -1, -1))
             return reversed_stages[stage]
 
         def transform_iter_args(args: list[fx.Node]):
@@ -1262,26 +1262,26 @@ class LaunchableWave(Launchable):
             if criteria(inverse_node):
                 self.nodes_by_stage[stage].append(inverse_node)
                 self.nodes_by_time[time].append(inverse_node)
-            max_stage = stage
+            self.max_stage = stage
         self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
 
-        self.prologue = {stage: [] for stage in range(max_stage + 1)}
-        self.epilogue = {stage: [] for stage in range(max_stage + 1)}
+        self.prologue = {stage: [] for stage in range(self.max_stage + 1)}
+        self.epilogue = {stage: [] for stage in range(self.max_stage + 1)}
         for stage in self.prologue.keys():
             for i in range(0, stage):
                 self.prologue[stage] += self.nodes_by_stage[i]
         for stage in self.epilogue.keys():
-            for i in range(stage + 1, max_stage + 1):
+            for i in range(stage + 1, self.max_stage + 1):
                 self.epilogue[stage] += self.nodes_by_stage[i]
 
-        self.iter_args = {stage: set() for stage in range(max_stage + 1)}
+        self.iter_args = {stage: set() for stage in range(self.max_stage + 1)}
         self.mma_args = []
         for stage in self.nodes_by_stage.keys():
             for node in self.nodes_by_stage[stage]:
                 if "c_reg" in node.name:
                     self.mma_args.append(node)
                     continue
-                if stage == max_stage:
+                if stage == self.max_stage:
                     continue
                 for user in list(node.users.keys()):
                     if (
