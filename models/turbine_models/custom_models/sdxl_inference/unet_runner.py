@@ -160,7 +160,7 @@ if __name__ == "__main__":
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
         atol=7e-2
         rtol=1e-4
-        np.testing.assert_allclose(turbine_output, torch_output, atol=atol, rtol=rtol
+        np.testing.assert_allclose(turbine_output, torch_output, atol=atol, rtol=rtol)
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output = None
