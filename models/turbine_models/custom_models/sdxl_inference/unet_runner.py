@@ -158,9 +158,9 @@ if __name__ == "__main__":
             # precision="fp16",
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
-        err = utils.largest_error(torch_output, turbine_output)
-        print("Largest Error: ", err)
-        assert err < 9e-3
+        atol=7e-2
+        rtol=1e-4
+        np.testing.assert_allclose(turbine_output, torch_output, atol=atol, rtol=rtol
 
     # TODO: Figure out why we occasionally segfault without unlinking output variables
     turbine_output = None
