@@ -73,17 +73,17 @@ class Test(unittest.TestCase):
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
-            BLOCK_M: 64,
-            BLOCK_N: 64,
+            BLOCK_M: 128,
+            BLOCK_N: 128,
             BLOCK_K: 32,
-            M: 128,
-            N: 128,
+            M: 256,
+            N: 256,
             K: 256,
         }
         with tk.gen.TestLaunchContext(hyperparams):
-            a = torch.randn(128, 256, dtype=torch.float16)
-            b = torch.randn(128, 256, dtype=torch.float16)
-            c = torch.zeros(128, 128, dtype=torch.float32)
+            a = torch.randn(256, 256, dtype=torch.float16)
+            b = torch.randn(256, 256, dtype=torch.float16)
+            c = torch.zeros(256, 256, dtype=torch.float32)
             gemm(a, b, c)
 
 

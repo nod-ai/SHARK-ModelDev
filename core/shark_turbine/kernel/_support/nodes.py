@@ -159,7 +159,10 @@ class ReadNode(CustomNode):
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = self.memory.type
-        return f"{name} %{value_map[self.memory]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
+        try:
+            return f"{name} %{value_map[self.memory]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
+        except:
+            breakpoint()
 
 
 def indexing(node: CustomNode):
@@ -244,6 +247,26 @@ class GetResultNode(CustomNode):
 
 
 @dataclass
+class SyncNode(CustomNode):
+    value: fx.Node
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="sync",
+            kwargs={},
+        )
+
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
+        name = get_node_name(self.__class__.__name__)
+        node = getNode(self.value)
+        return f"{name} %{value_map[node]}"
+
+
+@dataclass
 class ReadSharedNode(CustomNode):
     memory: Union[fx.Proxy, "AllocSharedNode"]
     elements_per_thread: Optional[Any] = None
@@ -277,7 +300,10 @@ class WriteSharedNode(CustomNode):
         name = get_node_name(self.__class__.__name__)
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[self.register_]}, %{value_map[memory.fx_node]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        try:
+            return f"{name} %{value_map[self.register_]}, %{value_map[memory.fx_node]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        except:
+            breakpoint()
 
     def emit(self):
         arg_list = tuple([value for _, value in vars(self).items()][2:])
@@ -294,6 +320,7 @@ class WriteSharedNode(CustomNode):
 nodeTypes["barrier"] = BarrierNode
 nodeTypes["construct_register_from_metadata"] = ConstructRegisterFromMetadataNode
 nodeTypes["get_result"] = GetResultNode
+nodeTypes["sync"] = SyncNode
 nodeTypes["mma"] = MmaNode
 nodeTypes["read_shared"] = ReadSharedNode
 nodeTypes["write_shared"] = WriteSharedNode

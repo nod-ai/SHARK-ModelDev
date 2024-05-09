@@ -80,6 +80,10 @@ def barrier(): ...
 
 
 @define_op
+def sync(value): ...
+
+
+@define_op
 def get_result(value, index): ...
 
 
