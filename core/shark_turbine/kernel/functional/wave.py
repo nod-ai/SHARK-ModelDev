@@ -83,6 +83,7 @@ from .constraints import (
     TilingConstraint,
     WaveConstraint,
     HardwareConstraint,
+    SchedulingConstraint,
 )
 
 from ..compiler.builder import (
@@ -153,6 +154,20 @@ class LaunchableWave(Launchable):
         for hardware_constraint in self.hardware_constraints:
             hardware_constraint.waves_per_block = waves_per_block
 
+        # Set defaults for delays
+        self.global_delay = 5
+        self.shared_delay = 1
+        self.mma_delay = 2
+        for scheduling_constraint in self.scheduling_constraints:
+            for unit, delay in scheduling_constraint.items():
+                match unit:
+                    case "GLOBAL":
+                        self.global_delay = delay
+                    case "SHARED":
+                        self.shared_delay = delay
+                    case "MMA":
+                        self.mma_delay = delay
+
         self.grid_type = Grid[*self.get_grid_shape(constraints)]
         self._name = name
         self._f = eager_function
@@ -188,6 +203,14 @@ class LaunchableWave(Launchable):
             constraint
             for constraint in self.constraints
             if isinstance(constraint, HardwareConstraint)
+        ]
+
+    @property
+    def scheduling_constraints(self):
+        return [
+            constraint
+            for constraint in self.constraints
+            if isinstance(constraint, SchedulingConstraint)
         ]
 
     def get_grid_shape(self, constraints: list[ConstraintsMeta]) -> list[IndexExpr]:
@@ -662,11 +685,11 @@ class LaunchableWave(Launchable):
     def get_delay(self, name: str):
         if "read" in name or "write" in name:
             if "shared" not in name:
-                return 5
+                return self.global_delay
             else:
-                return 1
+                return self.shared_delay
         if "mma" in name:
-            return 2
+            return self.mma_delay
         return 0
 
     def create_loop_graph(self, value_map, iter_args):
@@ -1289,6 +1312,16 @@ class LaunchableWave(Launchable):
 
         self.dependenceGraph.generateDotGraph()
         resourceVector = [2, 2, 2]
+        for constraint in self.scheduling_constraints:
+            for unit, resource in constraint.resources.items():
+                match unit:
+                    case "GLOBAL":
+                        resourceVector[0] = resource
+                    case "SHARED":
+                        resourceVector[1] = resource
+                    case "MMA":
+                        resourceVector[2] = resource
+
         scheduler = ms.ModuloScheduler(resourceVector, self.dependenceGraph)
         scheduler.generateSchedule()
         return scheduler

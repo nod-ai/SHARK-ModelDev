@@ -174,3 +174,10 @@ class HardwareConstraint(ConstraintsMeta):
         ) % self.threads_per_wave
         gpr = 0
         return indices[matrix_type](lane, gpr)
+
+
+class SchedulingConstraint(ConstraintsMeta):
+    def __init__(self, resources, delays) -> None:
+        super().__init__()
+        self.resources = resources
+        self.delays = delays
