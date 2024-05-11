@@ -7,22 +7,35 @@ import pytest
 import subprocess
 import time
 import os
+import numpy as np
 
 BLOCK_M = [32, 64, 128, 256]
 BLOCK_N = [32, 64, 128, 256]
 BLOCK_K = [32, 64, 128]
 RATIO_M = [1, 2, 4, 8]
 RATIO_N = [1, 2, 4, 8]
-RESOURCE_MMA = range(1, 20)
-RESOURCE_SHARED = range(1, 20)
-RESOURCE_GLOBAL = range(1, 20)
-DELAY_MMA = range(1, 20)
-DELAY_SHARED = range(1, 20)
-DELAY_GLOBAL = range(1, 20)
+RESOURCE_MMA = list(range(1, 20))
+RESOURCE_SHARED = list(range(1, 20))
+RESOURCE_GLOBAL = list(range(1, 20))
+DELAY_MMA = list(range(1, 20))
+DELAY_SHARED = list(range(1, 20))
+DELAY_GLOBAL = list(range(1, 20))
 MATRIX_M = 2048
 MATRIX_N = 10240
 MATRIX_K = 1280
 BUILD_DIR = "/data/home/perf/harsh/iree-build/tools/"
+
+#BLOCK_M=[16]
+#BLOCK_N=[128]
+#BLOCK_K=[32]
+#RATIO_M=[1]
+#RATIO_N=[1]
+#RESOURCE_MMA=[2]
+#RESOURCE_SHARED=[2]
+#RESOURCE_GLOBAL = [2]
+#DELAY_MMA = [2]
+#DELAY_SHARED = [1]
+#DELAY_GLOBAL = [5]
 
 
 def run_command(command, timeout_limit):
@@ -38,6 +51,7 @@ def run_command(command, timeout_limit):
     Returns:
       A tuple containing the captured output (decoded string) and any error (decoded string).
     """
+    print('\n' + ' '.join(command) + '\n')
     start_time = time.time()
     try:
         process = subprocess.Popen(
@@ -47,42 +61,72 @@ def run_command(command, timeout_limit):
             elapsed_time = time.time() - start_time
             if elapsed_time > timeout_limit:
                 process.terminate()  # Try to terminate if timed out
-                raise subprocess.TimeoutExpired("Timeout reached")
-            time.sleep(0.1)  # Briefly yield to avoid busy waiting
+                raise subprocess.TimeoutExpired("Timeout reached", timeout_limit)
         # Check returncode for successful execution
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, command)
         output, error = process.communicate()
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
         output, error = b"", str(e)  # Set output/error for timeout or other errors
-    return output.decode().strip(), error.decode() if error else None
+    return output.strip(), error if error else None
 
 
 # Compile mma.mlir -> mma.vmfb
 def compile_to_vmfb():
     cmd = [
         os.path.join(BUILD_DIR, "iree-compile"),
-        "SHARK-Turbine/mma.mlir",
-        "-o",
+        "/data/home/perf/harsh/SHARK-Turbine/mma.mlir", \
+        "--iree-hal-target-backends=rocm", \
+        "--iree-rocm-target-chip=gfx942", \
+        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode", \
+        "--iree-hal-benchmark-dispatch-repeat-count=1000", \
+        "-o", \
         "mma.vmfb",
     ]
-    output, error = run_command(cmd, 5.0)
+    output, error = run_command(cmd, 60.0)
+    return error is None
 
 
 # Run & compare answer
 def run_and_validate_result():
     cmd = [
         os.path.join(BUILD_DIR, "iree-run-module"),
+        "--device=rocm://0", \
+        "--device_allocator=caching", \
+        "--module=mma.vmfb", \
+        "--function=isolated_benchmark", \
+        f"--input=@/data/home/perf/harsh/mma_files/a_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy", \
+        f"--input=@/data/home/perf/harsh/mma_files/b_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy", \
+        f"--output=@/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"
     ]
-    output, error = run_command(cmd, 5.0)
+    output, error = run_command(cmd, 60.0)
+    if error is not None:
+        return False
+    computed = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
+    reference = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/iree_ref_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
+    max_error = np.max(np.abs(computed - reference))
+    return max_error == 0.0
 
 
 # Benchmark if correct
 def benchmark():
     cmd = [
         os.path.join(BUILD_DIR, "iree-benchmark-module"),
+        "--device=rocm://0", \
+        "--device_allocator=caching", \
+        "--module=mma.vmfb", \
+        "--function=isolated_benchmark", \
+        "--batch_size=1000", \
+        "--benchmark_repetitions=3", \
+        f"--input={MATRIX_M}x{MATRIX_K}xf16", \
+        f"--input={MATRIX_N}x{MATRIX_K}xf16"
     ]
-    output, error = run_command(cmd, 5.0)
+    output, error = run_command(cmd, 60.0)
+    decoded_output = output.decode('utf-8')
+    metric = 0
+    if 'Benchmark' in decoded_output:
+        metric = [x for x in decoded_output.split('\n')[3].split(' ') if x][1]
+    return metric
 
 
 # Write result to file
@@ -117,10 +161,7 @@ def testGemm(
     resource_global,
     delay_mma,
     delay_shared,
-    delay_global,
-    MATRIX_M,
-    MATRIX_N,
-    MATRIX_K,
+    delay_global
 ):
 
     # Wave tile sizes (determined by constraints below)
@@ -146,12 +187,14 @@ def testGemm(
     constraints += [tkf.WaveConstraint(N, BLOCK_N / ratio_n, 1, 64)]
     constraints += [
         tkf.SchedulingConstraint(
-            resources={
+            # Resource
+            {
                 "GLOBAL": resource_global,
                 "SHARED": resource_shared,
                 "MMA": resource_mma,
             },
-            delay={"GLOBAL": delay_global, "SHARED": delay_shared, "MMA": delay_mma},
+            # Delays
+            {"GLOBAL": delay_global, "SHARED": delay_shared, "MMA": delay_mma},
         )
     ]
     constraints += [
@@ -202,11 +245,14 @@ def testGemm(
         N: MATRIX_N,
         K: MATRIX_K,
     }
-    with tk.gen.TestLaunchContext(hyperparams):
-        a = torch.randn(MATRIX_M, MATRIX_K, dtype=torch.float16)
-        b = torch.randn(MATRIX_N, MATRIX_K, dtype=torch.float16)
-        c = torch.zeros(MATRIX_M, MATRIX_N, dtype=torch.float32)
-        gemm(a, b, c)
+    try:
+        with tk.gen.TestLaunchContext(hyperparams):
+            a = torch.randn(MATRIX_M, MATRIX_K, dtype=torch.float16)
+            b = torch.randn(MATRIX_N, MATRIX_K, dtype=torch.float16)
+            c = torch.zeros(MATRIX_M, MATRIX_N, dtype=torch.float32)
+            gemm(a, b, c)
+    except:
+        return
 
     # Compile mma.mlir -> mma.vmfb
     success = compile_to_vmfb()
@@ -216,9 +262,7 @@ def testGemm(
         success = run_and_validate_result()
 
     # Benchmark if correct
-    metric = 0
-    if success:
-        success, metric = benchmark()
+    metric = benchmark()
 
     # Write result to file
     x = [

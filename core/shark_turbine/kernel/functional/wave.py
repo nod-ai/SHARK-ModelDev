@@ -159,7 +159,7 @@ class LaunchableWave(Launchable):
         self.shared_delay = 1
         self.mma_delay = 2
         for scheduling_constraint in self.scheduling_constraints:
-            for unit, delay in scheduling_constraint.items():
+            for unit, delay in scheduling_constraint.delays.items():
                 match unit:
                     case "GLOBAL":
                         self.global_delay = delay
