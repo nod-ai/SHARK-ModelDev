@@ -46,7 +46,9 @@ jobs:
           python3.11 -m venv turbine_venv
           source turbine_venv/bin/activate
           python3.11 -m pip install --upgrade pip
-          pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
+          pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
+          pip install --no-compile --pre --no-cache-dir -r ${{ github.workspace }}/iree-turbine/iree-requirements.txt
+          pip install --no-compile --pre --upgrade -e models -r models/requirements.txt 
       
       - name: Show current free memory
         run: |
