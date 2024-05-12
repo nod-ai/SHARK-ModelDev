@@ -46,11 +46,6 @@ jobs:
           python3.11 -m venv turbine_venv
           source turbine_venv/bin/activate
           python3.11 -m pip install --upgrade pip
-          # Note: We install in three steps in order to satisfy requirements
-          # from non default locations first. Installing the PyTorch CPU
-          # wheels saves multiple minutes and a lot of bandwidth on runner setup.
-          pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
-          pip install --no-compile --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt -e ${{ github.workspace }}/iree-turbine[testing]
           pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
       
       - name: Show current free memory
