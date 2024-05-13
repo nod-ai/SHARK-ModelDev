@@ -527,9 +527,10 @@ class LaunchableWave(Launchable):
         asm_str += f"%{i} = {node.name}("
         for entry in node.args:
             asm_str += f"%{self.index_map[entry]},"
+        self.index_map[node] = node
         index = node.meta["index"]
-        asm_str += f"), indexing: {index}"
-        return asm_str
+        asm_str += f"), indexing: {index}\n"
+        return asm_str + self.get_string(node.next, i + 1, nested_region)
 
     def print(self, trace: CapturedTrace | fx.Graph):
         self.index_map = {}
