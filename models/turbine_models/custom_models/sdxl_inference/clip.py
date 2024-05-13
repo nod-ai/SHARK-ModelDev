@@ -48,6 +48,7 @@ class ClipModel(torch.nn.Module):
 def export_clip_model(
     hf_model_name,
     hf_auth_token=None,
+    batch_size=1,
     max_length=77,
     precision="fp16",
     compile_to="torch",
@@ -67,7 +68,7 @@ def export_clip_model(
         safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
     else:
         safe_name = utils.create_safe_name(
-            hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
+            hf_model_name, f"_bs{str(batch_size)}-{str(max_length)}-{precision}-clip-{index}-{device}"
         )
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -160,6 +161,7 @@ if __name__ == "__main__":
     mod_1_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
+        args.batch_size,
         args.max_length,
         args.precision,
         args.compile_to,
@@ -177,6 +179,7 @@ if __name__ == "__main__":
     mod_2_str, _ = export_clip_model(
         args.hf_model_name,
         args.hf_auth_token,
+        args.batch_size,
         args.max_length,
         args.precision,
         args.compile_to,
@@ -194,10 +197,10 @@ if __name__ == "__main__":
     if args.input_mlir:
         exit()
     safe_name_1 = safe_name = utils.create_safe_name(
-        args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_1"
+        args.hf_model_name, f"_bs{str(args.batch_size)}_{str(args.max_length)}_{args.precision}_clip_1"
     )
     safe_name_2 = safe_name = utils.create_safe_name(
-        args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_clip_2"
+        args.hf_model_name, f"_bs{str(args.batch_size)}_{str(args.max_length)}_{args.precision}_clip_2"
     )
     with open(f"{safe_name_1}.mlir", "w+") as f:
         f.write(mod_1_str)

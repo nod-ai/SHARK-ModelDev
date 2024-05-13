@@ -148,7 +148,7 @@ def export_scheduled_unet_model(
     else:
         safe_name = utils.create_safe_name(
             hf_model_name,
-            f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
+            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
         )
 
     if input_mlir:
@@ -307,7 +307,7 @@ if __name__ == "__main__":
             args.num_inference_steps,
             args.return_index,
         )
-    if args.compile_to == "vmfb":
+    if args.compile_to == "vmfb" and args.pipeline_dir is not None:
         pipeline_vmfb_path = export_pipeline_module(args)
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
@@ -336,7 +336,7 @@ if __name__ == "__main__":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name + "_" + args.scheduler_id,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet_{str(args.num_inference_steps)}",
+        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet_{str(args.num_inference_steps)}",
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)

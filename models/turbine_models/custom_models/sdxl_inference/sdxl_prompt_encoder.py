@@ -102,6 +102,7 @@ class PromptEncoderModule(torch.nn.Module):
 def export_prompt_encoder(
     hf_model_name,
     hf_auth_token=None,
+    batch_size=1,
     max_length=64,
     precision="fp16",
     compile_to="torch",
@@ -124,7 +125,7 @@ def export_prompt_encoder(
         safe_name = os.path.join(pipeline_dir, "prompt_encoder")
     else:
         safe_name = utils.create_safe_name(
-            hf_model_name, f"-{str(max_length)}-{precision}-prompt-encoder-{device}"
+            hf_model_name, f"-bs{batch_size}-{str(max_length)}-{precision}-prompt-encoder-{device}"
         )
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -216,6 +217,7 @@ if __name__ == "__main__":
     mod_str, _ = export_prompt_encoder(
         args.hf_model_name,
         args.hf_auth_token,
+        args.batch_size,
         args.max_length,
         args.precision,
         args.compile_to,
@@ -232,7 +234,7 @@ if __name__ == "__main__":
     if args.input_mlir:
         exit()
     safe_name_1 = safe_name = utils.create_safe_name(
-        args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_prompt_encoder"
+        args.hf_model_name, f"_bs{str(args.batch_size)}_{str(args.max_length)}_{args.precision}_prompt_encoder"
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)

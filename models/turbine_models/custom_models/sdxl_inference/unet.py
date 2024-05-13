@@ -107,7 +107,7 @@ def export_unet_model(
         do_classifier_free_guidance = True
 
     safe_name = utils.create_safe_name(
-        hf_model_name, f"_{max_length}_{height}x{width}_{precision}_unet_{device}"
+        hf_model_name, f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet_{device}"
     )
 
     if input_mlir:
@@ -236,7 +236,7 @@ if __name__ == "__main__":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
