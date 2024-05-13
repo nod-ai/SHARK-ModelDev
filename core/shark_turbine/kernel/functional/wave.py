@@ -374,6 +374,7 @@ class LaunchableWave(Launchable):
         root_graph = trace.get_root_graph()
         self.placeholders = {}
         self.induction_vars = {}
+        idxc = IndexingContext.current()
         i = 0
         for node in root_graph.nodes:
             if node.name == "tiled_loop":
@@ -424,6 +425,13 @@ class LaunchableWave(Launchable):
                                 case 2:
                                     matrix_type = "C"
                             offset = constraint.apply(matrix_type)
+                            if matrix_type != "C":
+                                load_store_ratio = (
+                                    tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
+                                    / tkl.sym.LOAD_ELEMS_PER_THREAD
+                                )
+                                load_store_ratio = load_store_ratio.subs(idxc.subs)
+                                offset = (offset[0], offset[1] * load_store_ratio)
                             for j in range(len(offset)):
                                 arg.meta["index"][j] += offset[j]
                             if matrix_type == "C":
@@ -1082,9 +1090,23 @@ class LaunchableWave(Launchable):
                     )
                     new_node.name = node.name + index_suffix(i, j)
                     if "index" in node.meta:
+                        mma_tile_sizes = []
+                        node_type = new_node.meta["type"]
+                        if node_type is None:
+                            for arg in node.all_input_nodes:
+                                if "type" in arg.meta:
+                                    node_type = arg.meta["type"]
+                                    break
+                        for dim in node_type.symbolic_shape:
+                            if dim == tkl.sym.M or dim == tkl.sym.BLOCK_M:
+                                mma_tile_sizes.append(tkl.sym.MMA_M)
+                            if dim == tkl.sym.N or dim == tkl.sym.BLOCK_N:
+                                mma_tile_sizes.append(tkl.sym.MMA_N)
+                            if dim == tkl.sym.K or dim == tkl.sym.BLOCK_K:
+                                mma_tile_sizes.append(tkl.sym.MMA_K)
                         new_node.meta["index"] = [
-                            new_node.meta["index"][0] + sympy.Mul(i, 16),
-                            new_node.meta["index"][1] + sympy.Mul(j, 16),
+                            new_node.meta["index"][0] + sympy.Mul(i, mma_tile_sizes[0]),
+                            new_node.meta["index"][1] + sympy.Mul(j, mma_tile_sizes[1]),
                         ]
 
         def duplicate_mma_node(M: int, N: int, K: int, node: fx.Node):
@@ -1530,6 +1552,7 @@ class LaunchableWave(Launchable):
                 processed.append((matrix, i, matching_index(k)))
                 meta = None
                 larger_k = max(k, matching_index(k))
+                smaller_k = min(k, matching_index(k))
                 if matching_index(k) > k:
                     graph.inserting_after(matching_node)
                     meta = node.meta
@@ -1556,14 +1579,29 @@ class LaunchableWave(Launchable):
                 graph.erase_node(node)
                 graph.erase_node(matching_node)
                 # Update indices of user with larger k index (write_shared and read_shared)
+                col_index = None
+                for user in read_node.users.keys():
+                    user_i, user_k = [int(x) for x in user.name.split("_")[-2:]]
+                    if user_k == smaller_k:
+                        user.meta["extract"] = {
+                            "offset": 0,
+                            "len": 4,
+                        }
+                        col_index = user.meta["index"][1]
+                        break
+
                 for user in read_node.users.keys():
                     user_i, user_k = [int(x) for x in user.name.split("_")[-2:]]
                     if user_k == larger_k:
-                        user.meta["index"][1] += 4
+                        user.meta["index"][1] = col_index + 4
                         read_shared_node = find_node_by_name(
                             user.name.replace("write", "read")
                         )
-                        read_shared_node.meta["index"][1] += 4
+                        read_shared_node.meta["index"][1] = col_index + 4
+                        user.meta["extract"] = {
+                            "offset": 4,
+                            "len": 4,
+                        }
         return graph
 
     def _trace_and_get_kernel_signature(

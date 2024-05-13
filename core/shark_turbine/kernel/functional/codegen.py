@@ -408,6 +408,18 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
         broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
+    if "extract" in node.meta:
+        result_type = VectorType.get(
+            [node.meta["extract"]["len"]], kb_ir_type.element_type
+        )
+        insert_vector = vector_d.extract_strided_slice(
+            result_type,
+            insert_vector,
+            [node.meta["extract"]["offset"]],
+            [node.meta["extract"]["len"]],
+            [1],
+        )
+
     # If vector length > store elements, we need to extract one at a time and then store
     # Assumes that vector shape will always be 1D, which may not always be true?
     vector_shape = insert_type.shape[0]

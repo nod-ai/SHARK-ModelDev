@@ -18,6 +18,11 @@ class Test(unittest.TestCase):
         BLOCK_M = tkl.sym.BLOCK_M
         BLOCK_N = tkl.sym.BLOCK_N
         BLOCK_K = tkl.sym.BLOCK_K
+        # MMA tile sizes
+        MMA_M = tkl.sym.MMA_M
+        MMA_N = tkl.sym.MMA_N
+        MMA_K = tkl.sym.MMA_K
+
         # Address space (for GPU, shared(1) or global(0))
         ADDRESS_SPACE = tkl.sym.ADDRESS_SPACE
         # Other hyperparameters
@@ -77,15 +82,18 @@ class Test(unittest.TestCase):
             GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
             BLOCK_M: 128,
             BLOCK_N: 128,
-            BLOCK_K: 32,
-            M: 256,
-            N: 256,
-            K: 256,
+            BLOCK_K: 64,
+            MMA_M: 16,
+            MMA_N: 16,
+            MMA_K: 16,
+            M: 2048,
+            N: 10240,
+            K: 1280,
         }
         with tk.gen.TestLaunchContext(hyperparams):
-            a = torch.randn(256, 256, dtype=torch.float16)
-            b = torch.randn(256, 256, dtype=torch.float16)
-            c = torch.zeros(256, 256, dtype=torch.float32)
+            a = torch.randn(2048, 1280, dtype=torch.float16)
+            b = torch.randn(10240, 1280, dtype=torch.float16)
+            c = torch.zeros(2048, 10240, dtype=torch.float32)
             gemm(a, b, c)
 
 
