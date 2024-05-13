@@ -536,7 +536,11 @@ class LaunchableWave(Launchable):
         for entry in node.args:
             asm_str += f"%{self.index_map[entry]},"
         self.index_map[node] = node
-        index = node.meta["index"]
+        if not "index" in node.meta:
+            # TODO: This is a hack for the add
+            index = node.args[0].meta["index"]
+        else:
+            index = node.meta["index"]
         asm_str += f"), indexing: {index}\n"
         return asm_str + self.get_string(node.next, i + 1, nested_region)
 
@@ -1210,6 +1214,11 @@ class LaunchableWave(Launchable):
                                 new_node.meta["index"] = [
                                     old_index[0] + sympy.Mul(j, 16)
                                 ]
+                            elif "add" in node.name:
+                                # TODO: Hack for add
+                                new_node.meta["index"] = [
+                                    old_index[0] + sympy.Mul(j, 16)
+                                ]
                             else:
                                 raise Exception("Invalid indexing")
                         else:
@@ -1266,6 +1275,20 @@ class LaunchableWave(Launchable):
             elif len(node_type.symbolic_shape) == 1:
                 repeat_0 = repeat_times[node_type.symbolic_shape[0].name]
                 repeat_1 = 0
+                # TODO: This does not quite work yet
+                # if "add" in node.name and (
+                #     (
+                #         (type := node.args[0].meta["type"]) is not None
+                #         and len(type.symbolic_shape) > 1
+                #     )
+                #     or (
+                #         (type := node.args[1].meta["type"]) is not None
+                #         and len(type.symbolic_shape) > 1
+                #     )
+                # ):
+                #     shape = type.symbolic_shape
+                #     if len(shape) == 2:
+                #         repeat_1 = repeat_times[shape[1].name]
             else:
                 raise ValueError("Only 1D and 2D shapes supported.")
             duplicates = duplicate_root_node(

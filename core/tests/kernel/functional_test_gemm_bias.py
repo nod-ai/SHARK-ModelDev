@@ -18,11 +18,16 @@ class Test(unittest.TestCase):
         BLOCK_M = tkl.sym.BLOCK_M
         BLOCK_N = tkl.sym.BLOCK_N
         BLOCK_K = tkl.sym.BLOCK_K
+        # MMA tile sizes
+        MMA_M = tkl.sym.MMA_M
+        MMA_N = tkl.sym.MMA_N
+        MMA_K = tkl.sym.MMA_K
         # Address space (for GPU, shared(1) or global(0))
         ADDRESS_SPACE = tkl.sym.ADDRESS_SPACE
         # Other hyperparameters
         LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
+        GLOBAL_LOAD_ELEMS_PER_THREAD = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
 
         # Expose user-constraints
         constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
@@ -45,7 +50,7 @@ class Test(unittest.TestCase):
         def gemm(
             a: tkl.Memory[M, K, ADDRESS_SPACE, tkl.f16],
             b: tkl.Memory[N, K, ADDRESS_SPACE, tkl.f16],
-            bias_32: tkl.Memory[N, ADDRESS_SPACE, tkl.f32],
+            bias_32: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f32],  # is actually N
             bias_16: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f16],
             c: tkl.Memory[M, N, ADDRESS_SPACE, tkl.f32],
         ):
@@ -58,12 +63,10 @@ class Test(unittest.TestCase):
                 c_reg = tkf.mma(a_reg, b_reg, c_reg)
                 return c_reg
 
-            # TODO: bias_32 has a different dimension, we need to figure out how
-            #       to express the addition here. Simply broadcasting?
-            # b_32 = tkf.read(bias_32, elements_per_thread=LOAD_ELEMS_PER_THREAD)
-            # biased = repeat + b_32
+            b_32 = tkf.read(bias_32, elements_per_thread=LOAD_ELEMS_PER_THREAD)
+            biased = repeat + b_32
             b_16 = tkf.read(bias_16, elements_per_thread=LOAD_ELEMS_PER_THREAD)
-            result = repeat + b_16
+            result = biased + b_16
 
             tkf.write(result, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
 
@@ -71,9 +74,13 @@ class Test(unittest.TestCase):
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
+            GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
             BLOCK_M: 64,
             BLOCK_N: 64,
             BLOCK_K: 32,
+            MMA_M: 16,
+            MMA_N: 16,
+            MMA_K: 16,
             M: 128,
             N: 128,
             K: 256,
@@ -81,7 +88,9 @@ class Test(unittest.TestCase):
         with tk.gen.TestLaunchContext(hyperparams):
             a = torch.randn(hyperparams[M], hyperparams[N], dtype=torch.float16)
             b = torch.randn(hyperparams[N], hyperparams[K], dtype=torch.float16)
-            bias_32 = torch.randn(hyperparams[N], dtype=torch.float32)
+            bias_32 = torch.randn(
+                hyperparams[M], hyperparams[N], dtype=torch.float32
+            )  # actually N
             bias_16 = torch.randn(hyperparams[M], hyperparams[N], dtype=torch.float16)
             c = torch.zeros(hyperparams[M], hyperparams[K], dtype=torch.float32)
             gemm(a, b, bias_32, bias_16, c)
