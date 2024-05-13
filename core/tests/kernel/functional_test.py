@@ -23,6 +23,7 @@ class Test(unittest.TestCase):
         # Other hyperparameters
         LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
+        GLOBAL_LOAD_ELEMS_PER_THREAD = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
 
         # Expose user-constraints
         constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
@@ -73,6 +74,7 @@ class Test(unittest.TestCase):
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
+            GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
             BLOCK_M: 128,
             BLOCK_N: 128,
             BLOCK_K: 32,

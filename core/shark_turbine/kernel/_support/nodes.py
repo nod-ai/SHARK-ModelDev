@@ -159,10 +159,7 @@ class ReadNode(CustomNode):
         simt_shape = self.elements_per_thread
         memory = getNode(self.memory)
         memory_type: Memory = self.memory.type
-        try:
-            return f"{name} %{value_map[self.memory]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
-        except:
-            breakpoint()
+        return f"{name} %{value_map[self.memory]} -> Register<{memory_type.symbolic_shape}, {memory_type.dtype}> -> Register<{simt_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
 
 
 def indexing(node: CustomNode):

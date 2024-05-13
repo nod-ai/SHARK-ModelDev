@@ -71,6 +71,7 @@ from ..functional.ops import (
     barrier,
     get_result,
     read_shared,
+    read,
     write_shared,
     sync,
 )
@@ -1479,6 +1480,91 @@ class LaunchableWave(Launchable):
                 # recurse into loop body
                 self.insert_barriers(node.kwargs["subgraph"])
 
+    def handle_larger_global_loads(self, graph):
+        """
+        Given a graph where the global load, shared store and load are of the
+        same size, this function modifies the graph so that the global load
+        can be of 128bits while the shared store and load can be either
+        64 or 128 bits.
+        """
+
+        def find_node(matrix, target_i, target_k):
+            for user in matrix.users.keys():
+                try:
+                    i, k = [int(x) for x in user.name.split("_")[-2:]]
+                except:
+                    continue
+                if i == target_i and k == target_k:
+                    return user
+
+        def find_node_by_name(name):
+            for node in graph.nodes:
+                if node.name == name:
+                    return node
+
+        # We have read nodes of type "read_i_k" from A and "read_j_k" from B.
+        # We will combine read_i_k and read_i_k+1 into a read_i_k_k+1 and
+        # similarly read_j_k and read_j_k+1 into a read_j_k_k+1 and have the
+        # write_shared_i_k and write_shared_i_k+1 connect to the new read nodes
+        # but with modified indices where the index of i_k remains the same but
+        # the index of i_k+1 is the index of i_k offset by 4. We will update the
+        # indices of the corresponding read_shared nodes as well.
+        processed = []
+
+        def matching_index(k):
+            if k % 2 == 0:
+                return k + 1
+            return k - 1
+
+        for node in graph.nodes:
+            if "read" in node.name and not "shared" in node.name:
+                if "globalload128" in node.name:
+                    continue
+                i, k = [int(x) for x in node.name.split("_")[-2:]]
+                matrix = node.all_input_nodes[0]
+                if (matrix, i, k) in processed:
+                    continue
+                matching_node = find_node(matrix, i, matching_index(k))
+                processed.append((matrix, i, k))
+                processed.append((matrix, i, matching_index(k)))
+                meta = None
+                larger_k = max(k, matching_index(k))
+                if matching_index(k) > k:
+                    graph.inserting_after(matching_node)
+                    meta = node.meta
+                else:
+                    graph.inserting_after(node)
+                    meta = matching_node.meta
+                # Create read node
+                new_name = "_".join(
+                    node.name.split("_")[:-2]
+                    + ["globalload128"]
+                    + [str(x) for x in [i] + sorted([k, matching_index(k)])]
+                )
+                read_node = graph.create_node(
+                    "call_function",
+                    target=read,
+                    args=(node.args[0], tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD, None),
+                    name=new_name,
+                    kwargs={},
+                )
+                # RAUW
+                read_node.meta = meta
+                node.replace_all_uses_with(read_node)
+                matching_node.replace_all_uses_with(read_node)
+                graph.erase_node(node)
+                graph.erase_node(matching_node)
+                # Update indices of user with larger k index (write_shared and read_shared)
+                for user in read_node.users.keys():
+                    user_i, user_k = [int(x) for x in user.name.split("_")[-2:]]
+                    if user_k == larger_k:
+                        user.meta["index"][1] += 4
+                        read_shared_node = find_node_by_name(
+                            user.name.replace("write", "read")
+                        )
+                        read_shared_node.meta["index"][1] += 4
+        return graph
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -1515,6 +1601,8 @@ class LaunchableWave(Launchable):
 
         # Create "macrokernel" graph
         expanded_graph, expanded_root_graph = self.create_expanded_graph(trace, idxc)
+        # Do graph rewrites in case of different load/store sizes from/to global/lds
+        expanded_graph = self.handle_larger_global_loads(expanded_graph)
         # Schedule "macrokernel" graph
         scheduler = self.construct_schedule(expanded_graph)
         # Construct prologue and epilogue
