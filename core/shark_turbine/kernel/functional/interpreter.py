@@ -148,7 +148,7 @@ class Interpreter:
                             )
                         case arith_d.DivSIOp:
                             value = (
-                                sym_table[op.operands[0]] / sym_table[op.operands[1]]
+                                sym_table[op.operands[0]] // sym_table[op.operands[1]]
                             )
                         case amdgpu_d.LDSBarrierOp:
                             return

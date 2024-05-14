@@ -4,6 +4,7 @@ import math
 from functools import partial
 import sympy
 import difflib
+from copy import deepcopy
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -76,6 +77,7 @@ from ..functional.ops import (
     sync,
 )
 from ..functional import modulo_scheduling as ms
+from ..functional import utils
 
 from ..lang.functional_types import Register, AddressSpace, Memory
 from .constraints import (
@@ -143,6 +145,9 @@ class LaunchableWave(Launchable):
         super().__init__(eager_function)
         self.constraints = constraints
         waves_per_block = [1, 1, 1]
+        self.utils = utils.Utils(
+            self.constraints[0].workgroup_ids, self.constraints[0].induction_variables
+        )
 
         for workgroup_constraint in self.workgroup_constraints:
             wg_dim = workgroup_constraint.workgroup_dim
@@ -379,6 +384,7 @@ class LaunchableWave(Launchable):
         for node in root_graph.nodes:
             if node.name == "tiled_loop":
                 self.induction_vars[node.args[0]] = tkl.IndexSymbol("ARG" + str(i))
+                self.utils.induction_vars.append(self.induction_vars[node.args[0]])
                 i += 1
 
         # Propagate constraints in root graph and subgraphs.
@@ -425,13 +431,6 @@ class LaunchableWave(Launchable):
                                 case 2:
                                     matrix_type = "C"
                             offset = constraint.apply(matrix_type)
-                            if matrix_type != "C":
-                                load_store_ratio = (
-                                    tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
-                                    / tkl.sym.LOAD_ELEMS_PER_THREAD
-                                )
-                                load_store_ratio = load_store_ratio.subs(idxc.subs)
-                                offset = (offset[0], offset[1] * load_store_ratio)
                             for j in range(len(offset)):
                                 arg.meta["index"][j] += offset[j]
                             if matrix_type == "C":
@@ -627,19 +626,9 @@ class LaunchableWave(Launchable):
                             read_shared_node.emit()
                             read_shared_fx = read_shared_node.fx_node
                             read_shared_fx.meta["type"] = read_shared_node.type
-                            # Not sure about the indexing here
-                            # See design doc, but I believe we can reuse the original index
-                            # with the workgroup component and induction variable removed.
-                            substitutions = {
-                                x: 0 for x in self.hardware_constraints[0].workgroup_ids
-                            }
-                            substitutions.update(
-                                {x: 0 for x in self.induction_vars.values()}
+                            read_shared_fx.meta["index"] = self.utils.global_to_shared(
+                                node.meta["index"]
                             )
-                            shared_index = [
-                                y.subs(substitutions) for y in node.meta["index"]
-                            ]
-                            read_shared_fx.meta["index"] = shared_index
 
                             node.replace_all_uses_with(read_shared_fx)
 
@@ -653,7 +642,7 @@ class LaunchableWave(Launchable):
                             # Not sure about the indexing here
                             # See design doc, but I believe we can reuse the original index
                             # with the workgroup component and induction variable removed.
-                            write_shared_fx.meta["index"] = shared_index
+                            write_shared_fx.meta["index"] = read_shared_fx.meta["index"]
                             node.append(write_shared_fx)
                             write_shared_fx.append(read_shared_fx)
 
@@ -1339,23 +1328,47 @@ class LaunchableWave(Launchable):
         # Create edges between write and read from shared memory.
         for node in graph.nodes:
             if "write_shared" in node.name:
-                i, j = node.name.split("_")[-2:]
-                prefix = "_".join(node.name.split("_")[:-2]).replace("write", "read")
-                read_shared_name = prefix + "_" + str(i) + "_" + str(j)
-                fromNode = node
-                for nodej in graph.nodes:
-                    if nodej.name == read_shared_name:
-                        toNode = nodej
-                        break
-                self.dependenceGraph.addEdge(
-                    ms.Edge(
-                        edge_label,
-                        self.node_mapper[fromNode],
-                        self.node_mapper[toNode],
-                        self.get_delay(fromNode.name),
-                        0,
+                if "128" not in node.name:
+                    i, j = node.name.split("_")[-2:]
+                    prefix = "_".join(node.name.split("_")[:-2]).replace(
+                        "write", "read"
                     )
-                )
+                    read_shared_name = prefix + "_" + str(i) + "_" + str(j)
+                    fromNode = node
+                    for nodej in graph.nodes:
+                        if nodej.name == read_shared_name:
+                            toNode = nodej
+                            break
+                    self.dependenceGraph.addEdge(
+                        ms.Edge(
+                            edge_label,
+                            self.node_mapper[fromNode],
+                            self.node_mapper[toNode],
+                            self.get_delay(fromNode.name),
+                            0,
+                        )
+                    )
+                else:
+                    i, k0, k1 = node.name.split("_")[-3:]
+                    name = node.name.replace("localwrite128_", "")
+                    prefix = "_".join(name.split("_")[:-3]).replace("write", "read")
+                    kvalues = [k0, k1]
+                    for u in range(2):
+                        read_shared_name = prefix + "_" + str(i) + "_" + str(kvalues[u])
+                        fromNode = node
+                        for nodej in graph.nodes:
+                            if nodej.name == read_shared_name:
+                                toNode = nodej
+                                break
+                        self.dependenceGraph.addEdge(
+                            ms.Edge(
+                                edge_label,
+                                self.node_mapper[fromNode],
+                                self.node_mapper[toNode],
+                                self.get_delay(fromNode.name),
+                                0,
+                            )
+                        )
 
         self.dependenceGraph.generateDotGraph()
         resourceVector = [2, 2, 2]
@@ -1372,6 +1385,56 @@ class LaunchableWave(Launchable):
         scheduler = ms.ModuloScheduler(resourceVector, self.dependenceGraph)
         scheduler.generateSchedule()
         return scheduler
+
+    def print_schedule(self, file_name):
+        stages = sorted(list(self.nodes_by_stage.keys()))
+        line = ""
+        for time, nodes in self.nodes_by_time.items():
+            i = 0
+            line += "================================================================================\n"
+            nodes_by_stage_per_time = {}
+            for node in nodes:
+                for stage in stages:
+                    if node in self.nodes_by_stage[stage]:
+                        if "c_reg" in node.name:
+                            continue
+                        if stage not in nodes_by_stage_per_time:
+                            nodes_by_stage_per_time[stage] = []
+                        nodes_by_stage_per_time[stage].append(node)
+            done = False
+            while not done:
+                node_row = []
+                for stage in stages:
+                    if stage not in nodes_by_stage_per_time:
+                        nodes_by_stage_per_time[stage] = []
+                    if len(nodes_by_stage_per_time[stage]) == 0:
+                        node_row.append("")
+                        continue
+                    node = nodes_by_stage_per_time[stage][0]
+                    nodes_by_stage_per_time[stage].pop(0)
+                    node_row.append(node.name)
+
+                fmt_str = "{:<10}"
+                if i == 0:
+                    node_row = [time] + node_row
+                else:
+                    node_row = [""] + node_row
+                for _ in range(len(stages)):
+                    fmt_str += "|{:^35}"
+                line += fmt_str.format(*node_row)
+                line += "\n"
+                i += 1
+
+                done = True
+                for stage in stages:
+                    if len(nodes_by_stage_per_time[stage]) > 0:
+                        done = False
+                        break
+
+            line += "\n"
+
+        with open(file_name, "w") as f:
+            f.write(line)
 
     def construct_prologue_and_epilogue(self, scheduler):
         """
@@ -1420,6 +1483,7 @@ class LaunchableWave(Launchable):
                 self.nodes_by_time[time].append(inverse_node)
             self.max_stage = stage
         self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
+        self.print_schedule("schedule.csv")
 
         self.iter_args = {stage: set() for stage in range(self.max_stage + 1)}
         self.mma_args = []
@@ -1504,24 +1568,32 @@ class LaunchableWave(Launchable):
         from shared memory and vice versa, we insert a barrier node in between.
         """
 
+        insert_barrier = False
         for node in graph.nodes:
             typed_node = getNode(node)
             if node.next is None:
                 continue
-            # read after write barrier
-            if isinstance(typed_node, ReadSharedNode) and isinstance(
-                getNode(node.next), WriteSharedNode
-            ):
-                graph.inserting_after(node)
+            if isinstance(typed_node, WriteSharedNode):
+                insert_barrier = True
+            if isinstance(typed_node, ReadSharedNode) and insert_barrier:
+                graph.inserting_before(node)
                 barrier_node = BarrierNode(graph, barrier)
                 barrier_node.emit()
-            # write after read barrier
-            elif isinstance(typed_node, WriteSharedNode) and isinstance(
-                getNode(node.next), ReadSharedNode
-            ):
-                graph.inserting_after(node)
-                barrier_node = BarrierNode(graph, barrier)
-                barrier_node.emit()
+                insert_barrier = False
+            ## read after write barrier
+            # if isinstance(typed_node, ReadSharedNode) and isinstance(
+            #    getNode(node.next), WriteSharedNode
+            # ):
+            #    graph.inserting_after(node)
+            #    barrier_node = BarrierNode(graph, barrier)
+            #    barrier_node.emit()
+            ## write after read barrier
+            # elif isinstance(typed_node, WriteSharedNode) and isinstance(
+            #    getNode(node.next), ReadSharedNode
+            # ):
+            #    graph.inserting_after(node)
+            #    barrier_node = BarrierNode(graph, barrier)
+            #    barrier_node.emit()
             elif isinstance(typed_node, TiledLoop):
                 # recurse into loop body
                 self.insert_barriers(node.kwargs["subgraph"])
@@ -1533,6 +1605,10 @@ class LaunchableWave(Launchable):
         can be of 128bits while the shared store and load can be either
         64 or 128 bits.
         """
+        idxc = IndexingContext.current()
+        global_load_elems = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD.subs(idxc.subs)
+        if global_load_elems != 8:
+            return graph
 
         def find_node(matrix, target_i, target_k):
             for user in matrix.users.keys():
@@ -1549,12 +1625,13 @@ class LaunchableWave(Launchable):
                     return node
 
         # We have read nodes of type "read_i_k" from A and "read_j_k" from B.
-        # We will combine read_i_k and read_i_k+1 into a read_i_k_k+1 and
-        # similarly read_j_k and read_j_k+1 into a read_j_k_k+1 and have the
-        # write_shared_i_k and write_shared_i_k+1 connect to the new read nodes
-        # but with modified indices where the index of i_k remains the same but
-        # the index of i_k+1 is the index of i_k offset by 4. We will update the
-        # indices of the corresponding read_shared nodes as well.
+        # We will combine read_i_k/write_shared_i_k and read_i_k+1/write_shared_i_k+!
+        # into a read_i_k_k+1/write_shared_i_k_k+1. We also update the indices of
+        # the reads and write_shareds to account for the offset.
+        # So thread reading from col 0 -> 0
+        #    thread reading from col 4 -> 8
+        #    thread reading from col 8 -> 16
+        # We do this by doubling the thread offset.
         processed = []
 
         def matching_index(k):
@@ -1574,8 +1651,6 @@ class LaunchableWave(Launchable):
                 processed.append((matrix, i, k))
                 processed.append((matrix, i, matching_index(k)))
                 meta = None
-                larger_k = max(k, matching_index(k))
-                smaller_k = min(k, matching_index(k))
                 if matching_index(k) > k:
                     graph.inserting_after(matching_node)
                     meta = node.meta
@@ -1597,34 +1672,44 @@ class LaunchableWave(Launchable):
                 )
                 # RAUW
                 read_node.meta = meta
+                # Modify read index to account for the increased offset
+                thread_offset = read_node.meta["index"][1].subs(
+                    {tkl.IndexSymbol("ARG0"): 0, tkl.sym.MMA_K: 0}
+                )
+                read_node.meta["index"][1] += thread_offset
                 node.replace_all_uses_with(read_node)
                 matching_node.replace_all_uses_with(read_node)
                 graph.erase_node(node)
                 graph.erase_node(matching_node)
-                # Update indices of user with larger k index (write_shared and read_shared)
-                col_index = None
-                for user in read_node.users.keys():
-                    user_i, user_k = [int(x) for x in user.name.split("_")[-2:]]
-                    if user_k == smaller_k:
-                        user.meta["extract"] = {
-                            "offset": 0,
-                            "len": 4,
-                        }
-                        col_index = user.meta["index"][1]
-                        break
 
+                # Combine both users into a single write_shared_node
+                users = []
+                alloc = None
                 for user in read_node.users.keys():
-                    user_i, user_k = [int(x) for x in user.name.split("_")[-2:]]
-                    if user_k == larger_k:
-                        user.meta["index"][1] = col_index + 4
-                        read_shared_node = find_node_by_name(
-                            user.name.replace("write", "read")
-                        )
-                        read_shared_node.meta["index"][1] = col_index + 4
-                        user.meta["extract"] = {
-                            "offset": 4,
-                            "len": 4,
-                        }
+                    if "write_shared" in user.name:
+                        users.append(user)
+                        alloc = user.args[1]
+                graph.inserting_after(read_node)
+                new_name = "_".join(
+                    users[0].name.split("_")[:-2]
+                    + ["localwrite128"]
+                    + [str(x) for x in [i] + sorted([k, matching_index(k)])]
+                )
+                write_shared_node = graph.create_node(
+                    "call_function",
+                    target=write_shared,
+                    args=(read_node, alloc, tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD),
+                    name=new_name,
+                    kwargs={},
+                )
+                write_shared_node.meta = deepcopy(users[0].meta)
+                write_shared_node.meta["index"] = self.utils.global_to_shared(
+                    read_node.meta["index"]
+                )
+                for user in users:
+                    user.replace_all_uses_with(write_shared_node)
+                    graph.erase_node(user)
+
         return graph
 
     def _trace_and_get_kernel_signature(
