@@ -1083,20 +1083,7 @@ class LaunchableWave(Launchable):
                     )
                     new_node.name = node.name + index_suffix(i, j)
                     if "index" in node.meta:
-                        mma_tile_sizes = []
-                        node_type = new_node.meta["type"]
-                        if node_type is None:
-                            for arg in node.all_input_nodes:
-                                if "type" in arg.meta:
-                                    node_type = arg.meta["type"]
-                                    break
-                        for dim in node_type.symbolic_shape:
-                            if dim == tkl.sym.M or dim == tkl.sym.BLOCK_M:
-                                mma_tile_sizes.append(tkl.sym.MMA_M)
-                            if dim == tkl.sym.N or dim == tkl.sym.BLOCK_N:
-                                mma_tile_sizes.append(tkl.sym.MMA_N)
-                            if dim == tkl.sym.K or dim == tkl.sym.BLOCK_K:
-                                mma_tile_sizes.append(tkl.sym.MMA_K)
+                        mma_tile_sizes = self.utils.get_mma_tile_sizes(new_node)
                         new_node.meta["index"] = [
                             new_node.meta["index"][0] + sympy.Mul(i, mma_tile_sizes[0]),
                             new_node.meta["index"][1] + sympy.Mul(j, mma_tile_sizes[1]),
@@ -1191,9 +1178,11 @@ class LaunchableWave(Launchable):
                     new_node.name = node.name + suffix
                     duplicates.append(new_node)
 
+                    mma_tile_sizes = self.utils.get_mma_tile_sizes(new_node)
                     if "index" in node.meta:
                         old_index = new_node.meta["index"]
                         # For now special case for values which are indexed only in one dimension
+                        # TODO: Needs to be modified to handle 32x32x8 instruction
                         if len(old_index) == 1:
                             if m == 1:
                                 new_node.meta["index"] = [
@@ -1212,8 +1201,8 @@ class LaunchableWave(Launchable):
                                 raise Exception("Invalid indexing")
                         else:
                             new_node.meta["index"] = [
-                                old_index[0] + sympy.Mul(i, 16),
-                                old_index[1] + sympy.Mul(j, 16),
+                                old_index[0] + sympy.Mul(i, mma_tile_sizes[0]),
+                                old_index[1] + sympy.Mul(j, mma_tile_sizes[1]),
                             ]
             return duplicates
 
@@ -1786,6 +1775,9 @@ class LaunchableWave(Launchable):
             entrypoint_name, kernel_sig, grid, workgroup_size, subgroup_size
         )
         emitter = WaveEmitter(dispatch_entrypoint, trace)
+        emitter.mma_matrix_shapes = self.hardware_constraints[0].mma_matrix_shapes()
+        emitter.acc_vector_shape = self.hardware_constraints[0].get_vector_shape('C')
+        emitter.offset_fn = self.hardware_constraints[0].offset_gpr_c
 
         self.print(scheduled_graph)
 

@@ -9,7 +9,7 @@ import shark_turbine.kernel.functional as tkf
 class Test(unittest.TestCase):
     def testInterpreter(self):
         interpreter = tkf.Interpreter()
-        interpreter.interpret("/Users/harsh/SHARK-Turbine/inspect.mlir")
+        interpreter.interpret("./inspect.mlir")
 
 
 if __name__ == "__main__":

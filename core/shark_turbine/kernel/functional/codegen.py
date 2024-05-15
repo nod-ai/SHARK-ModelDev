@@ -238,7 +238,8 @@ def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
         shape, dtype, type = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
-    memref_shape = cast_py_literal(emitter, shape)
+    new_shape = (shape[0], shape[1] + 4)
+    memref_shape = cast_py_literal(emitter, new_shape)
     element_type = IrType.parse(dtype.ir_type_asm())
     address_space = Attribute.parse("#gpu.address_space<workgroup>")
     memref_type = MemRefType.get(memref_shape, element_type, None, address_space)
@@ -259,7 +260,7 @@ def handle_construct_register_from_metadata(emitter: WaveEmitter, node: fx.Node)
         raise ValidationError("Malformed arguments") from e
     # TODO: This vector shape needs to be propagated through the graph.
     # For now, just hardcoding to get MLIR emission working again.
-    vector_shape = cast_py_literal(emitter, (4,))
+    vector_shape = cast_py_literal(emitter, (emitter.acc_vector_shape,))
     element_type = IrType.parse(dtype.ir_type_asm())
     register = ScalarBuilder.constant_vector(value, vector_shape, element_type)
     emitter.bind_node_proxy(node, register)
@@ -426,7 +427,7 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     if vector_shape > store_elements and store_elements == 1:
         result_type = VectorType.get([1], kb_ir_type.element_type)
         for i in range(vector_shape):
-            index = arith_d.constant(IndexType.get(), int(i))
+            index = arith_d.constant(IndexType.get(), int((i % 4) + emitter.offset_fn(i)))
             element = vector_d.extract_strided_slice(
                 result_type,
                 insert_vector,
@@ -461,10 +462,11 @@ def handle_mma(emitter: WaveEmitter, node: fx.Node):
     vector_type = VectorType(acc.type)
     element_type = vector_type.element_type
     rank = vector_type.rank
+    mma_m, mma_n, mma_k = emitter.mma_matrix_shapes
 
-    m = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
-    n = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
-    k = ScalarBuilder.constant_attr(16, IntegerType.get_signless(32))
+    m = ScalarBuilder.constant_attr(mma_m, IntegerType.get_signless(32))
+    n = ScalarBuilder.constant_attr(mma_n, IntegerType.get_signless(32))
+    k = ScalarBuilder.constant_attr(mma_k, IntegerType.get_signless(32))
     blocks = ScalarBuilder.constant_attr(1, IntegerType.get_signless(32))
 
     result = amdgpu_d.mfma(

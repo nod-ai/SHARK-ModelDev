@@ -24,18 +24,22 @@ MATRIX_M = 2048
 MATRIX_N = 10240
 MATRIX_K = 1280
 BUILD_DIR = "/data/home/perf/harsh/iree-build/tools/"
+DEVICE = 4
+TIMEOUT = 60
 
-#BLOCK_M=[16]
-#BLOCK_N=[128]
-#BLOCK_K=[32]
-#RATIO_M=[1]
-#RATIO_N=[1]
-#RESOURCE_MMA=[2]
-#RESOURCE_SHARED=[2]
-#RESOURCE_GLOBAL = [2]
-#DELAY_MMA = [2]
-#DELAY_SHARED = [1]
-#DELAY_GLOBAL = [5]
+BLOCK_M=[128]
+BLOCK_N=[128]
+BLOCK_K=[32]
+RATIO_M=[1]
+RATIO_N=[1]
+RESOURCE_MMA=[2]
+RESOURCE_SHARED=[2]
+RESOURCE_GLOBAL = [2]
+DELAY_MMA = [2]
+DELAY_SHARED = [1]
+DELAY_GLOBAL = [5]
+MMA_INSTRUCTION = ['MFMA_F32_16x16x16_F16', 'MFMA_F32_32x32x8_F16']
+MMA_INSTRUCTION = ['MFMA_F32_16x16x16_F16']
 
 
 def run_command(command, timeout_limit):
@@ -80,10 +84,11 @@ def compile_to_vmfb():
         "--iree-rocm-target-chip=gfx942", \
         "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode", \
         "--iree-hal-benchmark-dispatch-repeat-count=1000", \
+        "--iree-hal-dump-executable-intermediates-to=intermediates/gemm", \
         "-o", \
         "mma.vmfb",
     ]
-    output, error = run_command(cmd, 60.0)
+    output, error = run_command(cmd, TIMEOUT)
     return error is None
 
 
@@ -91,7 +96,7 @@ def compile_to_vmfb():
 def run_and_validate_result():
     cmd = [
         os.path.join(BUILD_DIR, "iree-run-module"),
-        "--device=rocm://0", \
+        f"--device=rocm://{DEVICE}", \
         "--device_allocator=caching", \
         "--module=mma.vmfb", \
         "--function=isolated_benchmark", \
@@ -99,12 +104,13 @@ def run_and_validate_result():
         f"--input=@/data/home/perf/harsh/mma_files/b_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy", \
         f"--output=@/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"
     ]
-    output, error = run_command(cmd, 60.0)
+    output, error = run_command(cmd, TIMEOUT)
     if error is not None:
         return False
     computed = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
     reference = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/iree_ref_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
     max_error = np.max(np.abs(computed - reference))
+    print("Max error = ", max_error)
     return max_error == 0.0
 
 
@@ -112,7 +118,7 @@ def run_and_validate_result():
 def benchmark():
     cmd = [
         os.path.join(BUILD_DIR, "iree-benchmark-module"),
-        "--device=rocm://0", \
+        f"--device=rocm://{DEVICE}", \
         "--device_allocator=caching", \
         "--module=mma.vmfb", \
         "--function=isolated_benchmark", \
@@ -121,7 +127,7 @@ def benchmark():
         f"--input={MATRIX_M}x{MATRIX_K}xf16", \
         f"--input={MATRIX_N}x{MATRIX_K}xf16"
     ]
-    output, error = run_command(cmd, 60.0)
+    output, error = run_command(cmd, TIMEOUT)
     decoded_output = output.decode('utf-8')
     metric = 0
     if 'Benchmark' in decoded_output:
@@ -131,7 +137,7 @@ def benchmark():
 
 # Write result to file
 def log_configuration_and_result(x, metric):
-    with open("summary.txt", "a") as f:
+    with open(f"summary_{MATRIX_M}_{MATRIX_N}_{MATRIX_K}.txt", "a") as f:
         str = f"{metric}"
         for val in x:
             str += f",{val}"
@@ -150,6 +156,7 @@ def log_configuration_and_result(x, metric):
 @pytest.mark.parametrize("delay_mma", DELAY_MMA)
 @pytest.mark.parametrize("delay_shared", DELAY_SHARED)
 @pytest.mark.parametrize("delay_global", DELAY_GLOBAL)
+@pytest.mark.parametrize("mma_instruction", MMA_INSTRUCTION)
 def testGemm(
     block_m,
     block_n,
@@ -161,7 +168,8 @@ def testGemm(
     resource_global,
     delay_mma,
     delay_shared,
-    delay_global
+    delay_global,
+    mma_instruction
 ):
 
     # Wave tile sizes (determined by constraints below)
@@ -173,11 +181,16 @@ def testGemm(
     BLOCK_M = tkl.sym.BLOCK_M
     BLOCK_N = tkl.sym.BLOCK_N
     BLOCK_K = tkl.sym.BLOCK_K
+    # MMA tile sizes
+    MMA_M = tkl.sym.MMA_M
+    MMA_N = tkl.sym.MMA_N
+    MMA_K = tkl.sym.MMA_K
     # Address space (for GPU, shared(1) or global(0))
     ADDRESS_SPACE = tkl.sym.ADDRESS_SPACE
     # Other hyperparameters
     LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
     STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
+    GLOBAL_LOAD_ELEMS_PER_THREAD = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
 
     # Expose user-constraints
     constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
@@ -198,8 +211,12 @@ def testGemm(
         )
     ]
     constraints += [
-        tkf.HardwareConstraint(threads_per_wave=64, mma_type="MFMA_F32_16x16x16_F16")
+        tkf.HardwareConstraint(threads_per_wave=64, mma_type=mma_instruction)
     ]
+    mma_m = mma_n = mma_k = 16
+    if mma_instruction == 'MFMA_F32_32x32x8_F16':
+        mma_m = mma_n = 32
+        mma_k = 8
 
     # Wave-level micro-kernel.
     # Since warps are not directly addressable, there is no
@@ -238,9 +255,13 @@ def testGemm(
         ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,
         LOAD_ELEMS_PER_THREAD: 4,
         STORE_ELEMS_PER_THREAD: 1,
+        GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
         BLOCK_M: block_m,
         BLOCK_N: block_n,
         BLOCK_K: block_k,
+        MMA_M: mma_m,
+        MMA_N: mma_n,
+        MMA_K: mma_k,
         M: MATRIX_M,
         N: MATRIX_N,
         K: MATRIX_K,
@@ -263,6 +284,7 @@ def testGemm(
 
     # Benchmark if correct
     metric = benchmark()
+    print("metric = ", metric)
 
     # Write result to file
     x = [
@@ -277,6 +299,7 @@ def testGemm(
         delay_mma,
         delay_shared,
         delay_global,
+        mma_instruction,
         MATRIX_M,
         MATRIX_N,
         MATRIX_K,

@@ -124,3 +124,21 @@ class Utils:
         substitutions.update({x: 0 for x in self.induction_vars})
         indices = [x.subs(substitutions) for x in indices]
         return indices
+
+    # Gets the tile sizes corresponding to the dimensions of the node
+    def get_mma_tile_sizes(self, node: fx.Node) -> list[IndexExpr]:
+        mma_tile_sizes = []
+        node_type = node.meta["type"]
+        if node_type is None:
+            for arg in node.all_input_nodes:
+                if "type" in arg.meta:
+                    node_type = arg.meta["type"]
+                    break
+        for dim in node_type.symbolic_shape:
+            if dim == tkl.sym.M or dim == tkl.sym.BLOCK_M:
+                mma_tile_sizes.append(tkl.sym.MMA_M)
+            if dim == tkl.sym.N or dim == tkl.sym.BLOCK_N:
+                mma_tile_sizes.append(tkl.sym.MMA_N)
+            if dim == tkl.sym.K or dim == tkl.sym.BLOCK_K:
+                mma_tile_sizes.append(tkl.sym.MMA_K)
+        return mma_tile_sizes

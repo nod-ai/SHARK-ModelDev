@@ -144,12 +144,26 @@ class HardwareConstraint(ConstraintsMeta):
                 "B": lambda lane, gpr: (lane % 16, 4 * sympy.floor(lane / 16) + gpr),
                 "C": lambda lane, gpr: (4 * sympy.floor(lane / 16) + gpr, lane % 16),
             }
+        if mma_type == "MFMA_F32_32x32x8_F16":
+            indices = {
+                "A": lambda lane, gpr: (lane % 32, 4 * sympy.floor(lane / 32) + gpr),
+                "B": lambda lane, gpr: (lane % 32, 4 * sympy.floor(lane / 32) + gpr),
+                "C": lambda lane, gpr: (4 * sympy.floor(lane / 32) + gpr, lane % 32),
+            }
         return indices
 
     def mma_matrix_shapes(self):
         if self.mma_type == "MFMA_F32_16x16x16_F16":
             return (16, 16, 16)
+        if self.mma_type == "MFMA_F32_32x32x8_F16":
+            return (32, 32, 8)
         return None
+
+    def offset_gpr_c(self, i):
+        if self.mma_type == "MFMA_F32_16x16x16_F16":
+            return 0
+        if self.mma_type == "MFMA_F32_32x32x8_F16":
+            return 8 * math.floor(i / 4) % 32
 
     def get_threads_per_block(self):
         threads_per_block = []
@@ -161,6 +175,10 @@ class HardwareConstraint(ConstraintsMeta):
 
     def get_vector_shape(self, matrix_type):
         if self.mma_type == "MFMA_F32_16x16x16_F16":
+            return 4
+        if self.mma_type == "MFMA_F32_32x32x8_F16":
+            if matrix_type == 'C':
+                return 16
             return 4
         return None
 
