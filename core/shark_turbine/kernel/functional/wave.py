@@ -827,8 +827,12 @@ class LaunchableWave(Launchable):
         value_map[stage][name] = node
         # Whenever we compute the last mma node in an mma-chain,
         # we need to update the value mapper for the corresponding
-        # c_reg.
+        # c_reg. For multi-buffering, we need to be at the last iter.
         if "mma" in name:
+            if "mve" in name:
+                iteration = name.split("_")[0].replace("mve", "")
+                if int(iteration) != self.num_buffers - 1:
+                    return False
             i, j, k = name.split("_")[-3:]
             if int(k) == self.batch_k - 1:
                 c_reg_name = "_".join(["c_reg", i, j])
