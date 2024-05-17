@@ -174,9 +174,11 @@ class Interpreter:
                             # Row-major load
                             load_indices = [int(x) for x in load_indices]
                             print(load_indices)
+                            offset = [0 for _ in range(len(load_indices))]
+                            offset[-1] += 1
                             for i in range(*result_shape):
                                 value[i] = memref[
-                                    int(load_indices[0]), int(load_indices[1] + i)
+                                    *[x + y for x, y in zip(load_indices, offset)]
                                 ]
                         case vector_d.ExtractStridedSliceOp:
                             vector = sym_table[op.vector]
@@ -193,16 +195,15 @@ class Interpreter:
                             memref = sym_table[op.base]
                             result_type = vector.type
                             result_shape = vector.shape
-                            # Row-major load
+                            # Row-major store
                             store_indices = [int(x) for x in store_indices]
+                            offset = [0 for _ in range(len(store_indices))]
+                            offset[-1] += 1
                             print(store_indices)
                             for i in range(*result_shape):
-                                try:
-                                    memref[
-                                        int(store_indices[0]), int(store_indices[1] + i)
-                                    ] = vector[i]
-                                except:
-                                    breakpoint()
+                                memref[
+                                    *[x + y for x, y in zip(store_indices, offset)]
+                                ] = vector[i]
                         case stream_d.DispatchWorkgroupIDOp:
                             index = int(op.attributes["dimension"])
                             value = workgroup_ids[index]

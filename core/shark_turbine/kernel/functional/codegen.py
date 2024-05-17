@@ -238,7 +238,10 @@ def handle_alloc_shared(emitter: WaveEmitter, node: fx.Node):
         shape, dtype, type = node.args
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
-    new_shape = (shape[0], shape[1] + 4)
+    # Add padding to avoid bank conflicts.
+    new_shape = [shape[0], shape[1] + 4]
+    if "num_buffers" in node.meta and node.meta["num_buffers"] > 1:
+        new_shape = [node.meta["num_buffers"]] + new_shape
     memref_shape = cast_py_literal(emitter, new_shape)
     element_type = IrType.parse(dtype.ir_type_asm())
     address_space = Attribute.parse("#gpu.address_space<workgroup>")
@@ -287,7 +290,7 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                 elif term.name in dynamics.keys():
                     if dynamics[term.name] is None and term.name == "ARG0":
                         print(
-                            f"induction var is accessed outside of the loop. Setting to stage"
+                            f"induction var is accessed outside of the loop. Setting to stage {stage}"
                         )
                         stack.append(arith_d.constant(IndexType.get(), stage))
                     else:
@@ -355,6 +358,7 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
+    print("Stage = ", stage)
     start_indices = []
     if isinstance(node.meta["index"], sympy.Add):
         pass
@@ -386,11 +390,13 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
+    print("Stage = ", stage)
     start_indices = []
     for dim_indexing in node.meta["index"]:
         start_indices.append(
             gen_sympy_index(emitter, sympy.simplify(dim_indexing), stage)
         )
+
     if dest_rank != len(start_indices):
         raise CodegenError(
             f"Mismatched slice assignment: Expected rank {dest_rank}, got {len(start_indices)}"
@@ -427,7 +433,9 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     if vector_shape > store_elements and store_elements == 1:
         result_type = VectorType.get([1], kb_ir_type.element_type)
         for i in range(vector_shape):
-            index = arith_d.constant(IndexType.get(), int((i % 4) + emitter.offset_fn(i)))
+            index = arith_d.constant(
+                IndexType.get(), int((i % 4) + emitter.offset_fn(i))
+            )
             element = vector_d.extract_strided_slice(
                 result_type,
                 insert_vector,
@@ -535,9 +543,9 @@ def handle_tiled_loop(emitter: WaveEmitter, node: fx.Node):
 
     # Get IR values mapping to the node args.
     # TODO: Hardcoded sizes should be dynamic
-    start = arith_d.constant(IndexType.get(), node.meta["start"])
-    end = arith_d.constant(IndexType.get(), node.meta["end"])
-    step = arith_d.constant(IndexType.get(), 1)
+    start = arith_d.constant(IndexType.get(), int(node.meta["start"]))
+    end = arith_d.constant(IndexType.get(), int(node.meta["end"]))
+    step = arith_d.constant(IndexType.get(), int(node.meta["step"]))
 
     # Flatten init_args and get IR values for each of them.
     flat_init_args, init_args_spec = pytree.tree_flatten((init_args))

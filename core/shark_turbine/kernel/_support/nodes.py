@@ -188,7 +188,7 @@ class WriteNode(CustomNode):
         # TODO: remove this when fx.Proxy is wrapped with a similar interface
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
-        return f"{name} %{value_map[self.register_]}, %{value_map[self.memory]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+        return f"{name} %{value_map[self.register_]}, %{value_map[self.memory]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
 
 
 # Nodes modeling TKL operations emitted only during codegen
@@ -298,7 +298,7 @@ class WriteSharedNode(CustomNode):
         memory = getNode(self.memory)
         memory_type: Memory = memory.type
         try:
-            return f"{name} %{value_map[self.register_]}, %{value_map[memory.fx_node]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>\n"
+            return f"{name} %{value_map[self.register_]}, %{value_map[memory.fx_node]} : Memory<{memory_type.symbolic_shape}, {memory_type.dtype}>, indexing: {indexing(self)}\n"
         except:
             breakpoint()
 
@@ -332,7 +332,7 @@ def getNode(node: fx.Node) -> CustomNode:
     for name, nodeT in nodeTypes.items():
         # The fx_nodes have a suffix to the name depending on the number of occurrences
         # of similar nodes. We are only interested in the name prefix.
-        if node.name.startswith(name):
+        if name in node.name:
             return nodeT.from_fx_node(node)
         if node.op == "placeholder":
             return PlaceholderNode.from_fx_node(node)

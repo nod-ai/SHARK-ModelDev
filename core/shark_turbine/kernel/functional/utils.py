@@ -142,3 +142,47 @@ class Utils:
             if dim == tkl.sym.K or dim == tkl.sym.BLOCK_K:
                 mma_tile_sizes.append(tkl.sym.MMA_K)
         return mma_tile_sizes
+
+    def is_shared_memory_alloc(self, node: fx.Node) -> bool:
+        return "alloc" in node.name
+
+    def is_c_reg_at_stage(self, node: fx.Graph, i: int) -> bool:
+        return "c_reg" in node.name and f"mve{i}" in node.name
+
+    def get_mma_node_at_stage_with_k_index(
+        self, stage_index: int, k_index: int, creg: fx.Node, graph: fx.Graph
+    ) -> fx.Node:
+        cregi, cregj = creg.name.split("_")[-2:]
+        for node in graph.nodes:
+            if "mma" in node.name and f"mve{stage_index}" in node.name:
+                i, j, k = node.name.split("_")[-3:]
+                if int(k) == k_index and i == cregi and j == cregj:
+                    return node
+
+    def is_mma_node_at_stage_with_k_index(
+        self, node: fx.Node, stage_index: int, k_index: int
+    ) -> bool:
+        if "mma" in node.name and f"mve{stage_index}" in node.name:
+            i, j, k = node.name.split("_")[-3:]
+            return int(k) == k_index
+        return False
+
+    def get_matching_creg(self, mma_node: fx.Node, graph: fx.Graph) -> fx.Node:
+        i, j, _ = mma_node.name.split("_")[-3:]
+        for node in graph.nodes:
+            if f"c_reg_{i}_{j}" in node.name:
+                return node
+
+    def is_creg_with_indices(self, i: int, j: int, node: fx.Node) -> bool:
+        return f"c_reg_{i}_{j}" in node.name
+
+    def get_node_from_root(self, target: fx.Node, root_graph: fx.Graph) -> fx.Node:
+        for node in root_graph.nodes:
+            if node.name == target.name:
+                return node
+
+    def is_creg(self, name: str) -> bool:
+        return "c_reg" in name
+
+    def is_shared_memory_read_or_write(self, node: fx.Node) -> bool:
+        return "shared" in node.name and ("read" in node.name or "write" in node.name)

@@ -495,10 +495,7 @@ class LaunchableWave(Launchable):
                     continue
                 self.index_map[iter_arg] = self.index_map[init_arg]
             for j, init_arg in enumerate(node.args[1]):
-                try:
-                    args_str += f"%arg{str(j)} = %{self.index_map[init_arg]}, "
-                except:
-                    breakpoint()
+                args_str += f"%arg{str(j)} = %{self.index_map[init_arg]}, "
                 if init_arg in self.init_args_to_iter_args:
                     init_arg = self.init_args_to_iter_args[init_arg]
                 self.index_map[init_arg] = f"arg{str(j)}"
@@ -695,6 +692,38 @@ class LaunchableWave(Launchable):
             return self.mma_delay
         return 0
 
+    def update_stage_index(self, node: fx.Node, stage: int, outside_loop: bool = False):
+        # Depending on the stage, we need to remap ARG0
+        # For example, if stage = 0, ARG0 -> ARG0
+        #              if stage = 1, ARG0 -> ARG0 - 1
+        #              if stage = 2, ARG0 -> ARG0 - 2
+        #              ...
+        # Also, we need to update the index to account for multibuffering.
+        # So in the above example, if we have Q buffers,
+        #              if stage = 0, index = [i % Q, ...]
+        #              if stage = 1, index = [(i - 1) % Q, ...]
+        #              if stage = 2, index = [(i - 2) % Q, ...]
+        # We also need to increase the dimensionality of the index if we
+        # are doing multi-buffering. This should only affect the read/write
+        # nodes to shared memory.
+        if not self.utils.is_shared_memory_read_or_write(node):
+            return
+        if "index" in node.meta and stage < self.max_stage:
+            ivar = tkl.IndexSymbol("ARG0")
+            # We don't need to update the index outside the loop because we
+            # do this during codegen
+            if not outside_loop:
+                for i in range(len(node.meta["index"])):
+                    node.meta["index"][i] = node.meta["index"][i].replace(
+                        ivar, ivar - stage
+                    )
+            if self.num_buffers > 1:
+                if not outside_loop:
+                    batch_index = (ivar - stage) % self.num_buffers
+                else:
+                    batch_index = stage % self.num_buffers
+                node.meta["index"] = [batch_index] + node.meta["index"]
+
     def create_loop_graph(self, value_map, iter_args):
         kernel = fx.Graph()
         # Keep track of values by stage
@@ -760,6 +789,7 @@ class LaunchableWave(Launchable):
                     continue
                 node.meta["stage"] = stage
                 new_node = kernel.node_copy(node, partial(arg_mapper, stage))
+                self.update_stage_index(new_node, stage)
                 # This mapping is constantly updated to only the last reference.
                 # Is that always enough?
                 node_to_stage[node] = stage
@@ -808,6 +838,105 @@ class LaunchableWave(Launchable):
                 return True
         return False
 
+    def gather_nodes_by_stage(
+        self,
+        nodes: list[fx.Node],
+        stages: list[int],
+        nodes_by_stage: dict[int, list[fx.Node]],
+    ) -> list[fx.Node]:
+        """
+        Given nodes that correspond to the same time, group them
+        by stage, ignoring any c_reg nodes.
+        """
+        nodes_by_stage_per_time = {}
+        for node in nodes:
+            for stage in stages:
+                if node in nodes_by_stage[stage]:
+                    if "c_reg" in node.name:
+                        continue
+                    if stage not in nodes_by_stage_per_time:
+                        nodes_by_stage_per_time[stage] = []
+                    nodes_by_stage_per_time[stage].append(node)
+        return nodes_by_stage_per_time
+
+    def initialize_mma_init_args(
+        self, source: fx.Node, expanded_graph: fx.Graph, value_map: dict[str, fx.Node]
+    ):
+        """
+        Initialize c_reg nodes to construct_register_from_metadata
+        nodes from the root graph.
+        """
+        mma_init_args = {}
+        for node in expanded_graph.nodes:
+            if "c_reg" not in node.name:
+                continue
+            for src_node in source.args[1]:
+                target_name = src_node.name.replace(
+                    "construct_register_from_metadata", "c_reg"
+                )
+                if target_name == node.name:
+                    mma_init_args[target_name] = value_map[src_node.name]
+        return mma_init_args
+
+    def create_prologue(
+        self,
+        scheduled_graph: fx.Graph,
+        staged_value_map: dict[int, dict[str, fx.Node]],
+        mma_init_args: list[fx.Node],
+    ):
+        def map_stage(stage: int):
+            """
+            During scheduling, we have stages 0, 1, 2
+            and these map to stages 2, 1, 0.
+            """
+            reversed_stages = list(range(self.max_stage, -1, -1))
+            return reversed_stages[stage]
+
+        new_iter_args = []
+        old_iter_args = []
+        stages = sorted(list(self.nodes_by_stage.keys()))
+        for _, nodes in self.nodes_by_absolute_time.items():
+            prolog_nodes = self.gather_nodes_by_stage(nodes, stages, self.prologue)
+            for stage in reversed(self.prologue.keys()):
+                # Induction variables at stage k have to be mapped to k - max_stage
+                if stage not in prolog_nodes:
+                    continue
+                for subnode in prolog_nodes[stage]:
+                    if "sync" in subnode.name:
+                        staged_value_map[stage][subnode.name] = staged_value_map[stage][
+                            subnode.args[0].name
+                        ]
+                        continue
+                    new_node = scheduled_graph.node_copy(
+                        subnode, lambda node: staged_value_map[stage][node.name]
+                    )
+                    new_node.name = subnode.name + "_prolog" + str(stage)
+                    new_node.meta["stage"] = map_stage(stage)
+                    self.update_stage_index(new_node, new_node.meta["stage"], True)
+                    next_stage = stage - 1 if stage > 0 else stage
+                    updated = self.update_staged_value_map(
+                        staged_value_map, stage, subnode.name, new_node, next_stage
+                    )
+                    if updated:
+                        name = "c_reg_" + "_".join(subnode.name.split("_")[-3:-1])
+                        mma_init_args[name] = new_node
+
+        for stage, nodes in self.iter_args.items():
+            for subnode in sorted(list(nodes), key=lambda node: node.name):
+                new_iter_args.append(staged_value_map[stage][subnode.name])
+                old_iter_args.append(subnode)
+
+        # Add original iter args
+        new_iter_args += [mma_init_args[x.name] for x in self.mma_args]
+        old_iter_args += self.mma_args
+        self.iter_args_to_init_args = {}
+        self.init_args_to_iter_args = {}
+        for init_arg, iter_arg in zip(new_iter_args, old_iter_args):
+            self.iter_args_to_init_args[iter_arg] = init_arg
+            self.init_args_to_iter_args[init_arg] = iter_arg
+
+        return new_iter_args, old_iter_args
+
     def create_scheduled_graph(
         self, expanded_graph: fx.Graph, expanded_root_graph: fx.Graph, scheduler, trace
     ):
@@ -841,23 +970,10 @@ class LaunchableWave(Launchable):
                     c_reg_name = "_".join(["c_reg", i, j])
                     value_map[c_reg_name] = new_node
 
-        def arg_mapper(node: fx.Node):
-            if node.name in value_map:
-                return value_map[node.name]
-            return node
-
         def epilogue_arg_mapper(node: fx.Node):
             if node.name in value_map:
                 return value_map[node.name]
             return node
-
-        def map_stage(stage: int):
-            """
-            During scheduling, we have stages 0, 1, 2
-            and these map to stages 2, 1, 0.
-            """
-            reversed_stages = list(range(self.max_stage, -1, -1))
-            return reversed_stages[stage]
 
         def initialize_staged_value_map(value_map):
             # All nodes in existing value map represent placeholders or shared memory
@@ -869,70 +985,23 @@ class LaunchableWave(Launchable):
                     staged_value_map[stage][name] = subnode
             return staged_value_map
 
-        def initialize_mma_init_args(source: fx.Node):
-            mma_init_args = {}
-            for stage, nodes in self.nodes_by_stage.items():
-                for node in nodes:
-                    if "c_reg" not in node.name:
-                        continue
-                    for src_node in source.args[1]:
-                        target_name = src_node.name.replace(
-                            "construct_register_from_metadata", "c_reg"
-                        )
-                        if target_name == node.name:
-                            mma_init_args[target_name] = value_map[src_node.name]
-            return mma_init_args
-
         for node in expanded_root_graph.nodes:
             typed_node = getNode(node)
             if isinstance(typed_node, TiledLoop):
                 staged_value_map = initialize_staged_value_map(value_map)
                 initialize_creg_mapping(staged_value_map, self.max_stage)
-                # Emit prologue
-                new_iter_args = []
-                old_iter_args = []
-                mma_init_args = initialize_mma_init_args(node)
-                for stage in reversed(self.prologue.keys()):
-                    for subnode in self.prologue[stage]:
-                        if "c_reg" in subnode.name:
-                            continue
-                        if "sync" in subnode.name:
-                            staged_value_map[stage][subnode.name] = staged_value_map[
-                                stage
-                            ][subnode.args[0].name]
-                            continue
-                        new_node = scheduled_graph.node_copy(
-                            subnode, lambda node: staged_value_map[stage][node.name]
-                        )
-                        new_node.name = subnode.name + "_prolog" + str(stage)
-                        new_node.meta["stage"] = map_stage(stage)
-                        next_stage = stage - 1 if stage > 0 else stage
-                        updated = self.update_staged_value_map(
-                            staged_value_map, stage, subnode.name, new_node, next_stage
-                        )
-                        if updated:
-                            name = "c_reg_" + "_".join(subnode.name.split("_")[-3:-1])
-                            mma_init_args[name] = new_node
-
-                for stage, nodes in self.iter_args.items():
-                    for subnode in sorted(list(nodes), key=lambda node: node.name):
-                        new_iter_args.append(staged_value_map[stage][subnode.name])
-                        old_iter_args.append(subnode)
-
-                # Add original iter args
-                new_iter_args += [mma_init_args[x.name] for x in self.mma_args]
-                old_iter_args += self.mma_args
-                self.iter_args_to_init_args = {}
-                self.init_args_to_iter_args = {}
-                for init_arg, iter_arg in zip(new_iter_args, old_iter_args):
-                    self.iter_args_to_init_args[iter_arg] = init_arg
-                    self.init_args_to_iter_args[init_arg] = iter_arg
+                mma_init_args = self.initialize_mma_init_args(
+                    node, expanded_graph, value_map
+                )
+                init_args, iter_args = self.create_prologue(
+                    scheduled_graph, staged_value_map, mma_init_args
+                )
 
                 # Emit loop
                 new_tiled_loop = scheduled_graph.node_copy(node)
                 new_tiled_loop.args = (
                     node.args[0],
-                    new_iter_args,
+                    init_args,
                     node.args[2],
                     [value_map[x.name] for x in node.args[3]],
                 )
@@ -941,17 +1010,18 @@ class LaunchableWave(Launchable):
                 trip_counts = int(
                     self.tiling_constraints[0].trip_counts().subs(idxc.subs)
                 )
-                loop_body = self.create_loop_graph(placeholder_map, old_iter_args)
+                loop_body = self.create_loop_graph(placeholder_map, iter_args)
                 new_tiled_loop.meta["start"] = len(self.nodes_by_stage) - 1
                 new_tiled_loop.meta["end"] = trip_counts
+                new_tiled_loop.meta["step"] = (tkl.sym.UNROLL_FACTOR).subs(idxc.subs)
                 new_tiled_loop.kwargs = {
                     "subgraph": loop_body,
-                    "iter_args": old_iter_args,
+                    "iter_args": iter_args,
                 }
                 update_value_map(node.name, new_tiled_loop)
 
                 # Emit nodes representing indexing into the list of results of the loop
-                for idx, arg in enumerate(old_iter_args):
+                for idx, arg in enumerate(iter_args):
                     get_res = GetResultNode(
                         scheduled_graph, get_result, new_tiled_loop, idx
                     )
@@ -972,6 +1042,9 @@ class LaunchableWave(Launchable):
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
                         new_node.meta["stage"] = (trip_counts - 1) - stage
+                        self.update_stage_index(
+                            new_node, new_node.meta["stage"] % self.num_buffers, True
+                        )
                         update_value_map(subnode.name, new_node)
                     # TODO: Extend to stages > 2.
                     if len(self.epilogue[stage]) > 0:
@@ -1289,10 +1362,9 @@ class LaunchableWave(Launchable):
             self.dependenceGraph.addNode(self.node_mapper[node])
 
         def get_output_to_node(node: fx.Node):
-            _, i, j, _ = node.name.split("_")
-            to_node_name = f"c_reg_{i}_{j}"
+            i, j, _ = node.name.split("_")[-3:]
             for node in graph.nodes:
-                if node.name == to_node_name:
+                if self.utils.is_creg_with_indices(i, j, node):
                     return node
             return None
 
@@ -1376,20 +1448,27 @@ class LaunchableWave(Launchable):
         return scheduler
 
     def print_schedule(self, file_name):
-        stages = sorted(list(self.nodes_by_stage.keys()))
-        line = ""
-        for time, nodes in self.nodes_by_time.items():
+
+        def print_formatted_line(i, row, line, prefix=""):
+            fmt_str = "{:<5}"
+            if i == 0:
+                row = [prefix + str(time)] + row
+            else:
+                row = [""] + row
+            for _ in range(len(stages)):
+                fmt_str += "|{:^38}"
+            line += fmt_str.format(*row)
+            line += "\n"
+            return line
+
+        def add_line_divider(line):
+            for _ in range(120):
+                line += "="
+            line += "\n"
+            return line
+
+        def print_subschedule(nodes_by_stage_per_time, line, prefix=""):
             i = 0
-            line += "================================================================================\n"
-            nodes_by_stage_per_time = {}
-            for node in nodes:
-                for stage in stages:
-                    if node in self.nodes_by_stage[stage]:
-                        if "c_reg" in node.name:
-                            continue
-                        if stage not in nodes_by_stage_per_time:
-                            nodes_by_stage_per_time[stage] = []
-                        nodes_by_stage_per_time[stage].append(node)
             done = False
             while not done:
                 node_row = []
@@ -1403,15 +1482,7 @@ class LaunchableWave(Launchable):
                     nodes_by_stage_per_time[stage].pop(0)
                     node_row.append(node.name)
 
-                fmt_str = "{:<10}"
-                if i == 0:
-                    node_row = [time] + node_row
-                else:
-                    node_row = [""] + node_row
-                for _ in range(len(stages)):
-                    fmt_str += "|{:^35}"
-                line += fmt_str.format(*node_row)
-                line += "\n"
+                line = print_formatted_line(i, node_row, line, prefix)
                 i += 1
 
                 done = True
@@ -1421,9 +1492,39 @@ class LaunchableWave(Launchable):
                         break
 
             line += "\n"
+            return line
+
+        stages = sorted(list(self.nodes_by_stage.keys()))
+        line = ""
+        for time, nodes in self.nodes_by_time.items():
+            line = add_line_divider(line)
+            nodes_by_stage_per_time = self.gather_nodes_by_stage(
+                nodes, stages, self.nodes_by_stage
+            )
+            line = print_subschedule(nodes_by_stage_per_time, line)
+
+        prolog_line = ""
+        epilog_line = ""
+        for time, nodes in self.nodes_by_absolute_time.items():
+            prolog_line = add_line_divider(prolog_line)
+            epilog_line = add_line_divider(epilog_line)
+            prolog_nodes_by_stage_per_time = self.gather_nodes_by_stage(
+                nodes, stages, self.prologue
+            )
+            epilog_nodes_by_stage_per_time = self.gather_nodes_by_stage(
+                nodes, stages, self.epilogue
+            )
+            prolog_line = print_subschedule(
+                prolog_nodes_by_stage_per_time, prolog_line, "P"
+            )
+            epilog_line = print_subschedule(
+                epilog_nodes_by_stage_per_time, epilog_line, "E"
+            )
 
         with open(file_name, "w") as f:
+            f.write(prolog_line)
             f.write(line)
+            f.write(epilog_line)
 
     def construct_prologue_and_epilogue(self, scheduler):
         """
@@ -1459,6 +1560,8 @@ class LaunchableWave(Launchable):
         # Partition graph by stage and go back to using the fx.Nodes.
         self.nodes_by_stage = {}
         self.nodes_by_time = {}
+        self.nodes_by_absolute_time = {}
+        self.mma_args = []
         for node, t in sorted_schedule.items():
             stage = t // self.initiation_iterval
             time = t % self.initiation_iterval
@@ -1466,27 +1569,31 @@ class LaunchableWave(Launchable):
                 self.nodes_by_stage[stage] = []
             if time not in self.nodes_by_time:
                 self.nodes_by_time[time] = []
+            if t not in self.nodes_by_absolute_time:
+                self.nodes_by_absolute_time[t] = []
             inverse_node = self.inverse_mapper[node]
+            if "c_reg" in inverse_node.name:
+                self.mma_args.append(inverse_node)
+                continue
             if criteria(inverse_node):
                 self.nodes_by_stage[stage].append(inverse_node)
                 self.nodes_by_time[time].append(inverse_node)
+                self.nodes_by_absolute_time[t].append(inverse_node)
             self.max_stage = stage
         self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
-        self.print_schedule("schedule.csv")
+        self.nodes_by_absolute_time = dict(sorted(self.nodes_by_absolute_time.items()))
+        self.mma_args = self.mma_args[::-1]
 
         self.iter_args = {stage: set() for stage in range(self.max_stage + 1)}
-        self.mma_args = []
         for stage in self.nodes_by_stage.keys():
             for node in self.nodes_by_stage[stage]:
-                if "c_reg" in node.name:
-                    self.mma_args.append(node)
-                    continue
                 for arg in node.all_input_nodes:
-                    if "c_reg" in arg.name:
-                        continue
-                    if arg not in self.nodes_by_stage[stage] and criteria(arg):
+                    if (
+                        not arg in self.nodes_by_stage[stage]
+                        and criteria(arg)
+                        and not "c_reg" in arg.name
+                    ):
                         self.iter_args[stage].add(arg)
-        self.mma_args = self.mma_args[::-1]
 
         # Handle scenarios where the use of an iter arg crosses more than
         # one stage boundary.
@@ -1549,6 +1656,18 @@ class LaunchableWave(Launchable):
         for stage in self.epilogue.keys():
             for i in range(stage + 1, self.max_stage + 1):
                 self.epilogue[stage] += self.nodes_by_stage[i]
+
+        self.print_schedule("schedule.csv")
+
+    def set_multibuffering_options(self, graph: fx.Graph):
+        # Num buffers (for multi-buffering) = (# of stages) - 1
+        # So if we have 3 stages, we need 2 buffers.
+        # We set this attribute on all the shared memory allocations
+        # so that they can be picked up during codegen.
+        self.num_buffers = self.max_stage
+        for node in graph.nodes:
+            if self.utils.is_shared_memory_alloc(node):
+                node.meta["num_buffers"] = self.max_stage
 
     def insert_barriers(self, graph: fx.Graph):
         """
@@ -1701,6 +1820,60 @@ class LaunchableWave(Launchable):
 
         return graph
 
+    def unroll_graph(
+        self, graph: fx.Graph, root_graph: fx.Graph, unroll_factor_expr: IndexExpr
+    ) -> fx.Graph:
+        """
+        This function unrolls the given graph N times, handling any dependencies
+        between the loop iterations and ensuring that writes/reads to shared memory
+        happen to separate buffers.
+        """
+        idxc = IndexingContext.current()
+        unroll_factor = unroll_factor_expr.subs(idxc.subs)
+        if unroll_factor == 1:
+            return graph
+        unrolled_graph = fx.Graph()
+        val_map = {}
+        for node in graph.nodes:
+            for arg in node.all_input_nodes:
+                if arg.op == "placeholder" and arg not in graph.nodes:
+                    val_map[arg] = arg
+                if self.utils.is_shared_memory_alloc(arg):
+                    val_map[arg] = arg
+                    root_arg = self.utils.get_node_from_root(arg, root_graph)
+                    root_arg.meta["num_buffers"] = unroll_factor
+        for i in range(unroll_factor):
+            graph_map = dict(val_map)
+            output = unrolled_graph.graph_copy(graph, graph_map)
+            for original, new in graph_map.items():
+                if original not in graph.nodes:
+                    continue
+                new.name = f"mve{i}_" + original.name
+                new.meta["buffer_index"] = i
+                if i == 0:
+                    continue
+                ivar = tkl.IndexSymbol("ARG0")
+                if "index" in new.meta:
+                    for i in range(len(new.meta["index"])):
+                        new.meta["index"][i] = new.meta["index"][i].replace(
+                            ivar, ivar + 1
+                        )
+        # Connect the loop carried dependencies
+        for i in range(1, unroll_factor):
+            for node in unrolled_graph.nodes:
+                if self.utils.is_c_reg_at_stage(node, i):
+                    mma_node = self.utils.get_mma_node_at_stage_with_k_index(
+                        i - 1, self.batch_k - 1, node, unrolled_graph
+                    )
+                    node.replace_all_uses_with(mma_node)
+                    unrolled_graph.erase_node(node)
+        # Rename creg nodes
+        for node in unrolled_graph.nodes:
+            if "c_reg" in node.name:
+                node.name = node.name.replace("mve0_", "")
+        unrolled_graph.create_node("output", "output", (output,))
+        return unrolled_graph
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -1739,10 +1912,16 @@ class LaunchableWave(Launchable):
         expanded_graph, expanded_root_graph = self.create_expanded_graph(trace, idxc)
         # Do graph rewrites in case of different load/store sizes from/to global/lds
         expanded_graph = self.handle_larger_global_loads(expanded_graph)
+        # Unroll loop N times for multi-buffering
+        unrolled_graph = self.unroll_graph(
+            expanded_graph, expanded_root_graph, tkl.sym.UNROLL_FACTOR
+        )
         # Schedule "macrokernel" graph
-        scheduler = self.construct_schedule(expanded_graph)
+        scheduler = self.construct_schedule(unrolled_graph)
         # Construct prologue and epilogue
         self.construct_prologue_and_epilogue(scheduler)
+        # Set multi-buffering options
+        self.set_multibuffering_options(expanded_root_graph)
         scheduled_graph = self.create_scheduled_graph(
             expanded_graph, expanded_root_graph, scheduler, trace
         )
@@ -1776,7 +1955,7 @@ class LaunchableWave(Launchable):
         )
         emitter = WaveEmitter(dispatch_entrypoint, trace)
         emitter.mma_matrix_shapes = self.hardware_constraints[0].mma_matrix_shapes()
-        emitter.acc_vector_shape = self.hardware_constraints[0].get_vector_shape('C')
+        emitter.acc_vector_shape = self.hardware_constraints[0].get_vector_shape("C")
         emitter.offset_fn = self.hardware_constraints[0].offset_gpr_c
 
         self.print(scheduled_graph)

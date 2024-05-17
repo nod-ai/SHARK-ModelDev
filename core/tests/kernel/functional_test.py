@@ -29,6 +29,8 @@ class Test(unittest.TestCase):
         LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
         STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
         GLOBAL_LOAD_ELEMS_PER_THREAD = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
+        # Unroll factor
+        UNROLL_FACTOR = tkl.sym.UNROLL_FACTOR
 
         # Expose user-constraints
         constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
@@ -80,9 +82,10 @@ class Test(unittest.TestCase):
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
             GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
-            BLOCK_M: 128,
-            BLOCK_N: 128,
-            BLOCK_K: 64,
+            UNROLL_FACTOR: 1,
+            BLOCK_M: 64,
+            BLOCK_N: 64,
+            BLOCK_K: 32,
             MMA_M: 16,
             MMA_N: 16,
             MMA_K: 16,
