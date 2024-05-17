@@ -699,34 +699,27 @@ class LaunchableWave(Launchable):
         #              if stage = 2, ARG0 -> ARG0 - 2
         #              ...
         # Also, we need to update the index to account for multibuffering.
-        # So in the above example, if we have Q buffers,
-        #              if stage = 0, index = [i % Q, ...]
-        #              if stage = 1, index = [(i - 1) % Q, ...]
-        #              if stage = 2, index = [(i - 2) % Q, ...]
-        # We also need to increase the dimensionality of the index if we
-        # are doing multi-buffering. This should only affect the read/write
-        # nodes to shared memory.
+        # The need for multibuffering comes when we unroll the loop > 1 times.
+        # In that case, we can just use the buffer index to determine the
+        # batch index for the shared memory alloc.
         if not self.utils.is_shared_memory_read_or_write(
             node
-        ) or not self.utils.is_global_memory_read_or_write(node):
+        ) and not self.utils.is_global_memory_read_or_write(node):
             return
-        if "index" in node.meta and stage < self.max_stage:
+        if "index" in node.meta:
             # Update induction variable indices on global reads/writes
+            ivar = tkl.IndexSymbol("ARG0")
             if self.utils.is_global_memory_read_or_write(node):
-                ivar = tkl.IndexSymbol("ARG0")
                 # We don't need to update the index outside the loop because we
                 # do this during codegen
                 if not outside_loop:
+                    index = [None for _ in range(len(node.meta["index"]))]
                     for i in range(len(node.meta["index"])):
-                        node.meta["index"][i] = node.meta["index"][i].replace(
-                            ivar, ivar - stage
-                        )
+                        index[i] = node.meta["index"][i].replace(ivar, ivar - stage)
+                    node.meta["index"] = index
             # Increase dimensionality on shared reads/writes
             if self.utils.is_shared_memory_read_or_write(node) and self.num_buffers > 1:
-                if not outside_loop:
-                    batch_index = (ivar - stage) % self.num_buffers
-                else:
-                    batch_index = stage % self.num_buffers
+                batch_index = node.meta["buffer_index"]
                 node.meta["index"] = [batch_index] + node.meta["index"]
 
     def create_loop_graph(self, value_map, iter_args):
@@ -1047,7 +1040,9 @@ class LaunchableWave(Launchable):
                     self.tiling_constraints[0].trip_counts().subs(idxc.subs)
                 )
                 loop_body = self.create_loop_graph(placeholder_map, iter_args)
-                new_tiled_loop.meta["start"] = len(self.nodes_by_stage) - 1
+                new_tiled_loop.meta["start"] = (
+                    len(self.nodes_by_stage) - 1
+                ) * self.num_buffers
                 new_tiled_loop.meta["end"] = trip_counts
                 new_tiled_loop.meta["step"] = self.num_buffers
                 new_tiled_loop.kwargs = {
@@ -1077,7 +1072,9 @@ class LaunchableWave(Launchable):
                             subnode, epilogue_arg_mapper
                         )
                         new_node.name = subnode.name + "_epilog" + str(stage)
-                        new_node.meta["stage"] = (trip_counts - 1) - stage
+                        new_node.meta["stage"] = (
+                            trip_counts - self.num_buffers
+                        ) - stage
                         self.update_stage_index(
                             new_node, new_node.meta["stage"] % self.num_buffers, True
                         )
@@ -1541,17 +1538,34 @@ class LaunchableWave(Launchable):
 
         prolog_line = ""
         epilog_line = ""
+        start_times = {
+            i: self.initiation_iterval * (self.max_stage - i)
+            for i in range(len(stages))
+        }
+        time_indices_per_stage = {i: 0 for i in range(len(stages))}
+        times = list(self.nodes_by_absolute_time.keys())
         for time, nodes in self.nodes_by_absolute_time.items():
             prolog_line = add_line_divider(prolog_line)
             epilog_line = add_line_divider(epilog_line)
-            prolog_nodes_by_stage_per_time = self.gather_nodes_by_stage(
-                nodes, stages, self.prologue
-            )
-            epilog_nodes_by_stage_per_time = self.gather_nodes_by_stage(
-                nodes, stages, self.epilogue
-            )
+
+            prolog_nodes_by_stage_per_time = {}
+            for stage, start_time in start_times.items():
+                if time < start_time:
+                    prolog_nodes_by_stage_per_time[stage] = []
+                    continue
+                stage_time = times[time_indices_per_stage[stage]]
+                prolog_nodes_by_stage_per_time[stage] = self.gather_nodes(
+                    self.nodes_by_absolute_time[stage_time], stage, self.prologue
+                )
             prolog_line = print_subschedule(
                 prolog_nodes_by_stage_per_time, prolog_line, "P"
+            )
+            for stage, start_time in start_times.items():
+                if time >= start_time:
+                    time_indices_per_stage[stage] += 1
+
+            epilog_nodes_by_stage_per_time = self.gather_nodes_by_stage(
+                nodes, stages, self.epilogue
             )
             epilog_line = print_subschedule(
                 epilog_nodes_by_stage_per_time, epilog_line, "E"
@@ -1598,10 +1612,11 @@ class LaunchableWave(Launchable):
         self.nodes_by_time = {}
         self.nodes_by_absolute_time = {}
         self.mma_args = []
-        self.max_stage = max(
-            [t // self.initiation_iterval for t in sorted_schedule.values()]
-        )
         for node, t in sorted_schedule.items():
+            inverse_node = self.inverse_mapper[node]
+            if "c_reg" in inverse_node.name:
+                self.mma_args.append(inverse_node)
+                continue
             stage = t // self.initiation_iterval
             time = t % self.initiation_iterval
             if stage not in self.nodes_by_stage:
@@ -1610,14 +1625,11 @@ class LaunchableWave(Launchable):
                 self.nodes_by_time[time] = []
             if t not in self.nodes_by_absolute_time:
                 self.nodes_by_absolute_time[t] = []
-            inverse_node = self.inverse_mapper[node]
-            if "c_reg" in inverse_node.name:
-                self.mma_args.append(inverse_node)
-                continue
             if criteria(inverse_node):
                 self.nodes_by_stage[stage].append(inverse_node)
                 self.nodes_by_time[time].append(inverse_node)
                 self.nodes_by_absolute_time[t].append(inverse_node)
+            self.max_stage = stage
         self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
         self.nodes_by_absolute_time = dict(sorted(self.nodes_by_absolute_time.items()))
         self.mma_args = self.mma_args[::-1]
@@ -1704,7 +1716,6 @@ class LaunchableWave(Launchable):
         from shared memory and vice versa, we insert a barrier node in between.
         """
 
-        insert_barrier = False
         has_read_shared_ancestor = False
         has_write_shared_ancestor = False
         for node in graph.nodes:
@@ -1891,10 +1902,11 @@ class LaunchableWave(Launchable):
                     continue
                 ivar = tkl.IndexSymbol("ARG0")
                 if "index" in new.meta:
-                    for i in range(len(new.meta["index"])):
-                        new.meta["index"][i] = new.meta["index"][i].replace(
-                            ivar, ivar + 1
-                        )
+                    if self.utils.is_global_memory_read_or_write(new):
+                        new_index = [None for _ in range(len(new.meta["index"]))]
+                        for i in range(len(new.meta["index"])):
+                            new_index[i] = new.meta["index"][i].replace(ivar, ivar + 1)
+                        new.meta["index"] = new_index
         # Connect the loop carried dependencies
         for i in range(1, unroll_factor):
             for node in unrolled_graph.nodes:
@@ -2010,7 +2022,6 @@ class LaunchableWave(Launchable):
         )
         host_codegen.isolated_test_call(mb, exe, kernel_sig, entrypoint_name)
 
-        print(mb.module_op.get_asm())
         output_name = "mma.mlir"
         reference_name = "reference.mlir"
         with open(output_name, "w") as f:

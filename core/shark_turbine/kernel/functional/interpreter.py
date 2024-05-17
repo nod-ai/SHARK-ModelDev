@@ -232,12 +232,13 @@ class Interpreter:
                         case scf_d.ForOp:
                             lb = int(sym_table[op.lowerBound])
                             ub = int(sym_table[op.upperBound])
+                            step = int(sym_table[op.step])
                             callback.for_op = op
                             for init_arg, iter_arg in zip(
                                 op.initArgs, op.inner_iter_args
                             ):
                                 sym_table[iter_arg] = sym_table[init_arg]
-                            for i in range(lb, ub):
+                            for i in range(lb, ub, step):
                                 print("i = ", i)
                                 sym_table[op.induction_variable] = i
                                 for k in range(len(op.body.operations)):

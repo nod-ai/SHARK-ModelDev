@@ -82,7 +82,7 @@ class Test(unittest.TestCase):
             LOAD_ELEMS_PER_THREAD: 4,
             STORE_ELEMS_PER_THREAD: 1,
             GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
-            UNROLL_FACTOR: 1,
+            UNROLL_FACTOR: 2,
             BLOCK_M: 64,
             BLOCK_N: 64,
             BLOCK_K: 32,
