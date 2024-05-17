@@ -27,19 +27,20 @@ BUILD_DIR = "/data/home/perf/harsh/iree-build/tools/"
 DEVICE = 4
 TIMEOUT = 60
 
-BLOCK_M=[128]
-BLOCK_N=[128]
-BLOCK_K=[32]
-RATIO_M=[1]
-RATIO_N=[1]
-RESOURCE_MMA=[2]
-RESOURCE_SHARED=[2]
+BLOCK_M = [128]
+BLOCK_N = [128]
+BLOCK_K = [32]
+RATIO_M = [1]
+RATIO_N = [1]
+RESOURCE_MMA = [2]
+RESOURCE_SHARED = [2]
 RESOURCE_GLOBAL = [2]
 DELAY_MMA = [2]
 DELAY_SHARED = [1]
 DELAY_GLOBAL = [5]
-MMA_INSTRUCTION = ['MFMA_F32_16x16x16_F16', 'MFMA_F32_32x32x8_F16']
-MMA_INSTRUCTION = ['MFMA_F32_16x16x16_F16']
+MMA_INSTRUCTION = ["MFMA_F32_16x16x16_F16", "MFMA_F32_32x32x8_F16"]
+MMA_INSTRUCTION = ["MFMA_F32_16x16x16_F16"]
+UNROLL_FACTOR = [2]
 
 
 def run_command(command, timeout_limit):
@@ -55,7 +56,7 @@ def run_command(command, timeout_limit):
     Returns:
       A tuple containing the captured output (decoded string) and any error (decoded string).
     """
-    print('\n' + ' '.join(command) + '\n')
+    print("\n" + " ".join(command) + "\n")
     start_time = time.time()
     try:
         process = subprocess.Popen(
@@ -79,13 +80,13 @@ def run_command(command, timeout_limit):
 def compile_to_vmfb():
     cmd = [
         os.path.join(BUILD_DIR, "iree-compile"),
-        "/data/home/perf/harsh/SHARK-Turbine/mma.mlir", \
-        "--iree-hal-target-backends=rocm", \
-        "--iree-rocm-target-chip=gfx942", \
-        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode", \
-        "--iree-hal-benchmark-dispatch-repeat-count=1000", \
-        "--iree-hal-dump-executable-intermediates-to=intermediates/gemm", \
-        "-o", \
+        "/data/home/perf/harsh/SHARK-Turbine/mma.mlir",
+        "--iree-hal-target-backends=rocm",
+        "--iree-rocm-target-chip=gfx942",
+        "--iree-rocm-bc-dir=/opt/rocm/amdgcn/bitcode",
+        "--iree-hal-benchmark-dispatch-repeat-count=1000",
+        "--iree-hal-dump-executable-intermediates-to=intermediates/gemm",
+        "-o",
         "mma.vmfb",
     ]
     output, error = run_command(cmd, TIMEOUT)
@@ -96,19 +97,29 @@ def compile_to_vmfb():
 def run_and_validate_result():
     cmd = [
         os.path.join(BUILD_DIR, "iree-run-module"),
-        f"--device=rocm://{DEVICE}", \
-        "--device_allocator=caching", \
-        "--module=mma.vmfb", \
-        "--function=isolated_benchmark", \
-        f"--input=@/data/home/perf/harsh/mma_files/a_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy", \
-        f"--input=@/data/home/perf/harsh/mma_files/b_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy", \
-        f"--output=@/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"
+        f"--device=rocm://{DEVICE}",
+        "--device_allocator=caching",
+        "--module=mma.vmfb",
+        "--function=isolated_benchmark",
+        f"--input=@/data/home/perf/harsh/mma_files/a_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy",
+        f"--input=@/data/home/perf/harsh/mma_files/b_matrix_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy",
+        f"--output=@/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy",
     ]
     output, error = run_command(cmd, TIMEOUT)
     if error is not None:
         return False
-    computed = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
-    reference = np.load(os.path.join(os.getcwd(), f"/data/home/perf/harsh/mma_files/iree_ref_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy"))
+    computed = np.load(
+        os.path.join(
+            os.getcwd(),
+            f"/data/home/perf/harsh/mma_files/output_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy",
+        )
+    )
+    reference = np.load(
+        os.path.join(
+            os.getcwd(),
+            f"/data/home/perf/harsh/mma_files/iree_ref_{MATRIX_M}x{MATRIX_N}x{MATRIX_K}.npy",
+        )
+    )
     max_error = np.max(np.abs(computed - reference))
     print("Max error = ", max_error)
     return max_error == 0.0
@@ -118,20 +129,20 @@ def run_and_validate_result():
 def benchmark():
     cmd = [
         os.path.join(BUILD_DIR, "iree-benchmark-module"),
-        f"--device=rocm://{DEVICE}", \
-        "--device_allocator=caching", \
-        "--module=mma.vmfb", \
-        "--function=isolated_benchmark", \
-        "--batch_size=1000", \
-        "--benchmark_repetitions=3", \
-        f"--input={MATRIX_M}x{MATRIX_K}xf16", \
-        f"--input={MATRIX_N}x{MATRIX_K}xf16"
+        f"--device=rocm://{DEVICE}",
+        "--device_allocator=caching",
+        "--module=mma.vmfb",
+        "--function=isolated_benchmark",
+        "--batch_size=1000",
+        "--benchmark_repetitions=3",
+        f"--input={MATRIX_M}x{MATRIX_K}xf16",
+        f"--input={MATRIX_N}x{MATRIX_K}xf16",
     ]
     output, error = run_command(cmd, TIMEOUT)
-    decoded_output = output.decode('utf-8')
+    decoded_output = output.decode("utf-8")
     metric = 0
-    if 'Benchmark' in decoded_output:
-        metric = [x for x in decoded_output.split('\n')[3].split(' ') if x][1]
+    if "Benchmark" in decoded_output:
+        metric = [x for x in decoded_output.split("\n")[3].split(" ") if x][1]
     return metric
 
 
@@ -157,6 +168,7 @@ def log_configuration_and_result(x, metric):
 @pytest.mark.parametrize("delay_shared", DELAY_SHARED)
 @pytest.mark.parametrize("delay_global", DELAY_GLOBAL)
 @pytest.mark.parametrize("mma_instruction", MMA_INSTRUCTION)
+@pytest.mark.parametrize("unroll_factor", UNROLL_FACTOR)
 def testGemm(
     block_m,
     block_n,
@@ -169,7 +181,8 @@ def testGemm(
     delay_mma,
     delay_shared,
     delay_global,
-    mma_instruction
+    mma_instruction,
+    unroll_factor,
 ):
 
     # Wave tile sizes (determined by constraints below)
@@ -191,6 +204,8 @@ def testGemm(
     LOAD_ELEMS_PER_THREAD = tkl.sym.LOAD_ELEMS_PER_THREAD
     STORE_ELEMS_PER_THREAD = tkl.sym.STORE_ELEMS_PER_THREAD
     GLOBAL_LOAD_ELEMS_PER_THREAD = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
+    # Unroll factor
+    UNROLL_FACTOR = tkl.sym.UNROLL_FACTOR
 
     # Expose user-constraints
     constraints = [tkf.WorkgroupConstraint(M, BLOCK_M, 0)]
@@ -214,7 +229,7 @@ def testGemm(
         tkf.HardwareConstraint(threads_per_wave=64, mma_type=mma_instruction)
     ]
     mma_m = mma_n = mma_k = 16
-    if mma_instruction == 'MFMA_F32_32x32x8_F16':
+    if mma_instruction == "MFMA_F32_32x32x8_F16":
         mma_m = mma_n = 32
         mma_k = 8
 
@@ -256,6 +271,7 @@ def testGemm(
         LOAD_ELEMS_PER_THREAD: 4,
         STORE_ELEMS_PER_THREAD: 1,
         GLOBAL_LOAD_ELEMS_PER_THREAD: 8,
+        UNROLL_FACTOR: unroll_factor,
         BLOCK_M: block_m,
         BLOCK_N: block_n,
         BLOCK_K: block_k,
@@ -300,6 +316,7 @@ def testGemm(
         delay_shared,
         delay_global,
         mma_instruction,
+        unroll_factor,
         MATRIX_M,
         MATRIX_N,
         MATRIX_K,
