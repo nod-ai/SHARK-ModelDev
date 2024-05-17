@@ -706,18 +706,23 @@ class LaunchableWave(Launchable):
         # We also need to increase the dimensionality of the index if we
         # are doing multi-buffering. This should only affect the read/write
         # nodes to shared memory.
-        if not self.utils.is_shared_memory_read_or_write(node):
+        if not self.utils.is_shared_memory_read_or_write(
+            node
+        ) or not self.utils.is_global_memory_read_or_write(node):
             return
         if "index" in node.meta and stage < self.max_stage:
-            ivar = tkl.IndexSymbol("ARG0")
-            # We don't need to update the index outside the loop because we
-            # do this during codegen
-            if not outside_loop:
-                for i in range(len(node.meta["index"])):
-                    node.meta["index"][i] = node.meta["index"][i].replace(
-                        ivar, ivar - stage
-                    )
-            if self.num_buffers > 1:
+            # Update induction variable indices on global reads/writes
+            if self.utils.is_global_memory_read_or_write(node):
+                ivar = tkl.IndexSymbol("ARG0")
+                # We don't need to update the index outside the loop because we
+                # do this during codegen
+                if not outside_loop:
+                    for i in range(len(node.meta["index"])):
+                        node.meta["index"][i] = node.meta["index"][i].replace(
+                            ivar, ivar - stage
+                        )
+            # Increase dimensionality on shared reads/writes
+            if self.utils.is_shared_memory_read_or_write(node) and self.num_buffers > 1:
                 if not outside_loop:
                     batch_index = (ivar - stage) % self.num_buffers
                 else:
@@ -838,6 +843,24 @@ class LaunchableWave(Launchable):
                 return True
         return False
 
+    def gather_nodes(
+        self,
+        nodes: list[fx.Node],
+        stage: int,
+        nodes_by_stage: dict[int, list[fx.Node]],
+    ) -> list[fx.Node]:
+        """
+        Given nodes that correspond to the same time, group them
+        by stage, ignoring any c_reg nodes.
+        """
+        output_nodes = []
+        for node in nodes:
+            if node in nodes_by_stage[stage]:
+                if "c_reg" in node.name:
+                    continue
+                output_nodes.append(node)
+        return output_nodes
+
     def gather_nodes_by_stage(
         self,
         nodes: list[fx.Node],
@@ -895,13 +918,21 @@ class LaunchableWave(Launchable):
         new_iter_args = []
         old_iter_args = []
         stages = sorted(list(self.nodes_by_stage.keys()))
-        for _, nodes in self.nodes_by_absolute_time.items():
-            prolog_nodes = self.gather_nodes_by_stage(nodes, stages, self.prologue)
+        time_index_per_stage = {i: 0 for i in range(len(stages))}
+        start_time_per_stage = [
+            self.initiation_iterval * (self.max_stage - i) for i in range(len(stages))
+        ]
+        times = list(self.nodes_by_absolute_time.keys())
+        max_time_index = len(times)
+        for time in self.nodes_by_absolute_time.keys():
             for stage in reversed(self.prologue.keys()):
-                # Induction variables at stage k have to be mapped to k - max_stage
-                if stage not in prolog_nodes:
+                if time < start_time_per_stage[stage]:
                     continue
-                for subnode in prolog_nodes[stage]:
+                stage_time = times[time_index_per_stage[stage]]
+                nodes = self.nodes_by_absolute_time[stage_time]
+                prolog_nodes = self.gather_nodes(nodes, stage, self.prologue)
+                # Induction variables at stage k have to be mapped to k - max_stage
+                for subnode in prolog_nodes:
                     if "sync" in subnode.name:
                         staged_value_map[stage][subnode.name] = staged_value_map[stage][
                             subnode.args[0].name
@@ -920,6 +951,10 @@ class LaunchableWave(Launchable):
                     if updated:
                         name = "c_reg_" + "_".join(subnode.name.split("_")[-3:-1])
                         mma_init_args[name] = new_node
+
+                time_index_per_stage[stage] = (
+                    time_index_per_stage[stage] + 1
+                ) % max_time_index
 
         for stage, nodes in self.iter_args.items():
             for subnode in sorted(list(nodes), key=lambda node: node.name):
@@ -950,6 +985,8 @@ class LaunchableWave(Launchable):
         value_map = {}
         placeholder_map = {}
         new_tiled_loop = None
+        idxc = IndexingContext.current()
+        self.num_buffers = (tkl.sym.UNROLL_FACTOR).subs(idxc.subs)
 
         # Initialize mapping between creg and construct_data_from_register
         def initialize_creg_mapping(staged_value_map, stage: int):
@@ -1005,7 +1042,6 @@ class LaunchableWave(Launchable):
                     node.args[2],
                     [value_map[x.name] for x in node.args[3]],
                 )
-                idxc = IndexingContext.current()
                 # TODO: Figure out how to extend to multiple tiling
                 trip_counts = int(
                     self.tiling_constraints[0].trip_counts().subs(idxc.subs)
@@ -1013,7 +1049,7 @@ class LaunchableWave(Launchable):
                 loop_body = self.create_loop_graph(placeholder_map, iter_args)
                 new_tiled_loop.meta["start"] = len(self.nodes_by_stage) - 1
                 new_tiled_loop.meta["end"] = trip_counts
-                new_tiled_loop.meta["step"] = (tkl.sym.UNROLL_FACTOR).subs(idxc.subs)
+                new_tiled_loop.meta["step"] = self.num_buffers
                 new_tiled_loop.kwargs = {
                     "subgraph": loop_body,
                     "iter_args": iter_args,
@@ -1562,6 +1598,9 @@ class LaunchableWave(Launchable):
         self.nodes_by_time = {}
         self.nodes_by_absolute_time = {}
         self.mma_args = []
+        self.max_stage = max(
+            [t // self.initiation_iterval for t in sorted_schedule.values()]
+        )
         for node, t in sorted_schedule.items():
             stage = t // self.initiation_iterval
             time = t % self.initiation_iterval
@@ -1579,7 +1618,6 @@ class LaunchableWave(Launchable):
                 self.nodes_by_stage[stage].append(inverse_node)
                 self.nodes_by_time[time].append(inverse_node)
                 self.nodes_by_absolute_time[t].append(inverse_node)
-            self.max_stage = stage
         self.nodes_by_time = dict(sorted(self.nodes_by_time.items()))
         self.nodes_by_absolute_time = dict(sorted(self.nodes_by_absolute_time.items()))
         self.mma_args = self.mma_args[::-1]
@@ -1659,16 +1697,6 @@ class LaunchableWave(Launchable):
 
         self.print_schedule("schedule.csv")
 
-    def set_multibuffering_options(self, graph: fx.Graph):
-        # Num buffers (for multi-buffering) = (# of stages) - 1
-        # So if we have 3 stages, we need 2 buffers.
-        # We set this attribute on all the shared memory allocations
-        # so that they can be picked up during codegen.
-        self.num_buffers = self.max_stage
-        for node in graph.nodes:
-            if self.utils.is_shared_memory_alloc(node):
-                node.meta["num_buffers"] = self.max_stage
-
     def insert_barriers(self, graph: fx.Graph):
         """
         This function inserts barrier nodes into the graph following a very
@@ -1677,17 +1705,26 @@ class LaunchableWave(Launchable):
         """
 
         insert_barrier = False
+        has_read_shared_ancestor = False
+        has_write_shared_ancestor = False
         for node in graph.nodes:
             typed_node = getNode(node)
             if node.next is None:
                 continue
             if isinstance(typed_node, WriteSharedNode):
-                insert_barrier = True
-            if isinstance(typed_node, ReadSharedNode) and insert_barrier:
-                graph.inserting_before(node)
-                barrier_node = BarrierNode(graph, barrier)
-                barrier_node.emit()
-                insert_barrier = False
+                has_write_shared_ancestor = True
+                if has_read_shared_ancestor:
+                    graph.inserting_before(node)
+                    barrier_node = BarrierNode(graph, barrier)
+                    barrier_node.emit()
+                    has_read_shared_ancestor = False
+            if isinstance(typed_node, ReadSharedNode):
+                has_read_shared_ancestor = True
+                if has_write_shared_ancestor:
+                    graph.inserting_before(node)
+                    barrier_node = BarrierNode(graph, barrier)
+                    barrier_node.emit()
+                    has_write_shared_ancestor = False
             ## read after write barrier
             # if isinstance(typed_node, ReadSharedNode) and isinstance(
             #    getNode(node.next), WriteSharedNode
@@ -1920,8 +1957,6 @@ class LaunchableWave(Launchable):
         scheduler = self.construct_schedule(unrolled_graph)
         # Construct prologue and epilogue
         self.construct_prologue_and_epilogue(scheduler)
-        # Set multi-buffering options
-        self.set_multibuffering_options(expanded_root_graph)
         scheduled_graph = self.create_scheduled_graph(
             expanded_graph, expanded_root_graph, scheduler, trace
         )

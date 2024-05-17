@@ -358,7 +358,6 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
-    print("Stage = ", stage)
     start_indices = []
     if isinstance(node.meta["index"], sympy.Add):
         pass
@@ -390,7 +389,6 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
     stage = 0
     if "stage" in node.meta:
         stage = node.meta["stage"]
-    print("Stage = ", stage)
     start_indices = []
     for dim_indexing in node.meta["index"]:
         start_indices.append(

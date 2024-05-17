@@ -186,3 +186,8 @@ class Utils:
 
     def is_shared_memory_read_or_write(self, node: fx.Node) -> bool:
         return "shared" in node.name and ("read" in node.name or "write" in node.name)
+
+    def is_global_memory_read_or_write(self, node: fx.Node) -> bool:
+        return not "shared" in node.name and (
+            "read" in node.name or "write" in node.name
+        )
