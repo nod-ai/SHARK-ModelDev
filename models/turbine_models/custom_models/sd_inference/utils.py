@@ -133,7 +133,7 @@ def compile_to_vmfb(
                 os.path.realpath(os.path.dirname(__file__)),
                 "default_mfma_attn_spec.mlir",
             )
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)
 
