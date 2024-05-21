@@ -1676,6 +1676,12 @@ class LaunchableWave(Launchable):
                     if target == node:
                         return time
 
+        def find_node_absolute_time(target: fx.Node):
+            for time, nodes in self.nodes_by_absolute_time.items():
+                for node in nodes:
+                    if target == node:
+                        return time
+
         self.sync_parent = {}
         for stage_i in range(0, self.max_stage):
             for arg_i in self.iter_args[stage_i]:
@@ -1699,6 +1705,8 @@ class LaunchableWave(Launchable):
                         self.nodes_by_stage[arg_i_stage].append(new_arg)
                         arg_i_time = find_node_time(arg_i)
                         self.nodes_by_time[arg_i_time].append(new_arg)
+                        arg_i_abs_time = find_node_absolute_time(arg_i)
+                        self.nodes_by_absolute_time[arg_i_abs_time].append(new_arg)
                         self.sync_parent[new_arg] = arg_i
 
         # Create prologue and epilogue after sync nodes have been created.
@@ -1808,6 +1816,8 @@ class LaunchableWave(Launchable):
                 if (matrix, i, k) in processed:
                     continue
                 matching_node = find_node(matrix, i, matching_index(k))
+                if matching_node is None:
+                    continue
                 processed.append((matrix, i, k))
                 processed.append((matrix, i, matching_index(k)))
                 meta = None
