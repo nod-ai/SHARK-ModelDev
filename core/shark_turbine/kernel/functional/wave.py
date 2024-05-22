@@ -4,7 +4,9 @@ import math
 from functools import partial
 import sympy
 import difflib
+import os
 from copy import deepcopy
+import numpy as np
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -1482,6 +1484,14 @@ class LaunchableWave(Launchable):
 
         scheduler = ms.ModuloScheduler(resourceVector, self.dependenceGraph)
         scheduler.generateSchedule()
+        schedule_str = ""
+        # Sort schedule by times
+        initiation_interval = len(scheduler.RT)
+        sorted_schedule = dict(sorted(scheduler.schedule.items(), key=lambda x: x[1]))
+        for node, time in sorted_schedule.items():
+            schedule_str += f"{time},{initiation_interval},{time % len(scheduler.RT)},{node.label}\n"
+        with open("generated_schedule.csv", "w") as f:
+            f.write(schedule_str)
         return scheduler
 
     def print_schedule(self, file_name):
@@ -1937,6 +1947,34 @@ class LaunchableWave(Launchable):
         unrolled_graph.create_node("output", "output", (output,))
         return unrolled_graph
 
+    def apply_user_schedule(self, scheduler):
+        user_file_name = "user_schedule.csv"
+        if not os.path.isfile("user_schedule.csv"):
+            return
+
+        print(f"Found {user_file_name}. Applying user-specified schedule ...")
+        data = np.loadtxt(
+            user_file_name,
+            delimiter=",",
+            dtype={
+                "names": ("time", "initiation_interval", "module_time", "operation"),
+                "formats": (np.int32, np.int32, np.int32, "|S45"),
+            },
+        )
+
+        operation_names = [x.decode("utf-8") for x in data["operation"]]
+
+        new_schedule = {}
+        for operation, _ in scheduler.schedule.items():
+            index = operation_names.index(operation.label)
+            new_schedule[operation] = data["time"][index]
+
+        scheduler.schedule = new_schedule
+        initiation_interval = data["initiation_interval"][0]
+        scheduler.RT = [
+            [0 for _ in range(len(scheduler.RT[0]))] for _ in range(initiation_interval)
+        ]
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -1981,6 +2019,8 @@ class LaunchableWave(Launchable):
         )
         # Schedule "macrokernel" graph
         scheduler = self.construct_schedule(unrolled_graph)
+        # Check for user-specified schedule
+        self.apply_user_schedule(scheduler)
         # Construct prologue and epilogue
         self.construct_prologue_and_epilogue(scheduler)
         scheduled_graph = self.create_scheduled_graph(
