@@ -441,6 +441,35 @@ class LaunchableWave(Launchable):
                     for user in list(node.users.keys()):
                         user.meta["index"] = c_index
 
+    def transpose_workgroup_ids(self, x, y, grid_x, grid_y):
+        linearized = x + y * grid_x
+        x = sympy.floor(linearized / grid_y)
+        y = linearized % grid_y
+        return x, y
+
+    def reorder_workgroups(self, trace: CapturedTrace, grid: Grid):
+        subgraphs = trace.region_graph.subgraphs
+        wg0 = self.hardware_constraints[0].workgroup_ids[0]
+        wg1 = self.hardware_constraints[0].workgroup_ids[1]
+        # Create dummy workgroup ids
+        d0 = tkl.sym.D0
+        d1 = tkl.sym.D1
+        rwg0, rwg1 = self.transpose_workgroup_ids(d0, d1, grid.dims[0], grid.dims[1])
+        for graph in subgraphs.values():
+            for node in graph.nodes:
+                if "index" not in node.meta:
+                    continue
+                num_indices = len(node.meta["index"])
+                index = [None for _ in range(num_indices)]
+                for i in range(num_indices):
+                    index[i] = node.meta["index"][i].replace(wg0, rwg0)
+                    index[i] = index[i].replace(wg1, rwg1)
+                # Now replace dummy variables with read workgroup ids
+                for i in range(num_indices):
+                    index[i] = index[i].replace(d0, wg0)
+                    index[i] = index[i].replace(d1, wg1)
+                node.meta["index"] = index
+
     def get_string(self, node: fx.Node, i: int, nested_region: bool) -> str:
         prefix = " "
         nested_region_prefix = "b" if nested_region else ""
@@ -2005,6 +2034,9 @@ class LaunchableWave(Launchable):
 
         # Propagate constraints to all nodes in the graph
         self.propagate_constraints(trace)
+
+        # Apply workgroup reordering
+        self.reorder_workgroups(trace, self.grid_type())
 
         # Do shared memory promotion if required
         self.promote_to_shared_memory(trace, idxc)

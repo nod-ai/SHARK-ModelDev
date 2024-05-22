@@ -279,8 +279,6 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
     expr = expr.subs(idxc.subs)
     # Why affine, for now simply create indexing expressions.
     # This can easily be adapted to affine expressions later.
-    division_flag = False
-    subtraction_flag = False
     for term in sympy.postorder_traversal(expr):
         match term:
             case sympy.Symbol():
@@ -300,18 +298,22 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
             case sympy.Integer():
                 stack.append(arith_d.constant(IndexType.get(), int(term)))
             case sympy.Mul():
-                factor = stack.pop()
-                operation = factor
-                for _ in range(1, len(term.args)):
-                    if not division_flag:
-                        operation = arith_d.MulIOp(operation, stack.pop())
-                    else:
-                        operation = arith_d.DivSIOp(operation, stack.pop())
-                        if subtraction_flag:
-                            zero = arith_d.constant(IndexType.get(), int(0))
-                            operation = arith_d.SubIOp(zero, operation)
-                            subtraction_flag = False
-                division_flag = False
+                args = []
+                for _ in range(len(term.args)):
+                    args.append(stack.pop())
+                operation = None
+                # First, multiply all the non-rationals.
+                for arg in args:
+                    if callable(arg):
+                        continue
+                    if operation is None:
+                        operation = arg
+                        continue
+                    operation = arith_d.MulIOp(operation, arg)
+                # Then, multiply with the rationals.
+                for arg in args:
+                    if callable(arg):
+                        operation = arg(operation)
                 stack.append(operation)
             case sympy.Add():
                 summand = stack.pop()
@@ -329,12 +331,17 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                 # But check whether floordivsi is needed.
                 stack.append(stack.pop())
             case sympy.Rational():
-                if abs(term.p) != 1:
-                    raise CodegenError(f"Can not handle rational {term}")
-                stack.append(arith_d.constant(IndexType.get(), abs(term.q)))
-                division_flag = True
+                numerator = arith_d.constant(IndexType.get(), abs(term.p))
+                denominator = arith_d.constant(IndexType.get(), abs(term.q))
+                # Assumes that the negative term is always carried on the numerator
                 if abs(term.p) > term.p:
-                    subtraction_flag = True
+                    zero = arith_d.constant(IndexType.get(), int(0))
+                    numerator = arith_d.SubIOp(zero, numerator)
+                mul = lambda x: x
+                if abs(term.p) != 1:
+                    mul = lambda x: arith_d.MulIOp(x, numerator)
+                operation = lambda x: arith_d.DivSIOp(mul(x), denominator)
+                stack.append(operation)
             case _:
                 raise CodegenError(f"Can not handle {term} yet")
     if len(stack) != 1:
