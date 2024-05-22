@@ -24,6 +24,7 @@ import numpy as np
 import time
 from datetime import datetime as dt
 
+
 device_list = [
     "cpu",
     "vulkan",
@@ -60,7 +61,7 @@ class SharkSDPipeline:
         num_inference_steps: int,
         device: str,
         iree_target_triple: str,
-        ireec_flags: dict = EMPTY_FLAGS,
+        ireec_flags: dict = copy.deepcopy(SUBMODELS),
         attn_spec: str = None,
         decomp_attn: bool = False,
         pipeline_dir: str = "./shark_vmfbs",
@@ -183,7 +184,7 @@ class SharkSDPipeline:
                 )
                 return unet_torch
             case "vae_decode":
-                if not self.custom_vae:
+                if not self.custom_vae and self.is_sdxl:
                     custom_vae = "madebyollin/sdxl-vae-fp16-fix" if self.precision == "fp16" and self.is_sdxl else None
                 vae_torch = vae.VaeModel(
                     self.hf_model_name,

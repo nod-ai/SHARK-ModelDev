@@ -44,6 +44,86 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
+class PromptEncoderModule(torch.nn.Module):
+    def __init__(
+        self,
+        hf_model_name,
+        precision,
+        hf_auth_token=None,
+        do_classifier_free_guidance=True,
+    ):
+        super().__init__()
+        self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
+        self.text_encoder_model_1 = CLIPTextModel.from_pretrained(
+            hf_model_name,
+            subfolder="text_encoder",
+            token=hf_auth_token,
+        )
+        self.text_encoder_model_2 = CLIPTextModelWithProjection.from_pretrained(
+            hf_model_name,
+            subfolder="text_encoder_2",
+            token=hf_auth_token,
+        )
+        self.do_classifier_free_guidance = do_classifier_free_guidance
+
+    def forward(
+        self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
+    ):
+        with torch.no_grad():
+            prompt_embeds_1 = self.text_encoder_model_1(
+                text_input_ids_1,
+                output_hidden_states=True,
+            )
+            prompt_embeds_2 = self.text_encoder_model_2(
+                text_input_ids_2,
+                output_hidden_states=True,
+            )
+            neg_prompt_embeds_1 = self.text_encoder_model_1(
+                uncond_input_ids_1,
+                output_hidden_states=True,
+            )
+            neg_prompt_embeds_2 = self.text_encoder_model_2(
+                uncond_input_ids_2,
+                output_hidden_states=True,
+            )
+            # We are only ALWAYS interested in the pooled output of the final text encoder
+            pooled_prompt_embeds = prompt_embeds_2[0]
+            neg_pooled_prompt_embeds = neg_prompt_embeds_2[0]
+
+            prompt_embeds_list = [
+                prompt_embeds_1.hidden_states[-2],
+                prompt_embeds_2.hidden_states[-2],
+            ]
+            neg_prompt_embeds_list = [
+                neg_prompt_embeds_1.hidden_states[-2],
+                neg_prompt_embeds_2.hidden_states[-2],
+            ]
+
+            prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+            neg_prompt_embeds = torch.concat(neg_prompt_embeds_list, dim=-1)
+
+            bs_embed, seq_len, _ = prompt_embeds.shape
+
+            prompt_embeds = prompt_embeds.repeat(1, 1, 1)
+            prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
+            pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
+                bs_embed * 1, -1
+            )
+            add_text_embeds = pooled_prompt_embeds
+            if self.do_classifier_free_guidance:
+                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
+                    1, -1
+                )
+                neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
+                neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
+                prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
+                add_text_embeds = torch.cat(
+                    [neg_pooled_prompt_embeds, add_text_embeds], dim=0
+                )
+
+            add_text_embeds = add_text_embeds.to(self.torch_dtype)
+            prompt_embeds = prompt_embeds.to(self.torch_dtype)
+            return prompt_embeds, add_text_embeds
 
 def export_clip_model(
     hf_model_name,
@@ -79,7 +159,7 @@ def export_clip_model(
             )
             hf_subfolder = "text_encoder"
 
-        text_encoder_model = CLIPTextModel.from_pretrained(
+        text_encoder_model = PromptEncoderModule(
             hf_model_name,
             subfolder=hf_subfolder,
             token=hf_auth_token,
