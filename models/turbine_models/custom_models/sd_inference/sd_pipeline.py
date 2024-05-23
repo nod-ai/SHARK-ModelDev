@@ -261,10 +261,7 @@ class SharkSDPipeline:
                 return clip_vmfb, clip_external_weight_path
             case "scheduler":
                 if self.cpu_scheduling:
-                    return (
-                        schedulers.get_scheduler(self.hf_model_name, self.scheduler_id),
-                        None,
-                    )
+                    return (None, None)
                 scheduler = schedulers.export_scheduler(
                     self.hf_model_name,
                     self.scheduler_id,
@@ -368,7 +365,7 @@ class SharkSDPipeline:
         runners["clip"] = vmfbRunner(rt_device, vmfbs["clip"], weights["clip"])
         if self.cpu_scheduling:
             self.scheduler = schedulers.SchedulingModel(
-                vmfbs["scheduler"],
+                schedulers.get_scheduler(self.hf_model_name, self.scheduler_id),
                 self.height,
                 self.width,
                 self.num_inference_steps,
@@ -449,14 +446,15 @@ class SharkSDPipeline:
             sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
 
             if self.is_img2img:
+                strength = 0.5  # should be user-facing
                 init_timestep = min(
-                    int(num_inference_steps * strength), num_inference_steps
+                    int(self.num_inference_steps * strength), self.num_inference_steps
                 )
-                t_start = max(num_inference_steps - init_timestep, 0)
+                t_start = max(self.num_inference_steps - init_timestep, 0)
                 timesteps = self.scheduler.timesteps[t_start:]
                 latents = self.encode_image(image)
                 latents = self.scheduler.add_noise(
-                    latents, noise, timesteps[0].repeat(1)
+                    latents, sample, timesteps[0].repeat(1)
                 )
                 return latents, [timesteps]
 

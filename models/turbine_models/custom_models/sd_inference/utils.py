@@ -69,7 +69,7 @@ def compile_to_vmfb(
             ]
         )
         device = "llvm-cpu"
-    elif device == "vulkan":
+    elif device in ["vulkan", "vulkan-spirv"]:
         flags.extend(
             [
                 "--iree-hal-target-backends=vulkan-spirv",

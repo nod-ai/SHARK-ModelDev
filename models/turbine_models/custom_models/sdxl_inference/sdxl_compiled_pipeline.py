@@ -81,6 +81,7 @@ class SharkSDXLPipeline:
         external_weights_dir: str = "./shark_weights",
         external_weights: str = "safetensors",
         vae_decomp_attn: bool = True,
+        custom_vae: str = "",
     ):
         self.hf_model_name = hf_model_name
         self.scheduler_id = scheduler_id
@@ -99,6 +100,7 @@ class SharkSDXLPipeline:
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
+        self.custom_vae = custom_vae
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 
