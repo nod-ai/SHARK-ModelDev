@@ -45,7 +45,7 @@ parser.add_argument(
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 
-def export_clip(
+def export_clip_model(
     hf_model_name,
     hf_auth_token: str = None,
     max_length: int = 64,

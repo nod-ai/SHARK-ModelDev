@@ -85,6 +85,7 @@ def export_vae_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
+    upload_ir=False,
 ):
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, "vae_" + variant)

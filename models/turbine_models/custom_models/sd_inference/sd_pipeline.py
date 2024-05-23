@@ -241,7 +241,7 @@ class SharkSDPipeline:
             input_mlir = copy.deepcopy(SUBMODELS)
         match submodel:
             case "clip":
-                _, clip_vmfb = clip.export_clip(
+                _, clip_vmfb = clip.export_clip_model(
                     self.hf_model_name,
                     None,
                     self.max_length,
@@ -262,7 +262,7 @@ class SharkSDPipeline:
             case "scheduler":
                 if self.cpu_scheduling:
                     return (None, None)
-                scheduler = schedulers.export_scheduler(
+                scheduler = schedulers.export_scheduler_model(
                     self.hf_model_name,
                     self.scheduler_id,
                     self.batch_size,
@@ -446,6 +446,7 @@ class SharkSDPipeline:
             sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
 
             if self.is_img2img:
+                raise AssertionError, "Image-to-image not supported yet."
                 strength = 0.5  # should be user-facing
                 init_timestep = min(
                     int(self.num_inference_steps * strength), self.num_inference_steps

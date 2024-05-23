@@ -66,6 +66,7 @@ def export_unet_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
+    upload_ir=False,
 ):
     if "turbo" in hf_model_name:
         do_classifier_free_guidance = False
