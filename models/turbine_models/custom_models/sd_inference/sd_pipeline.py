@@ -15,8 +15,10 @@ from turbine_models.custom_models.sd_inference import (
     schedulers,
     utils,
 )
+from .tokenization import get_weighted_text_embeddings
 from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
+from pathlib import Path
 
 from PIL import Image
 import os
@@ -64,17 +66,20 @@ class SharkSDPipeline:
         ireec_flags: dict = copy.deepcopy(SUBMODELS),
         attn_spec: str = None,
         decomp_attn: bool = False,
-        pipeline_dir: str = "./shark_vmfbs",
-        external_weights_dir: str = "./shark_weights",
+        pipeline_dir: str | Path = "./shark_vmfbs",
+        external_weights_dir: str | Path = "./shark_weights",
         external_weights: str = "safetensors",
+        custom_vae: str = None,
         vae_decomp_attn: bool = True,
     ):
         self.hf_model_name = hf_model_name
+        self.cpu_scheduling = True
         self.scheduler_id = scheduler_id
         self.height = height
         self.width = width
         self.precision = precision
         self.max_length = max_length
+        self.model_max_length = max_length
         self.batch_size = batch_size
         self.num_inference_steps = num_inference_steps
         self.device = device
@@ -85,6 +90,7 @@ class SharkSDPipeline:
         self.pipeline_dir = pipeline_dir
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
+        self.custom_vae = custom_vae
         self.vae_decomp_attn = vae_decomp_attn
         self.is_sdxl = "xl" in self.hf_model_name
 
@@ -176,19 +182,12 @@ class SharkSDPipeline:
             case "unet":
                 unet_torch = unet.UnetModel(
                     self.hf_model_name,
-                    self.height,
-                    self.width,
-                    self.batch_size,
-                    None,
-                    precision=self.precision,
                 )
                 return unet_torch
             case "vae_decode":
-                if not self.custom_vae and self.is_sdxl:
-                    custom_vae = "madebyollin/sdxl-vae-fp16-fix" if self.precision == "fp16" and self.is_sdxl else None
                 vae_torch = vae.VaeModel(
                     self.hf_model_name,
-                    custom_vae,
+                    self.custom_vae,
                 )
                 return vae_torch
 
@@ -239,7 +238,7 @@ class SharkSDPipeline:
             input_mlir = copy.deepcopy(SUBMODELS)
         match submodel:
             case "clip":
-                _, clip_vmfb = clip.export_combined_clip(
+                _, clip_vmfb = clip.export_clip(
                     self.hf_model_name,
                     None,
                     self.max_length,
@@ -253,12 +252,14 @@ class SharkSDPipeline:
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
                     input_mlir=input_mlir["clip"],
-                    attn_spec=self.attn_spec,
+                    td_spec=self.attn_spec,
                     weights_only=weights_only,
                 )
                 return clip_vmfb, clip_external_weight_path
             case "scheduler":
-                scheduler_vmfb = schedulers.export_scheduler(
+                if self.cpu_scheduling:
+                    return utils.get_scheduler(self.hf_model_name, self.scheduler_id), None
+                scheduler = schedulers.export_scheduler(
                     self.hf_model_name,
                     self.scheduler_id,
                     self.batch_size,
@@ -274,7 +275,7 @@ class SharkSDPipeline:
                     pipeline_dir=self.pipeline_dir,
                     input_mlir=input_mlir["scheduler"],
                 )
-                return scheduler_vmfb, None
+                return scheduler, None
             case "unet":
                 if input_mlir[submodel]:
                     unet_torch = None
@@ -358,9 +359,11 @@ class SharkSDPipeline:
         runners["clip"] = vmfbRunner(
             rt_device, vmfbs["clip"], weights["clip"]
         )
-        runners["scheduler"] = vmfbRunner(
-            rt_device, vmfbs["scheduler"], weights["scheduler"]
-        )
+        if isinstance(vmfbs["scheduler"], torch.nn.Module):
+            self.scheduler = schedulers.SchedulingModel(vmfbs['scheduler'], self.height, self.width)
+        else:
+            self.scheduler = schedulers.SharkSchedulerWrapper(rt_device, vmfbs["scheduler"], weights["scheduler"])
+
         runners["unet"] = vmfbRunner(
             rt_device, vmfbs["unet"], weights["unet"]
         )
@@ -385,16 +388,12 @@ class SharkSDPipeline:
         # TODO: implement case where this is false e.g. in SDXL Turbo
         # do_classifier_free_guidance = True
 
-        iree_dtype = "float32" if self.precision == "fp32" else "float16"
+        self.iree_dtype = "float32" if self.precision == "fp32" else "float16"
         torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16
 
         pipe_start = time.time()
-
-        max_length = self.max_length
-
         samples = []
         numpy_images = []
-
 
         for i in range(batch_count):
             generator = torch.random.manual_seed(seed + i)
@@ -410,80 +409,72 @@ class SharkSDPipeline:
             )
             samples.append(
                 ireert.asdevicearray(
-                    self.runners["unet"].config.device, rand_sample, dtype=iree_dtype
+                    self.runners["unet"].config.device, rand_sample, dtype=self.iree_dtype
                 )
             )
 
         guidance_scale = ireert.asdevicearray(
             self.runners["unet"].config.device,
             np.asarray([guidance_scale]),
-            dtype=iree_dtype,
+            dtype=self.iree_dtype,
         )
-
-        text_input_ids_list = []
-        uncond_input_ids_list = []
 
         tokenize_start = time.time()
 
         # Tokenize prompt and negative prompt.
-        for tokenizer in self.runners["tokenizers"]:
-            text_inputs = tokenizer(
-                prompt,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-            uncond_input = tokenizer(
-                negative_prompt,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-            text_input_ids = text_inputs.input_ids
-            uncond_input_ids = uncond_input.input_ids
 
-            text_input_ids_list.extend(
-                [
-                    ireert.asdevicearray(
-                        self.runners["unet"].config.device, text_input_ids
-                    )
-                ]
-            )
-            uncond_input_ids_list.extend(
-                [
-                    ireert.asdevicearray(
-                        self.runners["unet"].config.device, uncond_input_ids
-                    )
-                ]
-            )
-        encode_prompts_start = time.time()
-
-        prompt_embeds, add_text_embeds = self.runners[
-            "clip"
-        ].ctx.modules.compiled_clip["encode_prompts"](
-            *text_input_ids_list, *uncond_input_ids_list
-        )
+        prompt_embeds, negative_embeds = get_weighted_text_embeddings(self, prompt, negative_prompt)
 
         encode_prompts_end = time.time()
 
         for i in range(batch_count):
             unet_start = time.time()
+        
+            sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
 
-            sample, add_time_ids, timesteps = self.runners["scheduler"].ctx.modules.scheduler[
-                "init"
-            ](samples[i])
+            if self.is_img2img:
+                init_timestep = min(
+                    int(num_inference_steps * strength), num_inference_steps
+                )
+                t_start = max(num_inference_steps - init_timestep, 0)
+                timesteps = self.scheduler.timesteps[t_start:]
+                latents = self.encode_image(image)
+                latents = self.scheduler.add_noise(latents, noise, timesteps[0].repeat(1))
+                return latents, [timesteps]
+
+            if self.cpu_scheduling:
+                sample = ireert.asdevicearray(
+                    self.runners["unet"].config.device,
+                    np.asarray(sample),
+                    dtype=self.iree_dtype
+                )
+                add_time_ids = ireert.asdevicearray(
+                    self.runners["unet"].config.device,
+                    np.asarray(add_time_ids),
+                    dtype=self.iree_dtype
+                )
+                timesteps = ireert.asdevicearray(
+                    self.runners["unet"].config.device,
+                    np.asarray(timesteps),
+                    dtype=self.iree_dtype
+                )
 
             for t in range(timesteps):
-                latents = self.runners["scheduler"].ctx.modules.scheduler["scale"](
+                latents = self.scheduler.scale_model_input(
                     sample, t
                 )
                 latents = self.runners["unet"].ctx.modules.compiled_unet["main"](
-                    latents, prompt_embeds, add_text_embeds, add_time_ids, guidance_scale, t
+                    latents, prompt_embeds, negative_embeds, add_time_ids, guidance_scale, t
                 )
-                sample = self.runners["scheduler"].ctx.modules.scheduler["step"](
+                sample = self.scheduler.step(
                     sample, latents, t
+                )
+            
+            if self.cpu_scheduling:
+                sample = ireert.asdevicearray(
+                    self.runners["vae_decode"].config.device,
+                    np.asarray(sample),
+                    dtype=self.iree_dtype
                 )
             
             vae_start = time.time()
@@ -512,18 +503,18 @@ class SharkSDPipeline:
             print("VAE time: ", pipe_end - vae_start, "sec")
             print(
                 f"\nTotal time (txt2img, batch #{str(i+1)}): ",
-                (encode_prompts_end - encode_prompts_start)
+                (encode_prompts_end - tokenize_start)
                 + (pipe_end - unet_start),
                 "sec\n",
             )
         end = time.time()
-        print("Total CLIP time:", encode_prompts_end - encode_prompts_start, "sec")
-        print("Total tokenize time:", encode_prompts_start - tokenize_start, "sec")
-        print("Loading time: ", encode_prompts_start - pipe_start, "sec")
+        print("Total CLIP time:", encode_prompts_end - tokenize_start, "sec")
+        print("Total tokenize time:", tokenize_start - tokenize_start, "sec")
+        print("Loading time: ", tokenize_start - pipe_start, "sec")
         if batch_count > 1:
             print(
                 f"Total inference time ({batch_count} batch(es)):",
-                end - encode_prompts_start,
+                end - tokenize_start,
                 "sec",
             )
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -558,7 +549,7 @@ def numpy_to_pil_image(images):
 
 
 if __name__ == "__main__":
-    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+    from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
     mlirs = copy.deepcopy(SUBMODELS)
     vmfbs = copy.deepcopy(SUBMODELS)

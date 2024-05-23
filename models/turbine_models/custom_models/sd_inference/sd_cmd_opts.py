@@ -20,7 +20,7 @@ def is_valid_file(arg):
 
 # We should consider separating out the options that are "model configs" from
 # the options that control the compiler, runtime, and script behavior,
-# when applicable, as the formermost would best be kept in a separate
+# when applicable, as the former would best be kept in a separate
 # config or imported from huggingface.
 
 p = argparse.ArgumentParser(
@@ -41,13 +41,13 @@ p.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
+    default="stabilityai/stable-diffusion-2-1",
 )
 p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",
-    default="PNDM",
+    default="Euler",
 )
 
 ##############################################################################
@@ -286,4 +286,4 @@ p.add_argument(
 )
 
 
-args, unknown_args = p.parse_known_args()
+args, unknown = p.parse_known_args()

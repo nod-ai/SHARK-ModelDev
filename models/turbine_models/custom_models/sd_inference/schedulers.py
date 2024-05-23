@@ -10,10 +10,28 @@ from typing import List
 import torch
 from shark_turbine.aot import *
 from iree.compiler.ir import Context
+import iree.runtime as ireert
 import numpy as np
 
 from turbine_models.turbine_tank import turbine_tank
 from turbine_models.custom_models.sd_inference import utils
+from turbine_models.model_runner import vmfbRunner
+
+class SharkSchedulerWrapper():
+    def __init__(self, rt_device, vmfb, weights):
+        self.runner = vmfbRunner(
+            rt_device, vmfb, weights
+        )
+    
+    def initialize(self, sample):
+        return self.runner.ctx.modules.scheduler["initialize"](sample)
+    
+    def scale_model_input(self, sample, t):
+        return self.runner.ctx.modules.scheduler["scale_model_input"](sample, t)
+    
+    def step(self, sample, latents, t):
+        return self.runner.ctx.modules.scheduler["step"](sample, latents, t)
+
 
 class SchedulingModel(torch.nn.Module):
     def __init__(self, scheduler, height, width):
@@ -31,11 +49,34 @@ class SchedulingModel(torch.nn.Module):
         add_time_ids = torch.tensor([add_time_ids])
         add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
         add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
-        timesteps = self.scheduler.timesteps
+        timesteps = self.model.timesteps
         step_indexes = torch.tensor(len(timesteps))
-        sample = sample * self.scheduler.init_noise_sigma
+        sample = sample * self.model.init_noise_sigma
         return sample.type(self.dtype), add_time_ids, step_indexes
+    
+    def scale_model_input(self, sample, t):
+        self.model.scale_model_input(sample, t)
 
+    def step(self, sample, latents, t):
+        self.model.step(self, sample, latents, t)
+
+class SharkSchedulerCPUWrapper(SchedulingModel):
+    def __init__(self, pipe, scheduler, height, width):
+        super().__init__(scheduler, height, width)
+        self.dest = pipe.runner["unet"].config.device
+        self.dtype = pipe.iree_dtype
+    
+    def initialize(self, sample):
+        for output in super().initialize(sample):
+            iree_arrays = ireert.asdevicearray(self.dest, output, self.dtype)
+        
+        return iree_arrays
+    
+    def scale_model_input(self, sample, t):
+        return ireert.asdevicearray(self.dest, super.scale_model_input(sample, t), self.dtype)
+    
+    def step(self, sample, latents, t):
+        return ireert.asdevicearray(self.dest, super.step(sample.to_host(), latents.to_host(), t.to_host()), self.dtype)
 
 def export_scheduler(
     hf_model_name: str,
@@ -106,11 +147,26 @@ def export_scheduler(
     class CompiledScheduler(CompiledModule):
         params = export_parameters(scheduled_unet_model)
 
-        def run_initialize(
+        def initialize(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
         ):
             return jittable(scheduler_module.initialize)(sample)
+        
+        def scale_model_input(
+            self,
+            sample=AbstractTensor(*sample, dtype=dtype),
+            t=AbstractTensor(1, dtype=dtype),
+        ):
+            return jittable(scheduler_module.scale_model_input)(sample, t)
+        
+        def step(
+            self,
+            sample=AbstractTensor(*sample, dtype=dtype),
+            latents=AbstractTensor(1, dtype=dtype),
+            t=AbstractTensor(1, dtype=dtype),
+        ):
+            return jittable(scheduler_module.step)(sample, latents, t)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)

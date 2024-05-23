@@ -216,7 +216,6 @@ if __name__ == "__main__":
     mod_str, _ = export_prompt_encoder(
         args.hf_model_name,
         args.hf_auth_token,
-        args.batch_size,
         args.max_length,
         args.precision,
         args.compile_to,

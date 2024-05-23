@@ -44,99 +44,45 @@ parser.add_argument(
 )
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
-class PromptEncoderModule(torch.nn.Module):
-    def __init__(
-        self,
-        hf_model_name,
-        precision,
-        hf_auth_token=None,
-        do_classifier_free_guidance=True,
-    ):
-        super().__init__()
-        self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
-        self.text_encoder_model_1 = CLIPTextModel.from_pretrained(
-            hf_model_name,
-            subfolder="text_encoder",
-            token=hf_auth_token,
-        )
-        self.text_encoder_model_2 = CLIPTextModelWithProjection.from_pretrained(
-            hf_model_name,
-            subfolder="text_encoder_2",
-            token=hf_auth_token,
-        )
-        self.do_classifier_free_guidance = do_classifier_free_guidance
 
-    def forward(
-        self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
-    ):
-        with torch.no_grad():
-            prompt_embeds_1 = self.text_encoder_model_1(
-                text_input_ids_1,
-                output_hidden_states=True,
-            )
-            prompt_embeds_2 = self.text_encoder_model_2(
-                text_input_ids_2,
-                output_hidden_states=True,
-            )
-            neg_prompt_embeds_1 = self.text_encoder_model_1(
-                uncond_input_ids_1,
-                output_hidden_states=True,
-            )
-            neg_prompt_embeds_2 = self.text_encoder_model_2(
-                uncond_input_ids_2,
-                output_hidden_states=True,
-            )
-            # We are only ALWAYS interested in the pooled output of the final text encoder
-            pooled_prompt_embeds = prompt_embeds_2[0]
-            neg_pooled_prompt_embeds = neg_prompt_embeds_2[0]
-
-            prompt_embeds_list = [
-                prompt_embeds_1.hidden_states[-2],
-                prompt_embeds_2.hidden_states[-2],
-            ]
-            neg_prompt_embeds_list = [
-                neg_prompt_embeds_1.hidden_states[-2],
-                neg_prompt_embeds_2.hidden_states[-2],
-            ]
-
-            prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
-            neg_prompt_embeds = torch.concat(neg_prompt_embeds_list, dim=-1)
-
-            bs_embed, seq_len, _ = prompt_embeds.shape
-
-            prompt_embeds = prompt_embeds.repeat(1, 1, 1)
-            prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
-            pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
-                bs_embed * 1, -1
-            )
-            add_text_embeds = pooled_prompt_embeds
-            if self.do_classifier_free_guidance:
-                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
-                    1, -1
-                )
-                neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
-                neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
-                prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
-                add_text_embeds = torch.cat(
-                    [neg_pooled_prompt_embeds, add_text_embeds], dim=0
-                )
-
-            add_text_embeds = add_text_embeds.to(self.torch_dtype)
-            prompt_embeds = prompt_embeds.to(self.torch_dtype)
-            return prompt_embeds, add_text_embeds
-
-def export_clip_model(
+def export_clip(
     hf_model_name,
-    hf_auth_token=None,
-    compile_to="torch",
-    external_weights=None,
-    external_weight_path=None,
-    device=None,
-    target_triple=None,
-    max_alloc=None,
-    upload_ir=False,
+    hf_auth_token: str = None,
+    max_length: int = 64,
+    precision: str = "fp16",
+    compile_to: str = "torch",
+    external_weights: str = None,
+    external_weight_path: str = None,
+    device: str = "llvm-cpu",
+    target_triple: str = "x86_64-linux-gnu",
+    ireec_flags: str = None,
+    exit_on_vmfb: bool = False,
+    pipeline_dir: str = None,
+    input_mlir: str = None,
+    td_spec: str = None,
+    weights_only: bool = False,
+    upload_ir: bool = False,
 ):
-    input_len = 77
+    input_len = max_length
+    if pipeline_dir not in [None, ""]:
+        safe_name = os.path.join(pipeline_dir, "clip")
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name, f"_{str(max_length)}-{precision}-clip-{device}"
+        )
+    if input_mlir:
+        vmfb_path = utils.compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            mlir_source="file",
+            return_path=not exit_on_vmfb,
+            const_expr_hoisting=True,
+            attn_spec=td_spec,
+        )
+        return vmfb_path
     if "google/t5" in hf_model_name:
         from transformers import T5Tokenizer, T5Model
 
@@ -159,7 +105,7 @@ def export_clip_model(
             )
             hf_subfolder = "text_encoder"
 
-        text_encoder_model = PromptEncoderModule(
+        text_encoder_model = CLIPTextModel.from_pretrained(
             hf_model_name,
             subfolder=hf_subfolder,
             token=hf_auth_token,
@@ -170,6 +116,9 @@ def export_clip_model(
         mapper, text_encoder_model, external_weights, external_weight_path
     )
 
+    if weights_only:
+        return external_weight_path
+    
     if "google/t5" in hf_model_name:
 
         class CompiledClip(CompiledModule):
@@ -212,38 +161,46 @@ def export_clip_model(
     inst = CompiledClip(context=Context(), import_to=import_to)
 
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = utils.create_safe_name(hf_model_name, "-clip")
-    if upload_ir:
-        with open(f"{safe_name}.mlir", "w+") as f:
-            f.write(module_str)
-        model_name_upload = hf_model_name.replace("/", "_")
-        model_name_upload += "-clip"
-        blob_name = turbine_tank.uploadToBlobStorage(
-            str(os.path.abspath(f"{safe_name}.mlir")),
-            f"{model_name_upload}/{model_name_upload}.mlir",
-        )
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, safe_name)
-        if upload_ir:
-            return blob_name
-
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            return_path=not exit_on_vmfb,
+            const_expr_hoisting=True,
+            attn_spec=td_spec,
+        )
+        return None, vmfb_path
 
 if __name__ == "__main__":
-    args = parser.parse_args()
-    mod_str, _ = export_clip_model(
+    from .sd_cmd_opts import args
+
+    mod_str, _ = export_clip(
         args.hf_model_name,
         args.hf_auth_token,
+        args.batch_size,
+        args.max_length,
+        args.precision,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.vulkan_max_allocation,
+        args.ireec_flags + args.clip_flags,
+        exit_on_vmfb=True,
+        pipeline_dir=args.pipeline_dir,
+        input_mlir=args.input_mlir,
+        attn_spec=args.attn_spec,
     )
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    if args.input_mlir:
+        exit()
+    safe_name = utils.create_safe_name(
+        args.hf_model_name, f"{str(args.max_length)}_{args.precision}_clip"
+    )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")

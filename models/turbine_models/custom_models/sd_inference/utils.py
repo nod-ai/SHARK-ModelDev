@@ -10,7 +10,7 @@ from diffusers import (
 )
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
-amdgpu_flags = {
+MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
@@ -18,7 +18,8 @@ amdgpu_flags = {
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-rocm-waves-per-eu=2",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true", 
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
@@ -30,6 +31,7 @@ amdgpu_flags = {
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true"
     ],
     "vae": ["--iree-flow-enable-aggressive-fusion"],
 }
@@ -114,14 +116,14 @@ def compile_to_vmfb(
         if flag not in [None, "", " "]:
             flags.append(flag)
 
-    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx1100", "gfx90a"]:
+    if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
         if "unet" in safe_name:
-            flags.extend(amdgpu_flags["unet"])
+            flags.extend(MI_flags["unet"])
         elif any(x in safe_name for x in ["clip", "prompt_encoder"]):
-            flags.extend(amdgpu_flags["clip"])
+            flags.extend(MI_flags["clip"])
         elif "vae" in safe_name:
-            flags.extend(amdgpu_flags["vae"])
-        flags.extend(amdgpu_flags["all"])
+            flags.extend(MI_flags["vae"])
+        flags.extend(MI_flags["all"])
 
     # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
