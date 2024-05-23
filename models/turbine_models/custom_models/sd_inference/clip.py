@@ -118,7 +118,7 @@ def export_clip(
 
     if weights_only:
         return external_weight_path
-    
+
     if "google/t5" in hf_model_name:
 
         class CompiledClip(CompiledModule):
@@ -175,6 +175,7 @@ def export_clip(
             attn_spec=td_spec,
         )
         return None, vmfb_path
+
 
 if __name__ == "__main__":
     from .sd_cmd_opts import args

@@ -105,7 +105,6 @@ if __name__ == "__main__":
         from turbine_models.custom_models.sd_inference import utils
         from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
-
         torch_output = run_torch_unet(
             args.hf_model_name,
             args.hf_auth_token,

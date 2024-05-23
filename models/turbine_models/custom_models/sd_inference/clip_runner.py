@@ -4,6 +4,7 @@ from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
 
+
 def run_clip(
     device, prompt, vmfb_path, hf_model_name, hf_auth_token, external_weight_path
 ):
@@ -126,6 +127,7 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
     turbine_output = run_clip(
         args.device,
         args.prompt,

@@ -33,18 +33,17 @@ from turbine_models.turbine_tank import turbine_tank
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.model_runner import vmfbRunner
 
-class SharkSchedulerWrapper():
+
+class SharkSchedulerWrapper:
     def __init__(self, rt_device, vmfb, weights):
-        self.runner = vmfbRunner(
-            rt_device, vmfb, weights
-        )
-    
+        self.runner = vmfbRunner(rt_device, vmfb, weights)
+
     def initialize(self, sample):
         return self.runner.ctx.modules.scheduler["initialize"](sample)
-    
+
     def scale_model_input(self, sample, t):
         return self.runner.ctx.modules.scheduler["scale_model_input"](sample, t)
-    
+
     def step(self, sample, latents, t):
         return self.runner.ctx.modules.scheduler["step"](sample, latents, t)
 
@@ -69,30 +68,38 @@ class SchedulingModel(torch.nn.Module):
         step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.model.init_noise_sigma
         return sample.type(self.dtype), add_time_ids, step_indexes
-    
+
     def scale_model_input(self, sample, t):
         self.model.scale_model_input(sample, t)
 
     def step(self, sample, latents, t):
         self.model.step(self, sample, latents, t)
 
+
 class SharkSchedulerCPUWrapper(SchedulingModel):
     def __init__(self, pipe, scheduler, height, width):
         super().__init__(scheduler, height, width)
         self.dest = pipe.runner["unet"].config.device
         self.dtype = pipe.iree_dtype
-    
+
     def initialize(self, sample):
         for output in super().initialize(sample):
             iree_arrays = ireert.asdevicearray(self.dest, output, self.dtype)
-        
+
         return iree_arrays
-    
+
     def scale_model_input(self, sample, t):
-        return ireert.asdevicearray(self.dest, super.scale_model_input(sample, t), self.dtype)
-    
+        return ireert.asdevicearray(
+            self.dest, super.scale_model_input(sample, t), self.dtype
+        )
+
     def step(self, sample, latents, t):
-        return ireert.asdevicearray(self.dest, super.step(sample.to_host(), latents.to_host(), t.to_host()), self.dtype)
+        return ireert.asdevicearray(
+            self.dest,
+            super.step(sample.to_host(), latents.to_host(), t.to_host()),
+            self.dtype,
+        )
+
 
 def export_scheduler_model(
     hf_model_name: str,
@@ -113,9 +120,7 @@ def export_scheduler_model(
 ):
     schedulers = utils.get_schedulers(hf_model_name)
     scheduler = schedulers[scheduler_id]
-    scheduler_module = SchedulingModel(
-        hf_model_name, scheduler
-    )
+    scheduler_module = SchedulingModel(hf_model_name, scheduler)
     vmfb_name = (
         scheduler_id
         + "_"
@@ -124,17 +129,12 @@ def export_scheduler_model(
         + precision
         + "_"
         + str(num_inference_steps),
-        + "_"
-        + target_triple
+        +"_" + target_triple,
     )
     if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, vmfb_name
-        )
+        safe_name = os.path.join(pipeline_dir, vmfb_name)
     else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, vmfb_name
-        )
+        safe_name = utils.create_safe_name(hf_model_name, vmfb_name)
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -147,7 +147,7 @@ def export_scheduler_model(
             return_path=not exit_on_vmfb,
         )
         return vmfb_path
-   
+
     dtype = torch.float16 if precision == "fp16" else torch.float32
 
     if precision == "fp16":
@@ -168,14 +168,14 @@ def export_scheduler_model(
             sample=AbstractTensor(*sample, dtype=dtype),
         ):
             return jittable(scheduler_module.initialize)(sample)
-        
+
         def scale_model_input(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
             t=AbstractTensor(1, dtype=dtype),
         ):
             return jittable(scheduler_module.scale_model_input)(sample, t)
-        
+
         def step(
             self,
             sample=AbstractTensor(*sample, dtype=dtype),
@@ -204,8 +204,8 @@ def export_scheduler_model(
             exit()
         return vmfb
 
-# from shark_turbine.turbine_models.schedulers import export_scheduler_model
 
+# from shark_turbine.turbine_models.schedulers import export_scheduler_model
 
 
 def get_scheduler(model_id, scheduler_id):
@@ -213,7 +213,9 @@ def get_scheduler(model_id, scheduler_id):
     print(f"\n[LOG] Initializing schedulers from model id: {model_id}")
     schedulers = {}
     for sched in SCHEDULER_MAP:
-        schedulers[sched] = SCHEDULER_MAP[sched].from_pretrained(model_id, subfolder="scheduler")
+        schedulers[sched] = SCHEDULER_MAP[sched].from_pretrained(
+            model_id, subfolder="scheduler"
+        )
     schedulers["DPMSolverMultistep"] = DPMSolverMultistepScheduler.from_pretrained(
         model_id, subfolder="scheduler", algorithm_type="dpmsolver"
     )
@@ -236,6 +238,7 @@ def get_scheduler(model_id, scheduler_id):
         )
     )
     return schedulers[scheduler_id]
+
 
 SCHEDULER_MAP = {
     "PNDM": PNDMScheduler,
@@ -270,7 +273,10 @@ if __name__ == "__main__":
         exit_on_vmfb=False,
         input_mlir=args.input_mlir,
     )
-    safe_name = utils.create_safe_name(args.hf_model_name, "_" + args.scheduler_id + "_" + str(args.num_inference_steps))
+    safe_name = utils.create_safe_name(
+        args.hf_model_name,
+        "_" + args.scheduler_id + "_" + str(args.num_inference_steps),
+    )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
     print("Saved to", safe_name + ".mlir")

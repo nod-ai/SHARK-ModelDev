@@ -12,7 +12,6 @@ from diffusers import (
 )
 
 
-
 def run_scheduler(
     device,
     sample,
@@ -146,6 +145,7 @@ def run_torch_scheduler(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
     sample = torch.rand(
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
     )

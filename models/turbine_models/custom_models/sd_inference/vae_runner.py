@@ -4,6 +4,7 @@ from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
 
+
 def run_vae(device, example_input, vmfb_path, hf_model_name, external_weight_path):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
@@ -76,6 +77,7 @@ def run_torch_vae(hf_model_name, variant, example_input):
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
     if args.variant == "decode":
         example_input = torch.rand(
             args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32

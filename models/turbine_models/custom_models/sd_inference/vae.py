@@ -21,6 +21,7 @@ from diffusers import AutoencoderKL
 import argparse
 from turbine_models.turbine_tank import turbine_tank
 
+
 class VaeModel(torch.nn.Module):
     def __init__(
         self,
@@ -89,7 +90,8 @@ def export_vae_model(
         safe_name = os.path.join(pipeline_dir, "vae_" + variant)
     else:
         safe_name = utils.create_safe_name(
-            hf_model_name, f"_bs{batch_size}_{height}x{width}_{precision}_vae_{variant}_{device}"
+            hf_model_name,
+            f"_bs{batch_size}_{height}x{width}_{precision}_vae_{variant}_{device}",
         )
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -151,9 +153,9 @@ def export_vae_model(
         return vmfb_path
 
 
-
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
     if args.input_mlir:
         vae_model = None
     else:

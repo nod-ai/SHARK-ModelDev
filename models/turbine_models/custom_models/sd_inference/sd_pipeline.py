@@ -50,6 +50,7 @@ SUBMODELS = {
     "vae_decode": None,
 }
 
+
 class SharkSDPipeline:
     def __init__(
         self,
@@ -260,7 +261,10 @@ class SharkSDPipeline:
                 return clip_vmfb, clip_external_weight_path
             case "scheduler":
                 if self.cpu_scheduling:
-                    return schedulers.get_scheduler(self.hf_model_name, self.scheduler_id), None
+                    return (
+                        schedulers.get_scheduler(self.hf_model_name, self.scheduler_id),
+                        None,
+                    )
                 scheduler = schedulers.export_scheduler(
                     self.hf_model_name,
                     self.scheduler_id,
@@ -283,7 +287,7 @@ class SharkSDPipeline:
                     unet_torch = None
                 else:
                     unet_torch = self.get_torch_models("unet")
-                    
+
                 unet_vmfb = unet.export_unet_model(
                     unet_torch,
                     self.hf_model_name,
@@ -335,7 +339,6 @@ class SharkSDPipeline:
                 )
                 return vae_decode_vmfb, vae_external_weight_path
 
-
     # LOAD
 
     def load_pipeline(
@@ -348,27 +351,31 @@ class SharkSDPipeline:
         self.runners = {}
         runners = {}
         runners["tokenizers"] = []
-        runners["tokenizers"].append(CLIPTokenizer.from_pretrained(
-            self.hf_model_name,
-            subfolder="tokenizer",
-        ))
-        if self.is_sdxl:
-            runners["tokenizers"].append(CLIPTokenizer.from_pretrained(
+        runners["tokenizers"].append(
+            CLIPTokenizer.from_pretrained(
                 self.hf_model_name,
-                subfolder="tokenizer_2",
-            ))
-            
-        runners["clip"] = vmfbRunner(
-            rt_device, vmfbs["clip"], weights["clip"]
+                subfolder="tokenizer",
+            )
         )
-        if self.cpu_scheduling:
-            self.scheduler = schedulers.SchedulingModel(vmfbs['scheduler'], self.height, self.width)
-        else:
-            self.scheduler = schedulers.SharkSchedulerWrapper(rt_device, vmfbs["scheduler"], weights["scheduler"])
+        if self.is_sdxl:
+            runners["tokenizers"].append(
+                CLIPTokenizer.from_pretrained(
+                    self.hf_model_name,
+                    subfolder="tokenizer_2",
+                )
+            )
 
-        runners["unet"] = vmfbRunner(
-            rt_device, vmfbs["unet"], weights["unet"]
-        )
+        runners["clip"] = vmfbRunner(rt_device, vmfbs["clip"], weights["clip"])
+        if self.cpu_scheduling:
+            self.scheduler = schedulers.SchedulingModel(
+                vmfbs["scheduler"], self.height, self.width
+            )
+        else:
+            self.scheduler = schedulers.SharkSchedulerWrapper(
+                rt_device, vmfbs["scheduler"], weights["scheduler"]
+            )
+
+        runners["unet"] = vmfbRunner(rt_device, vmfbs["unet"], weights["unet"])
         runners["vae_decode"] = vmfbRunner(
             rt_device, vmfbs["vae_decode"], weights["vae_decode"]
         )
@@ -411,7 +418,9 @@ class SharkSDPipeline:
             )
             samples.append(
                 ireert.asdevicearray(
-                    self.runners["unet"].config.device, rand_sample, dtype=self.iree_dtype
+                    self.runners["unet"].config.device,
+                    rand_sample,
+                    dtype=self.iree_dtype,
                 )
             )
 
@@ -425,13 +434,15 @@ class SharkSDPipeline:
 
         # Tokenize prompt and negative prompt.
 
-        prompt_embeds, negative_embeds = get_weighted_text_embeddings(self, prompt, negative_prompt)
+        prompt_embeds, negative_embeds = get_weighted_text_embeddings(
+            self, prompt, negative_prompt
+        )
 
         encode_prompts_end = time.time()
 
         for i in range(batch_count):
             unet_start = time.time()
-        
+
             sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
 
             if self.is_img2img:
@@ -441,44 +452,47 @@ class SharkSDPipeline:
                 t_start = max(num_inference_steps - init_timestep, 0)
                 timesteps = self.scheduler.timesteps[t_start:]
                 latents = self.encode_image(image)
-                latents = self.scheduler.add_noise(latents, noise, timesteps[0].repeat(1))
+                latents = self.scheduler.add_noise(
+                    latents, noise, timesteps[0].repeat(1)
+                )
                 return latents, [timesteps]
 
             if self.cpu_scheduling:
                 sample = ireert.asdevicearray(
                     self.runners["unet"].config.device,
                     np.asarray(sample),
-                    dtype=self.iree_dtype
+                    dtype=self.iree_dtype,
                 )
                 add_time_ids = ireert.asdevicearray(
                     self.runners["unet"].config.device,
                     np.asarray(add_time_ids),
-                    dtype=self.iree_dtype
+                    dtype=self.iree_dtype,
                 )
                 timesteps = ireert.asdevicearray(
                     self.runners["unet"].config.device,
                     np.asarray(timesteps),
-                    dtype=self.iree_dtype
+                    dtype=self.iree_dtype,
                 )
 
             for t in range(timesteps):
-                latents = self.scheduler.scale_model_input(
-                    sample, t
-                )
+                latents = self.scheduler.scale_model_input(sample, t)
                 latents = self.runners["unet"].ctx.modules.compiled_unet["main"](
-                    latents, prompt_embeds, negative_embeds, add_time_ids, guidance_scale, t
+                    latents,
+                    prompt_embeds,
+                    negative_embeds,
+                    add_time_ids,
+                    guidance_scale,
+                    t,
                 )
-                sample = self.scheduler.step(
-                    sample, latents, t
-                )
-            
+                sample = self.scheduler.step(sample, latents, t)
+
             if self.cpu_scheduling:
                 sample = ireert.asdevicearray(
                     self.runners["vae_decode"].config.device,
                     np.asarray(sample),
-                    dtype=self.iree_dtype
+                    dtype=self.iree_dtype,
                 )
-            
+
             vae_start = time.time()
             vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
                 sample
@@ -505,8 +519,7 @@ class SharkSDPipeline:
             print("VAE time: ", pipe_end - vae_start, "sec")
             print(
                 f"\nTotal time (txt2img, batch #{str(i+1)}): ",
-                (encode_prompts_end - tokenize_start)
-                + (pipe_end - unet_start),
+                (encode_prompts_end - tokenize_start) + (pipe_end - unet_start),
                 "sec\n",
             )
         end = time.time()

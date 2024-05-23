@@ -210,10 +210,14 @@ def get_unweighted_text_embeddings(
             text_input_chunk[:, 0] = text_input[0, 0]
             text_input_chunk[:, -1] = text_input[0, -1]
 
-            text_input_chunk = ireert.asdevicearray(pipe.runners["clip"].config.device, text_input_chunk, pipe.iree_dtype)
-            text_embedding = pipe.runners["clip"].ctx.modules.compiled_clip["encode_prompts"](
-            text_input_chunk
-            ).to_host()
+            text_input_chunk = ireert.asdevicearray(
+                pipe.runners["clip"].config.device, text_input_chunk, pipe.iree_dtype
+            )
+            text_embedding = (
+                pipe.runners["clip"]
+                .ctx.modules.compiled_clip["encode_prompts"](text_input_chunk)
+                .to_host()
+            )
             if no_boseos_middle:
                 if i == 0:
                     # discard the ending token
@@ -240,6 +244,7 @@ def get_unweighted_text_embeddings(
 # It switches out None with 49407 as truncating None values causes matrix dimension errors,
 def filter_nonetype_tokens(tokens: List[List]):
     return [[49407 if token is None else token for token in tokens[0]]]
+
 
 def get_tokenized_inputs(
     pipe,
@@ -330,6 +335,7 @@ def get_tokenized_inputs(
     else:
         return prompt_tokens, prompt_weights, None, None
 
+
 def get_weighted_text_embeddings(
     pipe,
     prompt: List[str],
@@ -340,17 +346,19 @@ def get_weighted_text_embeddings(
     skip_weighting: Optional[bool] = False,
 ):
     max_length = (pipe.model_max_length - 2) * max_embeddings_multiples + 2
-    for tokenizer in pipe.runners['tokenizers']:
-        prompt_tokens, prompt_weights, uncond_tokens, uncond_weights = get_tokenized_inputs(
-            pipe,
-            tokenizer,
-            prompt,
-            uncond_prompt,
-            max_length,
-            max_embeddings_multiples,
-            no_boseos_middle,
-            skip_parsing,
-            skip_weighting
+    for tokenizer in pipe.runners["tokenizers"]:
+        prompt_tokens, prompt_weights, uncond_tokens, uncond_weights = (
+            get_tokenized_inputs(
+                pipe,
+                tokenizer,
+                prompt,
+                uncond_prompt,
+                max_length,
+                max_embeddings_multiples,
+                no_boseos_middle,
+                skip_parsing,
+                skip_weighting,
+            )
         )
 
     # get the embeddings

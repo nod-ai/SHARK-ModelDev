@@ -25,7 +25,6 @@ import argparse
 from turbine_models.turbine_tank import turbine_tank
 
 
-
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name):
         super().__init__()
@@ -44,6 +43,7 @@ class UnetModel(torch.nn.Module):
             noise_pred_text - noise_pred_uncond
         )
         return noise_pred
+
 
 def export_unet_model(
     unet_model,
@@ -72,9 +72,7 @@ def export_unet_model(
     else:
         do_classifier_free_guidance = True
     if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, f"unet"
-        )
+        safe_name = os.path.join(pipeline_dir, f"unet")
     else:
         safe_name = utils.create_safe_name(
             hf_model_name,
