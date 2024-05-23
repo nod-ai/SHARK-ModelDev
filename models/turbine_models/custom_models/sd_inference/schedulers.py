@@ -13,6 +13,22 @@ from iree.compiler.ir import Context
 import iree.runtime as ireert
 import numpy as np
 
+from diffusers import (
+    LCMScheduler,
+    LMSDiscreteScheduler,
+    PNDMScheduler,
+    DDPMScheduler,
+    DDIMScheduler,
+    DPMSolverMultistepScheduler,
+    KDPM2DiscreteScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DEISMultistepScheduler,
+    DPMSolverSinglestepScheduler,
+    KDPM2AncestralDiscreteScheduler,
+    HeunDiscreteScheduler,
+)
+
 from turbine_models.turbine_tank import turbine_tank
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.model_runner import vmfbRunner
@@ -78,7 +94,7 @@ class SharkSchedulerCPUWrapper(SchedulingModel):
     def step(self, sample, latents, t):
         return ireert.asdevicearray(self.dest, super.step(sample.to_host(), latents.to_host(), t.to_host()), self.dtype)
 
-def export_scheduler(
+def export_scheduler_model(
     hf_model_name: str,
     scheduler_id: str,
     batch_size: int = 1,
@@ -188,6 +204,53 @@ def export_scheduler(
             exit()
         return vmfb
 
+# from shark_turbine.turbine_models.schedulers import export_scheduler_model
+
+
+
+def get_scheduler(model_id, scheduler_id):
+    # TODO: switch over to turbine and run all on GPU
+    print(f"\n[LOG] Initializing schedulers from model id: {model_id}")
+    schedulers = {}
+    for sched in SCHEDULER_MAP:
+        schedulers[sched] = SCHEDULER_MAP[sched].from_pretrained(model_id, subfolder="scheduler")
+    schedulers["DPMSolverMultistep"] = DPMSolverMultistepScheduler.from_pretrained(
+        model_id, subfolder="scheduler", algorithm_type="dpmsolver"
+    )
+    schedulers["DPMSolverMultistep++"] = DPMSolverMultistepScheduler.from_pretrained(
+        model_id, subfolder="scheduler", algorithm_type="dpmsolver++"
+    )
+    schedulers["DPMSolverMultistepKarras"] = (
+        DPMSolverMultistepScheduler.from_pretrained(
+            model_id,
+            subfolder="scheduler",
+            use_karras_sigmas=True,
+        )
+    )
+    schedulers["DPMSolverMultistepKarras++"] = (
+        DPMSolverMultistepScheduler.from_pretrained(
+            model_id,
+            subfolder="scheduler",
+            algorithm_type="dpmsolver++",
+            use_karras_sigmas=True,
+        )
+    )
+    return schedulers[scheduler_id]
+
+SCHEDULER_MAP = {
+    "PNDM": PNDMScheduler,
+    "DDPM": DDPMScheduler,
+    "KDPM2Discrete": KDPM2DiscreteScheduler,
+    "LMSDiscrete": LMSDiscreteScheduler,
+    "DDIM": DDIMScheduler,
+    "LCMScheduler": LCMScheduler,
+    "EulerDiscrete": EulerDiscreteScheduler,
+    "EulerAncestralDiscrete": EulerAncestralDiscreteScheduler,
+    "DEISMultistep": DEISMultistepScheduler,
+    "DPMSolverSinglestep": DPMSolverSinglestepScheduler,
+    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
+    "HeunDiscrete": HeunDiscreteScheduler,
+}
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args

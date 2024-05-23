@@ -137,7 +137,9 @@ class SharkSDPipeline:
     def is_prepared(self, vmfbs, weights):
         missing = []
         for key in vmfbs:
-            default_filepath = os.path.join(self.pipeline_dir, key + "_" + self.iree_target_triple + ".vmfb")
+            if "scheduler" in key and self.cpu_scheduling:
+                continue
+            default_filepath = os.path.join(self.pipeline_dir, key + ".vmfb")
             if vmfbs[key] is not None and os.path.exists(vmfbs[key]):
                 continue
             elif vmfbs[key] == None and os.path.exists(default_filepath):
@@ -258,7 +260,7 @@ class SharkSDPipeline:
                 return clip_vmfb, clip_external_weight_path
             case "scheduler":
                 if self.cpu_scheduling:
-                    return utils.get_scheduler(self.hf_model_name, self.scheduler_id), None
+                    return schedulers.get_scheduler(self.hf_model_name, self.scheduler_id), None
                 scheduler = schedulers.export_scheduler(
                     self.hf_model_name,
                     self.scheduler_id,
@@ -346,20 +348,20 @@ class SharkSDPipeline:
         self.runners = {}
         runners = {}
         runners["tokenizers"] = []
-        runners["tokenizers"] += CLIPTokenizer.from_pretrained(
+        runners["tokenizers"].append(CLIPTokenizer.from_pretrained(
             self.hf_model_name,
             subfolder="tokenizer",
-        )
+        ))
         if self.is_sdxl:
-            runners["tokenizers"] += CLIPTokenizer.from_pretrained(
+            runners["tokenizers"].append(CLIPTokenizer.from_pretrained(
                 self.hf_model_name,
                 subfolder="tokenizer_2",
-            ),
+            ))
             
         runners["clip"] = vmfbRunner(
             rt_device, vmfbs["clip"], weights["clip"]
         )
-        if isinstance(vmfbs["scheduler"], torch.nn.Module):
+        if self.cpu_scheduling:
             self.scheduler = schedulers.SchedulingModel(vmfbs['scheduler'], self.height, self.width)
         else:
             self.scheduler = schedulers.SharkSchedulerWrapper(rt_device, vmfbs["scheduler"], weights["scheduler"])
