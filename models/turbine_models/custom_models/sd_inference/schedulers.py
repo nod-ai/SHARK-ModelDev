@@ -225,20 +225,20 @@ def get_scheduler(model_id, scheduler_id):
     schedulers["DPMSolverMultistep++"] = DPMSolverMultistepScheduler.from_pretrained(
         model_id, subfolder="scheduler", algorithm_type="dpmsolver++"
     )
-    schedulers["DPMSolverMultistepKarras"] = (
-        DPMSolverMultistepScheduler.from_pretrained(
-            model_id,
-            subfolder="scheduler",
-            use_karras_sigmas=True,
-        )
+    schedulers[
+        "DPMSolverMultistepKarras"
+    ] = DPMSolverMultistepScheduler.from_pretrained(
+        model_id,
+        subfolder="scheduler",
+        use_karras_sigmas=True,
     )
-    schedulers["DPMSolverMultistepKarras++"] = (
-        DPMSolverMultistepScheduler.from_pretrained(
-            model_id,
-            subfolder="scheduler",
-            algorithm_type="dpmsolver++",
-            use_karras_sigmas=True,
-        )
+    schedulers[
+        "DPMSolverMultistepKarras++"
+    ] = DPMSolverMultistepScheduler.from_pretrained(
+        model_id,
+        subfolder="scheduler",
+        algorithm_type="dpmsolver++",
+        use_karras_sigmas=True,
     )
     return schedulers[scheduler_id]
 
