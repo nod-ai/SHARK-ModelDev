@@ -2004,6 +2004,20 @@ class LaunchableWave(Launchable):
             [0 for _ in range(len(scheduler.RT[0]))] for _ in range(initiation_interval)
         ]
 
+    def reorder_global_writes(self, graph: fx.Graph):
+        for node in graph.nodes:
+            if self.utils.is_global_memory_write(node):
+                if node.prev == node.args[0]:
+                    continue
+                node_name = node.name
+                graph.inserting_after(node.args[0])
+                arg_map = {}
+                for arg in node.all_input_nodes:
+                    arg_map[arg] = arg
+                new_write = graph.node_copy(node, lambda x: arg_map[x])
+                new_write.name = node_name
+                graph.erase_node(node)
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -2058,6 +2072,8 @@ class LaunchableWave(Launchable):
         scheduled_graph = self.create_scheduled_graph(
             expanded_graph, expanded_root_graph, scheduler, trace
         )
+        # Reorder stores
+        self.reorder_global_writes(scheduled_graph)
         # Insert Barriers
         self.insert_barriers(scheduled_graph)
 
