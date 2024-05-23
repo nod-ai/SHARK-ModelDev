@@ -276,6 +276,8 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
     dynamics = dict(zip(["TX", "TY", "TZ", "WG0", "WG1", "ARG0"], all_symbols))
     idxc = IndexingContext.current()
     # Substitute in frozen vars to simplify expression.
+    if not isinstance(expr, sympy.Expr):
+        expr = sympy.sympify(expr)
     expr = expr.subs(idxc.subs)
     # Why affine, for now simply create indexing expressions.
     # This can easily be adapted to affine expressions later.
@@ -342,6 +344,8 @@ def gen_sympy_index(emitter: WaveEmitter, expr: sympy.Expr, stage: int) -> OpRes
                     mul = lambda x: arith_d.MulIOp(x, numerator)
                 operation = lambda x: arith_d.DivSIOp(mul(x), denominator)
                 stack.append(operation)
+            case sympy.UnevaluatedExpr():
+                continue
             case _:
                 raise CodegenError(f"Can not handle {term} yet")
     if len(stack) != 1:
@@ -369,9 +373,7 @@ def handle_read(emitter: WaveEmitter, node: fx.Node):
     if isinstance(node.meta["index"], sympy.Add):
         pass
     for dim_indexing in node.meta["index"]:
-        start_indices.append(
-            gen_sympy_index(emitter, sympy.simplify(dim_indexing), stage)
-        )
+        start_indices.append(gen_sympy_index(emitter, dim_indexing, stage))
 
     element_type = kb_ir_type.element_type
     vector_type = VectorType.get(vector_shape, element_type)
@@ -398,9 +400,7 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
         stage = node.meta["stage"]
     start_indices = []
     for dim_indexing in node.meta["index"]:
-        start_indices.append(
-            gen_sympy_index(emitter, sympy.simplify(dim_indexing), stage)
-        )
+        start_indices.append(gen_sympy_index(emitter, dim_indexing, stage))
 
     if dest_rank != len(start_indices):
         raise CodegenError(

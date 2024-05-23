@@ -442,7 +442,7 @@ class LaunchableWave(Launchable):
                         user.meta["index"] = c_index
 
     def transpose_workgroup_ids(self, x, y, grid_x, grid_y):
-        linearized = x + y * grid_x
+        linearized = sympy.UnevaluatedExpr(x + y * grid_x)
         x = sympy.floor(linearized / grid_y)
         y = linearized % grid_y
         return x, y
