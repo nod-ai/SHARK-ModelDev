@@ -4,48 +4,6 @@ from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
 
-parser = argparse.ArgumentParser()
-
-# TODO move common runner flags to generic flag file
-parser.add_argument(
-    "--vmfb_path", type=str, default="", help="path to vmfb containing compiled module"
-)
-parser.add_argument(
-    "--external_weight_path",
-    type=str,
-    default="",
-    help="path to external weight parameters if model compiled without them",
-)
-parser.add_argument(
-    "--compare_vs_torch",
-    action="store_true",
-    help="Runs both turbine vmfb and a torch model to compare results",
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="CompVis/stable-diffusion-v1-4",
-)
-parser.add_argument(
-    "--hf_auth_token",
-    type=str,
-    help="The Hugging face auth token, required for some models",
-)
-parser.add_argument(
-    "--device",
-    type=str,
-    default="local-task",
-    help="local-sync, local-task, cuda, vulkan, rocm",
-)
-parser.add_argument(
-    "--batch_size", type=int, default=1, help="Batch size for inference"
-)
-parser.add_argument(
-    "--height", type=int, default=512, help="Height of Stable Diffusion"
-)
-parser.add_argument("--width", type=int, default=512, help="Width of Stable Diffusion")
-
 
 def run_unet(
     device,
@@ -145,6 +103,8 @@ if __name__ == "__main__":
     if args.compare_vs_torch:
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
+        from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
 
         torch_output = run_torch_unet(
             args.hf_model_name,

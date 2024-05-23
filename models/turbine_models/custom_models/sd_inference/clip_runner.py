@@ -4,49 +4,6 @@ from transformers import CLIPTokenizer
 from iree import runtime as ireert
 import torch
 
-parser = argparse.ArgumentParser()
-
-# TODO move common runner flags to generic flag file
-parser.add_argument(
-    "--vmfb_path", type=str, default="", help="path to vmfb containing compiled module"
-)
-parser.add_argument(
-    "--external_weight_path",
-    type=str,
-    default="",
-    help="path to external weight parameters if model compiled without them",
-)
-parser.add_argument(
-    "--compare_vs_torch",
-    action="store_true",
-    help="Runs both turbine vmfb and a torch model to compare results",
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="CompVis/stable-diffusion-v1-4",
-)
-parser.add_argument(
-    "--hf_auth_token",
-    type=str,
-    help="The Hugging face auth token, required for some models",
-)
-parser.add_argument(
-    "--device",
-    type=str,
-    default="local-task",
-    help="local-sync, local-task, cuda, vulkan, rocm",
-)
-
-parser.add_argument(
-    "--prompt",
-    type=str,
-    default="a photograph of an astronaut riding a horse",
-    help="prompt for clip model",
-)
-
-
 def run_clip(
     device, prompt, vmfb_path, hf_model_name, hf_auth_token, external_weight_path
 ):
@@ -168,7 +125,7 @@ def run_torch_clip(hf_model_name, hf_auth_token, prompt):
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
     turbine_output = run_clip(
         args.device,
         args.prompt,

@@ -153,7 +153,7 @@ def export_vae_model(
 
 
 if __name__ == "__main__":
-    from .sd_cmd_opts import args
+    from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
     if args.input_mlir:
         vae_model = None
     else:
