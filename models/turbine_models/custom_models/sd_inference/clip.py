@@ -174,7 +174,7 @@ def export_clip_model(
             const_expr_hoisting=True,
             attn_spec=td_spec,
         )
-        return None, vmfb_path
+        return vmfb_path, None
 
 
 if __name__ == "__main__":

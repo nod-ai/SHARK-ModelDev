@@ -446,7 +446,7 @@ class SharkSDPipeline:
             sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
 
             if self.is_img2img:
-                raise AssertionError, "Image-to-image not supported yet."
+                raise AssertionError("Image-to-image not supported yet.")
                 strength = 0.5  # should be user-facing
                 init_timestep = min(
                     int(self.num_inference_steps * strength), self.num_inference_steps

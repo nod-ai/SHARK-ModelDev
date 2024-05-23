@@ -46,7 +46,6 @@ default_arguments = {
     "device": "cpu",
     "rt_device": "local-task",
     "iree_target_triple": "x86_64-linux-gnu",
-    "vulkan_max_allocation": "4294967296",
     "prompt": "a photograph of an astronaut riding a horse",
     "in_channels": 4,
 }
@@ -89,10 +88,9 @@ class StableDiffusionTest(unittest.TestCase):
             external_weight_path=None,
             device="cpu",
             target_triple=None,
-            max_alloc=None,
             upload_ir=UPLOAD_IR,
         )
-        current_args["vmfb_path"] = safe_prefix + "_clip.vmfb"
+        current_args["vmfb_path"] = blob_name
         turbine = clip_runner.run_clip(
             current_args["rt_device"],
             current_args["prompt"],
@@ -126,7 +124,6 @@ class StableDiffusionTest(unittest.TestCase):
             external_weight_path=safe_prefix + ".safetensors",
             device="cpu",
             target_triple=None,
-            max_alloc=None,
             upload_ir=UPLOAD_IR,
         )
         current_args["external_weight_path"] = safe_prefix + ".safetensors"
@@ -276,7 +273,7 @@ class StableDiffusionTest(unittest.TestCase):
             upload_ir=UPLOAD_IR,
         )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
-        current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
+        current_args["vmfb_path"] = blob_name
         example_input = torch.rand(
             current_args["batch_size"],
             4,
@@ -325,7 +322,7 @@ class StableDiffusionTest(unittest.TestCase):
             upload_ir=UPLOAD_IR,
         )
         current_args["external_weight_path"] = "stable_diffusion_v1_4_vae.safetensors"
-        current_args["vmfb_path"] = "stable_diffusion_v1_4_vae.vmfb"
+        current_args["vmfb_path"] = blob_name
         example_input = torch.rand(
             current_args["batch_size"],
             3,
@@ -372,7 +369,7 @@ class StableDiffusionTest(unittest.TestCase):
             upload_ir=UPLOAD_IR,
         )
         current_args["external_weight_path"] = safe_name + ".safetensors"
-        current_args["vmfb_path"] = safe_name + ".vmfb"
+        current_args["vmfb_path"] = blob_name
         sample = torch.rand(
             current_args["batch_size"],
             4,

@@ -130,12 +130,13 @@ def compile_to_vmfb(
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
-    if attn_spec not in [None, "", " "]:
-        if attn_spec in ["default", "mfma"]:
-            attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
-        elif attn_spec in ["wmma"]:
-            attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+    if attn_spec in ["default", "mfma"]:
+        attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    elif attn_spec in ["wmma"]:
+        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+        if attn_spec:
+            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)
 
@@ -187,6 +188,8 @@ def get_wmma_spec_path(target_chip, save_dir):
         url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1100.spec.mlir"
     elif target_chip == "gfx1103":
         url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1103.spec.mlir"
+    else:
+        return None
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, "attention_and_matmul_spec_wmma.mlir")
     with open(spec_path, "w") as f:
