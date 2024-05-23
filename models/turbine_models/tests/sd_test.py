@@ -64,13 +64,14 @@ vae_model = vae.VaeModel(
     custom_vae=None,
 )
 
-schedulers_dict = utils.get_schedulers(
-    # This is a public model, so no auth required
-    "CompVis/stable-diffusion-v1-4",
+scheduler = schedulers.get_scheduler(
+    default_arguments["hf_model_name"], default_arguments["scheduler_id"]
 )
-scheduler = schedulers_dict[default_arguments["scheduler_id"]]
-scheduler_module = schedulers.Scheduler(
-    "CompVis/stable-diffusion-v1-4", default_arguments["num_inference_steps"], scheduler
+scheduler_module = schedulers.SchedulingModel(
+    scheduler,
+    default_arguments["height"],
+    default_arguments["width"],
+    default_arguments["num_inference_steps"],
 )
 
 
@@ -357,18 +358,17 @@ class StableDiffusionTest(unittest.TestCase):
     def testExportPNDMScheduler(self):
         current_args = copy.deepcopy(default_arguments)
         safe_name = "stable_diffusion_v1_4_scheduler"
-        blob_name = schedulers.export_scheduler(
-            scheduler_module,
-            # This is a public model, so no auth required
-            "CompVis/stable-diffusion-v1-4",
+        blob_name = schedulers.export_scheduler_model(
+            current_args["hf_model_name"],
+            current_args["scheduler_id"],
             current_args["batch_size"],
             current_args["height"],
             current_args["width"],
-            None,
+            current_args["num_inference_steps"],
+            current_args["precision"],
             "vmfb",
-            "safetensors",
-            "stable_diffusion_v1_4_scheduler.safetensors",
-            "cpu",
+            current_args["device"],
+            current_args["iree_target_triple"],
             upload_ir=UPLOAD_IR,
         )
         current_args["external_weight_path"] = safe_name + ".safetensors"

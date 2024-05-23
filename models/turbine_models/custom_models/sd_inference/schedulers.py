@@ -49,10 +49,12 @@ class SharkSchedulerWrapper:
 
 
 class SchedulingModel(torch.nn.Module):
-    def __init__(self, scheduler, height, width):
+    def __init__(self, scheduler, height, width, num_inference_steps):
         self.model = scheduler
         self.height = height
         self.width = width
+        self.scheduler.set_timesteps(num_inference_steps)
+        self.scheduler.is_scale_input_called = True
 
     def initialize(self, sample):
         height = sample.shape[-2] * 8
@@ -118,9 +120,10 @@ def export_scheduler_model(
     input_mlir: str = None,
     upload_ir=False,
 ):
-    schedulers = utils.get_schedulers(hf_model_name)
-    scheduler = schedulers[scheduler_id]
-    scheduler_module = SchedulingModel(hf_model_name, scheduler)
+    scheduler = get_scheduler(hf_model_name, scheduler_id)
+    scheduler_module = SchedulingModel(
+        hf_model_name, scheduler, height, width, num_inference_steps
+    )
     vmfb_name = (
         scheduler_id
         + "_"
