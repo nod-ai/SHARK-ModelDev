@@ -1,3 +1,4 @@
+from urllib.request import urlopen
 import iree.compiler as ireec
 import numpy as np
 import os
@@ -131,10 +132,9 @@ def compile_to_vmfb(
     # the TD spec is implemented in C++.
     if attn_spec not in [None, "", " "]:
         if attn_spec in ["default", "mfma"]:
-            attn_spec = os.path.join(
-                os.path.realpath(os.path.dirname(__file__)),
-                "default_mfma_attn_spec.mlir",
-            )
+            attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
+        elif attn_spec in ["wmma"]:
+            attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     print("Compiling to", device, "with flags:", flags)
@@ -171,6 +171,27 @@ def create_safe_name(hf_model_name, model_name_str):
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)
     return safe_name
+
+
+def get_mfma_spec_path(target_chip, save_dir):
+    url = "https://raw.githubusercontent.com/iree-org/iree/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
+    attn_spec = urlopen(url).read().decode("utf-8")
+    spec_path = os.path.join(save_dir, "attention_and_matmul_spec_mfma.mlir")
+    with open(spec_path, "w") as f:
+        f.write(attn_spec)
+    return spec_path
+
+
+def get_wmma_spec_path(target_chip, save_dir):
+    if target_chip == "gfx1100":
+        url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1100.spec.mlir"
+    elif target_chip == "gfx1103":
+        url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1103.spec.mlir"
+    attn_spec = urlopen(url).read().decode("utf-8")
+    spec_path = os.path.join(save_dir, "attention_and_matmul_spec_wmma.mlir")
+    with open(spec_path, "w") as f:
+        f.write(attn_spec)
+    return spec_path
 
 
 def save_external_weights(
