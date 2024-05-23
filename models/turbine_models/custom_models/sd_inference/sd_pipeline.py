@@ -368,7 +368,10 @@ class SharkSDPipeline:
         runners["clip"] = vmfbRunner(rt_device, vmfbs["clip"], weights["clip"])
         if self.cpu_scheduling:
             self.scheduler = schedulers.SchedulingModel(
-                vmfbs["scheduler"], self.height, self.width
+                vmfbs["scheduler"],
+                self.height,
+                self.width,
+                self.num_inference_steps,
             )
         else:
             self.scheduler = schedulers.SharkSchedulerWrapper(

@@ -9,3 +9,4 @@ azure-storage-blob
 # microsoft/phi model
 einops
 pytest
+scipy

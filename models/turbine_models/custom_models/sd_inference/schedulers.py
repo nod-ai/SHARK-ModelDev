@@ -53,8 +53,8 @@ class SchedulingModel(torch.nn.Module):
         self.model = scheduler
         self.height = height
         self.width = width
-        self.scheduler.set_timesteps(num_inference_steps)
-        self.scheduler.is_scale_input_called = True
+        self.model.set_timesteps(num_inference_steps)
+        self.model.is_scale_input_called = True
 
     def initialize(self, sample):
         height = sample.shape[-2] * 8
