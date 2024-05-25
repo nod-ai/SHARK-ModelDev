@@ -37,6 +37,9 @@ class SDXLScheduledUnet(torch.nn.Module):
         return_index=False,
     ):
         super().__init__()
+        self.do_classifier_free_guidance = True
+        if any(key in hf_model_name for key in ["turbo", "lightning"]):
+            self.do_classifier_free_guidance = False 
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
         if scheduler_id == "PNDM":
@@ -89,11 +92,15 @@ class SDXLScheduledUnet(torch.nn.Module):
     ):
         with torch.no_grad():
             added_cond_kwargs = {
-                "text_embeds": text_embeds,
                 "time_ids": time_ids,
+                "text_embeds": text_embeds,
             }
             t = self.scheduler.timesteps[step_index]
-            latent_model_input = torch.cat([sample] * 2)
+            if self.do_classifier_free_guidance:
+                latent_model_input = torch.cat([sample] * 2)
+            else:
+                latent_model_input = sample.clone()
+
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             noise_pred = self.unet.forward(
                 latent_model_input,
@@ -104,10 +111,11 @@ class SDXLScheduledUnet(torch.nn.Module):
                 return_dict=False,
             )[0]
 
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (
-                noise_pred_text - noise_pred_uncond
-            )
+            if self.do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
             sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
             return sample.type(self.dtype)
 

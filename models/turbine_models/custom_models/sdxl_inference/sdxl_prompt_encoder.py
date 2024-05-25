@@ -37,7 +37,7 @@ class PromptEncoderModule(torch.nn.Module):
             subfolder="text_encoder_2",
             token=hf_auth_token,
         )
-        self.do_classifier_free_guidance = do_classifier_free_guidance
+        self.do_classifier_free_guidance = False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
 
     def forward(
         self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2

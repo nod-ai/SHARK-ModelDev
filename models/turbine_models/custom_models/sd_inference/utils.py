@@ -20,20 +20,23 @@ MI_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-waves-per-eu=2",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
+        "--iree-codegen-llvmgpu-use-vector-distribution=false",        
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
     ],
-    "vae": ["--iree-flow-enable-aggressive-fusion"],
+    "vae": [
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true"
+    ],
 }
 GFX11_flags = {
     "all": [
@@ -121,6 +124,14 @@ def compile_to_vmfb(
             ireec_flags = ireec_flags.split(",")
     elif ireec_flags == None:
         ireec_flags = []
+
+    debug = True
+    if debug:
+        flags.extend(
+            [
+                "--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"
+            ]
+        )
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]

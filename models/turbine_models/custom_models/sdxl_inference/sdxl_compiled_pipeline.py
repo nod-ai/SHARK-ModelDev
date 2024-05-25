@@ -101,6 +101,7 @@ class SharkSDXLPipeline:
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
         self.custom_vae = custom_vae
+        self.do_classifier_free_guidance = False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 
