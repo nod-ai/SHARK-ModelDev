@@ -346,7 +346,7 @@ def get_weighted_text_embeddings(
     skip_weighting: Optional[bool] = False,
 ):
     max_length = (pipe.model_max_length - 2) * max_embeddings_multiples + 2
-    for tokenizer in pipe.runners["tokenizers"]:
+    for tokenizer in pipe.tokenizers:
         (
             prompt_tokens,
             prompt_weights,

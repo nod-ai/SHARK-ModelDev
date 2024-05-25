@@ -32,9 +32,23 @@ MI_flags = {
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": ["--iree-flow-enable-aggressive-fusion"],
+}
+GFX11_flags = {
+    "all": [
+        "--iree-global-opt-propagate-transposes=true",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-llvmgpu-enable-prefetch=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
+    ],
+    "unet": [""],
+    "clip": [""],
+    "vae": [""],
 }
 
 
@@ -125,6 +139,9 @@ def compile_to_vmfb(
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
+
+    if target_triple in ["gfx1100", "gfx1103", "gfx1150"]:
+        flags.extend(GFX11_flags["all"])
 
     # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.

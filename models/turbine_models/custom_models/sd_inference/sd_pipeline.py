@@ -347,15 +347,15 @@ class SharkSDPipeline:
     ):
         self.runners = {}
         runners = {}
-        runners["tokenizers"] = []
-        runners["tokenizers"].append(
+        self.tokenizers = []
+        self.tokenizers.append(
             CLIPTokenizer.from_pretrained(
                 self.hf_model_name,
                 subfolder="tokenizer",
             )
         )
         if self.is_sdxl:
-            runners["tokenizers"].append(
+            self.tokenizers.append(
                 CLIPTokenizer.from_pretrained(
                     self.hf_model_name,
                     subfolder="tokenizer_2",
