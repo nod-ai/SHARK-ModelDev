@@ -65,7 +65,7 @@ def compile_to_vmfb(
     const_expr_hoisting=True,
     mlir_source="str",
     max_alloc="4294967296",
-    save_mlir=False,
+    save_mlir=True,
     attn_spec=None,
 ):
     flags = []

@@ -111,7 +111,7 @@ def parse_prompt_attention(text):
     return res
 
 
-def get_prompts_with_weights(pipe, prompt: List[str], max_length: int):
+def get_prompts_with_weights(tokenizer, prompt: List[str], max_length: int):
     r"""
     Tokenize a list of prompts and return its tokens with weights of each token.
     No padding, starting or ending token is included.
@@ -125,7 +125,7 @@ def get_prompts_with_weights(pipe, prompt: List[str], max_length: int):
         text_weight = []
         for word, weight in texts_and_weights:
             # tokenize and discard the starting and the ending token
-            token = pipe.tokenizer(word).input_ids[1:-1]
+            token = tokenizer(word).input_ids[1:-1]
             text_token += token
             # copy the weight by length of token
             text_weight += [weight] * len(token)
@@ -211,13 +211,12 @@ def get_unweighted_text_embeddings(
             text_input_chunk[:, -1] = text_input[0, -1]
 
             text_input_chunk = ireert.asdevicearray(
-                pipe.runners["clip"].config.device, text_input_chunk, pipe.iree_dtype
+                pipe.runners["clip"].config.device, text_input_chunk, "int64"
             )
             text_embedding = (
                 pipe.runners["clip"]
-                .ctx.modules.compiled_clip["encode_prompts"](text_input_chunk)
-                .to_host()
-            )
+                .ctx.modules.compiled_clip["main"](text_input_chunk)
+            )[0].to_host()
             if no_boseos_middle:
                 if i == 0:
                     # discard the ending token
@@ -235,8 +234,14 @@ def get_unweighted_text_embeddings(
         text_embeddings_np = np.concatenate(np.array(text_embeddings))
         text_embeddings = torch.from_numpy(text_embeddings_np)
     else:
-        text_embeddings = pipe.run("clip", text_input)[0]
-        text_embeddings = torch.from_numpy(text_embeddings.to_host())
+        text_input = ireert.asdevicearray(
+            pipe.runners["clip"].config.device, text_input, "int64"
+        )
+        text_embeddings = (
+            pipe.runners["clip"]
+            .ctx.modules.compiled_clip["main"](text_input)
+        )[0].to_host()
+        text_embeddings = torch.from_numpy(text_embeddings)
     return text_embeddings
 
 
@@ -259,11 +264,11 @@ def get_tokenized_inputs(
 ):
     if not skip_parsing:
         prompt_tokens, prompt_weights = get_prompts_with_weights(
-            pipe, prompt, max_length - 2
+            tokenizer, prompt, max_length - 2
         )
         if uncond_prompt is not None:
             uncond_tokens, uncond_weights = get_prompts_with_weights(
-                pipe, uncond_prompt, max_length - 2
+                tokenizer, uncond_prompt, max_length - 2
             )
     else:
         prompt_tokens = [

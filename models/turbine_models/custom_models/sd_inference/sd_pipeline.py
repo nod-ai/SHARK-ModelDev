@@ -8,6 +8,8 @@ import logging
 import copy
 import torch
 import iree.runtime as ireert
+from random import randint
+from tqdm.auto import tqdm
 from turbine_models.custom_models.sd_inference import (
     clip,
     unet,
@@ -74,6 +76,8 @@ class SharkSDPipeline:
         vae_decomp_attn: bool = True,
     ):
         self.hf_model_name = hf_model_name
+        self.iree_dtype = "float32" if precision == "fp32" else "float16"
+        self.torch_dtype = torch.float32 if precision == "fp32" else torch.float16
         self.cpu_scheduling = True
         self.scheduler_id = scheduler_id
         self.height = height
@@ -345,6 +349,7 @@ class SharkSDPipeline:
         rt_device: str = "local-task",
         compiled_pipeline: bool = False,
     ):
+        self.is_img2img = False
         self.runners = {}
         runners = {}
         self.tokenizers = []
@@ -361,29 +366,54 @@ class SharkSDPipeline:
                     subfolder="tokenizer_2",
                 )
             )
-
         runners["clip"] = vmfbRunner(rt_device, vmfbs["clip"], weights["clip"])
-        if self.cpu_scheduling:
-            self.scheduler = schedulers.SchedulingModel(
-                schedulers.get_scheduler(self.hf_model_name, self.scheduler_id),
-                self.height,
-                self.width,
-                self.num_inference_steps,
-            )
-        else:
-            self.scheduler = schedulers.SharkSchedulerWrapper(
-                rt_device, vmfbs["scheduler"], weights["scheduler"]
-            )
-
         runners["unet"] = vmfbRunner(rt_device, vmfbs["unet"], weights["unet"])
         runners["vae_decode"] = vmfbRunner(
             rt_device, vmfbs["vae_decode"], weights["vae_decode"]
         )
         self.runners = runners
         self.compiled_pipeline = False
+        if self.cpu_scheduling:
+            # torch_scheduler = schedulers.SchedulingModel(
+            #     schedulers.get_scheduler(self.hf_model_name, self.scheduler_id),
+            #     self.height,
+            #     self.width,
+            #     self.num_inference_steps,
+            #     self.torch_dtype,
+            # )
+            # self.scheduler = schedulers.SharkSchedulerCPUWrapper(
+            #     self, torch_scheduler
+            # )
+            self.scheduler = schedulers.get_scheduler(self.hf_model_name, self.scheduler_id)
+        else:
+            self.scheduler = schedulers.SharkSchedulerWrapper(
+                rt_device, vmfbs["scheduler"], weights["scheduler"]
+            )
         print("Successfully loaded pipeline.")
 
     # RUN
+
+    def prepare_latents(
+        self,
+        noise,
+        num_inference_steps,
+        image,
+        strength,
+    ):
+        self.scheduler.set_timesteps(num_inference_steps)
+        if self.is_img2img:
+            init_timestep = min(
+                int(num_inference_steps * strength), num_inference_steps
+            )
+            t_start = max(num_inference_steps - init_timestep, 0)
+            timesteps = self.scheduler.timesteps[t_start:]
+            latents = self.encode_image(image)
+            latents = self.scheduler.add_noise(latents, noise, timesteps[0].repeat(1))
+            return latents, [timesteps]
+        else:
+            self.scheduler.is_scale_input_called = True
+            latents = noise * self.scheduler.init_noise_sigma
+            return latents, self.scheduler.timesteps
 
     def generate_images(
         self,
@@ -394,16 +424,17 @@ class SharkSDPipeline:
         seed: float = -1,
         return_imgs: bool = False,
     ):
-        # TODO: implement case where this is false e.g. in SDXL Turbo
-        # do_classifier_free_guidance = True
-
-        self.iree_dtype = "float32" if self.precision == "fp32" else "float16"
-        torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16
 
         pipe_start = time.time()
         samples = []
         numpy_images = []
+        
+        uint32_info = np.iinfo(np.uint32)
+        uint32_min, uint32_max = uint32_info.min, uint32_info.max
+        if seed < uint32_min or seed >= uint32_max:
+            seed = randint(uint32_min, uint32_max)
 
+        generator = torch.manual_seed(seed)
         for i in range(batch_count):
             generator = torch.random.manual_seed(seed + i)
             rand_sample = torch.randn(
@@ -414,15 +445,16 @@ class SharkSDPipeline:
                     self.width // 8,
                 ),
                 generator=generator,
-                dtype=torch_dtype,
+                dtype=self.torch_dtype,
             )
-            samples.append(
-                ireert.asdevicearray(
-                    self.runners["unet"].config.device,
-                    rand_sample,
-                    dtype=self.iree_dtype,
-                )
-            )
+            samples.append(rand_sample)
+            # samples.append(
+            #     ireert.asdevicearray(
+            #         self.runners["unet"].config.device,
+            #         rand_sample,
+            #         dtype=self.iree_dtype,
+            #     )
+            # )
 
         guidance_scale = ireert.asdevicearray(
             self.runners["unet"].config.device,
@@ -438,62 +470,39 @@ class SharkSDPipeline:
             self, prompt, negative_prompt
         )
 
+        text_embeddings = torch.cat((negative_embeds, prompt_embeds), dim=0)
+        text_embeddings = ireert.asdevicearray(
+            self.runners["unet"].config.device,
+            text_embeddings,
+            dtype=self.iree_dtype,
+        )
         encode_prompts_end = time.time()
 
         for i in range(batch_count):
             unet_start = time.time()
+            image = None
+            strength = 0
+            sample, timesteps = self.prepare_latents(samples[i], self.num_inference_steps, image, strength)
 
-            sample, add_time_ids, timesteps = self.scheduler.initialize(samples[i])
-
-            if self.is_img2img:
-                raise AssertionError("Image-to-image not supported yet.")
-                strength = 0.5  # should be user-facing
-                init_timestep = min(
-                    int(self.num_inference_steps * strength), self.num_inference_steps
-                )
-                t_start = max(self.num_inference_steps - init_timestep, 0)
-                timesteps = self.scheduler.timesteps[t_start:]
-                latents = self.encode_image(image)
-                latents = self.scheduler.add_noise(
-                    latents, sample, timesteps[0].repeat(1)
-                )
-                return latents, [timesteps]
-
-            if self.cpu_scheduling:
-                sample = ireert.asdevicearray(
-                    self.runners["unet"].config.device,
-                    np.asarray(sample),
-                    dtype=self.iree_dtype,
-                )
-                add_time_ids = ireert.asdevicearray(
-                    self.runners["unet"].config.device,
-                    np.asarray(add_time_ids),
-                    dtype=self.iree_dtype,
-                )
-                timesteps = ireert.asdevicearray(
-                    self.runners["unet"].config.device,
-                    np.asarray(timesteps),
-                    dtype=self.iree_dtype,
-                )
-
-            for t in range(timesteps):
-                latents = self.scheduler.scale_model_input(sample, t)
-                latents = self.runners["unet"].ctx.modules.compiled_unet["main"](
+            for i, t in tqdm(enumerate(timesteps)):
+                latents = self.scheduler.scale_model_input(sample, t).to(self.torch_dtype)
+                timestep = torch.tensor([t]).to(self.torch_dtype).detach().numpy()
+                unet_inputs = [
                     latents,
-                    prompt_embeds,
-                    negative_embeds,
-                    add_time_ids,
-                    guidance_scale,
-                    t,
+                    timestep,
+                ]
+                if self.cpu_scheduling:
+                    for inp in unet_inputs:
+                        inp = ireert.asdevicearray(
+                            self.runners["unet"].config.device,
+                            inp,
+                            dtype=self.iree_dtype,
+                        )
+                unet_inputs.extend([text_embeddings, guidance_scale])
+                latents = self.runners["unet"].ctx.modules.compiled_unet["main"](
+                    *unet_inputs
                 )
-                sample = self.scheduler.step(sample, latents, t)
-
-            if self.cpu_scheduling:
-                sample = ireert.asdevicearray(
-                    self.runners["vae_decode"].config.device,
-                    np.asarray(sample),
-                    dtype=self.iree_dtype,
-                )
+                sample = self.scheduler.step(torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample).prev_sample
 
             vae_start = time.time()
             vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](

@@ -49,12 +49,13 @@ class SharkSchedulerWrapper:
 
 
 class SchedulingModel(torch.nn.Module):
-    def __init__(self, scheduler, height, width, num_inference_steps):
+    def __init__(self, scheduler, height, width, num_inference_steps, dtype):
         self.model = scheduler
         self.height = height
         self.width = width
         self.model.set_timesteps(num_inference_steps)
         self.model.is_scale_input_called = True
+        self.dtype = dtype
 
     def initialize(self, sample):
         height = sample.shape[-2] * 8
@@ -72,33 +73,37 @@ class SchedulingModel(torch.nn.Module):
         return sample.type(self.dtype), add_time_ids, step_indexes
 
     def scale_model_input(self, sample, t):
-        self.model.scale_model_input(sample, t)
+        return self.model.scale_model_input(sample, t)
 
-    def step(self, sample, latents, t):
-        self.model.step(self, sample, latents, t)
+    def step(self, latents, t, sample):
+        return self.model.step(latents, t, sample)
 
 
-class SharkSchedulerCPUWrapper(SchedulingModel):
-    def __init__(self, pipe, scheduler, height, width):
-        super().__init__(scheduler, height, width)
-        self.dest = pipe.runner["unet"].config.device
+class SharkSchedulerCPUWrapper():
+    def __init__(self, pipe, scheduler):
+        self.module = scheduler
+        self.dest = pipe.runners["unet"].config.device
         self.dtype = pipe.iree_dtype
 
     def initialize(self, sample):
-        for output in super().initialize(sample):
-            iree_arrays = ireert.asdevicearray(self.dest, output, self.dtype)
+        sample, add_time_ids, step_indexes = self.module.initialize(torch.from_numpy(sample.to_host()))
+        sample = ireert.asdevicearray(self.dest, sample, self.dtype)
+        add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
 
-        return iree_arrays
+        return sample, add_time_ids, step_indexes
 
     def scale_model_input(self, sample, t):
-        return ireert.asdevicearray(
-            self.dest, super.scale_model_input(sample, t), self.dtype
+        scaled = ireert.asdevicearray(
+            self.dest, self.module.scale_model_input(torch.from_numpy(sample.to_host()), t), self.dtype
         )
+        t = [self.module.model.timesteps[t]]
+        t = ireert.asdevicearray(self.dest, t, self.dtype)
+        return scaled, t
 
-    def step(self, sample, latents, t):
+    def step(self, latents, t, sample):
         return ireert.asdevicearray(
             self.dest,
-            super.step(sample.to_host(), latents.to_host(), t.to_host()),
+            self.module.step(torch.from_numpy(latents.to_host()), t, torch.from_numpy(sample.to_host())).prev_sample,
             self.dtype,
         )
 
@@ -261,7 +266,7 @@ SCHEDULER_MAP = {
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
-    mod_str = export_scheduler(
+    mod_str = export_scheduler_model(
         args.hf_model_name,
         args.scheduler_id,
         args.batch_size,
