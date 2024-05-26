@@ -14,6 +14,7 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+import shark_turbine.ops as ops
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -79,9 +80,10 @@ class SDXLScheduledUnet(torch.nn.Module):
         target_size = (height, width)
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids])
-        add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
-        add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+        add_time_ids = torch.tensor([add_time_ids], dtype=self.dtype)
+        if self.do_classifier_free_guidance:
+            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+            add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
         step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.scheduler.init_noise_sigma

@@ -16,6 +16,7 @@ from turbine_models.custom_models.sd_inference import utils
 from turbine_models.custom_models.sdxl_inference.pipeline_ir import (
     sdxl_sched_unet_bench_f32,
     sdxl_sched_unet_bench_f16,
+    sdxl_turbo_sched_unet_bench_f16,
     sdxl_pipeline_bench_f32,
     sdxl_pipeline_bench_f16,
 )
@@ -354,6 +355,9 @@ class SharkSDXLPipeline:
                     if self.precision == "fp32"
                     else sdxl_sched_unet_bench_f16
                 )
+                if self.do_classifier_free_guidance == False:
+                    assert self.precision == "fp16", "turbo only supported in fp16 precision."
+                    pipeline_file = sdxl_turbo_sched_unet_bench_f16
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
                     self.device,
@@ -551,7 +555,6 @@ class SharkSDXLPipeline:
 
             for i in range(batch_count):
                 unet_start = time.time()
-
                 latents = self.runners["pipe"].ctx.modules.sdxl_compiled_pipeline[
                     "produce_image_latents"
                 ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)

@@ -125,7 +125,7 @@ def compile_to_vmfb(
     elif ireec_flags == None:
         ireec_flags = []
 
-    debug = True
+    debug = False
     if debug:
         flags.extend(
             [
