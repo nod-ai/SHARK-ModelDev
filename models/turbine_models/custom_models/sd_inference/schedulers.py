@@ -79,14 +79,16 @@ class SchedulingModel(torch.nn.Module):
         return self.model.step(latents, t, sample)
 
 
-class SharkSchedulerCPUWrapper():
+class SharkSchedulerCPUWrapper:
     def __init__(self, pipe, scheduler):
         self.module = scheduler
         self.dest = pipe.runners["unet"].config.device
         self.dtype = pipe.iree_dtype
 
     def initialize(self, sample):
-        sample, add_time_ids, step_indexes = self.module.initialize(torch.from_numpy(sample.to_host()))
+        sample, add_time_ids, step_indexes = self.module.initialize(
+            torch.from_numpy(sample.to_host())
+        )
         sample = ireert.asdevicearray(self.dest, sample, self.dtype)
         add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
 
@@ -94,7 +96,9 @@ class SharkSchedulerCPUWrapper():
 
     def scale_model_input(self, sample, t):
         scaled = ireert.asdevicearray(
-            self.dest, self.module.scale_model_input(torch.from_numpy(sample.to_host()), t), self.dtype
+            self.dest,
+            self.module.scale_model_input(torch.from_numpy(sample.to_host()), t),
+            self.dtype,
         )
         t = [self.module.model.timesteps[t]]
         t = ireert.asdevicearray(self.dest, t, self.dtype)
@@ -103,7 +107,11 @@ class SharkSchedulerCPUWrapper():
     def step(self, latents, t, sample):
         return ireert.asdevicearray(
             self.dest,
-            self.module.step(torch.from_numpy(latents.to_host()), t, torch.from_numpy(sample.to_host())).prev_sample,
+            self.module.step(
+                torch.from_numpy(latents.to_host()),
+                t,
+                torch.from_numpy(sample.to_host()),
+            ).prev_sample,
             self.dtype,
         )
 

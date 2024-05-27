@@ -37,7 +37,7 @@ class PromptEncoderModule(torch.nn.Module):
             subfolder="text_encoder_2",
             token=hf_auth_token,
         )
-        self.do_classifier_free_guidance = False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
+        self.do_classifier_free_guidance = True
 
     def forward(
         self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
@@ -93,6 +93,43 @@ class PromptEncoderModule(torch.nn.Module):
                 add_text_embeds = torch.cat(
                     [neg_pooled_prompt_embeds, add_text_embeds], dim=0
                 )
+
+            add_text_embeds = add_text_embeds.to(self.torch_dtype)
+            prompt_embeds = prompt_embeds.to(self.torch_dtype)
+            return prompt_embeds, add_text_embeds
+
+    def forward_turbo(self, text_input_ids_1, text_input_ids_2):
+        with torch.no_grad():
+            prompt_embeds_1 = self.text_encoder_model_1(
+                text_input_ids_1,
+                output_hidden_states=True,
+            )
+            prompt_embeds_2 = self.text_encoder_model_2(
+                text_input_ids_2,
+                output_hidden_states=True,
+            )
+            # We are only ALWAYS interested in the pooled output of the final text encoder
+            pooled_prompt_embeds = prompt_embeds_2[0]
+
+            prompt_embeds_list = [
+                prompt_embeds_1.hidden_states[-2],
+                prompt_embeds_2.hidden_states[-2],
+            ]
+            # neg_prompt_embeds_list = [
+            #     torch.zeros_like(prompt_embeds_list[0]), # dummy tensor
+            #     torch.zeros_like(prompt_embeds_list[1]), # dummy tensor
+            # ]
+
+            prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+
+            bs_embed, seq_len, _ = prompt_embeds.shape
+
+            prompt_embeds = prompt_embeds.repeat(1, 1, 1)
+            prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
+            pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
+                bs_embed * 1, -1
+            )
+            add_text_embeds = pooled_prompt_embeds
 
             add_text_embeds = add_text_embeds.to(self.torch_dtype)
             prompt_embeds = prompt_embeds.to(self.torch_dtype)
@@ -188,6 +225,13 @@ def export_prompt_encoder(
             return jittable(prompt_encoder_module.forward)(
                 t_ids_1, t_ids_2, uc_ids_1, uc_ids_2
             )
+
+        def encode_prompts_turbo(
+            self,
+            t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
+            t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
+        ):
+            return jittable(prompt_encoder_module.forward_turbo)(t_ids_1, t_ids_2)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)

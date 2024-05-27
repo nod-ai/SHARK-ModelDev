@@ -50,106 +50,9 @@ def run_torch_scheduled_unet(
     text_embeds,
     args,
 ):
-    from diffusers import UNet2DConditionModel
-
-    class SDXLScheduledUnet(torch.nn.Module):
-        def __init__(
-            self,
-            hf_model_name,
-            scheduler_id,
-            height,
-            width,
-            batch_size,
-            hf_auth_token=None,
-            precision="fp32",
-            num_inference_steps=1,
-            return_index=False,
-        ):
-            super().__init__()
-            self.dtype = torch.float16 if precision == "fp16" else torch.float32
-            self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
-            self.scheduler.set_timesteps(num_inference_steps)
-            self.scheduler.is_scale_input_called = True
-            self.return_index = return_index
-
-            if precision == "fp16":
-                try:
-                    self.unet = UNet2DConditionModel.from_pretrained(
-                        hf_model_name,
-                        subfolder="unet",
-                        auth_token=hf_auth_token,
-                        low_cpu_mem_usage=False,
-                        variant="fp16",
-                    )
-                except:
-                    self.unet = UNet2DConditionModel.from_pretrained(
-                        hf_model_name,
-                        subfolder="unet",
-                        auth_token=hf_auth_token,
-                        low_cpu_mem_usage=False,
-                    )
-            else:
-                self.unet = UNet2DConditionModel.from_pretrained(
-                    hf_model_name,
-                    subfolder="unet",
-                    auth_token=hf_auth_token,
-                    low_cpu_mem_usage=False,
-                )
-
-        def initialize(self, sample):
-            height = sample.shape[-2] * 8
-            width = sample.shape[-1] * 8
-            original_size = (height, width)
-            target_size = (height, width)
-            crops_coords_top_left = (0, 0)
-            add_time_ids = list(original_size + crops_coords_top_left + target_size)
-            add_time_ids = torch.tensor([add_time_ids])
-            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
-            add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
-            timesteps = self.scheduler.timesteps
-            step_indexes = torch.tensor(len(timesteps))
-            sample = sample * self.scheduler.init_noise_sigma
-            return sample.type(self.dtype), add_time_ids, step_indexes
-
-        def forward(
-            self,
-            sample,
-            prompt_embeds,
-            text_embeds,
-            time_ids,
-            guidance_scale,
-            step_index,
-        ):
-            with torch.no_grad():
-                added_cond_kwargs = {
-                    "text_embeds": text_embeds,
-                    "time_ids": time_ids,
-                }
-                t = self.scheduler.timesteps[step_index]
-                latent_model_input = torch.cat([sample] * 2)
-                latent_model_input = self.scheduler.scale_model_input(
-                    latent_model_input, t
-                )
-                noise_pred = self.unet.forward(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=None,
-                    added_cond_kwargs=added_cond_kwargs,
-                    return_dict=False,
-                )[0]
-
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
-                )
-                sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[
-                    0
-                ]
-            if self.return_index:
-                return sample.type(self.dtype), step_index
-            else:
-                return sample.type(self.dtype)
+    from turbine_models.custom_models.sdxl_inference.sdxl_scheduled_unet import (
+        SDXLScheduledUnet,
+    )
 
     unet_model = SDXLScheduledUnet(
         args.hf_model_name,
@@ -158,9 +61,9 @@ def run_torch_scheduled_unet(
         args.width,
         args.batch_size,
         args.hf_auth_token,
-        args.precision,
+        "fp32",
         args.num_inference_steps,
-    )
+    ).float()
     sample, add_time_ids, steps = unet_model.initialize(sample)
     for i in range(steps):
         sample = unet_model.forward(
@@ -263,12 +166,20 @@ if __name__ == "__main__":
         dtype = torch.float16
     else:
         dtype = torch.float32
+    # if "turbo" in args.hf_model_name:
+    #     init_batch_dim = 1
+    # else:
+    #     init_batch_dim = 2
+    init_batch_dim = 2
     sample = torch.rand(
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
     timestep = torch.zeros(1, dtype=torch.int64)
-    prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
-    text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
+    prompt_embeds = torch.rand(
+        init_batch_dim * args.batch_size, args.max_length, 2048, dtype=dtype
+    )
+    text_embeds = torch.rand(init_batch_dim * args.batch_size, 1280, dtype=dtype)
+    time_ids = torch.rand(init_batch_dim * args.batch_size, 6)
 
     turbine_output = run_scheduled_unet(
         sample,

@@ -8,6 +8,7 @@ from diffusers import (
     PNDMScheduler,
     EulerDiscreteScheduler,
     EulerAncestralDiscreteScheduler,
+    DPMSolverSDEScheduler,
 )
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
@@ -20,13 +21,14 @@ MI_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-waves-per-eu=2",
+        "--iree-flow-inline-constants-max-byte-length=1",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=false",        
+        "--iree-codegen-llvmgpu-use-vector-distribution=false",
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
@@ -35,7 +37,7 @@ MI_flags = {
     ],
     "vae": [
         "--iree-flow-enable-aggressive-fusion",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true"
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
 }
 GFX11_flags = {
@@ -128,9 +130,7 @@ def compile_to_vmfb(
     debug = False
     if debug:
         flags.extend(
-            [
-                "--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"
-            ]
+            ["--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"]
         )
 
     for i, flag in enumerate(ireec_flags):
@@ -270,6 +270,10 @@ def get_schedulers(model_id):
     schedulers[
         "EulerAncestralDiscrete"
     ] = EulerAncestralDiscreteScheduler.from_pretrained(
+        model_id,
+        subfolder="scheduler",
+    )
+    schedulers["DPMSolverSDE"] = DPMSolverSDEScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
     )

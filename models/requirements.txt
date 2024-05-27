@@ -2,6 +2,7 @@ protobuf
 sentencepiece
 shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
 transformers==4.37.1
+torchsde
 accelerate
 diffusers @ git+https://github.com/nod-ai/diffusers@v0.24.0-release
 # turbine tank downloading/uploading

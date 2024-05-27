@@ -214,8 +214,7 @@ def get_unweighted_text_embeddings(
                 pipe.runners["clip"].config.device, text_input_chunk, "int64"
             )
             text_embedding = (
-                pipe.runners["clip"]
-                .ctx.modules.compiled_clip["main"](text_input_chunk)
+                pipe.runners["clip"].ctx.modules.compiled_clip["main"](text_input_chunk)
             )[0].to_host()
             if no_boseos_middle:
                 if i == 0:
@@ -238,8 +237,7 @@ def get_unweighted_text_embeddings(
             pipe.runners["clip"].config.device, text_input, "int64"
         )
         text_embeddings = (
-            pipe.runners["clip"]
-            .ctx.modules.compiled_clip["main"](text_input)
+            pipe.runners["clip"].ctx.modules.compiled_clip["main"](text_input)
         )[0].to_host()
         text_embeddings = torch.from_numpy(text_embeddings)
     return text_embeddings

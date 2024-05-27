@@ -130,7 +130,7 @@ class SharkSDPipeline:
                         weights[submodel] = weight
                 ready, vmfbs, weights = self.is_prepared(vmfbs, weights)
                 if ready:
-                    print("All necessary files found. Generating images.")
+                    print("All necessary files found.")
                     return vmfbs, weights
                 else:
                     print("There was an error generating the necessary files.")
@@ -384,7 +384,9 @@ class SharkSDPipeline:
             # self.scheduler = schedulers.SharkSchedulerCPUWrapper(
             #     self, torch_scheduler
             # )
-            self.scheduler = schedulers.get_scheduler(self.hf_model_name, self.scheduler_id)
+            self.scheduler = schedulers.get_scheduler(
+                self.hf_model_name, self.scheduler_id
+            )
         else:
             self.scheduler = schedulers.SharkSchedulerWrapper(
                 rt_device, vmfbs["scheduler"], weights["scheduler"]
@@ -424,11 +426,10 @@ class SharkSDPipeline:
         seed: float = -1,
         return_imgs: bool = False,
     ):
-
         pipe_start = time.time()
         samples = []
         numpy_images = []
-        
+
         uint32_info = np.iinfo(np.uint32)
         uint32_min, uint32_max = uint32_info.min, uint32_info.max
         if seed < uint32_min or seed >= uint32_max:
@@ -482,10 +483,14 @@ class SharkSDPipeline:
             unet_start = time.time()
             image = None
             strength = 0
-            sample, timesteps = self.prepare_latents(samples[i], self.num_inference_steps, image, strength)
+            sample, timesteps = self.prepare_latents(
+                samples[i], self.num_inference_steps, image, strength
+            )
 
             for i, t in tqdm(enumerate(timesteps)):
-                latents = self.scheduler.scale_model_input(sample, t).to(self.torch_dtype)
+                latents = self.scheduler.scale_model_input(sample, t).to(
+                    self.torch_dtype
+                )
                 timestep = torch.tensor([t]).to(self.torch_dtype).detach().numpy()
                 unet_inputs = [
                     latents,
@@ -502,7 +507,9 @@ class SharkSDPipeline:
                 latents = self.runners["unet"].ctx.modules.compiled_unet["main"](
                     *unet_inputs
                 )
-                sample = self.scheduler.step(torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample).prev_sample
+                sample = self.scheduler.step(
+                    torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample
+                ).prev_sample
 
             vae_start = time.time()
             vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](

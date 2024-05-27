@@ -102,7 +102,8 @@ class SharkSDXLPipeline:
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
         self.custom_vae = custom_vae
-        self.do_classifier_free_guidance = False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
+        # TODO: set this based on user-inputted guidance scale and negative prompt.
+        # self.do_classifier_free_guidance = False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 
@@ -135,7 +136,7 @@ class SharkSDXLPipeline:
                         weights[submodel] = weight
                 ready, vmfbs, weights = self.is_prepared(vmfbs, weights)
                 if ready:
-                    print("All necessary files found. Generating images.")
+                    print("All necessary files found.")
                     return vmfbs, weights
                 else:
                     print("There was an error generating the necessary files.")
@@ -164,7 +165,7 @@ class SharkSDXLPipeline:
         for w_key in weights:
             if "pipeline" in w_key:
                 continue
-            if weights[w_key] is not None and os.path.exists(weights[w_key]):
+            if weights[w_key] is not None:
                 continue
             default_name = os.path.join(
                 self.external_weights_dir, w_key + "." + self.external_weights
@@ -356,7 +357,9 @@ class SharkSDXLPipeline:
                     else sdxl_sched_unet_bench_f16
                 )
                 if self.do_classifier_free_guidance == False:
-                    assert self.precision == "fp16", "turbo only supported in fp16 precision."
+                    assert (
+                        self.precision == "fp16"
+                    ), "turbo only supported in fp16 precision."
                     pipeline_file = sdxl_turbo_sched_unet_bench_f16
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
@@ -545,11 +548,18 @@ class SharkSDXLPipeline:
         else:
             encode_prompts_start = time.time()
 
-            prompt_embeds, add_text_embeds = self.runners[
-                "prompt_encoder"
-            ].ctx.modules.compiled_clip["encode_prompts"](
-                *text_input_ids_list, *uncond_input_ids_list
-            )
+            if self.do_classifier_free_guidance == False:
+                prompt_embeds, add_text_embeds = self.runners[
+                    "prompt_encoder"
+                ].ctx.modules.compiled_clip["encode_prompts_turbo"](
+                    *text_input_ids_list
+                )
+            else:
+                prompt_embeds, add_text_embeds = self.runners[
+                    "prompt_encoder"
+                ].ctx.modules.compiled_clip["encode_prompts"](
+                    *text_input_ids_list, *uncond_input_ids_list
+                )
 
             encode_prompts_end = time.time()
 

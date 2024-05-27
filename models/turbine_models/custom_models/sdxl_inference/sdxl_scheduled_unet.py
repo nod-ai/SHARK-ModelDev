@@ -16,6 +16,7 @@ import numpy as np
 from shark_turbine.aot import *
 import shark_turbine.ops as ops
 from turbine_models.custom_models.sd_inference import utils
+from turbine_models.custom_models.sd_inference.schedulers import get_scheduler
 import torch
 import torch._dynamo as dynamo
 from diffusers import UNet2DConditionModel
@@ -39,12 +40,12 @@ class SDXLScheduledUnet(torch.nn.Module):
     ):
         super().__init__()
         self.do_classifier_free_guidance = True
-        if any(key in hf_model_name for key in ["turbo", "lightning"]):
-            self.do_classifier_free_guidance = False 
+        # if any(key in hf_model_name for key in ["turbo", "lightning"]):
+        #     self.do_classifier_free_guidance = False
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
-        if scheduler_id == "PNDM":
-            num_inference_steps = num_inference_steps - 1
+        # if scheduler_id == "PNDM":
+        #     num_inference_steps = num_inference_steps - 1
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
         self.return_index = return_index
@@ -101,9 +102,11 @@ class SDXLScheduledUnet(torch.nn.Module):
             if self.do_classifier_free_guidance:
                 latent_model_input = torch.cat([sample] * 2)
             else:
-                latent_model_input = sample.clone()
+                latent_model_input = sample
 
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+            latent_model_input = self.scheduler.scale_model_input(
+                latent_model_input, t
+            ).type(self.dtype)
             noise_pred = self.unet.forward(
                 latent_model_input,
                 t,
