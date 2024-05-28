@@ -71,6 +71,7 @@ scheduler_module = schedulers.SchedulingModel(
     default_arguments["height"],
     default_arguments["width"],
     default_arguments["num_inference_steps"],
+    default_arguments["precision"],
 )
 
 
