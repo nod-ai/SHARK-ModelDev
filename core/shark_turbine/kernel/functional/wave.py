@@ -959,9 +959,8 @@ class LaunchableWave(Launchable):
                 scheduled_graph, sched_group_barrier, instruction_counts, self.sync_id
             )
             group_barrier.emit()
-            barrier = SchedBarrierNode(scheduled_graph, sched_barrier, int("0x1", 0))
+            barrier = SchedBarrierNode(scheduled_graph, sched_barrier, int("0x7", 0))
             barrier.emit()
-            self.sync_id += 1
 
     def create_prologue(
         self,
