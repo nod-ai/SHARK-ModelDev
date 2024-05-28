@@ -7,6 +7,7 @@ import difflib
 import os
 from copy import deepcopy
 import numpy as np
+from collections import defaultdict
 
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel as tk
@@ -77,6 +78,8 @@ from ..functional.ops import (
     read,
     write_shared,
     sync,
+    sched_barrier,
+    sched_group_barrier,
 )
 from ..functional import modulo_scheduling as ms
 from ..functional import utils
@@ -180,6 +183,7 @@ class LaunchableWave(Launchable):
         self._name = name
         self._f = eager_function
         self._sig = inspect.signature(eager_function)
+        self.sync_id = 0
 
     @property
     def workgroup_constraints(self):
@@ -807,6 +811,7 @@ class LaunchableWave(Launchable):
 
         result_map = {}
         for time, nodes in self.nodes_by_time.items():
+            instruction_counts = defaultdict(int)
             for node in nodes:
                 if "alloc" in node.name or "c_reg" in node.name:
                     continue
@@ -818,6 +823,7 @@ class LaunchableWave(Launchable):
                     continue
                 node.meta["stage"] = stage
                 new_node = kernel.node_copy(node, partial(arg_mapper, stage))
+                instruction_counts[self.get_type(new_node)] += 1
                 self.update_stage_index(new_node, stage)
                 # This mapping is constantly updated to only the last reference.
                 # Is that always enough?
@@ -836,6 +842,7 @@ class LaunchableWave(Launchable):
                         next_stage = 0 if stage == 0 else stage - 1
                         staged_value_map[next_stage][c_reg_node] = new_node
                         node_to_stage[c_reg_node] = next_stage
+            self.insert_scheduling_barriers(kernel, instruction_counts)
 
         mapped_iter_args = []
         for arg in iter_args:
@@ -929,6 +936,33 @@ class LaunchableWave(Launchable):
                     mma_init_args[target_name] = value_map[src_node.name]
         return mma_init_args
 
+    def get_type(self, node: fx.Node) -> str:
+        if "shared" in node.name:
+            if "read" in node.name:
+                return "read_shared"
+            if "write" in node.name:
+                return "write_shared"
+        else:
+            if "read" in node.name:
+                return "read"
+            if "write" in node.name:
+                return "write"
+            if "mma" in node.name:
+                return "mma"
+        return "misc"
+
+    def insert_scheduling_barriers(
+        self, scheduled_graph: fx.Graph, instruction_counts: dict[str, int]
+    ):
+        if len(instruction_counts) > 0:
+            group_barrier = SchedGroupBarrierNode(
+                scheduled_graph, sched_group_barrier, instruction_counts, self.sync_id
+            )
+            group_barrier.emit()
+            barrier = SchedBarrierNode(scheduled_graph, sched_barrier, int("0x1", 0))
+            barrier.emit()
+            self.sync_id += 1
+
     def create_prologue(
         self,
         scheduled_graph: fx.Graph,
@@ -953,6 +987,8 @@ class LaunchableWave(Launchable):
         times = list(self.nodes_by_absolute_time.keys())
         max_time_index = len(times)
         for time in self.nodes_by_absolute_time.keys():
+            instruction_counts = defaultdict(int)
+            new_node = None
             for stage in reversed(self.prologue.keys()):
                 if time < start_time_per_stage[stage]:
                     continue
@@ -971,6 +1007,7 @@ class LaunchableWave(Launchable):
                     )
                     new_node.name = subnode.name + "_prolog" + str(stage)
                     new_node.meta["stage"] = map_stage(stage)
+                    instruction_counts[self.get_type(new_node)] += 1
                     self.update_stage_index(new_node, new_node.meta["stage"], True)
                     next_stage = stage - 1 if stage > 0 else stage
                     updated = self.update_staged_value_map(
@@ -983,6 +1020,7 @@ class LaunchableWave(Launchable):
                 time_index_per_stage[stage] = (
                     time_index_per_stage[stage] + 1
                 ) % max_time_index
+            self.insert_scheduling_barriers(scheduled_graph, instruction_counts)
 
         for stage, nodes in self.iter_args.items():
             for subnode in sorted(list(nodes), key=lambda node: node.name):
@@ -1099,6 +1137,8 @@ class LaunchableWave(Launchable):
                         value_map[child.name] = value_map[parent.name]
 
                 # Emit epilogue
+                # TODO: Move to time-based epilogue generation.
+                # TODO: Add scheduling barriers here.
                 for stage in reversed(self.epilogue.keys()):
                     for subnode in self.epilogue[stage]:
                         if "c_reg" in subnode.name:

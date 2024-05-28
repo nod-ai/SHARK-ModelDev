@@ -228,6 +228,43 @@ class BarrierNode(CustomNode):
 
 
 @dataclass
+class SchedBarrierNode(CustomNode):
+    mask: int
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="sched_barrier",
+            kwargs={},
+        )
+
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
+        return f"sched_barrier mask({self.mask}) \n"
+
+
+@dataclass
+class SchedGroupBarrierNode(CustomNode):
+    instruction_counts: dict[str, int]
+    sync_id: int
+
+    def emit(self):
+        arg_list = tuple([value for _, value in vars(self).items()][2:])
+        self.fx_node = self.graph.create_node(
+            "call_function",
+            target=self.op,
+            args=arg_list,
+            name="sched_group_barrier",
+            kwargs={},
+        )
+
+    def custom_string(self, value_map: dict[fx.Node, str]) -> str:
+        return f"sched_group_barrier num_instructions({self.instruction_counts}), sync_id({self.sync_id}) \n"
+
+
+@dataclass
 class GetResultNode(CustomNode):
     value: fx.Node
     index: int
@@ -260,7 +297,7 @@ class SyncNode(CustomNode):
     def custom_string(self, value_map: dict[fx.Node, str]) -> str:
         name = get_node_name(self.__class__.__name__)
         node = getNode(self.value)
-        return f"{name} %{value_map[node]}"
+        return f"{name} %{value_map[node.fx_node]}\n"
 
 
 @dataclass
@@ -314,6 +351,8 @@ class WriteSharedNode(CustomNode):
 
 
 # TODO: Use a decorator to register these properly
+nodeTypes["sched_barrier"] = SchedBarrierNode
+nodeTypes["sched_group_barrier"] = SchedGroupBarrierNode
 nodeTypes["barrier"] = BarrierNode
 nodeTypes["construct_register_from_metadata"] = ConstructRegisterFromMetadataNode
 nodeTypes["get_result"] = GetResultNode

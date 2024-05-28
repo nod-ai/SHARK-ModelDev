@@ -24,6 +24,8 @@ from .ops import (
     tiled_loop,
     write,
     write_shared,
+    sched_barrier,
+    sched_group_barrier,
 )
 from ..compiler.builder import (
     IRProxyValue,
@@ -63,6 +65,7 @@ from ..compiler.ir import (
     arith_d,
     func_d,
     gpu_d,
+    llvm_d,
     math_d,
     memref_d,
     vector_d,
@@ -614,6 +617,47 @@ def handle_get_result(emitter: WaveEmitter, node: fx.Node):
 
     for_op = emitter.lookup_node_values(value)[0].ir_value.owner
     emitter.bind_node_proxy(node, IRProxyValue(for_op.results[index]))
+
+
+@handle_op(sched_barrier)
+def handle_sched_barrier(emitter: WaveEmitter, node: fx.Node):
+    try:
+        mask = node.args[0]
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    mask = arith_d.constant(IntegerType.get_signless(32), mask)
+    llvm_d.call_intrinsic(None, "llvm.amdgcn.sched.barrier", [mask])
+
+
+def get_mask(name: str) -> int:
+    match name:
+        case "read":
+            return int("0x20", 0)
+        case "write":
+            return int("0x40", 0)
+        case "read_shared":
+            return int("0x100", 0)
+        case "write_shared":
+            return int("0x200", 0)
+        case "mma":
+            return int("0x8", 0)
+
+
+@handle_op(sched_group_barrier)
+def handle_sched_group_barrier(emitter: WaveEmitter, node: fx.Node):
+    try:
+        instruction_counts, sync_id = node.args
+    except ValueError as e:
+        raise ValidationError("Malformed arguments") from e
+
+    sync_id = arith_d.constant(IntegerType.get_signless(32), sync_id)
+    for name, number in instruction_counts.items():
+        mask = arith_d.constant(IntegerType.get_signless(32), get_mask(name))
+        number = arith_d.constant(IntegerType.get_signless(32), number)
+        llvm_d.call_intrinsic(
+            None, "llvm.amdgcn.sched.group.barrier", [mask, number, sync_id]
+        )
 
 
 ###############################################################################
