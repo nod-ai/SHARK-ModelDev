@@ -149,11 +149,11 @@ def export_scheduled_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
-    if "turbo" in hf_model_name:
-        do_classifier_free_guidance = False
-    else:
-        do_classifier_free_guidance = True
-
+    # if "turbo" in hf_model_name:
+    #     do_classifier_free_guidance = False
+    # else:
+    #     do_classifier_free_guidance = True
+    do_classifier_free_guidance = True
     if pipeline_dir:
         safe_name = os.path.join(
             pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
@@ -213,6 +213,7 @@ def export_scheduled_unet_model(
     time_ids_shape = (init_batch_dim * batch_size, 6)
     prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
     text_embeds_shape = (init_batch_dim * batch_size, 1280)
+    breakpoint()
 
     class CompiledScheduledUnet(CompiledModule):
         if external_weights:
