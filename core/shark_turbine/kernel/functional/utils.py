@@ -194,3 +194,23 @@ class Utils:
 
     def is_global_memory_write(self, node: fx.Node) -> bool:
         return not "shared" in node.name and "write" in node.name
+
+    def is_shared_memory_write(self, node: fx.Node) -> bool:
+        return "shared" in node.name and "write" in node.name
+
+    def is_shared_memory_read(self, node: fx.Node) -> bool:
+        return "shared" in node.name and "read" in node.name
+
+    def get_shared_memory_read(self, node: fx.Node) -> bool:
+        return node.name.replace("write", "read")
+
+    def get_memory_op_prefix(self, node: fx.Node) -> str:
+        return node.name.split("_")[:-2]
+
+    def get_mma_k_index(self, node: fx.Node) -> int:
+        _, _, k = node.name.split("_")[-3:]
+        return int(k)
+
+    def get_read_k_index(self, node: fx.Node) -> int:
+        _, k = node.name.split("_")[-2:]
+        return int(k)

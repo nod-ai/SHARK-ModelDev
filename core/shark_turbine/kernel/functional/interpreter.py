@@ -57,6 +57,7 @@ from ..compiler.ir import (
     flow_d,
     func_d,
     gpu_d,
+    llvm_d,
     scf_d,
     transform_d,
     vector_d,
@@ -255,6 +256,8 @@ class Interpreter:
                         case func_d.ReturnOp:
                             return
                         case flow_d.DispatchOp:
+                            return
+                        case llvm_d.CallIntrinsicOp:
                             return
                         case _:
                             breakpoint()

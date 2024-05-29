@@ -169,7 +169,7 @@ class ModuloScheduler:
                     if (fromNode, edge.toNode) in self.estar:
                         if (
                             self.estar[(fromNode, edge.toNode)].delta
-                            > edge.delta + startEdge.delta
+                            >= edge.delta + startEdge.delta
                         ):
                             continue
                     edgeLabel = fromNode.label + "->" + edge.toNode.label

@@ -423,18 +423,6 @@ def handle_write(emitter: WaveEmitter, node: fx.Node):
         broadcast_type = VectorType.get(dest_rank * [1], kb_ir_type.element_type)
         insert_vector = vector_d.broadcast(broadcast_type, insert_vector)
 
-    if "extract" in node.meta:
-        result_type = VectorType.get(
-            [node.meta["extract"]["len"]], kb_ir_type.element_type
-        )
-        insert_vector = vector_d.extract_strided_slice(
-            result_type,
-            insert_vector,
-            [node.meta["extract"]["offset"]],
-            [node.meta["extract"]["len"]],
-            [1],
-        )
-
     # If vector length > store elements, we need to extract one at a time and then store
     # Assumes that vector shape will always be 1D, which may not always be true?
     vector_shape = insert_type.shape[0]
@@ -469,9 +457,22 @@ def handle_mma(emitter: WaveEmitter, node: fx.Node):
     #       Currently this is handled exactly like tkl.dot
     try:
         lhs, rhs, acc = node.args
-        lhs = cast_vector(emitter, lhs)
-        rhs = cast_vector(emitter, rhs)
         acc = cast_vector(emitter, acc)
+
+        values = [lhs, rhs]
+        if "extract" in node.meta:
+            for index, offset, size in node.meta["extract"]:
+                ir_value = cast_py_value(emitter, values[index]).ir_value
+                element_type = ir_value.type.element_type
+                shape = ir_value.type.shape
+                vector_type = VectorType.get([size], element_type)
+                values[index] = vector_d.extract_strided_slice(
+                    vector_type, ir_value, [offset], [size], [1]
+                )
+        else:
+            for i in range(len(values)):
+                values[i] = cast_vector(emitter, values[i])
+
     except ValueError as e:
         raise ValidationError("Malformed arguments") from e
 
@@ -491,8 +492,8 @@ def handle_mma(emitter: WaveEmitter, node: fx.Node):
         n=n,
         k=k,
         blocks=blocks,
-        source_a=lhs,
-        source_b=rhs,
+        source_a=values[0],
+        source_b=values[1],
         dest_c=acc,
     )
 

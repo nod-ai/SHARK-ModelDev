@@ -1517,17 +1517,40 @@ class LaunchableWave(Launchable):
                         )
                     )
                 else:
-                    i, k0, k1 = node.name.split("_")[-3:]
-                    name = node.name.replace("localwrite128_", "")
-                    prefix = "_".join(name.split("_")[:-3]).replace("write", "read")
-                    kvalues = [k0, k1]
-                    for u in range(2):
-                        read_shared_name = prefix + "_" + str(i) + "_" + str(kvalues[u])
+                    # Check if localread128 node exists
+                    read_node_name = node.name.replace("write", "read")
+                    larger_read_node = None
+                    for candidate in graph.nodes:
+                        if candidate.name == read_node_name:
+                            larger_read_node = candidate
+                            break
+
+                    if larger_read_node is None:
+                        i, k0, k1 = node.name.split("_")[-3:]
+                        name = node.name.replace("localwrite128_", "")
+                        prefix = "_".join(name.split("_")[:-3]).replace("write", "read")
+                        kvalues = [k0, k1]
+                        for u in range(2):
+                            read_shared_name = (
+                                prefix + "_" + str(i) + "_" + str(kvalues[u])
+                            )
+                            fromNode = node
+                            for nodej in graph.nodes:
+                                if nodej.name == read_shared_name:
+                                    toNode = nodej
+                                    break
+                            self.dependenceGraph.addEdge(
+                                ms.Edge(
+                                    edge_label,
+                                    self.node_mapper[fromNode],
+                                    self.node_mapper[toNode],
+                                    self.get_delay(fromNode.name),
+                                    0,
+                                )
+                            )
+                    else:
                         fromNode = node
-                        for nodej in graph.nodes:
-                            if nodej.name == read_shared_name:
-                                toNode = nodej
-                                break
+                        toNode = larger_read_node
                         self.dependenceGraph.addEdge(
                             ms.Edge(
                                 edge_label,
@@ -1885,6 +1908,13 @@ class LaunchableWave(Launchable):
                 return k + 1
             return k - 1
 
+        def create_name(node: fx.Node, identifier: str, i: int, k: int) -> str:
+            return "_".join(
+                self.utils.get_memory_op_prefix(node)
+                + [identifier]
+                + [str(x) for x in [i] + sorted([k, matching_index(k)])]
+            )
+
         for node in graph.nodes:
             if "read" in node.name and not "shared" in node.name:
                 if "globalload128" in node.name:
@@ -1906,16 +1936,11 @@ class LaunchableWave(Launchable):
                     graph.inserting_after(node)
                     meta = matching_node.meta
                 # Create read node
-                new_name = "_".join(
-                    node.name.split("_")[:-2]
-                    + ["globalload128"]
-                    + [str(x) for x in [i] + sorted([k, matching_index(k)])]
-                )
                 read_node = graph.create_node(
                     "call_function",
                     target=read,
                     args=(node.args[0], tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD, None),
-                    name=new_name,
+                    name=create_name(node, "globalload128", i, k),
                     kwargs={},
                 )
                 # RAUW
@@ -1931,32 +1956,56 @@ class LaunchableWave(Launchable):
                 graph.erase_node(matching_node)
 
                 # Combine both users into a single write_shared_node
-                users = []
+                write_users = []
+                read_users = []
                 alloc = None
                 for user in read_node.users.keys():
-                    if "write_shared" in user.name:
-                        users.append(user)
+                    if self.utils.is_shared_memory_write(user):
+                        write_users.append(user)
+                        read_users.append(
+                            find_node_by_name(self.utils.get_shared_memory_read(user))
+                        )
                         alloc = user.args[1]
                 graph.inserting_after(read_node)
-                new_name = "_".join(
-                    users[0].name.split("_")[:-2]
-                    + ["localwrite128"]
-                    + [str(x) for x in [i] + sorted([k, matching_index(k)])]
-                )
                 write_shared_node = graph.create_node(
                     "call_function",
                     target=write_shared,
                     args=(read_node, alloc, tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD),
-                    name=new_name,
+                    name=create_name(write_users[0], "localwrite128", i, k),
                     kwargs={},
                 )
-                write_shared_node.meta = deepcopy(users[0].meta)
+                write_shared_node.meta = deepcopy(write_users[0].meta)
                 write_shared_node.meta["index"] = self.utils.global_to_shared(
                     read_node.meta["index"]
                 )
-                for user in users:
+                for user in write_users:
                     user.replace_all_uses_with(write_shared_node)
                     graph.erase_node(user)
+                experimental_larger_read_shared = False
+                if experimental_larger_read_shared:
+                    graph.inserting_after(write_shared_node)
+                    read_shared_node = graph.create_node(
+                        "call_function",
+                        target=read_shared,
+                        args=(alloc, tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD, None),
+                        name=create_name(read_users[0], "localread128", i, k),
+                        kwargs={},
+                    )
+                    read_shared_node.meta = deepcopy(read_users[0].meta)
+                    read_shared_node.meta["index"] = self.utils.global_to_shared(
+                        read_node.meta["index"]
+                    )
+                    for read_user in read_users:
+                        # Annotate each user with the index to extract from.
+                        index = self.utils.get_read_k_index(read_user)
+                        for user in read_user.users.keys():
+                            if not "extract" in user.meta:
+                                user.meta["extract"] = []
+                            user.meta["extract"] += [
+                                (user.args.index(read_user), index * 4, 4)
+                            ]
+                        read_user.replace_all_uses_with(read_shared_node)
+                        graph.erase_node(read_user)
 
         return graph
 
