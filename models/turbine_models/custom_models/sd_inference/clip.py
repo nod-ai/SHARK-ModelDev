@@ -180,10 +180,8 @@ def export_clip_model(
 if __name__ == "__main__":
     from .sd_cmd_opts import args
 
-    mod_str, _ = export_clip(
+    mod_str, _ = export_clip_model(
         args.hf_model_name,
-        args.hf_auth_token,
-        args.batch_size,
         args.max_length,
         args.precision,
         args.compile_to,
@@ -195,7 +193,9 @@ if __name__ == "__main__":
         exit_on_vmfb=True,
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
-        attn_spec=args.attn_spec,
+        td_spec=args.attn_spec,
+        weights_only=False,
+        upload_ir=False,
     )
     if args.input_mlir:
         exit()
