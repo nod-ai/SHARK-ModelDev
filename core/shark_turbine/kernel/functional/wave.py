@@ -1995,14 +1995,12 @@ class LaunchableWave(Launchable):
                     read_shared_node.meta["index"] = self.utils.global_to_shared(
                         read_node.meta["index"]
                     )
-                    for read_user in read_users:
-                        # Annotate each user with the index to extract from.
-                        index = self.utils.get_read_k_index(read_user)
+                    for i, read_user in enumerate(read_users):
                         for user in read_user.users.keys():
                             if not "extract" in user.meta:
                                 user.meta["extract"] = []
                             user.meta["extract"] += [
-                                (user.args.index(read_user), index * 4, 4)
+                                (user.args.index(read_user), i * 4, 4)
                             ]
                         read_user.replace_all_uses_with(read_shared_node)
                         graph.erase_node(read_user)
