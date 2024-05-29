@@ -214,7 +214,7 @@ def get_mfma_spec_path(target_chip, save_dir):
 def get_wmma_spec_path(target_chip, save_dir):
     if target_chip == "gfx1100":
         url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1100.spec.mlir"
-    elif target_chip == "gfx1103":
+    elif target_chip in ["gfx1103", "gfx1150"]:
         url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1103.spec.mlir"
     else:
         return None
