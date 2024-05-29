@@ -43,11 +43,11 @@ MI_flags = {
 GFX11_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-outer-dim-concat=true",
-        "--iree-vm-target-truncate-unsupported-floats",
-        "--iree-llvmgpu-enable-prefetch=true",
-        "--iree-opt-data-tiling=false",
-        "--iree-codegen-gpu-native-math-precision=true",
+        #"--iree-opt-outer-dim-concat=true",
+        #"--iree-vm-target-truncate-unsupported-floats",
+        #"--iree-llvmgpu-enable-prefetch=true",
+        #"--iree-opt-data-tiling=false",
+        #"--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
@@ -78,7 +78,7 @@ def compile_to_vmfb(
             raise ValueError(
                 "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
             )
-    if device == "cpu":
+    if device in ["cpu", "llvm-cpu"]:
         flags.extend(
             [
                 "--iree-llvmcpu-target-triple=" + target_triple,
