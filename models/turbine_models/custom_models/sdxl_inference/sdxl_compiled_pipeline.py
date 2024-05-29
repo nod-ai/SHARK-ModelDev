@@ -103,7 +103,7 @@ class SharkSDXLPipeline:
         self.vae_decomp_attn = vae_decomp_attn
         self.custom_vae = custom_vae
         # TODO: set this based on user-inputted guidance scale and negative prompt.
-        self.do_classifier_free_guidance = True #False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
+        self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 

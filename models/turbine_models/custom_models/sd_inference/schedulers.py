@@ -18,6 +18,7 @@ from diffusers import (
     LMSDiscreteScheduler,
     PNDMScheduler,
     DDPMScheduler,
+    DPMSolverSDEScheduler,
     DDIMScheduler,
     DPMSolverMultistepScheduler,
     KDPM2DiscreteScheduler,
@@ -243,15 +244,18 @@ def get_scheduler(model_id, scheduler_id):
     ] = DPMSolverMultistepScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
-        use_karras_sigmas=True,
     )
+    schedulers["DPMSolverMultistepKarras"].config.use_karras_sigmas = True
     schedulers[
         "DPMSolverMultistepKarras++"
     ] = DPMSolverMultistepScheduler.from_pretrained(
         model_id,
         subfolder="scheduler",
         algorithm_type="dpmsolver++",
-        use_karras_sigmas=True,
+    )
+    schedulers["DPMSolverMultistepKarras++"].config.use_karras_sigmas = True
+    schedulers["DPMSolverSDE"] = DPMSolverSDEScheduler.from_pretrained(
+        model_id, subfolder="scheduler"
     )
     return schedulers[scheduler_id]
 
