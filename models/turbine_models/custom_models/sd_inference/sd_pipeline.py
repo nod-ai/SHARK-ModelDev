@@ -156,6 +156,9 @@ class SharkSDPipeline:
                 continue
             if weights[w_key] is not None and os.path.exists(weights[w_key]):
                 continue
+            if external_weights is None:
+                weights[w_key] = None
+                continue
             default_name = os.path.join(
                 self.external_weights_dir, w_key + "." + self.external_weights
             )
