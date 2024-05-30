@@ -123,7 +123,7 @@ def export_transformer_model(
     quantization=None,
     precision=None,
     device=None,
-    target_triple=None,
+    target_triple="x86_64-unknown-linux-gnu",
     vulkan_max_allocation=None,
     streaming_llm=False,
     vmfb_path=None,
@@ -133,12 +133,12 @@ def export_transformer_model(
     decomp_attn=False,
     input_mlir=None,
 ):
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+    safe_name = hf_model_name.replace("-", "_").replace("/", "_")
+    if streaming_llm:
+        safe_name += "_streaming"
     if not vmfb_path:
         vmfb_path = safe_name + "_" + target_triple
-        if streaming_llm:
-            vmfb_path += "_streaming"
+
     iree_flags = []
     ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
     if target_triple in ukernel_supported_arch:
