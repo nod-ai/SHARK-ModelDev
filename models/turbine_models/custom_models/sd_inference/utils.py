@@ -28,7 +28,7 @@ MI_flags = {
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=false",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
@@ -115,9 +115,6 @@ def compile_to_vmfb(
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-opt-const-eval=false",
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-                "--iree-stream-resource-max-allocation-size=4294967296",
-                "--iree-opt-strip-assertions=true",
-                "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
             ]
         )
         if target_triple == "gfx942":
@@ -217,6 +214,8 @@ def get_mfma_spec_path(target_chip, save_dir):
     url = "https://raw.githubusercontent.com/iree-org/iree/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, "attention_and_matmul_spec_mfma.mlir")
+    if os.path.exists(spec_path):
+        return spec_path
     with open(spec_path, "w") as f:
         f.write(attn_spec)
     return spec_path
