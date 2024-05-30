@@ -167,6 +167,8 @@ class SharkSDXLPipeline:
                 continue
             if weights[w_key] is not None:
                 continue
+            if self.external_weights is None:
+                continue
             default_name = os.path.join(
                 self.external_weights_dir, w_key + "." + self.external_weights
             )
@@ -230,7 +232,7 @@ class SharkSDXLPipeline:
     ):
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
-        if self.external_weights_dir:
+        if self.external_weights and self.external_weights_dir:
             if not os.path.exists(self.external_weights_dir):
                 os.makedirs(external_weights_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
@@ -418,15 +420,11 @@ class SharkSDXLPipeline:
         else:
             runners["pipe"] = vmfbRunner(
                 rt_device,
-                [vmfbs["scheduled_unet"], vmfbs["pipeline"]],
-                [weights["scheduled_unet"], None],
+                [vmfbs["scheduled_unet"], vmfbs["pipeline"], vmfbs["vae_decode"], vmfbs["prompt_encoder"]],
+                [weights["scheduled_unet"], None, weights["vae_decode"], weights["prompt_encoder"]],
             )
-            runners["vae_decode"] = vmfbRunner(
-                rt_device, vmfbs["vae_decode"], weights["vae_decode"]
-            )
-            runners["prompt_encoder"] = vmfbRunner(
-                rt_device, vmfbs["prompt_encoder"], weights["prompt_encoder"]
-            )
+            runners["vae_decode"] = runners['pipe']
+            runners["prompt_encoder"] = runners['pipe']
         runners["tokenizer_1"] = CLIPTokenizer.from_pretrained(
             self.hf_model_name,
             subfolder="tokenizer",
@@ -451,7 +449,7 @@ class SharkSDXLPipeline:
         return_imgs: bool = False,
     ):
         # TODO: implement case where this is false e.g. in SDXL Turbo
-        # do_classifier_free_guidance = True
+        do_classifier_free_guidance = True
 
         iree_dtype = "float32" if self.precision == "fp32" else "float16"
         torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16

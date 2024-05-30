@@ -43,13 +43,16 @@ MI_flags = {
 GFX11_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
-        #"--iree-opt-outer-dim-concat=true",
-        #"--iree-vm-target-truncate-unsupported-floats",
-        #"--iree-llvmgpu-enable-prefetch=true",
-        #"--iree-opt-data-tiling=false",
-        #"--iree-codegen-gpu-native-math-precision=true",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-llvmgpu-enable-prefetch=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-opt-aggressively-propagate-transposes=true",
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-global-opt-enable-fuse-horizontal-contractions=true",
+        "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [""],
     "clip": [""],
@@ -107,6 +110,10 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-opt-const-eval=false",
+                "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-stream-resource-max-allocation-size=4294967296",
+                "--iree-opt-strip-assertions=true",
+                "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
             ]
         )
         if target_triple == "gfx942":
