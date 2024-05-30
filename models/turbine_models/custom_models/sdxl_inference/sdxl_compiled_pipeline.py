@@ -420,11 +420,21 @@ class SharkSDXLPipeline:
         else:
             runners["pipe"] = vmfbRunner(
                 rt_device,
-                [vmfbs["scheduled_unet"], vmfbs["pipeline"], vmfbs["vae_decode"], vmfbs["prompt_encoder"]],
-                [weights["scheduled_unet"], None, weights["vae_decode"], weights["prompt_encoder"]],
+                [
+                    vmfbs["scheduled_unet"],
+                    vmfbs["pipeline"],
+                    vmfbs["vae_decode"],
+                    vmfbs["prompt_encoder"],
+                ],
+                [
+                    weights["scheduled_unet"],
+                    None,
+                    weights["vae_decode"],
+                    weights["prompt_encoder"],
+                ],
             )
-            runners["vae_decode"] = runners['pipe']
-            runners["prompt_encoder"] = runners['pipe']
+            runners["vae_decode"] = runners["pipe"]
+            runners["prompt_encoder"] = runners["pipe"]
         runners["tokenizer_1"] = CLIPTokenizer.from_pretrained(
             self.hf_model_name,
             subfolder="tokenizer",

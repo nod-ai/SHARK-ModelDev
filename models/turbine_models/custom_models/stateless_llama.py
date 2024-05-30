@@ -14,6 +14,7 @@ from iree.compiler.ir import Context
 from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
     enable_llama_pos_shift_attention,
 )
+from turbine_models.custom_models.sd_inference.utils import compile_to_vmfb
 
 from turbine_models.custom_models import remap_gguf
 import safetensors
@@ -130,7 +131,31 @@ def export_transformer_model(
     mod=None,
     tokenizer=None,
     decomp_attn=False,
+    input_mlir=None,
 ):
+    safe_name = hf_model_name.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+    if not vmfb_path:
+        vmfb_path = safe_name + "_" + target_triple
+        if streaming_llm:
+            vmfb_path += "_streaming"
+    iree_flags = []
+    ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
+    if target_triple in ukernel_supported_arch:
+        iree_flags.extend(["--iree-rocm-enable-ukernels=argmax"])
+    if input_mlir is not None:
+        vmfb_path = compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags=iree_flags,
+            safe_name=vmfb_path.split(".vmfb")[0],
+            return_path=True,
+            const_expr_hoisting=True,
+            mlir_source="file",
+            save_mlir=False,
+            attn_spec="mfma" if "gfx9" in target_triple else "wmma",
+        )
     if tokenizer == None:
         tokenizer = AutoTokenizer.from_pretrained(
             hf_model_name,
@@ -429,8 +454,6 @@ def export_transformer_model(
             CompiledModule.get_mlir_module(inst).operation
         ).run()
     module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
     if upload_ir:
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(module_str)
@@ -442,74 +465,21 @@ def export_transformer_model(
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        flags = [
-            "--iree-input-type=torch",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-        ]
-        if device == "cpu" or device == "llvm-cpu":
-            flags.append("--iree-llvmcpu-enable-ukernels=all")
-            device = "llvm-cpu"
-        elif device == "vulkan":
-            flags.extend(
-                [
-                    "--iree-vulkan-target-triple=" + target_triple,
-                    "--iree-stream-resource-max-allocation-size="
-                    + vulkan_max_allocation,
-                ]
-            )
-        elif device == "rocm":
-            flags.extend(
-                [
-                    "--iree-rocm-target-chip=" + target_triple,
-                    "--iree-opt-strip-assertions=true",
-                    "--iree-vm-target-truncate-unsupported-floats",
-                ]
-            )
-            ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
-            if target_triple in ukernel_supported_arch:
-                flags.extend(
-                    [
-                        "--iree-rocm-enable-ukernels=argmax",
-                        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-preprocessing-pad-to-intrinsics))",
-                        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
-                    ]
-                )
-                if os.path.exists("llama_argmax_td_spec.mlir"):
-                    flags.extend(
-                        [
-                            "--iree-preprocessing-transform-spec-filename=llama_argmax_td_spec.mlir",
-                        ]
-                    )
-        elif device == "cuda":
-            flags.extend(
-                [
-                    "--iree-hal-cuda-llvm-target-arch=" + target_triple,
-                    "--iree-vm-bytecode-module-strip-source-map=true",
-                    "--iree-vm-target-truncate-unsupported-floats",
-                ]
-            )
-        else:
-            print("Unknown device kind: ", device)
-        import iree.compiler as ireec
-
-        flatbuffer_blob = ireec.compile_str(
+        blob_name = compile_to_vmfb(
             module_str,
-            target_backends=[device],
-            extra_args=flags,
+            device,
+            target_triple,
+            ireec_flags=iree_flags,
+            safe_name=vmfb_path.split(".vmfb")[0],
+            return_path=True,
+            const_expr_hoisting=True,
+            mlir_source="str",
+            save_mlir=False,
+            attn_spec="mfma" if "gfx9" in target_triple else "wmma",
         )
-        if vmfb_path is None:
-            vmfb_path = f"{safe_name}.vmfb"
-        with open(vmfb_path, "wb+") as f:
-            f.write(flatbuffer_blob)
-        print("saved to ", safe_name + ".vmfb")
         if upload_ir:
             return blob_name
-        return module_str, tokenizer
+        return blob_name, tokenizer
 
 
 if __name__ == "__main__":

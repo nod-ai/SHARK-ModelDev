@@ -74,6 +74,8 @@ def compile_to_vmfb(
     attn_spec=None,
 ):
     flags = []
+    if mlir_source == "file" and not isinstance(module_str, str):
+        module_str = str(module_str)
     if target_triple in ["", None]:
         if device == "cpu":
             target_triple = "x86_64-linux-gnu"
@@ -89,6 +91,8 @@ def compile_to_vmfb(
                 "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
                 "--iree-llvmcpu-distribution-size=32",
                 "--iree-opt-const-eval=false",
+                "--iree-llvmcpu-enable-ukernels=all",
+                "--iree-global-opt-enable-quantized-matmul-reassociation",
             ]
         )
         device = "llvm-cpu"
