@@ -461,6 +461,11 @@ class SharkSDXLPipeline:
         # TODO: implement case where this is false e.g. in SDXL Turbo
         do_classifier_free_guidance = True
 
+        # Workaround for turbo support (guidance_scale 0)
+        if guidance_scale == 0:
+            negative_prompt = prompt
+            prompt = ""
+
         iree_dtype = "float32" if self.precision == "fp32" else "float16"
         torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16
 
