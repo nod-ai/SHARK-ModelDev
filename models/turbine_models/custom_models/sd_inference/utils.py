@@ -113,7 +113,6 @@ def compile_to_vmfb(
             [
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
-                "--iree-opt-const-eval=false",
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
@@ -161,6 +160,9 @@ def compile_to_vmfb(
 
     if target_triple in ["gfx1100", "gfx1103", "gfx1150"]:
         flags.extend(GFX11_flags["all"])
+
+    if target_triple not in ["gfx1103", "gfx1150"]:
+        flags.extend(["--iree-opt-const-eval=false"])
 
     # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
