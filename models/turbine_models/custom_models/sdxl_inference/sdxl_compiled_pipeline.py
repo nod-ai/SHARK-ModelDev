@@ -215,7 +215,7 @@ class SharkSDXLPipeline:
                     custom_vae=(
                         "madebyollin/sdxl-vae-fp16-fix"
                         if self.precision == "fp16"
-                        else None
+                        else self.custom_vae
                     ),
                 )
                 return vae_torch
