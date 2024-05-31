@@ -14,11 +14,7 @@ from turbine_models.custom_models.sdxl_inference import (
 import iree.runtime as ireert
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.custom_models.sdxl_inference.pipeline_ir import (
-    sdxl_sched_unet_bench_f32,
-    sdxl_sched_unet_bench_f16,
-    sdxl_turbo_sched_unet_bench_f16,
-    sdxl_pipeline_bench_f32,
-    sdxl_pipeline_bench_f16,
+    get_pipeline_ir,
 )
 from turbine_models.utils.sdxl_benchmark import run_benchmark
 from turbine_models.model_runner import vmfbRunner
@@ -353,16 +349,14 @@ class SharkSDXLPipeline:
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
             case "pipeline":
-                pipeline_file = (
-                    sdxl_sched_unet_bench_f32
-                    if self.precision == "fp32"
-                    else sdxl_sched_unet_bench_f16
+                pipeline_file = get_pipeline_ir(
+                    self.width,
+                    self.height,
+                    self.precision,
+                    self.batch_size,
+                    self.max_length,
+                    "unet_loop",
                 )
-                if self.do_classifier_free_guidance == False:
-                    assert (
-                        self.precision == "fp16"
-                    ), "turbo only supported in fp16 precision."
-                    pipeline_file = sdxl_turbo_sched_unet_bench_f16
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
                     self.device,
@@ -374,10 +368,13 @@ class SharkSDXLPipeline:
                 )
                 return pipeline_vmfb, None
             case "full_pipeline":
-                pipeline_file = (
-                    sdxl_pipeline_bench_f32
-                    if self.precision == "fp32"
-                    else sdxl_pipeline_bench_f16
+                pipeline_file = get_pipeline_ir(
+                    self.width,
+                    self.height,
+                    self.precision,
+                    self.batch_size,
+                    self.max_length,
+                    "tokens_to_image",
                 )
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
