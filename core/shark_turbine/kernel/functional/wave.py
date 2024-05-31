@@ -1209,6 +1209,11 @@ class LaunchableWave(Launchable):
             "BLOCK_K": self.batch_k,
         }
 
+        # For global loads and corresponding stores to LDS, we use a different approach
+        # to determine how many times to repeat. Also, we will add a barrier after the
+        # writes explicitly in the graph since we have no way of modeling writes from
+        # other threads.
+
         subgraphs = trace.region_graph.subgraphs
         root_graph = trace.get_root_graph()
         expanded_graph = fx.Graph()
@@ -1493,71 +1498,21 @@ class LaunchableWave(Launchable):
                     )
                 )
 
-        # Create edges between write and read from shared memory.
+        # Create edges between barrier and every read from shared memory.
         for node in graph.nodes:
-            if "write_shared" in node.name:
-                if "128" not in node.name:
-                    i, j = node.name.split("_")[-2:]
-                    prefix = "_".join(node.name.split("_")[:-2]).replace(
-                        "write", "read"
-                    )
-                    read_shared_name = prefix + "_" + str(i) + "_" + str(j)
-                    fromNode = node
-                    for nodej in graph.nodes:
-                        if nodej.name == read_shared_name:
-                            toNode = nodej
-                            break
-                    self.dependenceGraph.addEdge(
-                        ms.Edge(
-                            edge_label,
-                            self.node_mapper[fromNode],
-                            self.node_mapper[toNode],
-                            self.get_delay(fromNode.name),
-                            0,
-                        )
-                    )
-                else:
-                    # Check if localread128 node exists
-                    read_node_name = node.name.replace("write", "read")
-                    larger_read_node = None
-                    for candidate in graph.nodes:
-                        if candidate.name == read_node_name:
-                            larger_read_node = candidate
-                            break
-
-                    if larger_read_node is None:
-                        i, k0, k1 = node.name.split("_")[-3:]
-                        name = node.name.replace("localwrite128_", "")
-                        prefix = "_".join(name.split("_")[:-3]).replace("write", "read")
-                        kvalues = [k0, k1]
-                        for u in range(2):
-                            read_shared_name = (
-                                prefix + "_" + str(i) + "_" + str(kvalues[u])
-                            )
-                            fromNode = node
-                            for nodej in graph.nodes:
-                                if nodej.name == read_shared_name:
-                                    toNode = nodej
-                                    break
-                            self.dependenceGraph.addEdge(
-                                ms.Edge(
-                                    edge_label,
-                                    self.node_mapper[fromNode],
-                                    self.node_mapper[toNode],
-                                    self.get_delay(fromNode.name),
-                                    0,
-                                )
-                            )
-                    else:
-                        fromNode = node
-                        toNode = larger_read_node
+            if "barrier" in node.name:
+                fromNode = node
+                for read_node in graph.nodes:
+                    if self.utils.is_shared_memory_read(read_node):
+                        toNode = read_node
+                        edge_label = f"{fromNode.name} -> {toNode.name}"
                         self.dependenceGraph.addEdge(
                             ms.Edge(
                                 edge_label,
                                 self.node_mapper[fromNode],
                                 self.node_mapper[toNode],
                                 self.get_delay(fromNode.name),
-                                0,
+                                iteration_delay,
                             )
                         )
 
@@ -1822,15 +1777,18 @@ class LaunchableWave(Launchable):
 
         self.print_schedule("schedule.csv")
 
-    def insert_barriers(self, graph: fx.Graph):
+    def insert_barriers(
+        self,
+        graph: fx.Graph,
+        has_read_shared_ancestor=False,
+        has_write_shared_ancestor=False,
+    ):
         """
         This function inserts barrier nodes into the graph following a very
         simple approach - if a write to shared memory is followed by a read
         from shared memory and vice versa, we insert a barrier node in between.
         """
 
-        has_read_shared_ancestor = False
-        has_write_shared_ancestor = False
         for node in graph.nodes:
             typed_node = getNode(node)
             if node.next is None:
@@ -1839,14 +1797,14 @@ class LaunchableWave(Launchable):
                 has_write_shared_ancestor = True
                 if has_read_shared_ancestor:
                     graph.inserting_before(node)
-                    barrier_node = BarrierNode(graph, barrier)
+                    barrier_node = BarrierNode(graph, barrier, None)
                     barrier_node.emit()
                     has_read_shared_ancestor = False
             if isinstance(typed_node, ReadSharedNode):
                 has_read_shared_ancestor = True
                 if has_write_shared_ancestor:
                     graph.inserting_before(node)
-                    barrier_node = BarrierNode(graph, barrier)
+                    barrier_node = BarrierNode(graph, barrier, None)
                     barrier_node.emit()
                     has_write_shared_ancestor = False
             ## read after write barrier
@@ -1865,7 +1823,11 @@ class LaunchableWave(Launchable):
             #    barrier_node.emit()
             elif isinstance(typed_node, TiledLoop):
                 # recurse into loop body
-                self.insert_barriers(node.kwargs["subgraph"])
+                self.insert_barriers(
+                    node.kwargs["subgraph"],
+                    has_read_shared_ancestor,
+                    has_write_shared_ancestor,
+                )
 
     def handle_larger_global_loads(self, graph):
         """
@@ -2104,6 +2066,134 @@ class LaunchableWave(Launchable):
                 new_write.name = node_name
                 graph.erase_node(node)
 
+    def emit_global_loads_and_shared_writes(
+        self,
+        placeholder: str,
+        graph: fx.Graph,
+        target_loads: int,
+        elements_per_load: IndexExpr,
+        block_k: int,
+        total_threads: int,
+        thread_id: int,
+        insertion_node: fx.Node = None,
+    ):
+        current_global_loads = {placeholder: 0}
+        reads = []
+        for node in graph.nodes:
+            if self.utils.is_global_memory_read(node):
+                for arg in node.all_input_nodes:
+                    if arg.name == placeholder:
+                        current_global_loads[arg.name] += 1
+                        reads.append(node)
+        if current_global_loads[placeholder] == target_loads:
+            return
+
+        # Gather writes
+        writes = []
+        for read_op in reads:
+            for user in list(read_op.users.keys()):
+                if self.utils.is_shared_memory_write(user):
+                    writes.append(user)
+
+        # Create new global reads and shared write nodes and add barrier
+        thread_ids = self.hardware_constraints[0].thread_ids
+        graph.inserting_before(reads[0] if insertion_node is None else insertion_node)
+        new_writes = []
+        for i in range(target_loads):
+            read_node = graph.create_node(
+                "call_function",
+                target=read,
+                args=(reads[0].args[0], elements_per_load, None),
+                name=f"read_{placeholder}_{i}",
+                kwargs={},
+            )
+            read_node.meta = deepcopy(reads[0].meta)
+            # Remove mma-based thread indexing, replace with new indexing
+            row_tile_size = (total_threads * elements_per_load) // block_k
+            for j in range(len(read_node.meta["index"])):
+                read_node.meta["index"][j] = read_node.meta["index"][j].subs(
+                    {t: 0 for t in thread_ids}
+                )
+                if j == 0:
+                    read_node.meta["index"][j] += row_tile_size * i
+                    read_node.meta["index"][j] += sympy.floor(
+                        thread_id / (block_k // elements_per_load)
+                    )
+                if j == 1:
+                    read_node.meta["index"][j] += sympy.Mod(
+                        elements_per_load * thread_id, block_k
+                    )
+
+            write_shared_node = graph.create_node(
+                "call_function",
+                target=write_shared,
+                args=(read_node, writes[0].args[1], elements_per_load),
+                name=f"write_shared_{placeholder}_{i}",
+                kwargs={},
+            )
+            write_shared_node.meta = deepcopy(writes[0].meta)
+            write_shared_node.meta["index"] = self.utils.global_to_shared(
+                read_node.meta["index"]
+            )
+            new_writes.append(write_shared_node)
+        return (new_writes, writes)
+
+    def combine_global_loads_and_shared_writes(
+        self, graph: fx.Graph, idxc: IndexingContext
+    ) -> fx.Graph:
+        hardware_constraint = self.hardware_constraints[0]
+        waves_m, waves_n, _ = hardware_constraint.waves_per_block
+        total_threads = (
+            self.hardware_constraints[0].threads_per_wave * waves_m * waves_n
+        )
+        elements_per_load = tkl.sym.GLOBAL_LOAD_ELEMS_PER_THREAD
+        block_k = tkl.sym.BLOCK_K.subs(idxc.subs)
+        num_global_loads_a = (
+            tkl.sym.BLOCK_M * tkl.sym.BLOCK_K / total_threads / elements_per_load
+        ).subs(idxc.subs)
+        num_global_loads_b = (
+            tkl.sym.BLOCK_N * tkl.sym.BLOCK_K / total_threads / elements_per_load
+        ).subs(idxc.subs)
+        linearized_thread_id = hardware_constraint.linearize_thread_ids()
+        new_writes_a, old_writes_a = self.emit_global_loads_and_shared_writes(
+            "a",
+            graph,
+            num_global_loads_a,
+            elements_per_load,
+            block_k,
+            total_threads,
+            linearized_thread_id,
+        )
+        new_writes_b, old_writes_b = self.emit_global_loads_and_shared_writes(
+            "b",
+            graph,
+            num_global_loads_b,
+            elements_per_load,
+            block_k,
+            total_threads,
+            linearized_thread_id,
+            new_writes_a[-1].next,
+        )
+        graph.inserting_after(new_writes_b[-1])
+        barrier_node = BarrierNode(graph, barrier, new_writes_a + new_writes_b)
+        barrier_node.emit()
+
+        def rauw_and_erase(old_writes, barrier_node):
+            for write in old_writes:
+                write.replace_all_uses_with(barrier_node.fx_node)
+                reads = [
+                    x
+                    for x in write.all_input_nodes
+                    if self.utils.is_global_memory_read(x)
+                ]
+                graph.erase_node(write)
+                for read in reads:
+                    graph.erase_node(read)
+
+        rauw_and_erase(old_writes_a, barrier_node)
+        rauw_and_erase(old_writes_b, barrier_node)
+        return graph
+
     def _trace_and_get_kernel_signature(
         self,
         args,
@@ -2144,7 +2234,12 @@ class LaunchableWave(Launchable):
         # Create "macrokernel" graph
         expanded_graph, expanded_root_graph = self.create_expanded_graph(trace, idxc)
         # Do graph rewrites in case of different load/store sizes from/to global/lds
-        expanded_graph = self.handle_larger_global_loads(expanded_graph)
+        # expanded_graph = self.handle_larger_global_loads(expanded_graph)
+        # Reduce number of global reads and shared writes based on total number of threads available
+        # and insert barriers after.
+        expanded_graph = self.combine_global_loads_and_shared_writes(
+            expanded_graph, idxc
+        )
         # Unroll loop N times for multi-buffering
         unrolled_graph = self.unroll_graph(
             expanded_graph, expanded_root_graph, tkl.sym.UNROLL_FACTOR

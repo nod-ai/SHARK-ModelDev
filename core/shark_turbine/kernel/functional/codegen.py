@@ -643,6 +643,7 @@ def get_mask(name: str) -> int:
             return int("0x200", 0)
         case "mma":
             return int("0x8", 0)
+    return None
 
 
 @handle_op(sched_group_barrier)
@@ -654,6 +655,8 @@ def handle_sched_group_barrier(emitter: WaveEmitter, node: fx.Node):
 
     sync_id = arith_d.constant(IntegerType.get_signless(32), sync_id)
     for name, number in instruction_counts.items():
+        if get_mask(name) is None:
+            continue
         mask = arith_d.constant(IntegerType.get_signless(32), get_mask(name))
         number = arith_d.constant(IntegerType.get_signless(32), number)
         llvm_d.call_intrinsic(

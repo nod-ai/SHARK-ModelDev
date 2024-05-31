@@ -216,6 +216,8 @@ class AllocSharedNode(CustomNode):
 
 @dataclass
 class BarrierNode(CustomNode):
+    incoming_deps: Optional[list[fx.Node]]
+
     def emit(self):
         arg_list = tuple([value for _, value in vars(self).items()][2:])
         self.fx_node = self.graph.create_node(

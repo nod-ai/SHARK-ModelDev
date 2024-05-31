@@ -195,6 +195,9 @@ class Utils:
     def is_global_memory_write(self, node: fx.Node) -> bool:
         return not "shared" in node.name and "write" in node.name
 
+    def is_global_memory_read(self, node: fx.Node) -> bool:
+        return not "shared" in node.name and "read" in node.name
+
     def is_shared_memory_write(self, node: fx.Node) -> bool:
         return "shared" in node.name and "write" in node.name
 

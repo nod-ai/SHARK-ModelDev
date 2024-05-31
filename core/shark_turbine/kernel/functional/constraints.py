@@ -177,19 +177,22 @@ class HardwareConstraint(ConstraintsMeta):
         if self.mma_type == "MFMA_F32_16x16x16_F16":
             return 4
         if self.mma_type == "MFMA_F32_32x32x8_F16":
-            if matrix_type == 'C':
+            if matrix_type == "C":
                 return 16
             return 4
         return None
 
-    def apply(self, matrix_type):
-        indices = self.mma_indices(self.mma_type)
+    def linearize_thread_ids(self):
         threads_per_block = self.get_threads_per_block()
-        lane = (
+        return (
             self.thread_ids[0]
             + self.thread_ids[1] * threads_per_block[0]
             + self.thread_ids[2] * threads_per_block[0] * threads_per_block[1]
-        ) % self.threads_per_wave
+        )
+
+    def apply(self, matrix_type):
+        indices = self.mma_indices(self.mma_type)
+        lane = self.linearize_thread_ids() % self.threads_per_wave
         gpr = 0
         return indices[matrix_type](lane, gpr)
 
