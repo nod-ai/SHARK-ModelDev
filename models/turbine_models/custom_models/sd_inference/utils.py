@@ -52,6 +52,7 @@ GFX11_flags = {
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        '--iree-codegen-llvmgpu-enable-transform-dialect-jit=false',
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [""],
