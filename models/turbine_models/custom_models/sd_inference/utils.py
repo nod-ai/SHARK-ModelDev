@@ -39,6 +39,7 @@ MI_flags = {
         "--iree-flow-enable-aggressive-fusion",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
+    "winograd": [""],
 }
 GFX11_flags = {
     "all": [
@@ -58,8 +59,21 @@ GFX11_flags = {
     "unet": [""],
     "clip": [""],
     "vae": [""],
+    "winograd": [""],
 }
-
+znver4_flags = {
+    "all": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
+        "--iree-llvmcpu-target-cpu=znver4",
+        "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
+        "--iree-flow-collapse-reduction-dims",
+        "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
+    ],
+    "winograd": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
+        "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
+    ],
+}
 
 def compile_to_vmfb(
     module_str,
@@ -73,6 +87,7 @@ def compile_to_vmfb(
     max_alloc="4294967296",
     save_mlir=True,
     attn_spec=None,
+    winograd=False,
 ):
     flags = []
     if mlir_source == "file" and not isinstance(module_str, str):
@@ -85,17 +100,22 @@ def compile_to_vmfb(
                 "target_triple must be set. Usually this can be fixed by setting --iree_target_triple in the CLI."
             )
     if device in ["cpu", "llvm-cpu"]:
-        flags.extend(
-            [
-                "--iree-llvmcpu-target-triple=" + target_triple,
-                "--iree-llvmcpu-target-cpu-features=host",
-                "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
-                "--iree-llvmcpu-distribution-size=32",
-                "--iree-opt-const-eval=false",
-                "--iree-llvmcpu-enable-ukernels=all",
-                "--iree-global-opt-enable-quantized-matmul-reassociation",
-            ]
-        )
+        if target_triple == "znver4":
+            flags.extend(znver4_flags["all"])
+            if winograd:
+                flags.extend(znver4_flags["winograd"])
+        else:
+            flags.extend(
+                [
+                    "--iree-llvmcpu-target-triple=" + target_triple,
+                    "--iree-llvmcpu-target-cpu-features=host",
+                    "--iree-llvmcpu-fail-on-out-of-bounds-stack-allocation=false",
+                    "--iree-llvmcpu-distribution-size=32",
+                    "--iree-opt-const-eval=false",
+                    "--iree-llvmcpu-enable-ukernels=all",
+                    "--iree-global-opt-enable-quantized-matmul-reassociation",
+                ]
+            )
         device = "llvm-cpu"
     elif device in ["vulkan", "vulkan-spirv"]:
         flags.extend(
@@ -159,9 +179,12 @@ def compile_to_vmfb(
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
 
-    if target_triple in ["gfx1100", "gfx1103", "gfx1150"]:
+    if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
 
+    # for now, these devices don't play well with external weights, so we assume
+    # that the model has inlined params and benefits from const-eval.
+    # otherwise, disable it since we should have external weights.
     if target_triple not in ["gfx1103", "gfx1150"]:
         flags.extend(["--iree-opt-const-eval=false"])
 
@@ -172,7 +195,7 @@ def compile_to_vmfb(
     if attn_spec in ["default", "mfma"]:
         attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    elif attn_spec in ["wmma"]:
+    elif attn_spec in ["wmma"] or "gfx11" in target_triple:
         attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
