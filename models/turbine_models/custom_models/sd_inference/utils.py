@@ -15,6 +15,7 @@ from diffusers import (
 MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
+        "--iree-opt-const-eval=false",
         "--iree-opt-outer-dim-concat=true",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
@@ -48,6 +49,7 @@ GFX11_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-opt-data-tiling=false",
+        "--iree-opt-const-eval=false",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-flow-enable-aggressive-fusion",
         "--iree-global-opt-enable-fuse-horizontal-contractions=true",
@@ -65,6 +67,7 @@ znver4_flags = {
     "all": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-llvmcpu-target-cpu=znver4",
+        "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
         "--iree-flow-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
@@ -181,12 +184,6 @@ def compile_to_vmfb(
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
-
-    # for now, these devices don't play well with external weights, so we assume
-    # that the model has inlined params and benefits from const-eval.
-    # otherwise, disable it since we should have external weights.
-    if target_triple not in ["gfx1103", "gfx1150"]:
-        flags.extend(["--iree-opt-const-eval=false"])
 
     # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
