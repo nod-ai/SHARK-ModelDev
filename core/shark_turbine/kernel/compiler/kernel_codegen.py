@@ -108,7 +108,11 @@ class BindingDesc:
             else:
                 # Unranked. Not well supported, but for completeness.
                 spec_asm = element_type_asm
-            memref_asm = f"memref<{spec_asm}>"
+            shapes = [sym_to_dim_asm(s) for s in kb_t.symbolic_shape]
+            strides = [1]
+            for i in range(len(shapes) - 1):
+                strides = [int(shapes[i + 1])] + strides
+            memref_asm = f"memref<{spec_asm}, strided<{strides}, offset: ?>>"
             return IrType.parse(memref_asm)
         elif binding_type == BindingType.INDEX_VALUE:
             return IndexType.get()
