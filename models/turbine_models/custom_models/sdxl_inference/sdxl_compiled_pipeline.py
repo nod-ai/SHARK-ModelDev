@@ -346,6 +346,7 @@ class SharkSDXLPipeline:
                     input_mlir=input_mlir["prompt_encoder"],
                     attn_spec=self.attn_spec,
                     weights_only=weights_only,
+                    output_batchsize=self.batch_size,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
             case "pipeline":
@@ -624,13 +625,22 @@ class SharkSDXLPipeline:
         for idx, image in enumerate(numpy_images):
             image = torch.from_numpy(image).cpu().permute(0, 2, 3, 1).float().numpy()
             image = numpy_to_pil_image(image)
-            images.append(image[0])
+            images.append(image)
         if return_imgs:
             return images
-        for idx, image in enumerate(images):
-            img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
-            image.save(img_path)
-            print(img_path, "saved")
+        for idx_batch, image_batch in enumerate(images):
+            for idx, image in enumerate(image_batch):
+                img_path = (
+                    "sdxl_output_"
+                    + timestamp
+                    + "_"
+                    + str(idx_batch)
+                    + "_"
+                    + str(idx)
+                    + ".png"
+                )
+                image.save(img_path)
+                print(img_path, "saved")
         return
 
 
@@ -643,10 +653,14 @@ def numpy_to_pil_image(images):
     images = (images * 255).round().astype("uint8")
     if images.shape[-1] == 1:
         # special case for grayscale (single channel) images
-        pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+        pil_images = []
+        for batched_image in images:
+            for image in range(0, batched_image.size(dim=0)):
+                pil_images.append(Image.fromarray(image.squeeze(), mode="L"))
     else:
-        pil_images = [Image.fromarray(image) for image in images]
-
+        pil_images = []
+        for image in images:
+            pil_images.append(Image.fromarray(image))
     return pil_images
 
 
@@ -702,7 +716,6 @@ if __name__ == "__main__":
             mlirs[submodel_id] = mlir_path
     if not args.external_weights_dir and args.external_weights:
         args.external_weights_dir = args.pipeline_dir
-
     sdxl_pipe = SharkSDXLPipeline(
         args.hf_model_name,
         args.scheduler_id,

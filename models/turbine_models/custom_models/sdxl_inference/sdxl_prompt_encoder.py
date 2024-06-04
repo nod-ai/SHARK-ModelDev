@@ -24,6 +24,7 @@ class PromptEncoderModule(torch.nn.Module):
         precision,
         hf_auth_token=None,
         do_classifier_free_guidance=True,
+        batch_size=1,
     ):
         super().__init__()
         self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -38,6 +39,7 @@ class PromptEncoderModule(torch.nn.Module):
             token=hf_auth_token,
         )
         self.do_classifier_free_guidance = True
+        self.batch_size = batch_size
 
     def forward(
         self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
@@ -76,24 +78,28 @@ class PromptEncoderModule(torch.nn.Module):
             neg_prompt_embeds = torch.concat(neg_prompt_embeds_list, dim=-1)
 
             bs_embed, seq_len, _ = prompt_embeds.shape
-
             prompt_embeds = prompt_embeds.repeat(1, 1, 1)
             prompt_embeds = prompt_embeds.view(bs_embed * 1, seq_len, -1)
             pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
                 bs_embed * 1, -1
             )
+            prompt_embeds = prompt_embeds.repeat(self.batch_size, 1, 1)
             add_text_embeds = pooled_prompt_embeds
+            add_text_embeds = add_text_embeds.repeat(self.batch_size, 1)
             if self.do_classifier_free_guidance:
                 neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
                     1, -1
                 )
                 neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
                 neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
+                neg_prompt_embeds = neg_prompt_embeds.repeat(self.batch_size, 1, 1)
                 prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
+                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(
+                    self.batch_size, 1
+                )
                 add_text_embeds = torch.cat(
                     [neg_pooled_prompt_embeds, add_text_embeds], dim=0
                 )
-
             add_text_embeds = add_text_embeds.to(self.torch_dtype)
             prompt_embeds = prompt_embeds.to(self.torch_dtype)
             return prompt_embeds, add_text_embeds
@@ -129,7 +135,9 @@ class PromptEncoderModule(torch.nn.Module):
             pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
                 bs_embed * 1, -1
             )
+            prompt_embeds = prompt_embeds.repeat(self.batch_size, 1, 1)
             add_text_embeds = pooled_prompt_embeds
+            add_text_embeds = add_text_embeds.repeat(self.batch_size, 1)
 
             add_text_embeds = add_text_embeds.to(self.torch_dtype)
             prompt_embeds = prompt_embeds.to(self.torch_dtype)
@@ -152,6 +160,7 @@ def export_prompt_encoder(
     input_mlir=None,
     attn_spec=None,
     weights_only=False,
+    output_batchsize=1,
 ):
     if "turbo" in hf_model_name:
         do_classifier_free_guidance = False
@@ -191,7 +200,11 @@ def export_prompt_encoder(
     )
     tokenizers = [tokenizer_1, tokenizer_2]
     prompt_encoder_module = PromptEncoderModule(
-        hf_model_name, precision, hf_auth_token, do_classifier_free_guidance
+        hf_model_name,
+        precision,
+        hf_auth_token,
+        do_classifier_free_guidance,
+        batch_size=output_batchsize,
     )
     if precision == "fp16":
         prompt_encoder_module = prompt_encoder_module.half()
@@ -272,6 +285,7 @@ if __name__ == "__main__":
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
         attn_spec=args.attn_spec,
+        output_batchsize=args.batch_size,
     )
     if args.input_mlir:
         exit()
