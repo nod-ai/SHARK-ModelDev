@@ -71,8 +71,6 @@ znver4_flags = {
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
         "--iree-flow-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
-    ],
-    "winograd": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
     ],

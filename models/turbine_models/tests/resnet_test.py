@@ -55,6 +55,12 @@ class Resnet18Test(unittest.TestCase):
         assert rocm_err < 1e-5
         assert hip_err < 1e-5
 
+    # def tearDown(self):
+    #     if os.path.exists("resnet_18.vmfb"):
+    #         os.remove("resnet_18.vmfb")
+    #     if os.path.exists("resnet_18.mlir"):
+    #         os.remove("resnet_18.mlir")
+
 
 class AttributeDict(dict):
     def __getattr__(self, attr):
@@ -65,7 +71,3 @@ class AttributeDict(dict):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
-    if os.path.exists("resnet_18.mlir"):
-        os.remove("resnet_18.mlir")
-    if os.path.exists("resnet_18.vmfb"):
-        os.remove("resnet_18.vmfb")

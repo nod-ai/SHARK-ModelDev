@@ -32,7 +32,7 @@ parser.add_argument(
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 # TODO: Add other resnet models
-
+torch.random.manual_seed(0)
 
 class Resnet18Model(torch.nn.Module):
     def __init__(self):
@@ -89,6 +89,7 @@ def export_static_resnet_18_model(
 
 
 def run_resnet_18_vmfb_comparison(resnet_model, args):
+    import numpy as np
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
     config = rt.Config(args.device)
 
@@ -108,6 +109,7 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
         config=config,
     )
     inp = torch.rand(5, 3, 224, 224, dtype=torch_dtype)
+    np.save(f"test_input_{args.precision}.npy", inp.numpy())
     device_inputs = [rt.asdevicearray(config.device, inp)]
 
     # Turbine output
@@ -124,6 +126,7 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
     torch_output = resnet_model.forward(inp)
     torch_output = torch_output.detach().cpu().numpy()
     print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
+    np.save(f"resnet18_golden_out.npy", torch_output)
 
     err = utils.largest_error(torch_output, turbine_output)
     print("LARGEST ERROR:", err)
