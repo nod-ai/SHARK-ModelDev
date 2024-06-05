@@ -8,42 +8,6 @@ from tqdm.auto import tqdm
 
 torch.random.manual_seed(0)
 
-
-def run_unet_hybrid(
-    sample,
-    prompt_embeds,
-    text_embeds,
-    args,
-):
-    runner = vmfbRunner(args.device, args.vmfb_path, args.external_weight_path)
-    init_inp = [
-        ireert.asdevicearray(runner.config.device, sample),
-    ]
-    sample, time_ids, steps = runner.ctx.modules.compiled_scheduled_unet[
-        "run_initialize"
-    ](
-        *init_inp,
-    )
-    dtype = "float16" if args.precision == "fp16" else "float32"
-    inputs = [
-        sample,
-        ireert.asdevicearray(runner.config.device, prompt_embeds),
-        ireert.asdevicearray(runner.config.device, text_embeds),
-        time_ids,
-        ireert.asdevicearray(
-            runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
-        ),
-        None,
-    ]
-    for i in range(steps.to_host()):
-        inputs[0] = sample
-        inputs[5] = ireert.asdevicearray(
-            runner.config.device, torch.tensor([i]), dtype="int64"
-        )
-        sample = runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
-    return sample
-
-
 def run_torch_scheduled_unet(
     sample,
     prompt_embeds,
@@ -77,7 +41,7 @@ def run_torch_scheduled_unet(
     return sample
 
 
-def run_scheduled_unet(
+def run_scheduled_unet_compiled(
     sample,
     prompt_embeds,
     text_embeds,
@@ -103,6 +67,90 @@ def run_scheduled_unet(
     )
 
     return latents
+
+def run_scheduled_unet_python(
+    sample,
+    prompt_embeds,
+    text_embeds,
+    args,
+):
+    unet_runner = vmfbRunner(
+        args.device,
+        args.vmfb_path,
+        args.external_weight_path,
+    )
+    dtype = "float16" if args.precision == "fp16" else "float32"
+    sample, time_ids, steps = run_scheduled_unet_initialize(
+        sample,
+        unet_runner,
+        args,
+    )
+    iree_inputs = [
+        sample,
+        ireert.asdevicearray(unet_runner.config.device, prompt_embeds),
+        ireert.asdevicearray(unet_runner.config.device, text_embeds),
+        time_ids,
+        ireert.asdevicearray(
+            unet_runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
+        ),
+        None,
+    ]
+    for i in range(steps.to_host()):
+        iree_inputs[0] = sample
+        iree_inputs[5] = ireert.asdevicearray(
+            unet_runner.config.device, torch.tensor([i]), dtype="int64"
+        )
+        sample = run_scheduled_unet_forward(
+            sample,
+            prompt_embeds,
+            text_embeds,
+            time_ids,
+            args.guidance_scale,
+            i,
+            unet_runner,
+            args,
+        )
+    return sample
+
+def run_scheduled_unet_initialize(
+    sample,
+    unet_runner,
+    args,
+):
+    dtype = "float16" if args.precision == "fp16" else "float32"
+    inputs = [
+        ireert.asdevicearray(unet_runner.config.device, sample),
+    ]
+    sample, time_ids, steps = unet_runner.ctx.modules.compiled_scheduled_unet["run_initialize"](
+        *inputs,
+    )
+    return sample, time_ids, steps
+
+def run_scheduled_unet_forward(
+    sample,
+    prompt_embeds,
+    text_embeds,
+    time_ids,
+    guidance_scale,
+    timestep,
+    unet_runner,
+    args,
+):
+    dtype = "float16" if args.precision == "fp16" else "float32"
+    inputs = [
+        ireert.asdevicearray(unet_runner.config.device, sample, dtype=dtype),
+        ireert.asdevicearray(unet_runner.config.device, prompt_embeds, dtype=dtype),
+        ireert.asdevicearray(unet_runner.config.device, text_embeds, dtype=dtype),
+        time_ids,
+        ireert.asdevicearray(
+            unet_runner.config.device, np.asarray([guidance_scale]), dtype=dtype
+        ),
+        ireert.asdevicearray(
+            unet_runner.config.device, np.asarray([timestep]), dtype="int64"
+        ),
+    ]
+    sample = unet_runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
+    return sample
 
 
 def run_torch_diffusers_loop(
@@ -166,10 +214,7 @@ if __name__ == "__main__":
         dtype = torch.float16
     else:
         dtype = torch.float32
-    # if "turbo" in args.hf_model_name:
-    #     init_batch_dim = 1
-    # else:
-    #     init_batch_dim = 2
+
     init_batch_dim = 2
     sample = torch.rand(
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
@@ -181,29 +226,35 @@ if __name__ == "__main__":
     text_embeds = torch.rand(init_batch_dim * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.rand(init_batch_dim * args.batch_size, 6)
 
-    turbine_output = run_scheduled_unet(
+    turbine_python_output = run_scheduled_unet_python(
         sample,
         prompt_embeds,
         text_embeds,
         args,
-    )
+    ).to_host()
     print(
-        "TURBINE OUTPUT:",
-        turbine_output.to_host(),
-        turbine_output.to_host().shape,
-        turbine_output.to_host().dtype,
+        "TURBINE PYTHON OUTPUT:",
+        turbine_python_output,
+        turbine_python_output.shape,
+        turbine_python_output.dtype,
     )
+    turbine_compiled_output = run_scheduled_unet_compiled(
+        sample,
+        prompt_embeds,
+        text_embeds,
+        args,
+    ).to_host()
+    print(
+        "TURBINE COMPILED OUTPUT:",
+        turbine_compiled_output,
+        turbine_compiled_output.shape,
+        turbine_compiled_output.dtype,
+    )
+
 
     if args.compare_vs_torch:
         from turbine_models.custom_models.sd_inference import utils
 
-        print("generating output with python/torch scheduling unet: ")
-        hybrid_output = run_unet_hybrid(
-            sample,
-            prompt_embeds,
-            text_embeds,
-            args,
-        )
         print("generating torch output: ")
         torch_output = run_torch_scheduled_unet(
             sample,
@@ -211,59 +262,19 @@ if __name__ == "__main__":
             text_embeds,
             args,
         )
-        print("generating torch+diffusers output: ")
-        diff_output = run_torch_diffusers_loop(
-            sample,
-            prompt_embeds,
-            text_embeds,
-            args,
-        )
-        print(
-            "diffusers-like OUTPUT:", diff_output, diff_output.shape, diff_output.dtype
-        )
         print("torch OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
 
-        print(
-            "HYBRID OUTPUT:",
-            hybrid_output.to_host(),
-            hybrid_output.to_host().shape,
-            hybrid_output.to_host().dtype,
-        )
-        print("Comparing... \n(turbine pipelined unet to torch unet): ")
-        try:
-            np.testing.assert_allclose(
-                turbine_output, torch_output, rtol=4e-2, atol=4e-2
-            )
-        except AssertionError as err:
-            print(err)
-        print("\n(turbine pipelined unet to hybrid unet): ")
-        try:
-            np.testing.assert_allclose(
-                hybrid_output, turbine_output, rtol=4e-2, atol=4e-2
-            )
-            print("passed!")
-        except AssertionError as err:
-            print(err)
-        print("\n(hybrid unet to diff unet): ")
-        try:
-            np.testing.assert_allclose(diff_output, hybrid_output, rtol=4e-2, atol=4e-2)
-            print("passed!")
-        except AssertionError as err:
-            print(err)
-        print("\n(turbine loop to diffusers loop): ")
-        try:
-            np.testing.assert_allclose(
-                turbine_output, diff_output, rtol=4e-2, atol=4e-2
-            )
-            print("passed!")
-        except AssertionError as err:
-            print(err)
-        print("\n(torch sched unet loop to diffusers loop): ")
-        try:
-            np.testing.assert_allclose(torch_output, diff_output, rtol=4e-2, atol=4e-2)
-            print("passed!")
-        except AssertionError as err:
-            print(err)
 
-    # TODO: Figure out why we occasionally segfault without unlinking output variables
-    turbine_output = None
+        try:
+            np.testing.assert_allclose(
+                turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2
+            )
+            print("passed!")
+        except AssertionError as err:
+            print(err)
+        print("\n(torch sched unet loop to iree python loop): ")
+        try:
+            np.testing.assert_allclose(turbine_python_output, torch_output, rtol=4e-2, atol=4e-2)
+            print("passed!")
+        except AssertionError as err:
+            print(err)
