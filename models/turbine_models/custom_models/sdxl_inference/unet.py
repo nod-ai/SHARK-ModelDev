@@ -239,6 +239,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
     )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+    if args.compile_to != "vmfb":
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to", safe_name + ".mlir")
