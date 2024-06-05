@@ -126,6 +126,7 @@ if __name__ == "__main__":
 
     if save_inputs:
         import os
+
         inputs_dir = "sdxl_unet_inputs_" + args.precision
         if not os.path.exists(inputs_dir):
             os.mkdir(inputs_dir)
@@ -178,4 +179,3 @@ if __name__ == "__main__":
         atol = 4e-2
         rtol = 4e-1
         np.testing.assert_allclose(turbine_output, torch_output, atol=atol, rtol=rtol)
-
