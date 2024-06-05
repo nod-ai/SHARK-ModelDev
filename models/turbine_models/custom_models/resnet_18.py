@@ -68,8 +68,28 @@ def export_resnet_18_model(
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
 
+def export_static_resnet_18_model(
+    resnet_model, compile_to="torch", device=None, target_triple=None, max_alloc=None
+):
+    resnet_model = resnet_model.half()
+    class CompiledResnet18Model(CompiledModule):
+        params = export_parameters(resnet_model.model)
+
+        def main(self, x=AbstractTensor(5, 3, 224, 224, dtype=torch.float16)):
+            return jittable(resnet_model.forward)(x)
+
+    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+    inst = CompiledResnet18Model(context=Context(), import_to=import_to)
+
+    module_str = str(CompiledModule.get_mlir_module(inst))
+    if compile_to != "vmfb":
+        return module_str
+    else:
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
+
 
 def run_resnet_18_vmfb_comparison(resnet_model, args):
+    torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
     config = rt.Config(args.device)
 
     if args.vmfb_path:
@@ -87,7 +107,7 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
         vm_modules=vm_modules,
         config=config,
     )
-    inp = torch.rand(5, 3, 224, 224, dtype=torch.float32)
+    inp = torch.rand(5, 3, 224, 224, dtype=torch_dtype)
     device_inputs = [rt.asdevicearray(config.device, inp)]
 
     # Turbine output
@@ -107,7 +127,8 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
 
     err = utils.largest_error(torch_output, turbine_output)
     print("LARGEST ERROR:", err)
-    assert err < 9e-5
+    del CompModule
+    return err
 
 
 if __name__ == "__main__":

@@ -28,3 +28,4 @@ wheelhouse
 *.safetensors
 *.gguf
 *.vmfb
+*.mlir
