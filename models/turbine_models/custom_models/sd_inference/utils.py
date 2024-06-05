@@ -65,13 +65,12 @@ GFX11_flags = {
 }
 znver4_flags = {
     "all": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
+        #"--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-llvmcpu-target-cpu=znver4",
         "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
         "--iree-flow-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
     ],
 }

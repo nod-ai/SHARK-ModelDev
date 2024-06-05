@@ -185,8 +185,8 @@ def run_torch_diffusers_loop(
     prompt_embeds = prompt_embeds.to(torch.float32)
     text_embeds = text_embeds.to(torch.float32)
 
-    for i in range(args.num_inference_steps):
-        timestep = scheduler.timesteps[i]
+    for idx, i in enumerate(scheduler.timesteps):
+        timestep = i
 
         latent_model_input = scheduler.scale_model_input(sample, timestep)
         noise_pred = unet_model.forward(
@@ -225,6 +225,20 @@ if __name__ == "__main__":
     )
     text_embeds = torch.rand(init_batch_dim * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.rand(init_batch_dim * args.batch_size, 6)
+    if args.compiled_pipeline:
+        assert args.pipeline_vmfb_path is not None, "--pipeline_vmfb_path is required for compiled pipeline run"
+        turbine_compiled_output = run_scheduled_unet_compiled(
+            sample,
+            prompt_embeds,
+            text_embeds,
+            args,
+        ).to_host()
+        print(
+            "TURBINE COMPILED OUTPUT:",
+            turbine_compiled_output,
+            turbine_compiled_output.shape,
+            turbine_compiled_output.dtype,
+        )
 
     turbine_python_output = run_scheduled_unet_python(
         sample,
@@ -238,18 +252,7 @@ if __name__ == "__main__":
         turbine_python_output.shape,
         turbine_python_output.dtype,
     )
-    turbine_compiled_output = run_scheduled_unet_compiled(
-        sample,
-        prompt_embeds,
-        text_embeds,
-        args,
-    ).to_host()
-    print(
-        "TURBINE COMPILED OUTPUT:",
-        turbine_compiled_output,
-        turbine_compiled_output.shape,
-        turbine_compiled_output.dtype,
-    )
+
 
 
     if args.compare_vs_torch:
@@ -264,17 +267,17 @@ if __name__ == "__main__":
         )
         print("torch OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
 
-
-        try:
-            np.testing.assert_allclose(
-                turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2
-            )
-            print("passed!")
-        except AssertionError as err:
-            print(err)
         print("\n(torch sched unet loop to iree python loop): ")
         try:
             np.testing.assert_allclose(turbine_python_output, torch_output, rtol=4e-2, atol=4e-2)
             print("passed!")
         except AssertionError as err:
             print(err)
+
+        if args.compiled_pipeline:
+            print("\n(torch sched unet loop to iree compiled loop): ")
+            try:
+                np.testing.assert_allclose(turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2)
+                print("passed!")
+            except AssertionError as err:
+                print(err)
