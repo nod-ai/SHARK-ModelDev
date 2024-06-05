@@ -18,17 +18,12 @@ resnet_model = resnet_18.Resnet18Model()
 
 
 class Resnet18Test(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="caused by lack of support for DenseResourceElementsAttr iteration over a generic FloatAttr"
-    )
     def testExportResnet18Model(self):
-        with self.assertRaises(SystemExit) as cm:
-            resnet_18.export_resnet_18_model(
-                resnet_model,
-                "vmfb",
-                "cpu",
-            )
-        self.assertEqual(cm.exception.code, None)
+        resnet_18.export_resnet_18_model(
+            resnet_model,
+            "vmfb",
+            "cpu",
+        )
         namespace = argparse.Namespace(**arguments)
         resnet_18.run_resnet_18_vmfb_comparison(resnet_model, namespace)
         os.remove("resnet_18.vmfb")
