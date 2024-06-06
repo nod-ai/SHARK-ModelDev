@@ -159,6 +159,9 @@ def export_unet_model(
     time_ids_shape = (init_batch_dim * batch_size, 6)
     prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
     text_embeds_shape = (init_batch_dim * batch_size, 1280)
+    timestep_shape = (1,)
+    guidance_scale_shape = (1,)
+    
 
     class CompiledUnet(CompiledModule):
         if external_weights:

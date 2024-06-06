@@ -8,7 +8,7 @@ from shark_turbine.aot import *
 from iree.compiler.ir import Context
 import iree.runtime as rt
 from turbine_models.custom_models.sd_inference import utils
-
+import shark_turbine.ops.iree as ops
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -43,8 +43,7 @@ class Resnet18Model(torch.nn.Module):
         # self.extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
 
     def forward(self, pixel_values_tensor: torch.Tensor):
-        with torch.no_grad():
-            logits = self.model.forward(pixel_values_tensor).logits
+        logits = self.model.forward(pixel_values_tensor).logits
         predicted_id = torch.argmax(logits, -1)
         return predicted_id
 
@@ -72,16 +71,10 @@ def export_static_resnet_18_model(
     resnet_model, compile_to="torch", device=None, target_triple=None, max_alloc=None
 ):
     resnet_model = resnet_model.half()
-    class CompiledResnet18Model(CompiledModule):
-        params = export_parameters(resnet_model.model)
+    input_args = (torch.empty((5, 3, 224, 224), dtype=torch.float16),)
+    exported = export(resnet_model, args=input_args)
 
-        def main(self, x=AbstractTensor(5, 3, 224, 224, dtype=torch.float16)):
-            return jittable(resnet_model.forward)(x)
-
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledResnet18Model(context=Context(), import_to=import_to)
-
-    module_str = str(CompiledModule.get_mlir_module(inst))
+    module_str = str(exported.mlir_module)
     if compile_to != "vmfb":
         return module_str
     else:

@@ -3,7 +3,6 @@ import logging
 from turbine_models.custom_models import resnet_18
 import unittest
 import os
-import pytest
 
 resnet_model = resnet_18.Resnet18Model()
 
@@ -30,7 +29,6 @@ class Resnet18Test(unittest.TestCase):
         assert err < 1e-5
         
     def testExportResnet18ModelStaticGFX1100(self):
-        from turbine_models.tests.testing_cmd_opts import args
         arguments = {
             "run_vmfb": True,
             "compile_to": "vmfb",

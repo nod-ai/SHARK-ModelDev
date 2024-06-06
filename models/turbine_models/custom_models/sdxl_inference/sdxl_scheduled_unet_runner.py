@@ -35,7 +35,7 @@ def run_torch_scheduled_unet(
             prompt_embeds.float(),
             text_embeds.float(),
             add_time_ids.float(),
-            args.guidance_scale,
+            torch.tensor(args.guidance_scale, dtype=torch.float32),
             i,
         )
     return sample
@@ -61,7 +61,6 @@ def run_scheduled_unet_compiled(
             pipe_runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
         ),
     ]
-    print(inputs)
     latents = pipe_runner.ctx.modules.sdxl_compiled_pipeline["produce_image_latents"](
         *inputs,
     )
@@ -101,12 +100,7 @@ def run_scheduled_unet_python(
             unet_runner.config.device, torch.tensor([i]), dtype="int64"
         )
         sample = run_scheduled_unet_forward(
-            sample,
-            prompt_embeds,
-            text_embeds,
-            time_ids,
-            args.guidance_scale,
-            i,
+            iree_inputs,
             unet_runner,
             args,
         )
@@ -117,7 +111,6 @@ def run_scheduled_unet_initialize(
     unet_runner,
     args,
 ):
-    dtype = "float16" if args.precision == "fp16" else "float32"
     inputs = [
         ireert.asdevicearray(unet_runner.config.device, sample),
     ]
@@ -127,28 +120,10 @@ def run_scheduled_unet_initialize(
     return sample, time_ids, steps
 
 def run_scheduled_unet_forward(
-    sample,
-    prompt_embeds,
-    text_embeds,
-    time_ids,
-    guidance_scale,
-    timestep,
+    inputs,
     unet_runner,
     args,
 ):
-    dtype = "float16" if args.precision == "fp16" else "float32"
-    inputs = [
-        ireert.asdevicearray(unet_runner.config.device, sample, dtype=dtype),
-        ireert.asdevicearray(unet_runner.config.device, prompt_embeds, dtype=dtype),
-        ireert.asdevicearray(unet_runner.config.device, text_embeds, dtype=dtype),
-        time_ids,
-        ireert.asdevicearray(
-            unet_runner.config.device, np.asarray([guidance_scale]), dtype=dtype
-        ),
-        ireert.asdevicearray(
-            unet_runner.config.device, np.asarray([timestep]), dtype="int64"
-        ),
-    ]
     sample = unet_runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
     return sample
 

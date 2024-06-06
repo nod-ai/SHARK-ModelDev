@@ -103,10 +103,12 @@ class SDXLScheduledUnet(torch.nn.Module):
                 latent_model_input = torch.cat([sample] * 2)
             else:
                 latent_model_input = sample
+            #ops.iree.trace_tensor(f"latent_model_input_{step_index}", latent_model_input)
 
             latent_model_input = self.scheduler.scale_model_input(
                 latent_model_input, t
             ).type(self.dtype)
+            #ops.iree.trace_tensor(f"latent_model_input_scaled_{step_index}", latent_model_input)
             noise_pred = self.unet.forward(
                 latent_model_input,
                 t,
@@ -115,6 +117,7 @@ class SDXLScheduledUnet(torch.nn.Module):
                 added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
+            #ops.iree.trace_tensor(f"noise_pred_{step_index}", noise_pred)
 
             if self.do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
