@@ -65,7 +65,7 @@ GFX11_flags = {
 }
 znver4_flags = {
     "all": [
-        #"--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
+        # "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-llvmcpu-target-cpu=znver4",
         "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
@@ -136,6 +136,7 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
         if target_triple == "gfx942":

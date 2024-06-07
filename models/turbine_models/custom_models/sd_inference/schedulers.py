@@ -36,48 +36,77 @@ from turbine_models.model_runner import vmfbRunner
 
 
 class SharkSchedulerWrapper:
-    def __init__(self, rt_device, vmfb, weights):
-        self.runner = vmfbRunner(rt_device, vmfb, weights)
+    def __init__(self, rt_device, vmfb):
+        self.runner = vmfbRunner(rt_device, vmfb, None)
 
     def initialize(self, sample):
-        return self.runner.ctx.modules.scheduler["initialize"](sample)
+        return self.runner.ctx.modules.compiled_scheduler["run_initialize"](sample)
 
     def scale_model_input(self, sample, t):
-        return self.runner.ctx.modules.scheduler["scale_model_input"](sample, t)
+        return self.runner.ctx.modules.compiled_scheduler["run_scale"](sample, t)
 
-    def step(self, sample, latents, t):
-        return self.runner.ctx.modules.scheduler["step"](sample, latents, t)
+    def step(self, noise_pred, t, sample, guidance_scale, step_index):
+        return self.runner.ctx.modules.compiled_scheduler["run_step"](
+            noise_pred, t, sample, guidance_scale, step_index
+        )
 
 
 class SchedulingModel(torch.nn.Module):
-    def __init__(self, scheduler, height, width, num_inference_steps, dtype):
+    def __init__(
+        self,
+        hf_model_name,
+        scheduler,
+        height,
+        width,
+        batch_size,
+        num_inference_steps,
+        dtype,
+    ):
+        super().__init__()
+        # For now, assumes SDXL implementation. May not need parametrization for other models,
+        # but keeping hf_model_name in case.
         self.model = scheduler
         self.height = height
         self.width = width
+        self.batch_size = batch_size
+        self.do_classifier_free_guidance = True
         self.model.set_timesteps(num_inference_steps)
         self.model.is_scale_input_called = True
         self.dtype = dtype
 
     def initialize(self, sample):
-        height = sample.shape[-2] * 8
-        width = sample.shape[-1] * 8
+        height = self.height
+        width = self.width
         original_size = (height, width)
         target_size = (height, width)
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids])
-        add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
-        add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+        add_time_ids = torch.tensor([add_time_ids], dtype=self.dtype)
+        if self.do_classifier_free_guidance:
+            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+            add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(self.dtype)
         timesteps = self.model.timesteps
         step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.model.init_noise_sigma
         return sample.type(self.dtype), add_time_ids, step_indexes
 
-    def scale_model_input(self, sample, t):
-        return self.model.scale_model_input(sample, t)
+    def prepare_model_input(self, sample, t):
+        t = self.model.timesteps[t]
+        if self.do_classifier_free_guidance:
+            latent_model_input = torch.cat([sample] * 2)
+        else:
+            latent_model_input = sample
+        return self.model.scale_model_input(latent_model_input, t), t.type(self.dtype)
 
-    def step(self, latents, t, sample):
-        return self.model.step(latents, t, sample)
+    def step(self, noise_pred, t, sample, guidance_scale, i):
+        self.model._step_index = i
+        if self.do_classifier_free_guidance:
+            noise_preds = noise_pred.chunk(2)
+            noise_pred = noise_preds[0] + guidance_scale * (
+                noise_preds[1] - noise_preds[0]
+            )
+        sample = self.model.step(noise_pred, t, sample)[0]
+        return sample.type(self.dtype)
 
 
 class SharkSchedulerCPUWrapper:
@@ -134,24 +163,25 @@ def export_scheduler_model(
     input_mlir: str = None,
     upload_ir=False,
 ):
+    dtype = torch.float16 if precision == "fp16" else torch.float32
     scheduler = get_scheduler(hf_model_name, scheduler_id)
     scheduler_module = SchedulingModel(
-        hf_model_name, scheduler, height, width, num_inference_steps
+        hf_model_name, scheduler, height, width, batch_size, num_inference_steps, dtype
     )
-    vmfb_name = (
-        scheduler_id
-        + "_"
-        + f"{height}x{width}"
-        + "_"
-        + precision
-        + "_"
-        + str(num_inference_steps),
-        +"_" + target_triple,
-    )
+    vmfb_names = [
+        scheduler_id + "Scheduler",
+        f"bs{batch_size}",
+        f"{height}x{width}",
+        precision,
+        str(num_inference_steps),
+        target_triple,
+    ]
+    vmfb_name = "_".join(vmfb_names)
+
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, vmfb_name)
     else:
-        safe_name = utils.create_safe_name(hf_model_name, vmfb_name)
+        safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -165,10 +195,11 @@ def export_scheduler_model(
         )
         return vmfb_path
 
-    dtype = torch.float16 if precision == "fp16" else torch.float32
-
-    if precision == "fp16":
-        scheduled_unet_model = scheduled_unet_model.half()
+    do_classifier_free_guidance = True
+    if do_classifier_free_guidance:
+        init_batch_dim = 2
+    else:
+        init_batch_dim = 1
 
     sample = (
         batch_size,
@@ -176,30 +207,62 @@ def export_scheduler_model(
         height // 8,
         width // 8,
     )
+    noise_pred_shape = (
+        batch_size * init_batch_dim,
+        4,
+        height // 8,
+        width // 8,
+    )
+    example_init_args = [torch.empty(sample, dtype=dtype)]
+    example_prep_args = [
+        torch.empty(sample, dtype=dtype),
+        torch.empty(1, dtype=torch.int64),
+    ]
+    example_step_args = [
+        torch.empty(noise_pred_shape, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+        torch.empty(sample, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+        torch.empty(1, dtype=torch.int64),
+    ]
 
-    class CompiledScheduler(CompiledModule):
-        params = export_parameters(scheduled_unet_model)
+    fxb = FxProgramsBuilder(scheduler_module)
 
-        def initialize(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-        ):
-            return jittable(scheduler_module.initialize)(sample)
+    @fxb.export_program(
+        args=(example_init_args,),
+    )
+    def _initialize(module, sample):
+        return module.initialize(*sample)
 
-        def scale_model_input(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            t=AbstractTensor(1, dtype=dtype),
-        ):
-            return jittable(scheduler_module.scale_model_input)(sample, t)
+    @fxb.export_program(
+        args=(example_prep_args,),
+    )
+    def _scale(module, input):
+        return module.prepare_model_input(*input)
 
-        def step(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            latents=AbstractTensor(1, dtype=dtype),
-            t=AbstractTensor(1, dtype=dtype),
-        ):
-            return jittable(scheduler_module.step)(sample, latents, t)
+    @fxb.export_program(
+        args=(example_step_args,),
+    )
+    def _step(module, inputs):
+        return module.step(*inputs)
+
+    decomp_list = []
+    # if decomp_attn == True:
+    #     decomp_list.extend(
+    #         [
+    #             torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+    #             torch.ops.aten._scaled_dot_product_flash_attention.default,
+    #         ]
+    #     )
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+
+        class CompiledScheduler(CompiledModule):
+            run_initialize = _initialize
+            run_scale = _scale
+            run_step = _step
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)
@@ -222,42 +285,14 @@ def export_scheduler_model(
         return vmfb
 
 
-# from shark_turbine.turbine_models.schedulers import export_scheduler_model
-
-
 def get_scheduler(model_id, scheduler_id):
     # TODO: switch over to turbine and run all on GPU
     print(f"\n[LOG] Initializing schedulers from model id: {model_id}")
-    schedulers = {}
-    for sched in SCHEDULER_MAP:
-        schedulers[sched] = SCHEDULER_MAP[sched].from_pretrained(
+    if scheduler_id in SCHEDULER_MAP.keys():
+        scheduler = SCHEDULER_MAP[scheduler_id].from_pretrained(
             model_id, subfolder="scheduler"
         )
-    schedulers["DPMSolverMultistep"] = DPMSolverMultistepScheduler.from_pretrained(
-        model_id, subfolder="scheduler", algorithm_type="dpmsolver"
-    )
-    schedulers["DPMSolverMultistep++"] = DPMSolverMultistepScheduler.from_pretrained(
-        model_id, subfolder="scheduler", algorithm_type="dpmsolver++"
-    )
-    schedulers[
-        "DPMSolverMultistepKarras"
-    ] = DPMSolverMultistepScheduler.from_pretrained(
-        model_id,
-        subfolder="scheduler",
-    )
-    schedulers["DPMSolverMultistepKarras"].config.use_karras_sigmas = True
-    schedulers[
-        "DPMSolverMultistepKarras++"
-    ] = DPMSolverMultistepScheduler.from_pretrained(
-        model_id,
-        subfolder="scheduler",
-        algorithm_type="dpmsolver++",
-    )
-    schedulers["DPMSolverMultistepKarras++"].config.use_karras_sigmas = True
-    schedulers["DPMSolverSDE"] = DPMSolverSDEScheduler.from_pretrained(
-        model_id, subfolder="scheduler"
-    )
-    return schedulers[scheduler_id]
+    return scheduler
 
 
 SCHEDULER_MAP = {
@@ -273,6 +308,7 @@ SCHEDULER_MAP = {
     "DPMSolverSinglestep": DPMSolverSinglestepScheduler,
     "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
     "HeunDiscrete": HeunDiscreteScheduler,
+    "DPMSolverMultistepKarras": DPMSolverMultistepScheduler,
 }
 
 if __name__ == "__main__":
@@ -293,10 +329,15 @@ if __name__ == "__main__":
         exit_on_vmfb=False,
         input_mlir=args.input_mlir,
     )
-    safe_name = utils.create_safe_name(
-        args.hf_model_name,
-        "_" + args.scheduler_id + "_" + str(args.num_inference_steps),
-    )
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to", safe_name + ".mlir")
+    vmfb_names = [
+        args.scheduler_id + "Scheduler",
+        f"_bs{args.batch_size}_{args.height}x{args.width}",
+        args.precision,
+        str(args.num_inference_steps),
+        args.iree_target_triple,
+    ]
+    safe_name = "_".join(vmfb_names)
+    if args.compile_to != "vmfb":
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to", safe_name + ".mlir")

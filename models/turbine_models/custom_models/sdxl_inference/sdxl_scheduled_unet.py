@@ -9,20 +9,22 @@
 import copy
 import os
 import sys
+import numpy as np
+
+# os.environ["TORCH_LOGS"] = "+dynamo"
+
+import torch
+import torch._dynamo as dynamo
 
 from iree import runtime as ireert
 from iree.compiler.ir import Context
-import numpy as np
+
 from shark_turbine.aot import *
 import shark_turbine.ops as ops
+
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.custom_models.sd_inference.schedulers import get_scheduler
-import torch
-import torch._dynamo as dynamo
 from diffusers import UNet2DConditionModel
-from shark_turbine.dynamo.passes import (
-    DEFAULT_DECOMPOSITIONS,
-)
 
 
 class SDXLScheduledUnet(torch.nn.Module):
@@ -49,6 +51,9 @@ class SDXLScheduledUnet(torch.nn.Module):
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
         self.return_index = return_index
+        self.height = height
+        self.width = width
+        self.batch_size = batch_size
 
         if precision == "fp16":
             try:
@@ -75,8 +80,8 @@ class SDXLScheduledUnet(torch.nn.Module):
             )
 
     def initialize(self, sample):
-        height = sample.shape[-2] * 8
-        width = sample.shape[-1] * 8
+        height = self.height
+        width = self.width
         original_size = (height, width)
         target_size = (height, width)
         crops_coords_top_left = (0, 0)
@@ -84,7 +89,7 @@ class SDXLScheduledUnet(torch.nn.Module):
         add_time_ids = torch.tensor([add_time_ids], dtype=self.dtype)
         if self.do_classifier_free_guidance:
             add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
-            add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+            add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
         step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.scheduler.init_noise_sigma
@@ -93,41 +98,50 @@ class SDXLScheduledUnet(torch.nn.Module):
     def forward(
         self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
     ):
-        with torch.no_grad():
-            added_cond_kwargs = {
-                "time_ids": time_ids,
-                "text_embeds": text_embeds,
-            }
-            t = self.scheduler.timesteps[step_index]
-            if self.do_classifier_free_guidance:
-                latent_model_input = torch.cat([sample] * 2)
-            else:
-                latent_model_input = sample
-            #ops.iree.trace_tensor(f"latent_model_input_{step_index}", latent_model_input)
+        added_cond_kwargs = {
+            "time_ids": time_ids,
+            "text_embeds": text_embeds,
+        }
+        t = self.scheduler.timesteps[step_index]
+        if self.do_classifier_free_guidance:
+            latent_model_input = torch.cat([sample] * 2)
+        else:
+            latent_model_input = sample
+        # ops.iree.trace_tensor(f"latent_model_input_{step_index}", latent_model_input)
 
-            latent_model_input = self.scheduler.scale_model_input(
-                latent_model_input, t
-            ).type(self.dtype)
-            #ops.iree.trace_tensor(f"latent_model_input_scaled_{step_index}", latent_model_input)
-            noise_pred = self.unet.forward(
-                latent_model_input,
-                t,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
-            #ops.iree.trace_tensor(f"noise_pred_{step_index}", noise_pred)
+        latent_model_input = self.scheduler.scale_model_input(
+            latent_model_input, t
+        ).type(self.dtype)
+        print(
+            latent_model_input.shape,
+            t.shape,
+            sample.shape,
+            prompt_embeds.shape,
+            added_cond_kwargs,
+            guidance_scale,
+            step_index,
+        )
+        # ops.iree.trace_tensor(f"latent_model_input_scaled_{step_index}", latent_model_input)
+        noise_pred = self.unet.forward(
+            latent_model_input,
+            t,
+            encoder_hidden_states=prompt_embeds,
+            cross_attention_kwargs=None,
+            added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
+        )[0]
+        # ops.iree.trace_tensor(f"noise_pred_{step_index}", noise_pred)
 
-            if self.do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
-                )
-            sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-            return sample.type(self.dtype)
+        if self.do_classifier_free_guidance:
+            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            noise_pred = noise_pred_uncond + guidance_scale * (
+                noise_pred_text - noise_pred_uncond
+            )
+        sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+        return sample.type(self.dtype)
 
 
+@torch.no_grad()
 def export_scheduled_unet_model(
     scheduled_unet_model,
     scheduler_id,
@@ -180,9 +194,61 @@ def export_scheduled_unet_model(
         )
         return vmfb_path
 
-    mapper = {}
+    dtype = torch.float16 if precision == "fp16" else torch.float32
 
-    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
+    if precision == "fp16":
+        scheduled_unet_model = scheduled_unet_model.half()
+
+    mapper = {}
+    utils.save_external_weights(
+        mapper, scheduled_unet_model, external_weights, external_weight_path
+    )
+    if weights_only:
+        return external_weight_path
+
+    if do_classifier_free_guidance:
+        init_batch_dim = 2
+    else:
+        init_batch_dim = 1
+
+    sample_shape = [
+        batch_size,
+        scheduled_unet_model.unet.config.in_channels,
+        height // 8,
+        width // 8,
+    ]
+    time_ids_shape = [init_batch_dim * batch_size, 6]
+    prompt_embeds_shape = [init_batch_dim * batch_size, max_length, 2048]
+    text_embeds_shape = [init_batch_dim * batch_size, 1280]
+
+    fxb = FxProgramsBuilder(scheduled_unet_model)
+
+    example_init_args = [torch.empty(sample_shape, dtype=dtype)]
+    example_forward_args = [
+        torch.empty(sample_shape, dtype=dtype),
+        torch.empty(prompt_embeds_shape, dtype=dtype),
+        torch.empty(text_embeds_shape, dtype=dtype),
+        torch.empty(time_ids_shape, dtype=dtype),
+        torch.empty(1, dtype=dtype),  # guidance_scale
+        torch.empty(1, dtype=torch.int64),  # timestep
+    ]
+
+    @fxb.export_program(
+        args=(example_init_args,),
+    )
+    def _initialize(module, sample):
+        return module.initialize(*sample)
+
+    @fxb.export_program(
+        args=(example_forward_args,),
+    )
+    def _forward(
+        module,
+        inputs,
+    ):
+        return module.forward(*inputs)
+
+    decomp_list = []
     if decomp_attn == True:
         decomp_list.extend(
             [
@@ -190,67 +256,23 @@ def export_scheduled_unet_model(
                 torch.ops.aten._scaled_dot_product_flash_attention.default,
             ]
         )
-    dtype = torch.float16 if precision == "fp16" else torch.float32
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
 
-    if precision == "fp16":
-        scheduled_unet_model = scheduled_unet_model.half()
+        class CompiledScheduledUnet(CompiledModule):
+            run_initialize = _initialize
+            run_forward = _forward
 
-    utils.save_external_weights(
-        mapper, scheduled_unet_model, external_weights, external_weight_path
-    )
-
-    if weights_only:
-        return external_weight_path
-
-    sample = (
-        batch_size,
-        scheduled_unet_model.unet.config.in_channels,
-        height // 8,
-        width // 8,
-    )
-    if do_classifier_free_guidance:
-        init_batch_dim = 2
-    else:
-        init_batch_dim = 1
-
-    time_ids_shape = (init_batch_dim * batch_size, 6)
-    prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
-    text_embeds_shape = (init_batch_dim * batch_size, 1280)
-
-    class CompiledScheduledUnet(CompiledModule):
         if external_weights:
-            params = export_parameters(
-                scheduled_unet_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(scheduled_unet_model)
+            externalize_module_parameters(scheduled_unet_model)
+        if external_weight_path and len(external_weight_path) > 1:
+            save_module_parameters(external_weight_path, scheduled_unet_model)
 
-        def run_initialize(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-        ):
-            return jittable(scheduled_unet_model.initialize)(sample)
+        inst = CompiledScheduledUnet(context=Context(), import_to="IMPORT")
 
-        def run_forward(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
-            text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
-            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
-            guidance_scale=AbstractTensor(1, dtype=dtype),
-            step_index=AbstractTensor(1, dtype=torch.int64),
-        ):
-            return jittable(scheduled_unet_model.forward, decompose_ops=decomp_list)(
-                sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
-            )
-
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledScheduledUnet(context=Context(), import_to=import_to)
-
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
     if compile_to != "vmfb":
         return module_str

@@ -47,39 +47,29 @@ class UnetModel(torch.nn.Module):
                 auth_token=hf_auth_token,
                 low_cpu_mem_usage=False,
             )
-        if "turbo" in hf_model_name:
-            self.do_classifier_free_guidance = False
-        else:
-            self.do_classifier_free_guidance = True
+        # if "turbo" in hf_model_name:
+        #     self.do_classifier_free_guidance = False
+        # else:
+        self.do_classifier_free_guidance = True
 
-    def forward(
-        self, sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
-    ):
+    def forward(self, latents, timestep, prompt_embeds, text_embeds, time_ids):
         with torch.no_grad():
             added_cond_kwargs = {
                 "text_embeds": text_embeds,
                 "time_ids": time_ids,
             }
-            if self.do_classifier_free_guidance:
-                latent_model_input = torch.cat([sample] * 2)
-            else:
-                latent_model_input = sample
             noise_pred = self.unet.forward(
-                latent_model_input,
+                latents,
                 timestep,
                 encoder_hidden_states=prompt_embeds,
                 cross_attention_kwargs=None,
                 added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
-            if self.do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
-                )
         return noise_pred
 
 
+@torch.no_grad()
 def export_unet_model(
     unet_model,
     hf_model_name,
@@ -101,11 +91,6 @@ def export_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
-    if "turbo" in hf_model_name:
-        do_classifier_free_guidance = False
-    else:
-        do_classifier_free_guidance = True
-
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet_{device}",
@@ -145,49 +130,62 @@ def export_unet_model(
     if weights_only:
         return external_weight_path
 
-    sample = (
-        batch_size,
+    do_classifier_free_guidance = True
+    init_batch_dim = 2 if do_classifier_free_guidance else 1
+
+    prepared_latents = (
+        batch_size * init_batch_dim,
         unet_model.unet.config.in_channels,
         height // 8,
         width // 8,
     )
-    if do_classifier_free_guidance:
-        init_batch_dim = 2
-    else:
-        init_batch_dim = 1
 
     time_ids_shape = (init_batch_dim * batch_size, 6)
     prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
     text_embeds_shape = (init_batch_dim * batch_size, 1280)
-    timestep_shape = (1,)
-    guidance_scale_shape = (1,)
-    
+    example_forward_args = [
+        torch.empty(prepared_latents, dtype=dtype),
+        torch.empty(1, dtype=dtype),  # timestep
+        torch.empty(prompt_embeds_shape, dtype=dtype),
+        torch.empty(text_embeds_shape, dtype=dtype),
+        torch.empty(time_ids_shape, dtype=dtype),
+    ]
 
-    class CompiledUnet(CompiledModule):
+    fxb = FxProgramsBuilder(unet_model)
+
+    @fxb.export_program(
+        args=(example_forward_args,),
+    )
+    def _forward(
+        module,
+        inputs,
+    ):
+        return module.forward(*inputs)
+
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+            ]
+        )
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+
+        class CompiledUnet(CompiledModule):
+            run_forward = _forward
+
         if external_weights:
-            params = export_parameters(
-                unet_model, external=True, external_scope="", name_mapper=mapper.get
-            )
-        else:
-            params = export_parameters(unet_model)
+            externalize_module_parameters(unet_model)
+        if external_weight_path and len(external_weight_path) > 1:
+            save_module_parameters(external_weight_path, unet_model)
 
-        def main(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            timestep=AbstractTensor(1, dtype=torch.int64),
-            prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
-            text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
-            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
-            guidance_scale=AbstractTensor(1, dtype=dtype),
-        ):
-            return jittable(unet_model.forward, decompose_ops=decomp_list)(
-                sample, timestep, prompt_embeds, text_embeds, time_ids, guidance_scale
-            )
+        inst = CompiledUnet(context=Context(), import_to="IMPORT")
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledUnet(context=Context(), import_to=import_to)
-
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
     if compile_to != "vmfb":
         return module_str

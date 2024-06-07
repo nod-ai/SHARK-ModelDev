@@ -34,6 +34,7 @@ parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 # TODO: Add other resnet models
 torch.random.manual_seed(0)
 
+
 class Resnet18Model(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -67,6 +68,7 @@ def export_resnet_18_model(
     else:
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
 
+
 def export_static_resnet_18_model(
     resnet_model, compile_to="torch", device=None, target_triple=None, max_alloc=None
 ):
@@ -83,6 +85,7 @@ def export_static_resnet_18_model(
 
 def run_resnet_18_vmfb_comparison(resnet_model, args):
     import numpy as np
+
     torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
     config = rt.Config(args.device)
 

@@ -10,6 +10,7 @@ resnet_model = resnet_18.Resnet18Model()
 class Resnet18Test(unittest.TestCase):
     def testExportResnet18ModelCPU(self):
         from turbine_models.tests.testing_cmd_opts import args
+
         arguments = {
             "run_vmfb": True,
             "compile_to": "vmfb",
@@ -27,7 +28,7 @@ class Resnet18Test(unittest.TestCase):
         namespace = AttributeDict(arguments)
         err = resnet_18.run_resnet_18_vmfb_comparison(resnet_model, namespace)
         assert err < 1e-5
-        
+
     def testExportResnet18ModelStaticGFX1100(self):
         arguments = {
             "run_vmfb": True,
@@ -63,8 +64,10 @@ class Resnet18Test(unittest.TestCase):
 class AttributeDict(dict):
     def __getattr__(self, attr):
         return self[attr]
+
     def __setattr__(self, attr, value):
         self[attr] = value
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

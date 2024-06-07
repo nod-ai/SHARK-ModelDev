@@ -9,7 +9,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from torch.utils import _pytree as pytree
 from shark_turbine.aot import *
-from shark_turbine.aot import decompositions
 from iree.compiler.ir import Context
 from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
     enable_llama_pos_shift_attention,

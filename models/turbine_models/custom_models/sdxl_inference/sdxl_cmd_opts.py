@@ -117,6 +117,20 @@ p.add_argument(
 )
 
 p.add_argument(
+    "--scheduler_vmfb_path",
+    type=str,
+    default="",
+    help="path to vmfb containing compiled scheduler",
+)
+
+p.add_argument(
+    "--split_scheduler",
+    default=False,
+    action="store_true",
+    help="Use a decoupled unet and scheduler for better QOL.",
+)
+
+p.add_argument(
     "--external_weight_file",
     type=str,
     default=None,

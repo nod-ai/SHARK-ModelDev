@@ -1,12 +1,13 @@
 import argparse
 from turbine_models.model_runner import vmfbRunner
-from turbine_models.custom_models.sd_inference import utils
+from turbine_models.custom_models.sd_inference import utils, schedulers
 from iree import runtime as ireert
 import torch
 import numpy as np
 from tqdm.auto import tqdm
 
 torch.random.manual_seed(0)
+
 
 def run_torch_scheduled_unet(
     sample,
@@ -67,6 +68,32 @@ def run_scheduled_unet_compiled(
 
     return latents
 
+
+def run_scheduled_unet_initialize(
+    sample,
+    unet_runner,
+    args,
+):
+    inputs = [
+        ireert.asdevicearray(unet_runner.config.device, sample),
+    ]
+    sample, time_ids, steps = unet_runner.ctx.modules.compiled_scheduled_unet[
+        "run_initialize"
+    ](
+        *inputs,
+    )
+    return sample, time_ids, steps
+
+
+def run_scheduled_unet_forward(
+    inputs,
+    unet_runner,
+    args,
+):
+    sample = unet_runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
+    return sample
+
+
 def run_scheduled_unet_python(
     sample,
     prompt_embeds,
@@ -106,25 +133,57 @@ def run_scheduled_unet_python(
         )
     return sample
 
-def run_scheduled_unet_initialize(
-    sample,
-    unet_runner,
-    args,
-):
-    inputs = [
-        ireert.asdevicearray(unet_runner.config.device, sample),
-    ]
-    sample, time_ids, steps = unet_runner.ctx.modules.compiled_scheduled_unet["run_initialize"](
-        *inputs,
-    )
-    return sample, time_ids, steps
 
-def run_scheduled_unet_forward(
-    inputs,
-    unet_runner,
+def run_unet_split_scheduled(
+    sample,
+    prompt_embeds,
+    text_embeds,
     args,
 ):
-    sample = unet_runner.ctx.modules.compiled_scheduled_unet["run_forward"](*inputs)
+    unet_runner = vmfbRunner(
+        args.device,
+        args.vmfb_path,
+        args.external_weight_path,
+    )
+    scheduler = schedulers.SharkSchedulerWrapper(
+        args.device,
+        args.scheduler_vmfb_path,
+    )
+    dtype = "float16" if args.precision == "fp16" else "float32"
+    guidance_scale = ireert.asdevicearray(
+        scheduler.runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
+    )
+    sample, time_ids, steps = scheduler.initialize(sample)
+    iree_inputs = [
+        sample,
+        ireert.asdevicearray(unet_runner.config.device, prompt_embeds),
+        ireert.asdevicearray(unet_runner.config.device, text_embeds),
+        time_ids,
+        None,
+    ]
+    for i in range(steps.to_host()):
+        print(f"step {i}")
+        step_index = ireert.asdevicearray(
+            unet_runner.config.device, torch.tensor([i]), dtype="int64"
+        )
+        latents, t = scheduler.scale_model_input(
+            sample,
+            step_index,
+        )
+        noise_pred = unet_runner.ctx.modules.compiled_unet["run_forward"](
+            latents,
+            t,
+            iree_inputs[1],
+            iree_inputs[2],
+            iree_inputs[3],
+        )
+        sample = scheduler.step(
+            noise_pred,
+            t,
+            iree_inputs[0],
+            guidance_scale,
+            step_index,
+        )
     return sample
 
 
@@ -201,7 +260,9 @@ if __name__ == "__main__":
     text_embeds = torch.rand(init_batch_dim * args.batch_size, 1280, dtype=dtype)
     time_ids = torch.rand(init_batch_dim * args.batch_size, 6)
     if args.compiled_pipeline:
-        assert args.pipeline_vmfb_path is not None, "--pipeline_vmfb_path is required for compiled pipeline run"
+        assert (
+            args.pipeline_vmfb_path is not None
+        ), "--pipeline_vmfb_path is required for compiled pipeline run"
         turbine_compiled_output = run_scheduled_unet_compiled(
             sample,
             prompt_embeds,
@@ -214,21 +275,35 @@ if __name__ == "__main__":
             turbine_compiled_output.shape,
             turbine_compiled_output.dtype,
         )
-
-    turbine_python_output = run_scheduled_unet_python(
-        sample,
-        prompt_embeds,
-        text_embeds,
-        args,
-    ).to_host()
-    print(
-        "TURBINE PYTHON OUTPUT:",
-        turbine_python_output,
-        turbine_python_output.shape,
-        turbine_python_output.dtype,
-    )
-
-
+    elif args.split_scheduler:
+        assert (
+            args.scheduler_vmfb_path is not None
+        ), "--scheduler_vmfb_path is required for split scheduler run"
+        turbine_split_output = run_unet_split_scheduled(
+            sample,
+            prompt_embeds,
+            text_embeds,
+            args,
+        ).to_host()
+        print(
+            "TURBINE SPLIT OUTPUT:",
+            turbine_split_output,
+            turbine_split_output.shape,
+            turbine_split_output.dtype,
+        )
+    else:
+        turbine_python_output = run_scheduled_unet_python(
+            sample,
+            prompt_embeds,
+            text_embeds,
+            args,
+        ).to_host()
+        print(
+            "TURBINE PYTHON OUTPUT:",
+            turbine_python_output,
+            turbine_python_output.shape,
+            turbine_python_output.dtype,
+        )
 
     if args.compare_vs_torch:
         from turbine_models.custom_models.sd_inference import utils
@@ -244,7 +319,9 @@ if __name__ == "__main__":
 
         print("\n(torch sched unet loop to iree python loop): ")
         try:
-            np.testing.assert_allclose(turbine_python_output, torch_output, rtol=4e-2, atol=4e-2)
+            np.testing.assert_allclose(
+                turbine_python_output, torch_output, rtol=4e-2, atol=4e-2
+            )
             print("passed!")
         except AssertionError as err:
             print(err)
@@ -252,7 +329,9 @@ if __name__ == "__main__":
         if args.compiled_pipeline:
             print("\n(torch sched unet loop to iree compiled loop): ")
             try:
-                np.testing.assert_allclose(turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2)
+                np.testing.assert_allclose(
+                    turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2
+                )
                 print("passed!")
             except AssertionError as err:
                 print(err)
