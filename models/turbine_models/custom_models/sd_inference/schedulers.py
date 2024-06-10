@@ -9,6 +9,7 @@ from typing import List
 
 import torch
 from shark_turbine.aot import *
+import shark_turbine.ops.iree as ops
 from iree.compiler.ir import Context
 import iree.runtime as ireert
 import numpy as np
@@ -42,8 +43,10 @@ class SharkSchedulerWrapper:
     def initialize(self, sample):
         return self.runner.ctx.modules.compiled_scheduler["run_initialize"](sample)
 
-    def scale_model_input(self, sample, t):
-        return self.runner.ctx.modules.compiled_scheduler["run_scale"](sample, t)
+    def scale_model_input(self, sample, t, timesteps):
+        return self.runner.ctx.modules.compiled_scheduler["run_scale"](
+            sample, t, timesteps
+        )
 
     def step(self, noise_pred, t, sample, guidance_scale, step_index):
         return self.runner.ctx.modules.compiled_scheduler["run_step"](
@@ -71,9 +74,11 @@ class SchedulingModel(torch.nn.Module):
         self.batch_size = batch_size
         self.do_classifier_free_guidance = True
         self.model.set_timesteps(num_inference_steps)
+        self.timesteps = self.model.timesteps
         self.model.is_scale_input_called = True
         self.dtype = dtype
 
+    # TODO: Make steps dynamic here
     def initialize(self, sample):
         height = self.height
         width = self.width
@@ -85,67 +90,106 @@ class SchedulingModel(torch.nn.Module):
         if self.do_classifier_free_guidance:
             add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
             add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(self.dtype)
+        step_count = torch.tensor(len(self.timesteps))
         timesteps = self.model.timesteps
-        step_indexes = torch.tensor(len(timesteps))
+        # ops.trace_tensor("timesteps", self.timesteps)
         sample = sample * self.model.init_noise_sigma
-        return sample.type(self.dtype), add_time_ids, step_indexes
+        return (
+            sample.type(self.dtype),
+            add_time_ids,
+            step_count,
+            timesteps.type(self.dtype),
+        )
 
-    def prepare_model_input(self, sample, t):
-        t = self.model.timesteps[t]
+    def prepare_model_input(self, sample, t, timesteps):
+        t = timesteps[t]
         if self.do_classifier_free_guidance:
             latent_model_input = torch.cat([sample] * 2)
         else:
             latent_model_input = sample
-        return self.model.scale_model_input(latent_model_input, t), t.type(self.dtype)
+        return self.model.scale_model_input(latent_model_input, t).type(
+            self.dtype
+        ), t.type(self.dtype)
 
     def step(self, noise_pred, t, sample, guidance_scale, i):
         self.model._step_index = i
+
         if self.do_classifier_free_guidance:
             noise_preds = noise_pred.chunk(2)
             noise_pred = noise_preds[0] + guidance_scale * (
                 noise_preds[1] - noise_preds[0]
             )
-        sample = self.model.step(noise_pred, t, sample)[0]
+        if self.model.config.skip_prk_steps == True:
+            sample = self.model.step_plms(noise_pred, t, sample, return_dict=False)[0]
+        else:
+            sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
 
 
+@torch.no_grad()
 class SharkSchedulerCPUWrapper:
-    def __init__(self, pipe, scheduler):
+    def __init__(
+        self, scheduler, batch_size, num_inference_steps, dest_device, latents_dtype
+    ):
+        self.do_classifier_free_guidance = True
         self.module = scheduler
-        self.dest = pipe.runners["unet"].config.device
-        self.dtype = pipe.iree_dtype
+        self.dest = dest_device
+        self.dtype = latents_dtype
+        self.batch_size = batch_size
+        self.module.set_timesteps(num_inference_steps)
+        self.torch_dtype = (
+            torch.float32 if latents_dtype == "float32" else torch.float16
+        )
 
     def initialize(self, sample):
-        sample, add_time_ids, step_indexes = self.module.initialize(
-            torch.from_numpy(sample.to_host())
-        )
-        sample = ireert.asdevicearray(self.dest, sample, self.dtype)
+        height = sample.shape[2]
+        width = sample.shape[3]
+        original_size = (height, width)
+        target_size = (height, width)
+        crops_coords_top_left = (0, 0)
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=self.torch_dtype)
+        if self.do_classifier_free_guidance:
+            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+            add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(
+                self.torch_dtype
+            )
+        step_indexes = torch.tensor(len(self.module.timesteps))
+        timesteps = self.module.timesteps
+        sample = sample * self.module.init_noise_sigma
         add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
+        step_indexes = ireert.asdevicearray(self.dest, step_indexes, "int64")
+        return sample, add_time_ids, step_indexes, timesteps
 
-        return sample, add_time_ids, step_indexes
-
-    def scale_model_input(self, sample, t):
-        scaled = ireert.asdevicearray(
-            self.dest,
-            self.module.scale_model_input(torch.from_numpy(sample.to_host()), t),
-            self.dtype,
-        )
-        t = [self.module.model.timesteps[t]]
-        t = ireert.asdevicearray(self.dest, t, self.dtype)
+    def scale_model_input(self, sample, t, timesteps):
+        if self.do_classifier_free_guidance:
+            sample = torch.cat([sample] * 2)
+        t = timesteps[t]
+        scaled = self.module.scale_model_input(sample, t)
+        t = ireert.asdevicearray(self.dest, [t], self.dtype)
         return scaled, t
 
-    def step(self, latents, t, sample):
-        return ireert.asdevicearray(
-            self.dest,
-            self.module.step(
-                torch.from_numpy(latents.to_host()),
-                t,
-                torch.from_numpy(sample.to_host()),
-            ).prev_sample,
-            self.dtype,
-        )
+    def step(self, latents, t, sample, guidance_scale, i):
+        if isinstance(latents, ireert.DeviceArray):
+            latents = torch.tensor(latents.to_host())
+        if isinstance(t, ireert.DeviceArray):
+            t = self.module.timesteps[i]
+        if isinstance(sample, ireert.DeviceArray):
+            sample = torch.tensor(sample.to_host())
+        if self.do_classifier_free_guidance:
+            noise_preds = latents.chunk(2)
+            latents = noise_preds[0] + guidance_scale * (
+                noise_preds[1] - noise_preds[0]
+            )
+        return self.module.step(
+            latents,
+            t,
+            sample,
+            return_dict=False,
+        )[0]
 
 
+@torch.no_grad()
 def export_scheduler_model(
     hf_model_name: str,
     scheduler_id: str,
@@ -214,10 +258,17 @@ def export_scheduler_model(
         width // 8,
     )
     example_init_args = [torch.empty(sample, dtype=dtype)]
-    example_prep_args = [
+    example_prep_args = (
         torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=torch.int64),
-    ]
+        torch.empty([19], dtype=dtype),
+    )
+    timesteps = torch.export.Dim("timesteps")
+    prep_dynamic_args = {
+        "sample": {},
+        "t": {},
+        "timesteps": {0: timesteps},
+    }
     example_step_args = [
         torch.empty(noise_pred_shape, dtype=dtype),
         torch.empty(1, dtype=dtype),
@@ -235,10 +286,11 @@ def export_scheduler_model(
         return module.initialize(*sample)
 
     @fxb.export_program(
-        args=(example_prep_args,),
+        args=example_prep_args,
+        dynamic_shapes=prep_dynamic_args,
     )
-    def _scale(module, input):
-        return module.prepare_model_input(*input)
+    def _scale(module, sample, t, timesteps):
+        return module.prepare_model_input(sample, t, timesteps)
 
     @fxb.export_program(
         args=(example_step_args,),
@@ -292,6 +344,13 @@ def get_scheduler(model_id, scheduler_id):
         scheduler = SCHEDULER_MAP[scheduler_id].from_pretrained(
             model_id, subfolder="scheduler"
         )
+    elif all(x in scheduler_id for x in ["DPMSolverMultistep", "++"]):
+        scheduler = DPMSolverMultistepScheduler.from_pretrained(
+            model_id, subfolder="scheduler", algorithm_type="dpmsolver++"
+        )
+    if "Karras" in scheduler_id:
+        scheduler.config.use_karras_sigmas = True
+
     return scheduler
 
 
@@ -309,6 +368,9 @@ SCHEDULER_MAP = {
     "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
     "HeunDiscrete": HeunDiscreteScheduler,
     "DPMSolverMultistepKarras": DPMSolverMultistepScheduler,
+    "DPMSolverMultistep": DPMSolverMultistepScheduler,
+    "DPMSolverSDE": DPMSolverSDEScheduler,
+    "DPMSolverSDEKarras": DPMSolverSDEScheduler,
 }
 
 if __name__ == "__main__":

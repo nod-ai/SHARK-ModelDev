@@ -163,15 +163,6 @@ def compile_to_vmfb(
             ["--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"]
         )
 
-    for i, flag in enumerate(ireec_flags):
-        k = flag.strip().split("=")[0]
-        for idx, default in enumerate(flags):
-            if k == default.split("=")[0]:
-                flags[idx] = flag
-                ireec_flags[i] = ""
-        if flag not in [None, "", " "]:
-            flags.append(flag)
-
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
         if "unet" in safe_name:
             flags.extend(MI_flags["unet"])
@@ -196,6 +187,24 @@ def compile_to_vmfb(
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
+    for i, flag in enumerate(ireec_flags):
+        k = flag.strip().split("=")[0]
+        for idx, default in enumerate(flags):
+            if default == None:
+                flags.pop(idx)
+                continue
+            elif k == default.split("=")[0]:
+                flags[idx] = flag if flag.split("=")[-1] not in ["None", ""] else None
+                flag = None
+                if flags[idx] == None:
+                    flags.pop(idx)
+                continue
+        if flag not in [None, "", " "] and flag.split("=")[-1] not in ["None", ""]:
+            flags.append(flag)
+
+    for idx, flag in enumerate(flags):
+        if flag is None:
+            flags.pop(idx)
     print("Compiling to", device, "with flags:", flags)
 
     if mlir_source == "file":

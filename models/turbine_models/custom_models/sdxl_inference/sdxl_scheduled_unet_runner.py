@@ -5,10 +5,12 @@ from iree import runtime as ireert
 import torch
 import numpy as np
 from tqdm.auto import tqdm
+from shark_turbine.ops.iree import trace_tensor
 
 torch.random.manual_seed(0)
 
 
+@torch.no_grad()
 def run_torch_scheduled_unet(
     sample,
     prompt_embeds,
@@ -140,20 +142,35 @@ def run_unet_split_scheduled(
     text_embeds,
     args,
 ):
+    dtype = "float16" if args.precision == "fp16" else "float32"
+    torch_dtype = torch.float16 if args.precision == "fp16" else torch.float32
     unet_runner = vmfbRunner(
         args.device,
         args.vmfb_path,
         args.external_weight_path,
     )
-    scheduler = schedulers.SharkSchedulerWrapper(
-        args.device,
-        args.scheduler_vmfb_path,
-    )
-    dtype = "float16" if args.precision == "fp16" else "float32"
-    guidance_scale = ireert.asdevicearray(
-        scheduler.runner.config.device, np.asarray([args.guidance_scale]), dtype=dtype
-    )
-    sample, time_ids, steps = scheduler.initialize(sample)
+    if not args.scheduler_vmfb_path:
+        print("--scheduler_vmfb_path not supplied. Using cpu scheduling.")
+        scheduler = schedulers.get_scheduler(args.hf_model_name, args.scheduler_id)
+        scheduler = schedulers.SharkSchedulerCPUWrapper(
+            scheduler,
+            args.batch_size,
+            args.num_inference_steps,
+            unet_runner.config.device,
+            dtype,
+        )
+        guidance_scale = torch.tensor([args.guidance_scale])
+    else:
+        scheduler = schedulers.SharkSchedulerWrapper(
+            args.device,
+            args.scheduler_vmfb_path,
+        )
+        guidance_scale = ireert.asdevicearray(
+            scheduler.runner.config.device,
+            np.asarray([args.guidance_scale]),
+            dtype=dtype,
+        )
+    sample, time_ids, steps, timesteps = scheduler.initialize(sample)
     iree_inputs = [
         sample,
         ireert.asdevicearray(unet_runner.config.device, prompt_embeds),
@@ -162,13 +179,17 @@ def run_unet_split_scheduled(
         None,
     ]
     for i in range(steps.to_host()):
-        print(f"step {i}")
-        step_index = ireert.asdevicearray(
-            unet_runner.config.device, torch.tensor([i]), dtype="int64"
-        )
+        # print(f"step {i}")
+        if args.scheduler_vmfb_path:
+            step_index = ireert.asdevicearray(
+                unet_runner.config.device, torch.tensor([i]), dtype="int64"
+            )
+        else:
+            step_index = i
         latents, t = scheduler.scale_model_input(
             sample,
             step_index,
+            timesteps,
         )
         noise_pred = unet_runner.ctx.modules.compiled_unet["run_forward"](
             latents,
@@ -180,13 +201,14 @@ def run_unet_split_scheduled(
         sample = scheduler.step(
             noise_pred,
             t,
-            iree_inputs[0],
+            sample,
             guidance_scale,
             step_index,
         )
     return sample
 
 
+@torch.no_grad()
 def run_torch_diffusers_loop(
     sample,
     prompt_embeds,
@@ -200,40 +222,48 @@ def run_torch_diffusers_loop(
         args.hf_auth_token,
         precision="fp32",
     )
-    scheduler = utils.get_schedulers(args.hf_model_name)[args.scheduler_id]
-
+    scheduler = schedulers.get_scheduler(args.hf_model_name, args.scheduler_id)
+    if args.scheduler_id == "PNDM":
+        scheduler.config.skip_prk_steps = True
     scheduler.set_timesteps(args.num_inference_steps)
-    scheduler.is_scale_input_called = True
+    timesteps = scheduler.timesteps
+    print(timesteps)
     sample = sample * scheduler.init_noise_sigma
 
-    height = sample.shape[-2] * 8
-    width = sample.shape[-1] * 8
+    height = args.height
+    width = args.width
     original_size = (height, width)
     target_size = (height, width)
     crops_coords_top_left = (0, 0)
 
     add_time_ids = list(original_size + crops_coords_top_left + target_size)
-    add_time_ids = torch.tensor([add_time_ids, add_time_ids], dtype=torch.float32)
+    add_time_ids = torch.tensor([add_time_ids], dtype=torch.float32)
+    add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
     add_time_ids = add_time_ids.repeat(args.batch_size * 1, 1)
     sample = sample.to(torch.float32)
     prompt_embeds = prompt_embeds.to(torch.float32)
     text_embeds = text_embeds.to(torch.float32)
 
-    for idx, i in enumerate(scheduler.timesteps):
-        timestep = i
-
-        latent_model_input = scheduler.scale_model_input(sample, timestep)
+    for idx, t in enumerate(timesteps):
+        print(t)
+        latent_model_input = torch.cat([sample] * 2)
+        latent_model_input = scheduler.scale_model_input(latent_model_input, t)
         noise_pred = unet_model.forward(
             latent_model_input,
-            timestep,
+            t,
             prompt_embeds,
             text_embeds,
             add_time_ids,
-            args.guidance_scale,
+        )
+        # print("NOISE_PRED: ", noise_pred)
+        # print("STEP_INDEX : ", idx)
+        noise_preds = noise_pred.chunk(2)
+        noise_pred = noise_preds[0] + args.guidance_scale * (
+            noise_preds[1] - noise_preds[0]
         )
         sample = scheduler.step(
             noise_pred,
-            timestep,
+            t,
             sample,
             return_dict=False,
         )[0]
@@ -258,7 +288,7 @@ if __name__ == "__main__":
         init_batch_dim * args.batch_size, args.max_length, 2048, dtype=dtype
     )
     text_embeds = torch.rand(init_batch_dim * args.batch_size, 1280, dtype=dtype)
-    time_ids = torch.rand(init_batch_dim * args.batch_size, 6)
+    time_ids = torch.rand(init_batch_dim * args.batch_size, 6, dtype=dtype)
     if args.compiled_pipeline:
         assert (
             args.pipeline_vmfb_path is not None
@@ -275,22 +305,23 @@ if __name__ == "__main__":
             turbine_compiled_output.shape,
             turbine_compiled_output.dtype,
         )
+        turbine_output = turbine_compiled_output
     elif args.split_scheduler:
-        assert (
-            args.scheduler_vmfb_path is not None
-        ), "--scheduler_vmfb_path is required for split scheduler run"
         turbine_split_output = run_unet_split_scheduled(
             sample,
             prompt_embeds,
             text_embeds,
             args,
-        ).to_host()
+        )
+        if args.scheduler_vmfb_path:
+            turbine_split_output = turbine_split_output.to_host()
         print(
             "TURBINE SPLIT OUTPUT:",
             turbine_split_output,
             turbine_split_output.shape,
             turbine_split_output.dtype,
         )
+        turbine_output = turbine_split_output
     else:
         turbine_python_output = run_scheduled_unet_python(
             sample,
@@ -304,12 +335,19 @@ if __name__ == "__main__":
             turbine_python_output.shape,
             turbine_python_output.dtype,
         )
+        turbine_output = turbine_python_output
 
     if args.compare_vs_torch:
-        from turbine_models.custom_models.sd_inference import utils
-
+        if args.scheduler_id == "EulerAncestralDiscrete" and args.scheduler_vmfb_path:
+            print(
+                f"WARNING: {args.scheduler_id} scheduler adds random noise to results and we haven't piped through a torch generator yet to fix the seed. Expect mismatch results."
+            )
+        if args.scheduler_id == "PNDM" and args.scheduler_vmfb_path:
+            print(
+                f"WARNING: {args.scheduler_id} scheduler normally uses data-dependent control flow with counters and other data dependence. Expect different results after 1 step."
+            )
         print("generating torch output: ")
-        torch_output = run_torch_scheduled_unet(
+        torch_output = run_torch_diffusers_loop(
             sample,
             prompt_embeds,
             text_embeds,
@@ -317,21 +355,15 @@ if __name__ == "__main__":
         )
         print("torch OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
 
-        print("\n(torch sched unet loop to iree python loop): ")
+        print("\n(torch (diffusers) image latents to iree image latents): ")
         try:
             np.testing.assert_allclose(
-                turbine_python_output, torch_output, rtol=4e-2, atol=4e-2
+                turbine_output, torch_output, rtol=4e-2, atol=4e-2
             )
             print("passed!")
         except AssertionError as err:
-            print(err)
-
-        if args.compiled_pipeline:
-            print("\n(torch sched unet loop to iree compiled loop): ")
-            try:
-                np.testing.assert_allclose(
-                    turbine_compiled_output, torch_output, rtol=4e-2, atol=4e-2
+            if args.scheduler_id == "EulerAncestralDiscrete":
+                print(
+                    "Expected failure matching numerics due to intentionally random noise in results."
                 )
-                print("passed!")
-            except AssertionError as err:
-                print(err)
+            print(err)

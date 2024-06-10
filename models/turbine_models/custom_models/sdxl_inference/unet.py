@@ -52,20 +52,21 @@ class UnetModel(torch.nn.Module):
         # else:
         self.do_classifier_free_guidance = True
 
-    def forward(self, latents, timestep, prompt_embeds, text_embeds, time_ids):
-        with torch.no_grad():
-            added_cond_kwargs = {
-                "text_embeds": text_embeds,
-                "time_ids": time_ids,
-            }
-            noise_pred = self.unet.forward(
-                latents,
-                timestep,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
+    def forward(
+        self, latent_model_input, timestep, prompt_embeds, text_embeds, time_ids
+    ):
+        added_cond_kwargs = {
+            "text_embeds": text_embeds,
+            "time_ids": time_ids,
+        }
+        noise_pred = self.unet.forward(
+            latent_model_input,
+            timestep,
+            encoder_hidden_states=prompt_embeds,
+            cross_attention_kwargs=None,
+            added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
+        )[0]
         return noise_pred
 
 
@@ -95,6 +96,8 @@ def export_unet_model(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet_{device}",
     )
+    if args.decomp_attn == True:
+        ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -110,14 +113,6 @@ def export_unet_model(
         return vmfb_path
 
     mapper = {}
-    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
-    if decomp_attn == True:
-        decomp_list.extend(
-            [
-                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-                torch.ops.aten._scaled_dot_product_flash_attention.default,
-            ]
-        )
     dtype = torch.float16 if precision == "fp16" else torch.float32
 
     if precision == "fp16":
@@ -145,35 +140,33 @@ def export_unet_model(
     text_embeds_shape = (init_batch_dim * batch_size, 1280)
     example_forward_args = [
         torch.empty(prepared_latents, dtype=dtype),
-        torch.empty(1, dtype=dtype),  # timestep
+        torch.empty(1, dtype=dtype),
         torch.empty(prompt_embeds_shape, dtype=dtype),
         torch.empty(text_embeds_shape, dtype=dtype),
         torch.empty(time_ids_shape, dtype=dtype),
     ]
 
-    fxb = FxProgramsBuilder(unet_model)
-
-    @fxb.export_program(
-        args=(example_forward_args,),
-    )
-    def _forward(
-        module,
-        inputs,
-    ):
-        return module.forward(*inputs)
-
     decomp_list = []
     if decomp_attn == True:
-        decomp_list.extend(
-            [
-                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-                torch.ops.aten._scaled_dot_product_flash_attention.default,
-            ]
-        )
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
     with decompositions.extend_aot_decompositions(
         from_current=True,
         add_ops=decomp_list,
     ):
+        fxb = FxProgramsBuilder(unet_model)
+
+        @fxb.export_program(
+            args=(example_forward_args,),
+        )
+        def _forward(
+            module,
+            inputs,
+        ):
+            return module.forward(*inputs)
 
         class CompiledUnet(CompiledModule):
             run_forward = _forward
