@@ -41,7 +41,8 @@ class SharkSchedulerWrapper:
         self.runner = vmfbRunner(rt_device, vmfb, None)
 
     def initialize(self, sample):
-        return self.runner.ctx.modules.compiled_scheduler["run_initialize"](sample)
+        sample, time_ids, steps, timesteps = self.runner.ctx.modules.compiled_scheduler["run_initialize"](sample)
+        return sample, time_ids, steps.to_host(), timesteps
 
     def scale_model_input(self, sample, t, timesteps):
         return self.runner.ctx.modules.compiled_scheduler["run_scale"](
@@ -49,6 +50,11 @@ class SharkSchedulerWrapper:
         )
 
     def step(self, noise_pred, t, sample, guidance_scale, step_index):
+        print(
+            noise_pred.to_host()[:,:,0,2],
+            t,
+            sample.to_host()[:,:,0,2],
+        )
         return self.runner.ctx.modules.compiled_scheduler["run_step"](
             noise_pred, t, sample, guidance_scale, step_index
         )
@@ -98,7 +104,7 @@ class SchedulingModel(torch.nn.Module):
             sample.type(self.dtype),
             add_time_ids,
             step_count,
-            timesteps.type(self.dtype),
+            timesteps.type(torch.float32),
         )
 
     def prepare_model_input(self, sample, t, timesteps):
@@ -119,15 +125,11 @@ class SchedulingModel(torch.nn.Module):
             noise_pred = noise_preds[0] + guidance_scale * (
                 noise_preds[1] - noise_preds[0]
             )
-        if self.model.config.skip_prk_steps == True:
-            sample = self.model.step_plms(noise_pred, t, sample, return_dict=False)[0]
-        else:
-            sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
+        sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
 
-
-@torch.no_grad()
 class SharkSchedulerCPUWrapper:
+    @torch.no_grad()
     def __init__(
         self, scheduler, batch_size, num_inference_steps, dest_device, latents_dtype
     ):
@@ -137,13 +139,16 @@ class SharkSchedulerCPUWrapper:
         self.dtype = latents_dtype
         self.batch_size = batch_size
         self.module.set_timesteps(num_inference_steps)
+        self.timesteps = self.module.timesteps
         self.torch_dtype = (
             torch.float32 if latents_dtype == "float32" else torch.float16
         )
 
     def initialize(self, sample):
-        height = sample.shape[2]
-        width = sample.shape[3]
+        if isinstance(sample, ireert.DeviceArray):
+            sample = torch.tensor(sample.to_host(), dtype=torch.float32)
+        height = sample.shape[2] * 8
+        width = sample.shape[3] * 8
         original_size = (height, width)
         target_size = (height, width)
         crops_coords_top_left = (0, 0)
@@ -155,10 +160,10 @@ class SharkSchedulerCPUWrapper:
                 self.torch_dtype
             )
         step_indexes = torch.tensor(len(self.module.timesteps))
-        timesteps = self.module.timesteps
+        timesteps = self.timesteps
         sample = sample * self.module.init_noise_sigma
+        print(sample, add_time_ids, step_indexes, timesteps)
         add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
-        step_indexes = ireert.asdevicearray(self.dest, step_indexes, "int64")
         return sample, add_time_ids, step_indexes, timesteps
 
     def scale_model_input(self, sample, t, timesteps):
@@ -167,24 +172,27 @@ class SharkSchedulerCPUWrapper:
         t = timesteps[t]
         scaled = self.module.scale_model_input(sample, t)
         t = ireert.asdevicearray(self.dest, [t], self.dtype)
+        scaled = ireert.asdevicearray(self.dest, scaled, self.dtype)
         return scaled, t
 
-    def step(self, latents, t, sample, guidance_scale, i):
-        if isinstance(latents, ireert.DeviceArray):
-            latents = torch.tensor(latents.to_host())
+    def step(self, noise_pred, t, latents, guidance_scale, i):
         if isinstance(t, ireert.DeviceArray):
-            t = self.module.timesteps[i]
-        if isinstance(sample, ireert.DeviceArray):
-            sample = torch.tensor(sample.to_host())
+            t = torch.tensor(t.to_host())
+        if isinstance(guidance_scale, ireert.DeviceArray):
+            guidance_scale = torch.tensor(guidance_scale.to_host())
+        noise_pred = torch.tensor(noise_pred.to_host())
         if self.do_classifier_free_guidance:
-            noise_preds = latents.chunk(2)
-            latents = noise_preds[0] + guidance_scale * (
-                noise_preds[1] - noise_preds[0]
-            )
-        return self.module.step(
-            latents,
+            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        print(
+            noise_pred[:,:,0,2],
             t,
-            sample,
+            latents[:,:,0,2],
+        )
+        return self.module.step(
+            noise_pred,
+            t,
+            latents,
             return_dict=False,
         )[0]
 
@@ -212,19 +220,23 @@ def export_scheduler_model(
     scheduler_module = SchedulingModel(
         hf_model_name, scheduler, height, width, batch_size, num_inference_steps, dtype
     )
-    vmfb_names = [
-        scheduler_id + "Scheduler",
-        f"bs{batch_size}",
-        f"{height}x{width}",
-        precision,
-        str(num_inference_steps),
-        target_triple,
-    ]
-    vmfb_name = "_".join(vmfb_names)
-
     if pipeline_dir:
+        vmfb_names = [
+            scheduler_id + "Scheduler",
+            str(num_inference_steps),
+        ]
+        vmfb_name = "_".join(vmfb_names)
         safe_name = os.path.join(pipeline_dir, vmfb_name)
     else:
+        vmfb_names = [
+            scheduler_id + "Scheduler",
+            f"bs{batch_size}",
+            f"{height}x{width}",
+            precision,
+            str(num_inference_steps),
+            target_triple,
+        ]
+        vmfb_name = "_".join(vmfb_names)
         safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
 
     if input_mlir:
@@ -261,7 +273,7 @@ def export_scheduler_model(
     example_prep_args = (
         torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=torch.int64),
-        torch.empty([19], dtype=dtype),
+        torch.empty([19], dtype=torch.float32),
     )
     timesteps = torch.export.Dim("timesteps")
     prep_dynamic_args = {

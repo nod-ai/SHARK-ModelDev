@@ -88,15 +88,21 @@ def export_unet_model(
     ireec_flags=None,
     decomp_attn=False,
     exit_on_vmfb=False,
+    pipeline_dir=None,
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
 ):
-    safe_name = utils.create_safe_name(
-        hf_model_name,
-        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet_{device}",
-    )
-    if args.decomp_attn == True:
+    if pipeline_dir:
+        safe_name = os.path.join(
+            pipeline_dir, f"unet"
+        )
+    else:
+        safe_name = utils.create_safe_name(
+            hf_model_name,
+            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet",
+        )
+    if decomp_attn == True:
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
     if input_mlir:
@@ -105,7 +111,7 @@ def export_unet_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
@@ -173,8 +179,6 @@ def export_unet_model(
 
         if external_weights:
             externalize_module_parameters(unet_model)
-        if external_weight_path and len(external_weight_path) > 1:
-            save_module_parameters(external_weight_path, unet_model)
 
         inst = CompiledUnet(context=Context(), import_to="IMPORT")
 
@@ -183,15 +187,18 @@ def export_unet_model(
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(
+        vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
             target_triple,
             ireec_flags,
             safe_name,
-            return_path=False,
+            return_path=True,
             attn_spec=attn_spec,
         )
+        if exit_on_vmfb:
+            exit()
+    return vmfb_path
 
 
 if __name__ == "__main__":

@@ -131,6 +131,13 @@ p.add_argument(
 )
 
 p.add_argument(
+    "--cpu_scheduling",
+    default=False,
+    action="store_true",
+    help="Run scheduling on torch cpu (will be slower due to data movement costs).",
+)
+
+p.add_argument(
     "--external_weight_file",
     type=str,
     default=None,

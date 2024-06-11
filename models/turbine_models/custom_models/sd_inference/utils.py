@@ -136,7 +136,6 @@ def compile_to_vmfb(
                 "--iree-hal-target-backends=rocm",
                 "--iree-rocm-target-chip=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-                "--iree-flow-inline-constants-max-byte-length=1",
             ]
         )
         if target_triple == "gfx942":

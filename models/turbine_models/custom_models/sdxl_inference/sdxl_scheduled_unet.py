@@ -267,8 +267,6 @@ def export_scheduled_unet_model(
 
         if external_weights:
             externalize_module_parameters(scheduled_unet_model)
-        if external_weight_path and len(external_weight_path) > 1:
-            save_module_parameters(external_weight_path, scheduled_unet_model)
 
         inst = CompiledScheduledUnet(context=Context(), import_to="IMPORT")
 
