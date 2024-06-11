@@ -5,58 +5,18 @@ import torch
 import numpy as np
 
 
-def run_torch_clip(hf_model_name, hf_auth_token, prompt, max_length=64):
-    # TODO: Integrate with HFTransformerBuilder
-    from turbine_models.custom_models.sdxl_inference.clip import ClipModel
-
-    model_1 = ClipModel(hf_model_name, hf_auth_token, index=1)
-    model_2 = ClipModel(hf_model_name, hf_auth_token, index=2)
-    tokenizer_1 = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer",
-        token=hf_auth_token,
-    )
-    tokenizer_2 = CLIPTokenizer.from_pretrained(
-        hf_model_name,
-        subfolder="tokenizer_2",
-        token=hf_auth_token,
-    )
-    text_input_1 = tokenizer_1(
-        prompt,
-        padding="max_length",
-        max_length=max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
-    text_input_2 = tokenizer_2(
-        prompt,
-        padding="max_length",
-        max_length=max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
-    example_input_1 = text_input_1.input_ids
-    example_input_2 = text_input_2.input_ids
-
-    results_1 = model_1.forward(example_input_1)
-    results_2 = model_2.forward(example_input_2)
-    np_torch_output_1 = results_1[0].detach().cpu().numpy().astype(np.float16)
-    np_torch_output_2 = results_2[0].detach().cpu().numpy().astype(np.float16)
-    return np_torch_output_1, np_torch_output_2
-
-
 def run_prompt_encoder(
-    args,
+    vmfb_path,
+    device,
+    external_weight_path,
     input_ids,
     uncond_input_ids,
 ):
-    prompt_encoder_runner = vmfbRunner(
-        args.device, args.vmfb_path, args.external_weight_path
-    )
-    np.save("input0.npy", input_ids[0].numpy())
-    np.save("input1.npy", input_ids[1].numpy())
-    np.save("input2.npy", uncond_input_ids[0].numpy())
-    np.save("input3.npy", uncond_input_ids[1].numpy())
+    prompt_encoder_runner = vmfbRunner(device, vmfb_path, external_weight_path)
+    # np.save("input0.npy", input_ids[0].numpy())
+    # np.save("input1.npy", input_ids[1].numpy())
+    # np.save("input2.npy", uncond_input_ids[0].numpy())
+    # np.save("input3.npy", uncond_input_ids[1].numpy())
     prompt_encoder_inputs = [
         ireert.asdevicearray(prompt_encoder_runner.config.device, input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, input_ids[1]),
@@ -66,8 +26,45 @@ def run_prompt_encoder(
     encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip["encode_prompts"](
         *prompt_encoder_inputs
     )
+    for i in encoded_outputs:
+        i = i.to_host()
     del prompt_encoder_inputs
     return encoded_outputs
+
+
+def run_tokenize(
+    tokenizer_1,
+    tokenizer_2,
+    prompt,
+    negative_prompt,
+    max_length=64,
+):
+    text_input_ids_list = []
+    uncond_input_ids_list = []
+
+    # Tokenize prompt and negative prompt.
+    tokenizers = [tokenizer_1, tokenizer_2]
+    for tokenizer in tokenizers:
+        text_inputs = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        uncond_input = tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_input_ids = text_inputs.input_ids
+        uncond_input_ids = uncond_input.input_ids
+
+        text_input_ids_list.extend([text_input_ids])
+        uncond_input_ids_list.extend([uncond_input_ids])
+    return text_input_ids_list, uncond_input_ids_list
 
 
 if __name__ == "__main__":
@@ -83,34 +80,18 @@ if __name__ == "__main__":
         subfolder="tokenizer_2",
         token=args.hf_auth_token,
     )
-    text_input_ids_list = []
-    uncond_input_ids_list = []
 
-    # Tokenize prompt and negative prompt.
-    tokenizers = [tokenizer_1, tokenizer_2]
-    for tokenizer in tokenizers:
-        text_inputs = tokenizer(
-            args.prompt,
-            padding="max_length",
-            max_length=args.max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        uncond_input = tokenizer(
-            args.negative_prompt,
-            padding="max_length",
-            max_length=args.max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        text_input_ids = text_inputs.input_ids
-        uncond_input_ids = uncond_input.input_ids
-
-        text_input_ids_list.extend([text_input_ids])
-        uncond_input_ids_list.extend([uncond_input_ids])
-
+    text_input_ids_list, uncond_input_ids_list = run_tokenize(
+        tokenizer_1,
+        tokenizer_2,
+        args.prompt,
+        args.negative_prompt,
+        args.max_length,
+    )
     turbine_output1, turbine_output2 = run_prompt_encoder(
-        args,
+        args.vmfb_path,
+        args.rt_device,
+        args.external_weight_path,
         text_input_ids_list,
         uncond_input_ids_list,
     )

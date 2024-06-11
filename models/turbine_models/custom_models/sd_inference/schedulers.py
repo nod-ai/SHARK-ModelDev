@@ -41,7 +41,9 @@ class SharkSchedulerWrapper:
         self.runner = vmfbRunner(rt_device, vmfb, None)
 
     def initialize(self, sample):
-        sample, time_ids, steps, timesteps = self.runner.ctx.modules.compiled_scheduler["run_initialize"](sample)
+        sample, time_ids, steps, timesteps = self.runner.ctx.modules.compiled_scheduler[
+            "run_initialize"
+        ](sample)
         return sample, time_ids, steps.to_host(), timesteps
 
     def scale_model_input(self, sample, t, timesteps):
@@ -50,11 +52,6 @@ class SharkSchedulerWrapper:
         )
 
     def step(self, noise_pred, t, sample, guidance_scale, step_index):
-        print(
-            noise_pred.to_host()[:,:,0,2],
-            t,
-            sample.to_host()[:,:,0,2],
-        )
         return self.runner.ctx.modules.compiled_scheduler["run_step"](
             noise_pred, t, sample, guidance_scale, step_index
         )
@@ -128,6 +125,7 @@ class SchedulingModel(torch.nn.Module):
         sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
 
+
 class SharkSchedulerCPUWrapper:
     @torch.no_grad()
     def __init__(
@@ -183,11 +181,13 @@ class SharkSchedulerCPUWrapper:
         noise_pred = torch.tensor(noise_pred.to_host())
         if self.do_classifier_free_guidance:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            noise_pred = noise_pred_uncond + guidance_scale * (
+                noise_pred_text - noise_pred_uncond
+            )
         print(
-            noise_pred[:,:,0,2],
+            noise_pred[:, :, 0, 2],
             t,
-            latents[:,:,0,2],
+            latents[:, :, 0, 2],
         )
         return self.module.step(
             noise_pred,

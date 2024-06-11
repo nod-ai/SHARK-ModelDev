@@ -132,7 +132,9 @@ class SharkSDXLPipeline:
                         vmfbs[submodel] = vmfb
                         if weights[submodel] is None:
                             weights[submodel] = weight
-                    elif weights[submodel] is None and not any(x in submodel for x in ["pipeline", "scheduler"]):
+                    elif weights[submodel] is None and not any(
+                        x in submodel for x in ["pipeline", "scheduler"]
+                    ):
                         _, weight = self.export_submodel(submodel, weights_only=True)
                         weights[submodel] = weight
                 ready, vmfbs, weights = self.is_prepared(vmfbs, weights)
@@ -157,7 +159,7 @@ class SharkSDXLPipeline:
                 default_filepath = os.path.join(self.pipeline_dir, val + ".vmfb")
             elif key == "scheduler":
                 val = None
-                default_filepath=None
+                default_filepath = None
                 continue
             else:
                 val = vmfbs[key]
@@ -494,7 +496,9 @@ class SharkSDXLPipeline:
                 )
             else:
                 print("\n[LOG] Running scheduler on CPU. This will affect performance.")
-                scheduler = schedulers.get_scheduler(args.hf_model_name, args.scheduler_id)
+                scheduler = schedulers.get_scheduler(
+                    args.hf_model_name, args.scheduler_id
+                )
                 runners["scheduler"] = schedulers.SharkSchedulerCPUWrapper(
                     scheduler,
                     args.batch_size,
@@ -535,7 +539,9 @@ class SharkSDXLPipeline:
                 ],
             )
             pipe_loaded = time.time()
-            print("\n[LOG] Compiled Pipeline loaded in ", pipe_loaded - load_start, "sec")
+            print(
+                "\n[LOG] Compiled Pipeline loaded in ", pipe_loaded - load_start, "sec"
+            )
 
         else:
             runners["pipe"] = vmfbRunner(
@@ -556,7 +562,9 @@ class SharkSDXLPipeline:
             runners["vae_decode"] = runners["pipe"]
             runners["prompt_encoder"] = runners["pipe"]
             pipe_loaded = time.time()
-            print("\n[LOG] Compiled Pipeline loaded in ", pipe_loaded - load_start, "sec")
+            print(
+                "\n[LOG] Compiled Pipeline loaded in ", pipe_loaded - load_start, "sec"
+            )
         tok_start = time.time()
         runners["tokenizer_1"] = CLIPTokenizer.from_pretrained(
             self.hf_model_name,
@@ -704,11 +712,17 @@ class SharkSDXLPipeline:
             for i in range(batch_count):
                 unet_start = time.time()
                 if self.runners["scheduler"]:
-                    sample, time_ids, steps, timesteps = self.runners["scheduler"].initialize(samples[i])
+                    sample, time_ids, steps, timesteps = self.runners[
+                        "scheduler"
+                    ].initialize(samples[i])
                     iree_inputs = [
                         sample,
-                        ireert.asdevicearray(self.runners["pipe"].config.device, prompt_embeds),
-                        ireert.asdevicearray(self.runners["pipe"].config.device, add_text_embeds),
+                        ireert.asdevicearray(
+                            self.runners["pipe"].config.device, prompt_embeds
+                        ),
+                        ireert.asdevicearray(
+                            self.runners["pipe"].config.device, add_text_embeds
+                        ),
                         time_ids,
                         None,
                     ]
@@ -717,13 +731,19 @@ class SharkSDXLPipeline:
                         if self.cpu_scheduling:
                             step_index = s
                         else:
-                            step_index = ireert.asdevicearray(self.runners["scheduler"].runner.config.device, torch.tensor([s]), "int64")
+                            step_index = ireert.asdevicearray(
+                                self.runners["scheduler"].runner.config.device,
+                                torch.tensor([s]),
+                                "int64",
+                            )
                         latents, t = self.runners["scheduler"].scale_model_input(
                             sample,
                             step_index,
                             timesteps,
                         )
-                        noise_pred = self.runners["pipe"].ctx.modules.compiled_unet["run_forward"](
+                        noise_pred = self.runners["pipe"].ctx.modules.compiled_unet[
+                            "run_forward"
+                        ](
                             latents,
                             t,
                             iree_inputs[1],
@@ -738,9 +758,13 @@ class SharkSDXLPipeline:
                             step_index,
                         )
                     if isinstance(sample, torch.Tensor):
-                        #TODO: pipe an option for vae_dtype
+                        # TODO: pipe an option for vae_dtype
                         vae_dtype = "float32" if self.precision == "fp32" else "float16"
-                        latents = ireert.asdevicearray(self.runners["vae_decode"].config.device, sample, dtype=vae_dtype)
+                        latents = ireert.asdevicearray(
+                            self.runners["vae_decode"].config.device,
+                            sample,
+                            dtype=vae_dtype,
+                        )
                     else:
                         latents = sample
                 else:
@@ -833,6 +857,7 @@ def numpy_to_pil_image(images):
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+
     map = empty_pipe_dict
     if args.split_scheduler:
         map["scheduler"] = None
@@ -894,13 +919,15 @@ if __name__ == "__main__":
         args.external_weights_dir,
         args.external_weights,
         args.vae_decomp_attn,
-        custom_vae = None,
-        cpu_scheduling = args.cpu_scheduling,
+        custom_vae=None,
+        cpu_scheduling=args.cpu_scheduling,
     )
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
     if args.cpu_scheduling:
         vmfbs["scheduler"] = None
-    sdxl_pipe.load_pipeline(vmfbs, weights, args.rt_device, args.compiled_pipeline, args.split_scheduler)
+    sdxl_pipe.load_pipeline(
+        vmfbs, weights, args.rt_device, args.compiled_pipeline, args.split_scheduler
+    )
     sdxl_pipe.generate_images(
         args.prompt,
         args.negative_prompt,

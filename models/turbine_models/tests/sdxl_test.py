@@ -7,12 +7,16 @@
 import logging
 import pytest
 import torch
+from transformers import CLIPTokenizer
 from turbine_models.custom_models.sd_inference.utils import create_safe_name
+from turbine_models.custom_models.sd_inference import schedulers
 from turbine_models.custom_models.sdxl_inference import (
-    clip,
-    clip_runner,
+    sdxl_prompt_encoder,
+    sdxl_prompt_encoder_runner,
     unet,
     unet_runner,
+    sdxl_scheduled_unet,
+    sdxl_scheduled_unet_runner,
     vae,
     vae_runner,
     sdxl_compiled_pipeline,
@@ -92,127 +96,83 @@ class StableDiffusionXLTest(unittest.TestCase):
             ),
         )
 
-    def test01_ExportClipModels(self):
+    def test01_ExportPromptEncoder(self):
         if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest(
                 "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
             )
-        clip.export_clip_model(
-            # This is a public model, so no auth required
-            hf_model_name=arguments["hf_model_name"],
-            hf_auth_token=None,
-            max_length=arguments["max_length"],
-            precision=arguments["precision"],
-            compile_to="vmfb",
-            external_weights=arguments["external_weights"],
-            external_weight_path=self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip",
-            device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
-            ireec_flags=arguments["ireec_flags"],
-            index=1,
-            exit_on_vmfb=True,
+        arguments["external_weight_path"] = (
+            "prompt_encoder." + arguments["external_weights"]
         )
-        clip.export_clip_model(
-            hf_model_name=arguments["hf_model_name"],
-            hf_auth_token=None,  # This is a public model, so no auth required
-            max_length=arguments["max_length"],
-            precision=arguments["precision"],
-            compile_to="vmfb",
-            external_weights=arguments["external_weights"],
-            external_weight_path=self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip",
-            device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
-            ireec_flags=arguments["ireec_flags"],
-            index=2,
-            exit_on_vmfb=True,
+        _, prompt_encoder_vmfb = sdxl_prompt_encoder.export_prompt_encoder(
+            arguments["hf_model_name"],
+            None,
+            arguments["max_length"],
+            arguments["precision"],
+            "vmfb",
+            "safetensors",
+            arguments["external_weight_path"],
+            arguments["device"],
+            arguments["iree_target_triple"],
+            arguments["ireec_flags"],
+            False,
+            None,
+            None,
+            arguments["attn_spec"],
+            False,
+            arguments["batch_size"],
         )
-        arguments["external_weight_path_1"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip_1."
-            + arguments["external_weights"]
+        tokenizer_1 = CLIPTokenizer.from_pretrained(
+            arguments["hf_model_name"],
+            subfolder="tokenizer",
+            token=arguments["hf_auth_token"],
         )
-        arguments["external_weight_path_2"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip_2."
-            + arguments["external_weights"]
+        tokenizer_2 = CLIPTokenizer.from_pretrained(
+            arguments["hf_model_name"],
+            subfolder="tokenizer_2",
+            token=arguments["hf_auth_token"],
         )
-        arguments["vmfb_path_1"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + arguments["precision"]
-            + "_clip_1_"
-            + arguments["device"]
-            + ".vmfb"
+        (
+            text_input_ids_list,
+            uncond_input_ids_list,
+        ) = sdxl_prompt_encoder_runner.run_tokenize(
+            tokenizer_1,
+            tokenizer_2,
+            arguments["prompt"],
+            arguments["negative_prompt"],
+            arguments["max_length"],
         )
-        arguments["vmfb_path_2"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + arguments["precision"]
-            + "_clip_2_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-        turbine_1 = clip_runner.run_clip(
+        (
+            turbine_output1,
+            turbine_output2,
+        ) = sdxl_prompt_encoder_runner.run_prompt_encoder(
+            prompt_encoder_vmfb,
             arguments["rt_device"],
-            arguments["prompt"],
-            arguments["vmfb_path_1"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path_1"],
-            arguments["max_length"],
-            index=1,
+            arguments["external_weight_path"],
+            text_input_ids_list,
+            uncond_input_ids_list,
         )
-        turbine_2 = clip_runner.run_clip(
-            arguments["rt_device"],
-            arguments["prompt"],
-            arguments["vmfb_path_2"],
+        torch_model = sdxl_prompt_encoder.PromptEncoderModule(
             arguments["hf_model_name"],
+            arguments["precision"],
             arguments["hf_auth_token"],
-            arguments["external_weight_path_2"],
-            arguments["max_length"],
-            index=2,
         )
-        torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["prompt"],
-            arguments["max_length"],
+        torch_output1, torch_output2 = torch_model.forward(
+            *text_input_ids_list, *uncond_input_ids_list
         )
         if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
-                "clip_1",
-                arguments["vmfb_path_1"],
-                arguments["external_weight_path_1"],
-                arguments["rt_device"],
-                max_length=arguments["max_length"],
-                tracy_profile=arguments["tracy_profile"],
-            )
-            run_benchmark(
-                "clip_2",
-                arguments["vmfb_path_2"],
-                arguments["external_weight_path_2"],
+                "prompt_encoder",
+                prompt_encoder_vmfb,
+                arguments["external_weight_path"],
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
                 tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-1
         atol = 4e-1
-        np.testing.assert_allclose(torch_output_1, turbine_1[0], rtol, atol)
-        np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
+        np.testing.assert_allclose(torch_output1, turbine_output1, rtol, atol)
+        np.testing.assert_allclose(torch_output2, turbine_output2, rtol, atol)
 
     def test02_ExportUnetModel(self):
         if arguments["device"] in ["vulkan", "cuda"]:

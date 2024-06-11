@@ -41,6 +41,8 @@ def run_benchmark(
             inputs.append(f"1x{max_length}xi64")
         case "clip_2":
             inputs.append(f"1x{max_length}xi64")
+        case "prompt_encoder":
+            inputs.extend([f"1x{max_length}xi64"] * 4)
         case "unet":
             inputs.append(
                 f"{batch_size}x{in_channels}x{height//8}x{width//8}x{DTYPE_MAP[precision]}"

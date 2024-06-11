@@ -94,9 +94,7 @@ def export_unet_model(
     weights_only=False,
 ):
     if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, f"unet"
-        )
+        safe_name = os.path.join(pipeline_dir, f"unet")
     else:
         safe_name = utils.create_safe_name(
             hf_model_name,
