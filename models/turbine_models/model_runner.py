@@ -4,9 +4,13 @@ from iree import runtime as ireert
 
 
 class vmfbRunner:
-    def __init__(self, device, vmfb_path, external_weight_path=None):
+    def __init__(self, device, vmfb_path, external_weight_path=None, extra_plugin=None):
         flags = []
-        haldriver = ireert.get_driver(device)
+        clean_driver = False
+        if extra_plugin:
+            ireert.flags.parse_flags(f"--executable_plugin={extra_plugin}")
+            clean_driver = True
+        haldriver = ireert.get_driver(device, clean_driver)
         if "://" in device:
             try:
                 device_idx = int(device.split("://")[-1])
