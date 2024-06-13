@@ -3,6 +3,7 @@ import iree.compiler as ireec
 import numpy as np
 import os
 import safetensors
+import safetensors.numpy as safe_numpy
 import re
 from diffusers import (
     PNDMScheduler,
@@ -270,14 +271,22 @@ def save_external_weights(
     model,
     external_weights=None,
     external_weight_file=None,
+    force_format=False,
 ):
     if external_weights is not None:
         if external_weights in ["safetensors", "irpa"]:
             mod_params = dict(model.named_parameters())
+            mod_buffers = dict(model.named_buffers())
+            mod_params.update(mod_buffers)
             for name in mod_params:
                 mapper["params." + name] = name
             if external_weight_file and not os.path.isfile(external_weight_file):
-                safetensors.torch.save_file(mod_params, external_weight_file)
+                if not force_format:
+                    safetensors.torch.save_file(mod_params, external_weight_file)
+                else:
+                    for x in mod_params.keys():
+                        mod_params[x] = mod_params[x].numpy()
+                    safe_numpy.save_file(mod_params, external_weight_file)
                 print("Saved params to", external_weight_file)
 
 

@@ -29,3 +29,6 @@ wheelhouse
 *.gguf
 *.vmfb
 *.mlir
+*.npy
+*.png
+*tmp*
