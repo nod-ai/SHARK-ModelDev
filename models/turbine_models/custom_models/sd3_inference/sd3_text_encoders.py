@@ -15,7 +15,12 @@ import numpy as np
 from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
-from turbine_models.custom_models.sd3_inference.text_encoder_impls import SDClipModel, SDXLClipG, T5XXLModel, load_into
+from turbine_models.custom_models.sd3_inference.text_encoder_impls import (
+    SDClipModel,
+    SDXLClipG,
+    T5XXLModel,
+    load_into,
+)
 from huggingface_hub import hf_hub_download
 from safetensors import safe_open
 
@@ -24,7 +29,7 @@ CLIPG_CONFIG = {
     "hidden_size": 1280,
     "intermediate_size": 5120,
     "num_attention_heads": 20,
-    "num_hidden_layers": 32
+    "num_hidden_layers": 32,
 }
 
 CLIPL_CONFIG = {
@@ -32,7 +37,7 @@ CLIPL_CONFIG = {
     "hidden_size": 768,
     "intermediate_size": 3072,
     "num_attention_heads": 12,
-    "num_hidden_layers": 12
+    "num_hidden_layers": 12,
 }
 
 T5_CONFIG = {
@@ -40,8 +45,9 @@ T5_CONFIG = {
     "d_model": 4096,
     "num_heads": 64,
     "num_layers": 24,
-    "vocab_size": 32128
+    "vocab_size": 32128,
 }
+
 
 class TextEncoderModule(torch.nn.Module):
     @torch.no_grad()
@@ -58,25 +64,25 @@ class TextEncoderModule(torch.nn.Module):
             dtype=self.dtype,
             layer_norm_hidden_state=False,
             return_projected_pooled=False,
-            textmodel_json_config=CLIPL_CONFIG
+            textmodel_json_config=CLIPL_CONFIG,
         ).half()
         clip_l_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
-            filename="text_encoders/clip_l.safetensors"
+            filename="text_encoders/clip_l.safetensors",
         )
         with safe_open(clip_l_weights, framework="pt", device="cpu") as f:
             load_into(f, self.clip_l.transformer, "", "cpu", self.dtype)
         self.clip_g = SDXLClipG(CLIPG_CONFIG, device="cpu", dtype=self.dtype).half()
         clip_g_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
-            filename="text_encoders/clip_g.safetensors"
+            filename="text_encoders/clip_g.safetensors",
         )
         with safe_open(clip_g_weights, framework="pt", device="cpu") as f:
             load_into(f, self.clip_g.transformer, "", "cpu", self.dtype)
         self.t5xxl = T5XXLModel(T5_CONFIG, device="cpu", dtype=self.dtype).half()
         t5_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
-            filename="text_encoders/t5xxl_fp16.safetensors"
+            filename="text_encoders/t5xxl_fp16.safetensors",
         )
         with safe_open(t5_weights, framework="pt", device="cpu") as f:
             load_into(f, self.t5xxl.transformer, "", "cpu", self.dtype)
@@ -90,7 +96,9 @@ class TextEncoderModule(torch.nn.Module):
         t5_out, _ = self.t5xxl.forward(tokens_t5xxl)
         lg_out = torch.cat([l_out, g_out], dim=-1)
         lg_out = torch.nn.functional.pad(lg_out, (0, 4096 - lg_out.shape[-1]))
-        return torch.cat([lg_out, t5_out], dim=-2), torch.cat((l_pooled, g_pooled), dim=-1)
+        return torch.cat([lg_out, t5_out], dim=-2), torch.cat(
+            (l_pooled, g_pooled), dim=-1
+        )
 
     def forward(self, tokens_g, tokens_l, tokens_t5xxl, neg_g, neg_l, neg_t5):
         conditioning, cond_pool = self.get_cond(tokens_l, tokens_g, tokens_t5xxl)
@@ -101,8 +109,9 @@ class TextEncoderModule(torch.nn.Module):
 
         return prompt_embeds, pooled_prompt_embeds
 
+
 @torch.no_grad()
-def export_text_encoder(
+def export_text_encoders(
     hf_model_name,
     hf_auth_token=None,
     max_length=64,
@@ -144,9 +153,11 @@ def export_text_encoder(
     )
     mapper = {}
 
-    assert ".safetensors" not in external_weight_path, "Original parameters format incompatible with IREE safetensors parser. Use '.irpa' instead."
-    
-    input_args = [torch.empty([1,77,2], dtype=torch.int64) for x in range(6)]
+    assert (
+        ".safetensors" not in external_weight_path
+    ), "Original parameters format incompatible with IREE safetensors parser. Use '.irpa' instead."
+
+    input_args = [torch.empty([1, 77, 2], dtype=torch.int64) for x in range(6)]
 
     decomp_list = []
     if decomp_attn == True:
@@ -200,7 +211,7 @@ def export_text_encoder(
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
-    mod_str, _ = export_text_encoder(
+    mod_str, _ = export_text_encoders(
         args.hf_model_name,
         args.hf_auth_token,
         args.max_length,
@@ -217,7 +228,7 @@ if __name__ == "__main__":
         attn_spec=args.attn_spec,
         output_batchsize=args.batch_size,
     )
-    if args.input_mlir or args.weights_only or args.compile_to=="vmfb":
+    if args.input_mlir or args.weights_only or args.compile_to == "vmfb":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name, f"_{str(args.max_length)}_{args.precision}_text_encoders"

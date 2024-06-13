@@ -26,11 +26,10 @@ def run_prompt_encoder(
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[1]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[2]),
-
     ]
-    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_text_encoder["encode_tokens"](
-        *prompt_encoder_inputs
-    )
+    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_text_encoder[
+        "encode_tokens"
+    ](*prompt_encoder_inputs)
     for i in encoded_outputs:
         i = i.to_host()
     del prompt_encoder_inputs
@@ -42,12 +41,12 @@ def run_tokenize(
     prompt,
     negative_prompt,
 ):
-
     prompt_tokens_dict = tokenizer.tokenize_with_weights(prompt)
     neg_prompt_tokens_dict = tokenizer.tokenize_with_weights(negative_prompt)
     text_input_ids_list = list(prompt_tokens_dict.values())
     uncond_input_ids_list = list(neg_prompt_tokens_dict.values())
     return text_input_ids_list, uncond_input_ids_list
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args

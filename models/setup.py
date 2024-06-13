@@ -59,7 +59,7 @@ setup(
         "sentencepiece",
         "transformers==4.37.1",
         "accelerate",
-        "diffusers==0.24.0",
+        "diffusers==0.29.0.dev0",
         "azure-storage-blob",
         "einops",
     ],

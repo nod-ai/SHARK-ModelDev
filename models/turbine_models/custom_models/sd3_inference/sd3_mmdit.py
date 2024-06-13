@@ -25,10 +25,10 @@ from diffusers import SD3Transformer2DModel
 
 class MMDiTModel(torch.nn.Module):
     def __init__(
-            self,
-            hf_model_name = "stabilityai/stable-diffusion-3-medium-diffusers",
-            dtype=torch.float16,
-        ):
+        self,
+        hf_model_name="stabilityai/stable-diffusion-3-medium-diffusers",
+        dtype=torch.float16,
+    ):
         super().__init__()
         self.mmdit = SD3Transformer2DModel.from_pretrained(
             hf_model_name,
@@ -36,15 +36,21 @@ class MMDiTModel(torch.nn.Module):
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
-        
 
     def forward(
-        self, hidden_states, encoder_hidden_states, pooled_projections, timestep, lora_scale,
+        self,
+        hidden_states,
+        encoder_hidden_states,
+        pooled_projections,
+        timestep,
     ):
-        joint_attention_kwargs = {
-            "scale": lora_scale,
-        }
-        noise_pred = self.mmdit(hidden_states, encoder_hidden_states, pooled_projections, timestep,joint_attention_kwargs, return_dict=False)[0]
+        noise_pred = self.mmdit(
+            hidden_states,
+            encoder_hidden_states,
+            pooled_projections,
+            timestep,
+            return_dict=False,
+        )[0]
         return noise_pred
 
 
@@ -71,7 +77,7 @@ def export_mmdit_model(
     input_mlir=None,
     weights_only=False,
 ):
-    dtype = torch.float16 if args.precision == "fp16" else torch.float32
+    dtype = torch.float16 if precision == "fp16" else torch.float32
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, f"mmdit")
     else:
@@ -106,20 +112,19 @@ def export_mmdit_model(
 
     do_classifier_free_guidance = True
     init_batch_dim = 2 if do_classifier_free_guidance else 1
-
+    batch_size = batch_size * init_batch_dim
     hidden_states_shape = (
         batch_size,
         16,
         height // 8,
         width // 8,
     )
-    encoder_hidden_states_shape = (batch_size, 77, 4096)
+    encoder_hidden_states_shape = (batch_size, 154, 4096)
     pooled_projections_shape = (batch_size, 2048)
     example_forward_args = [
         torch.empty(hidden_states_shape, dtype=dtype),
         torch.empty(encoder_hidden_states_shape, dtype=dtype),
         torch.empty(pooled_projections_shape, dtype=dtype),
-        torch.empty(1, dtype=dtype),
         torch.empty(1, dtype=dtype),
     ]
 
@@ -183,7 +188,7 @@ if __name__ == "__main__":
     else:
         mmdit_model = MMDiTModel(
             args.hf_model_name,
-            dtype=torch.float16 if args.precision == "fp16" else torch.float32
+            dtype=torch.float16 if args.precision == "fp16" else torch.float32,
         )
     mod_str = export_mmdit_model(
         mmdit_model,

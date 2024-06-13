@@ -95,7 +95,7 @@ p.add_argument(
 p.add_argument(
     "--guidance_scale",
     type=float,
-    default=7.5,
+    default=4,
     help="Scale by which to adjust prompt guidance to the unconditional noise prediction output of UNet after each iteration.",
 )
 
@@ -207,8 +207,14 @@ p.add_argument(
 p.add_argument(
     "--vae_decomp_attn",
     type=bool,
-    default=False,
+    default=True,
     help="Decompose attention for VAE decode only at fx graph level",
+)
+p.add_argument(
+    "--vae_dtype",
+    type=str,
+    default="fp32",
+    help="Precision of VAE graph.",
 )
 
 ##############################################################################
@@ -271,11 +277,7 @@ p.add_argument(
     default=None,
     help="Azure storage container name to download mlir files from.",
 )
-p.add_argument(
-    "--export",
-    type=str,
-    default="all",
-    help="clip, mmdit, vae, all")
+p.add_argument("--export", type=str, default="all", help="clip, mmdit, vae, all")
 p.add_argument(
     "--output",
     type=str,

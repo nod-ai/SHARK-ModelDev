@@ -28,12 +28,12 @@ class SharkSchedulerWrapper:
         self.runner = vmfbRunner(rt_device, vmfb, None)
 
     def initialize(self, sample):
-        sample, time_ids, steps, timesteps = self.runner.ctx.modules.compiled_scheduler[
+        sample, steps, timesteps = self.runner.ctx.modules.compiled_scheduler[
             "run_init"
         ](sample)
         return sample, steps.to_host(), timesteps
 
-    def prepare_model_input(self, sample, t, timesteps):
+    def prep(self, sample, t, timesteps):
         return self.runner.ctx.modules.compiled_scheduler["run_prep"](
             sample, t, timesteps
         )
@@ -54,7 +54,9 @@ class FlowSchedulingModel(torch.nn.Module):
         super().__init__()
         # For now, assumes SDXL implementation. May not need parametrization for other models,
         # but keeping hf_model_name in case.
-        self.model = FlowMatchEulerDiscreteScheduler.from_pretrained(hf_model_name, subfolder="scheduler")
+        self.model = FlowMatchEulerDiscreteScheduler.from_pretrained(
+            hf_model_name, subfolder="scheduler"
+        )
         self.do_classifier_free_guidance = True
         self.model.set_timesteps(num_inference_steps)
         self.timesteps = self.model.timesteps
@@ -149,6 +151,7 @@ def export_scheduler_model(
     batch_size: int = 1,
     height: int = 512,
     width: int = 512,
+    shift: int = 1.0,
     num_inference_steps: int = 30,
     precision: str = "fp16",
     compile_to: str = "torch",
@@ -161,9 +164,7 @@ def export_scheduler_model(
     upload_ir=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
-    scheduler_module = FlowSchedulingModel(
-        hf_model_name, num_inference_steps, dtype
-    )
+    scheduler_module = FlowSchedulingModel(hf_model_name, num_inference_steps, dtype)
     if pipeline_dir:
         vmfb_names = [
             "EulerFlowScheduler",
@@ -291,6 +292,7 @@ def export_scheduler_model(
             exit()
         return vmfb
 
+
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
@@ -299,6 +301,7 @@ if __name__ == "__main__":
         args.batch_size,
         args.height,
         args.width,
+        args.shift,
         args.num_inference_steps,
         args.precision,
         args.compile_to,
