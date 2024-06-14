@@ -1,16 +1,24 @@
 import argparse
 import sys
 from iree import runtime as ireert
+from iree.runtime._binding import create_hal_driver
 
 
 class vmfbRunner:
     def __init__(self, device, vmfb_path, external_weight_path=None, extra_plugin=None):
         flags = []
-        clean_driver = False
+
+        # If an extra plugin is requested, add a global flag to load the plugin
+        # and create the driver using the non-caching creation function, as
+        # the caching creation function may ignore the flag.
         if extra_plugin:
             ireert.flags.parse_flags(f"--executable_plugin={extra_plugin}")
-            clean_driver = True
-        haldriver = ireert.get_driver(device, clean_driver)
+            haldriver = create_hal_driver(device)
+
+        # No plugin requested: create the driver with the caching create
+        # function.
+        else:
+            haldriver = ireert.get_driver(device)
         if "://" in device:
             try:
                 device_idx = int(device.split("://")[-1])
