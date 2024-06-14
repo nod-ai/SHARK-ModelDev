@@ -69,14 +69,15 @@ if __name__ == "__main__":
         dtype = torch.float16
     else:
         dtype = torch.float32
-
+    
+    batch_size = args.batch_size * 2 #do classifier free guidance
     hidden_states = torch.randn(
-        (args.batch_size, 16, args.height // 8, args.width // 8), dtype=dtype
+        (batch_size, 16, args.height // 8, args.width // 8), dtype=dtype
     )
     encoder_hidden_states = torch.randn(
-        (args.batch_size, args.max_length * 2, 4096), dtype=dtype
+        (batch_size, args.max_length * 2, 4096), dtype=dtype
     )
-    pooled_projections = torch.randn((args.batch_size, 2048), dtype=dtype)
+    pooled_projections = torch.randn((batch_size, 2048), dtype=dtype)
     timestep = torch.tensor([0], dtype=dtype)
 
     turbine_output = run_mmdit_turbine(

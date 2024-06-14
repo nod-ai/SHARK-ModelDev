@@ -284,6 +284,13 @@ p.add_argument(
     default="SD3_output.png",
     help="Path to output file for generated images.",
 )
+p.add_argument(
+    "--attn_repro",
+    default=False,
+    action="store_true",
+    help="Just compile attention reproducer for mmdit.",
+)
+
 
 ##############################################################################
 # IREE Compiler Options

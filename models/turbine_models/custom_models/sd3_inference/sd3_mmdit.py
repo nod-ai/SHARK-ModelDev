@@ -52,7 +52,87 @@ class MMDiTModel(torch.nn.Module):
             return_dict=False,
         )[0]
         return noise_pred
+    
+class MMDiTAttention(torch.nn.Module):
+    def __init__(
+            self,
+    ):
+        super().__init__()
 
+    def forward(self, q, k, v):
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, dropout_p=0.0, is_causal=False
+        )
+
+
+@torch.no_grad()
+def export_attn(
+    precision="fp16",
+    device="cpu",
+    target_triple="x86_64-unknown-linux-gnu",
+    ireec_flags="",
+    compile_to="torch",
+    decomp_attn=False,
+    attn_spec=None,
+):
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    qkv_shape = (2, 24, 4250, 64)
+    attn_module = MMDiTAttention()
+    safe_name = "attn_repro_" + precision + "_" + target_triple
+    if decomp_attn == True:
+        safe_name += "_decomp"
+
+    if dtype == torch.float16:
+        attn_module = attn_module.half()
+    
+    example_qkv = [
+        torch.empty(qkv_shape, dtype=dtype),
+        torch.empty(qkv_shape, dtype=dtype),
+        torch.empty(qkv_shape, dtype=dtype),
+    ]
+
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        fxb = FxProgramsBuilder(attn_module)
+
+        @fxb.export_program(
+            args=(example_qkv,),
+        )
+        def _forward(
+            module,
+            inputs,
+        ):
+            return module.forward(*inputs)
+
+        class CompiledAttn(CompiledModule):
+            run_forward = _forward
+
+        inst = CompiledAttn(context=Context(), import_to="IMPORT")
+
+        module_str = str(CompiledModule.get_mlir_module(inst))
+
+    if compile_to != "vmfb":
+        return module_str
+    else:
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target_triple,
+            ireec_flags,
+            safe_name,
+            return_path=True,
+            attn_spec=attn_spec,
+        )
+    return vmfb_path
 
 @torch.no_grad()
 def export_mmdit_model(
@@ -183,6 +263,22 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
+    if args.attn_repro:
+        mod_str = export_attn(
+            args.precision,
+            args.device,
+            args.iree_target_triple,
+            args.ireec_flags,
+            args.compile_to,
+            args.decomp_attn,
+            attn_spec=args.attn_spec,
+        )
+        if args.compile_to != "vmfb":
+            safe_name = "attn_repro_" + args.precision
+            with open(f"{safe_name}.mlir", "w+") as f:
+                f.write(mod_str)
+            print("Saved to", safe_name + ".mlir")
+        exit()
     if args.input_mlir:
         mmdit_model = None
     else:
