@@ -105,7 +105,7 @@ class TextEncoderModule(torch.nn.Module):
         neg_cond, neg_cond_pool = self.get_cond(neg_l, neg_g, neg_t5)
 
         prompt_embeds = torch.cat([neg_cond, conditioning], dim=0)
-        pooled_prompt_embeds = torch.cat([cond_pool, neg_cond_pool], dim=0)
+        pooled_prompt_embeds = torch.cat([neg_cond_pool, cond_pool], dim=0)
 
         return prompt_embeds, pooled_prompt_embeds
 

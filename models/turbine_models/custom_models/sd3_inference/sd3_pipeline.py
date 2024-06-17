@@ -445,16 +445,18 @@ class SharkSD3Pipeline:
         numpy_images = []
 
         for i in range(batch_count):
-            generator = torch.random.manual_seed(seed + i)
+            generator = torch.Generator().manual_seed(int(seed))
+            shape = (
+                self.batch_size,
+                16,
+                self.height // 8,
+                self.width // 8,
+            )
             rand_sample = torch.randn(
-                (
-                    self.batch_size,
-                    16,
-                    self.height // 8,
-                    self.width // 8,
-                ),
+                shape,
                 generator=generator,
-                dtype=torch_dtype,
+                dtype=torch.float32,
+                layout=torch.strided,
             )
             samples.append(
                 ireert.asdevicearray(
@@ -499,7 +501,6 @@ class SharkSD3Pipeline:
         prompt_embeds, pooled_prompt_embeds = self.runners[
             "text_encoders"
         ].ctx.modules.compiled_text_encoder["encode_tokens"](*text_encoders_inputs)
-
         encode_prompts_end = time.time()
 
         for i in range(batch_count):
@@ -617,11 +618,51 @@ class SharkSD3Pipeline:
                 image.save(img_path)
                 print(img_path, "saved")
         return
+    
+def run_diffusers_cpu(
+    hf_model_name,
+    prompt,
+    negative_prompt,
+    guidance_scale,
+    seed,
+    height,
+    width,
+    num_inference_steps,
+):
+    from diffusers import StableDiffusion3Pipeline
+
+    pipe = StableDiffusion3Pipeline.from_pretrained(hf_model_name, torch_dtype=torch.float32)
+    pipe = pipe.to("cpu")
+    generator = torch.Generator().manual_seed(int(seed))
+
+    image = pipe(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        height=height,
+        width=width,
+        generator=generator,
+    ).images[0]
+    timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+    image.save(f"diffusers_reference_output_{timestamp}.png")
 
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
+    if args.compare_vs_torch:
+        run_diffusers_cpu(
+            args.hf_model_name,
+            args.prompt,
+            args.negative_prompt,
+            args.guidance_scale,
+            args.seed,
+            args.height,
+            args.width,
+            args.num_inference_steps,
+        )
+        exit()
     map = empty_pipe_dict
     mlirs = copy.deepcopy(map)
     vmfbs = copy.deepcopy(map)
