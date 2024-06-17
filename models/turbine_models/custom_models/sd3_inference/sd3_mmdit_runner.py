@@ -57,6 +57,7 @@ def run_diffusers_mmdit(
 
     return noise_pred.numpy()
 
+
 def run_attn_turbine(q, k, v, args):
     attn_runner = vmfbRunner(
         args.device,
@@ -73,6 +74,7 @@ def run_attn_turbine(q, k, v, args):
     ).to_host()
     return attn_output
 
+
 @torch.no_grad()
 def run_attn_torch(q, k, v, args):
     from turbine_models.custom_models.sd3_inference.sd3_mmdit import MMDiTAttention
@@ -86,6 +88,7 @@ def run_attn_torch(q, k, v, args):
 
     return attn_output.numpy()
 
+
 def find_errs(turbine_output, torch_output, dim=[], failed_dims=[], errs=[]):
     if not np.allclose(turbine_output, torch_output, rtol=4e-2, atol=4e-2):
         if turbine_output.ndim > 0:
@@ -93,13 +96,18 @@ def find_errs(turbine_output, torch_output, dim=[], failed_dims=[], errs=[]):
             for idx, i in enumerate(torch_output):
                 dim = [*orig_dim, idx]
                 try:
-                    np.testing.assert_allclose(turbine_output[idx], torch_output[idx], rtol=4e-2, atol=4e-2)
+                    np.testing.assert_allclose(
+                        turbine_output[idx], torch_output[idx], rtol=4e-2, atol=4e-2
+                    )
                 except Exception as e:
                     err = np.abs(turbine_output[idx] - torch_output[idx])
                     failed_dims.append(dim)
                     errs.append([err, turbine_output[idx], torch_output[idx]])
-                    failed_dims, errs = find_errs(turbine_output[idx], torch_output[idx], dim, failed_dims, errs)
+                    failed_dims, errs = find_errs(
+                        turbine_output[idx], torch_output[idx], dim, failed_dims, errs
+                    )
     return (failed_dims, errs)
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
@@ -137,8 +145,8 @@ if __name__ == "__main__":
                 print("Torch output: ", errs[idx][2])
         print(torch_output.shape)
         exit()
-    
-    batch_size = args.batch_size * 2 #do classifier free guidance
+
+    batch_size = args.batch_size * 2  # do classifier free guidance
     hidden_states = torch.randn(
         (batch_size, 16, args.height // 8, args.width // 8), dtype=dtype
     )

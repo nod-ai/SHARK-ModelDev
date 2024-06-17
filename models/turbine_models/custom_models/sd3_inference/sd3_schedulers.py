@@ -66,7 +66,7 @@ class FlowSchedulingModel(torch.nn.Module):
     def initialize(self, sample):
         step_count = torch.tensor(len(self.timesteps))
         timesteps = self.model.timesteps
-        #ops.trace_tensor("sample", sample[:,:,0,0])
+        # ops.trace_tensor("sample", sample[:,:,0,0])
         return (
             sample,
             step_count,
@@ -92,6 +92,7 @@ class FlowSchedulingModel(torch.nn.Module):
             )
         sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
+
 
 # Wraps a diffusers scheduler running on native pytorch+cpu.
 # This allows us to use it interchangeably with compiled schedulers in our pipeline(s).

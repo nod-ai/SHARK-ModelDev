@@ -75,38 +75,42 @@ class SharkSD3Pipeline:
         self.num_inference_steps = num_inference_steps
         self.devices = {}
         if isinstance(device, dict):
-            assert isinstance(iree_target_triple, dict), "Device and target triple must be both dicts or both strings."
+            assert isinstance(
+                iree_target_triple, dict
+            ), "Device and target triple must be both dicts or both strings."
             self.devices["clip"] = {
                 "device": device["clip"],
                 "driver": utils.iree_device_map(device["clip"]),
-                "target": iree_target_triple["clip"]
+                "target": iree_target_triple["clip"],
             }
             self.devices["mmdit"] = {
                 "device": device["mmdit"],
                 "driver": utils.iree_device_map(device["mmdit"]),
-                "target": iree_target_triple["mmdit"]
+                "target": iree_target_triple["mmdit"],
             }
             self.devices["vae"] = {
                 "device": device["vae"],
                 "driver": utils.iree_device_map(device["vae"]),
-                "target": iree_target_triple["vae"]
+                "target": iree_target_triple["vae"],
             }
         else:
-            assert isinstance(iree_target_triple, str), "Device and target triple must be both dicts or both strings."
+            assert isinstance(
+                iree_target_triple, str
+            ), "Device and target triple must be both dicts or both strings."
             self.devices["clip"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
             self.devices["mmdit"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
             self.devices["vae"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
         self.iree_target_triple = iree_target_triple
         self.ireec_flags = ireec_flags if ireec_flags else EMPTY_FLAGS
@@ -645,7 +649,8 @@ class SharkSD3Pipeline:
                 image.save(img_path)
                 print(img_path, "saved")
         return
-    
+
+
 def run_diffusers_cpu(
     hf_model_name,
     prompt,
@@ -658,7 +663,9 @@ def run_diffusers_cpu(
 ):
     from diffusers import StableDiffusion3Pipeline
 
-    pipe = StableDiffusion3Pipeline.from_pretrained(hf_model_name, torch_dtype=torch.float32)
+    pipe = StableDiffusion3Pipeline.from_pretrained(
+        hf_model_name, torch_dtype=torch.float32
+    )
     pipe = pipe.to("cpu")
     generator = torch.Generator().manual_seed(int(seed))
 
@@ -703,7 +710,9 @@ if __name__ == "__main__":
             x for x in [args.clip_target, args.mmdit_target, args.vae_target]
         ), "Please specify target triple for all submodels or pass --iree_target_triple for all submodels."
         args.device = "hybrid"
-        args.iree_target_triple = "_".join([args.clip_target, args.mmdit_target, args.vae_target])
+        args.iree_target_triple = "_".join(
+            [args.clip_target, args.mmdit_target, args.vae_target]
+        )
     else:
         args.clip_device = args.device
         args.mmdit_device = args.device
@@ -785,7 +794,11 @@ if __name__ == "__main__":
     else:
         extra_device_args = {}
     sd3_pipe.load_pipeline(
-        vmfbs, weights, args.compiled_pipeline, args.split_scheduler, extra_device_args=extra_device_args
+        vmfbs,
+        weights,
+        args.compiled_pipeline,
+        args.split_scheduler,
+        extra_device_args=extra_device_args,
     )
     sd3_pipe.generate_images(
         args.prompt,

@@ -78,38 +78,42 @@ class SharkSDXLPipeline:
         self.num_inference_steps = num_inference_steps
         self.devices = {}
         if isinstance(device, dict):
-            assert isinstance(iree_target_triple, dict), "Device and target triple must be both dicts or both strings."
+            assert isinstance(
+                iree_target_triple, dict
+            ), "Device and target triple must be both dicts or both strings."
             self.devices["clip"] = {
                 "device": device["clip"],
                 "driver": utils.iree_device_map(device["clip"]),
-                "target": iree_target_triple["clip"]
+                "target": iree_target_triple["clip"],
             }
             self.devices["unet"] = {
                 "device": device["unet"],
                 "driver": utils.iree_device_map(device["unet"]),
-                "target": iree_target_triple["unet"]
+                "target": iree_target_triple["unet"],
             }
             self.devices["vae"] = {
                 "device": device["vae"],
                 "driver": utils.iree_device_map(device["vae"]),
-                "target": iree_target_triple["vae"]
+                "target": iree_target_triple["vae"],
             }
         else:
-            assert isinstance(iree_target_triple, str), "Device and target triple must be both dicts or both strings."
+            assert isinstance(
+                iree_target_triple, str
+            ), "Device and target triple must be both dicts or both strings."
             self.devices["clip"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
             self.devices["unet"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
             self.devices["vae"] = {
                 "device": device,
                 "driver": utils.iree_device_map(device),
-                "target": iree_target_triple
+                "target": iree_target_triple,
             }
         self.ireec_flags = ireec_flags if ireec_flags else EMPTY_FLAGS
         self.attn_spec = attn_spec
@@ -548,8 +552,14 @@ class SharkSDXLPipeline:
             clip_loaded = time.time()
             print("\n[LOG] CLIP loaded in ", clip_loaded - vae_loaded, "sec")
         elif compiled_pipeline:
-            assert self.devices["unet"]["device"] == self.devices["clip"]["device"] == self.devices["vae"]["device"], "Compiled pipeline requires all submodels to be on the same device."
-            assert self.precision == self.vae_precision, "Compiled pipeline requires all submodels to have the same precision for now."
+            assert (
+                self.devices["unet"]["device"]
+                == self.devices["clip"]["device"]
+                == self.devices["vae"]["device"]
+            ), "Compiled pipeline requires all submodels to be on the same device."
+            assert (
+                self.precision == self.vae_precision
+            ), "Compiled pipeline requires all submodels to have the same precision for now."
             runners["pipe"] = vmfbRunner(
                 self.devices["unet"]["driver"],
                 [
@@ -796,9 +806,14 @@ class SharkSDXLPipeline:
                     latents = self.runners["pipe"].ctx.modules.sdxl_compiled_pipeline[
                         "produce_image_latents"
                     ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
-                if self.devices["unet"]["driver"] != self.devices["vae"]["driver"] or self.precision != self.vae_precision:
+                if (
+                    self.devices["unet"]["driver"] != self.devices["vae"]["driver"]
+                    or self.precision != self.vae_precision
+                ):
                     latents = ireert.asdevicearray(
-                        self.runners["vae_decode"].config.device, latents.to_host(), dtype=self.vae_dtype
+                        self.runners["vae_decode"].config.device,
+                        latents.to_host(),
+                        dtype=self.vae_dtype,
                     )
                 vae_start = time.time()
                 vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
@@ -906,7 +921,9 @@ if __name__ == "__main__":
             x for x in [args.clip_target, args.unet_target, args.vae_target]
         ), "Please specify target triple for all submodels or pass --iree_target_triple for all submodels."
         args.device = "hybrid"
-        args.iree_target_triple = "_".join([args.clip_target, args.unet_target, args.vae_target])
+        args.iree_target_triple = "_".join(
+            [args.clip_target, args.unet_target, args.vae_target]
+        )
     else:
         args.clip_device = args.device
         args.unet_device = args.device
@@ -987,7 +1004,11 @@ if __name__ == "__main__":
     else:
         extra_device_args = {}
     sdxl_pipe.load_pipeline(
-        vmfbs, weights, args.compiled_pipeline, args.split_scheduler, extra_device_args,
+        vmfbs,
+        weights,
+        args.compiled_pipeline,
+        args.split_scheduler,
+        extra_device_args,
     )
     sdxl_pipe.generate_images(
         args.prompt,

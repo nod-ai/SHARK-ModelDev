@@ -107,7 +107,7 @@ def export_vae_model(
 
     if device == "cpu":
         decomp_attn = True
-    
+
     dtype = torch.float16 if precision == "fp16" else torch.float32
     if precision == "fp16":
         vae_model = vae_model.half()
@@ -119,7 +119,7 @@ def export_vae_model(
     )
     if weights_only:
         return external_weight_path
-    
+
     input_image_shape = (height, width, 3)
     input_latents_shape = (batch_size, 4, height // 8, width // 8)
     encode_args = [

@@ -92,6 +92,7 @@ znver4_flags = {
     ],
 }
 
+
 def iree_device_map(device):
     uri_parts = device.split("://", 2)
     iree_driver = (
@@ -105,6 +106,7 @@ def iree_device_map(device):
         return "rocm"
     else:
         return f"{iree_driver}://{uri_parts[1]}"
+
 
 def compile_to_vmfb(
     module_str,

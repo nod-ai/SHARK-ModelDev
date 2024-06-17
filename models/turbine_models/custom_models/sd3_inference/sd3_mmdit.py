@@ -52,10 +52,11 @@ class MMDiTModel(torch.nn.Module):
             return_dict=False,
         )[0]
         return noise_pred
-    
+
+
 class MMDiTAttention(torch.nn.Module):
     def __init__(
-            self,
+        self,
     ):
         super().__init__()
 
@@ -84,7 +85,7 @@ def export_attn(
 
     if dtype == torch.float16:
         attn_module = attn_module.half()
-    
+
     example_qkv = [
         torch.empty(qkv_shape, dtype=dtype),
         torch.empty(qkv_shape, dtype=dtype),
@@ -133,6 +134,7 @@ def export_attn(
             attn_spec=attn_spec,
         )
     return vmfb_path
+
 
 @torch.no_grad()
 def export_mmdit_model(
