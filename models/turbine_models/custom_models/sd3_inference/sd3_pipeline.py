@@ -44,7 +44,6 @@ class SharkSD3Pipeline:
     def __init__(
         self,
         hf_model_name: str,
-        # scheduler_id: str,
         height: int,
         width: int,
         shift: float,
@@ -63,6 +62,7 @@ class SharkSD3Pipeline:
         vae_decomp_attn: bool = True,
         custom_vae: str = "",
         cpu_scheduling: bool = False,
+        scheduler_id: str = None, #compatibility only, always uses EulerFlowScheduler
     ):
         self.hf_model_name = hf_model_name
         # self.scheduler_id = scheduler_id
