@@ -93,8 +93,9 @@ class FlowSchedulingModel(torch.nn.Module):
         sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
 
-
-class SharkSchedulerCPUWrapper:
+# Wraps a diffusers scheduler running on native pytorch+cpu.
+# This allows us to use it interchangeably with compiled schedulers in our pipeline(s).
+class TorchCPUFlowSchedulerCompat:
     @torch.no_grad()
     def __init__(
         self, scheduler, batch_size, num_inference_steps, dest_device, latents_dtype
