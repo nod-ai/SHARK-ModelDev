@@ -57,7 +57,7 @@ setup(
         "Shark-Turbine",
         "protobuf",
         "sentencepiece",
-        "transformers==4.37.1",
+        "transformers>=4.37.1",
         "accelerate",
         "diffusers==0.29.0.dev0",
         "azure-storage-blob",
