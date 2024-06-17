@@ -12,6 +12,17 @@ from diffusers import (
     # DPMSolverSDEScheduler,
 )
 
+_IREE_DEVICE_MAP = {
+    "cpu": "local-task",
+    "cpu-task": "local-task",
+    "cpu-sync": "local-sync",
+    "cuda": "cuda",
+    "vulkan": "vulkan",
+    "metal": "metal",
+    "rocm": "rocm",
+    "hip": "hip",
+    "intel-gpu": "level_zero",
+}
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 MI_flags = {
     "all": [
@@ -81,6 +92,19 @@ znver4_flags = {
     ],
 }
 
+def iree_device_map(device):
+    uri_parts = device.split("://", 2)
+    iree_driver = (
+        _IREE_DEVICE_MAP[uri_parts[0]]
+        if uri_parts[0] in _IREE_DEVICE_MAP
+        else uri_parts[0]
+    )
+    if len(uri_parts) == 1:
+        return iree_driver
+    elif "rocm" in uri_parts:
+        return "rocm"
+    else:
+        return f"{iree_driver}://{uri_parts[1]}"
 
 def compile_to_vmfb(
     module_str,

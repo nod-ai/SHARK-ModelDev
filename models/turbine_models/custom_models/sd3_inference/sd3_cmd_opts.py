@@ -177,6 +177,48 @@ p.add_argument(
     help="Do one-shot inference from tokens to image in a shrink-wrapped pipeline binary.",
 )
 
+p.add_argument(
+    "--clip_device",
+    default=None,
+    type=str,
+    help="Device to run CLIP on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--mmdit_device",
+    default=None,
+    type=str,
+    help="Device to run MMDiT on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--vae_device",
+    default=None,
+    type=str,
+    help="Device to run VAE on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--clip_target",
+    default=None,
+    type=str,
+    help="IREE target for CLIP compilation. If None, defaults to the target specified by --iree_target_triple.",
+)
+
+p.add_argument(
+    "--mmdit_target",
+    default=None,
+    type=str,
+    help="IREE target for mmdit compilation. If None, defaults to the target specified by --iree_target_triple.",
+)
+
+p.add_argument(
+    "--vae_target",
+    default=None,
+    type=str,
+    help="IREE target for vae compilation. If None, defaults to the target specified by --iree_target_triple.",
+)
+
 ##############################################################################
 # SD3 Modelling Options
 #    These options are used to control model defining parameters for SD3.
