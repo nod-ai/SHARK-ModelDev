@@ -90,6 +90,9 @@ def export_vae_model(
         )
         return vmfb_path
 
+    if device == "cpu":
+        decomp_attn = True
+
     if dtype == torch.float16:
         vae_model = vae_model.half()
     mapper = {}

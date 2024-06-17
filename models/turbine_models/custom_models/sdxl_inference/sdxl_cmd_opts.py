@@ -125,7 +125,7 @@ p.add_argument(
 
 p.add_argument(
     "--split_scheduler",
-    default=False,
+    default=True,
     action="store_true",
     help="Use a decoupled unet and scheduler for better QOL.",
 )
@@ -156,6 +156,62 @@ p.add_argument(
     default=False,
     action="store_true",
     help="Do one-shot inference from tokens to image in a shrink-wrapped pipeline binary.",
+)
+
+p.add_argument(
+    "--vae_precision",
+    type=str,
+    default="fp16",
+    help="Precision of VAE weights and graph.",
+)
+
+p.add_argument(
+    "--npu_delegate_path",
+    type=str,
+    default=None,
+    help="Path to npu executable plugin .dll for running VAE on NPU.",
+)
+
+p.add_argument(
+    "--clip_device",
+    default=None,
+    type=str,
+    help="Device to run CLIP on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--unet_device",
+    default=None,
+    type=str,
+    help="Device to run unet on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--vae_device",
+    default=None,
+    type=str,
+    help="Device to run VAE on. If None, defaults to the device specified in args.device.",
+)
+
+p.add_argument(
+    "--clip_target",
+    default=None,
+    type=str,
+    help="IREE target for CLIP compilation. If None, defaults to the target specified by --iree_target_triple.",
+)
+
+p.add_argument(
+    "--unet_target",
+    default=None,
+    type=str,
+    help="IREE target for unet compilation. If None, defaults to the target specified by --iree_target_triple.",
+)
+
+p.add_argument(
+    "--vae_target",
+    default=None,
+    type=str,
+    help="IREE target for vae compilation. If None, defaults to the target specified by --iree_target_triple.",
 )
 
 ##############################################################################

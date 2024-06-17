@@ -28,22 +28,6 @@ import time
 import copy
 from datetime import datetime as dt
 
-device_list = [
-    "cpu",
-    "vulkan",
-    "cuda",
-    "rocm",
-]
-
-rt_device_list = [
-    "local-task",
-    "local-sync",
-    "vulkan",
-    "cuda",
-    "rocm",
-    "hip",
-]
-
 empty_pipe_dict = {
     "vae_decode": None,
     "prompt_encoder": None,
@@ -71,8 +55,8 @@ class SharkSDXLPipeline:
         max_length: int,
         batch_size: int,
         num_inference_steps: int,
-        device: str,
-        iree_target_triple: str,
+        device: str | dict[str],
+        iree_target_triple: str | dict[str],
         ireec_flags: dict = EMPTY_FLAGS,
         attn_spec: str = None,
         decomp_attn: bool = False,
@@ -82,6 +66,7 @@ class SharkSDXLPipeline:
         vae_decomp_attn: bool = True,
         custom_vae: str = "",
         cpu_scheduling: bool = False,
+        vae_precision: str = "fp16",
     ):
         self.hf_model_name = hf_model_name
         self.scheduler_id = scheduler_id
@@ -91,8 +76,41 @@ class SharkSDXLPipeline:
         self.max_length = max_length
         self.batch_size = batch_size
         self.num_inference_steps = num_inference_steps
-        self.device = device
-        self.iree_target_triple = iree_target_triple
+        self.devices = {}
+        if isinstance(device, dict):
+            assert isinstance(iree_target_triple, dict), "Device and target triple must be both dicts or both strings."
+            self.devices["clip"] = {
+                "device": device["clip"],
+                "driver": utils.iree_device_map(device["clip"]),
+                "target": iree_target_triple["clip"]
+            }
+            self.devices["unet"] = {
+                "device": device["unet"],
+                "driver": utils.iree_device_map(device["unet"]),
+                "target": iree_target_triple["unet"]
+            }
+            self.devices["vae"] = {
+                "device": device["vae"],
+                "driver": utils.iree_device_map(device["vae"]),
+                "target": iree_target_triple["vae"]
+            }
+        else:
+            assert isinstance(iree_target_triple, str), "Device and target triple must be both dicts or both strings."
+            self.devices["clip"] = {
+                "device": device,
+                "driver": utils.iree_device_map(device),
+                "target": iree_target_triple
+            }
+            self.devices["unet"] = {
+                "device": device,
+                "driver": utils.iree_device_map(device),
+                "target": iree_target_triple
+            }
+            self.devices["vae"] = {
+                "device": device,
+                "driver": utils.iree_device_map(device),
+                "target": iree_target_triple
+            }
         self.ireec_flags = ireec_flags if ireec_flags else EMPTY_FLAGS
         self.attn_spec = attn_spec
         self.decomp_attn = decomp_attn
@@ -100,6 +118,8 @@ class SharkSDXLPipeline:
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
+        self.vae_precision = vae_precision
+        self.vae_dtype = "float32" if vae_precision == "fp32" else "float16"
         self.custom_vae = custom_vae
         self.cpu_scheduling = cpu_scheduling
         # TODO: set this based on user-inputted guidance scale and negative prompt.
@@ -319,8 +339,8 @@ class SharkSDXLPipeline:
                     "vmfb",
                     self.external_weights,
                     unet_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["unet"]["device"],
+                    self.devices["unet"]["target"],
                     self.ireec_flags["unet"],
                     self.decomp_attn,
                     exit_on_vmfb=False,
@@ -348,8 +368,8 @@ class SharkSDXLPipeline:
                     "vmfb",
                     self.external_weights,
                     unet_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["unet"]["device"],
+                    self.devices["unet"]["target"],
                     self.ireec_flags["unet"],
                     self.decomp_attn,
                     exit_on_vmfb=False,
@@ -373,8 +393,8 @@ class SharkSDXLPipeline:
                         self.num_inference_steps,
                         self.precision,
                         "vmfb",
-                        self.device,
-                        self.iree_target_triple,
+                        self.devices["unet"]["device"],
+                        self.devices["unet"]["target"],
                         self.ireec_flags["scheduler"],
                         exit_on_vmfb=False,
                         pipeline_dir=self.pipeline_dir,
@@ -392,12 +412,12 @@ class SharkSDXLPipeline:
                     self.batch_size,
                     self.height,
                     self.width,
-                    self.precision,
+                    self.vae_precision,
                     "vmfb",
                     self.external_weights,
                     vae_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["vae"]["device"],
+                    self.devices["vae"]["target"],
                     self.ireec_flags["vae"],
                     "decode",
                     self.vae_decomp_attn,
@@ -418,8 +438,8 @@ class SharkSDXLPipeline:
                     "vmfb",
                     self.external_weights,
                     prompt_encoder_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["clip"]["device"],
+                    self.devices["clip"]["target"],
                     self.ireec_flags["clip"],
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
@@ -440,8 +460,8 @@ class SharkSDXLPipeline:
                 )
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["unet"]["device"],
+                    self.devices["unet"]["target"],
                     self.ireec_flags["pipeline"],
                     os.path.join(self.pipeline_dir, "pipeline"),
                     return_path=True,
@@ -459,8 +479,8 @@ class SharkSDXLPipeline:
                 )
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["unet"]["device"],
+                    self.devices["unet"]["target"],
                     self.ireec_flags["pipeline"],
                     os.path.join(self.pipeline_dir, "full_pipeline"),
                     return_path=True,
@@ -474,16 +494,20 @@ class SharkSDXLPipeline:
         self,
         vmfbs: dict,
         weights: dict,
-        rt_device: str = "local-task",
         compiled_pipeline: bool = False,
         split_scheduler: bool = True,
+        extra_device_args: dict = {},
     ):
+        if "npu_delegate_path" in extra_device_args.keys():
+            delegate = extra_device_args["npu_delegate_path"]
+        else:
+            delegate = None
         self.runners = {}
         runners = {}
         load_start = time.time()
         if split_scheduler:
             runners["pipe"] = vmfbRunner(
-                rt_device,
+                self.devices["unet"]["driver"],
                 vmfbs["unet"],
                 weights["unet"],
             )
@@ -491,7 +515,7 @@ class SharkSDXLPipeline:
             print("\n[LOG] Unet loaded in ", unet_loaded - load_start, "sec")
             if not self.cpu_scheduling:
                 runners["scheduler"] = schedulers.SharkSchedulerWrapper(
-                    args.device,
+                    self.devices["unet"]["driver"],
                     vmfbs["scheduler"],
                 )
             else:
@@ -509,22 +533,25 @@ class SharkSDXLPipeline:
             sched_loaded = time.time()
             print("\n[LOG] Scheduler loaded in ", sched_loaded - unet_loaded, "sec")
             runners["vae_decode"] = vmfbRunner(
-                rt_device,
+                self.devices["vae"]["driver"],
                 vmfbs["vae_decode"],
                 weights["vae_decode"],
+                extra_plugin=delegate,
             )
             vae_loaded = time.time()
             print("\n[LOG] VAE Decode loaded in ", vae_loaded - sched_loaded, "sec")
             runners["prompt_encoder"] = vmfbRunner(
-                rt_device,
+                self.devices["clip"]["driver"],
                 vmfbs["prompt_encoder"],
                 weights["prompt_encoder"],
             )
             clip_loaded = time.time()
             print("\n[LOG] CLIP loaded in ", clip_loaded - vae_loaded, "sec")
         elif compiled_pipeline:
+            assert self.devices["unet"]["device"] == self.devices["clip"]["device"] == self.devices["vae"]["device"], "Compiled pipeline requires all submodels to be on the same device."
+            assert self.precision == self.vae_precision, "Compiled pipeline requires all submodels to have the same precision for now."
             runners["pipe"] = vmfbRunner(
-                rt_device,
+                self.devices["unet"]["driver"],
                 [
                     vmfbs["scheduled_unet"],
                     vmfbs["prompt_encoder"],
@@ -545,7 +572,7 @@ class SharkSDXLPipeline:
 
         else:
             runners["pipe"] = vmfbRunner(
-                rt_device,
+                self.devices["unet"]["driver"],
                 [
                     vmfbs["scheduled_unet"],
                     vmfbs["pipeline"],
@@ -758,12 +785,10 @@ class SharkSDXLPipeline:
                             step_index,
                         )
                     if isinstance(sample, torch.Tensor):
-                        # TODO: pipe an option for vae_dtype
-                        vae_dtype = "float32" if self.precision == "fp32" else "float16"
                         latents = ireert.asdevicearray(
                             self.runners["vae_decode"].config.device,
                             sample,
-                            dtype=vae_dtype,
+                            dtype=self.vae_dtype,
                         )
                     else:
                         latents = sample
@@ -771,9 +796,11 @@ class SharkSDXLPipeline:
                     latents = self.runners["pipe"].ctx.modules.sdxl_compiled_pipeline[
                         "produce_image_latents"
                     ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
-
+                if self.devices["unet"]["driver"] != self.devices["vae"]["driver"] or self.precision != self.vae_precision:
+                    latents = ireert.asdevicearray(
+                        self.runners["vae_decode"].config.device, latents.to_host(), dtype=self.vae_dtype
+                    )
                 vae_start = time.time()
-                np.save("latents_winter_cat.npy", latents.to_host().astype(np.float32))
                 vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
                     latents
                 )
@@ -781,7 +808,6 @@ class SharkSDXLPipeline:
                 pipe_end = time.time()
 
                 image = vae_out.to_host()
-                np.save("image_winter_cat.npy", image.astype(np.float32))
                 numpy_images.append(image)
                 print("Batch #", i + 1, "\n")
                 print(
@@ -871,6 +897,35 @@ if __name__ == "__main__":
     mlirs = copy.deepcopy(map)
     vmfbs = copy.deepcopy(map)
     weights = copy.deepcopy(map)
+
+    if any(x for x in [args.clip_device, args.unet_device, args.vae_device]):
+        assert all(
+            x for x in [args.clip_device, args.unet_device, args.vae_device]
+        ), "Please specify device for all submodels or pass --device for all submodels."
+        assert all(
+            x for x in [args.clip_target, args.unet_target, args.vae_target]
+        ), "Please specify target triple for all submodels or pass --iree_target_triple for all submodels."
+        args.device = "hybrid"
+        args.iree_target_triple = "_".join([args.clip_target, args.unet_target, args.vae_target])
+    else:
+        args.clip_device = args.device
+        args.unet_device = args.device
+        args.vae_device = args.device
+        args.clip_target = args.iree_target_triple
+        args.unet_target = args.iree_target_triple
+        args.vae_target = args.iree_target_triple
+
+    devices = {
+        "clip": args.clip_device,
+        "unet": args.unet_device,
+        "vae": args.vae_device,
+    }
+    targets = {
+        "clip": args.clip_target,
+        "unet": args.unet_target,
+        "vae": args.vae_target,
+    }
+
     ireec_flags = {
         "clip": args.ireec_flags + args.clip_flags,
         "unet": args.ireec_flags + args.unet_flags,
@@ -911,8 +966,8 @@ if __name__ == "__main__":
         args.max_length,
         args.batch_size,
         args.num_inference_steps,
-        args.device,
-        args.iree_target_triple,
+        devices,
+        targets,
         ireec_flags,
         args.attn_spec,
         args.decomp_attn,
@@ -922,12 +977,17 @@ if __name__ == "__main__":
         args.vae_decomp_attn,
         custom_vae=None,
         cpu_scheduling=args.cpu_scheduling,
+        vae_precision=args.vae_precision,
     )
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
     if args.cpu_scheduling:
         vmfbs["scheduler"] = None
+    if args.npu_delegate_path:
+        extra_device_args = {"npu_delegate_path": args.npu_delegate_path}
+    else:
+        extra_device_args = {}
     sdxl_pipe.load_pipeline(
-        vmfbs, weights, args.rt_device, args.compiled_pipeline, args.split_scheduler
+        vmfbs, weights, args.compiled_pipeline, args.split_scheduler, extra_device_args,
     )
     sdxl_pipe.generate_images(
         args.prompt,

@@ -54,12 +54,12 @@ class VaeModel(torch.nn.Module):
             )
             self.vae.load_state_dict(custom_vae)
 
-    def decode_inp(self, inp):
-        inp = 1 / 0.13025 * inp
-        x = self.vae.decode(inp, return_dict=False)[0]
+    def decode(self, inp):
+        img = 1 / 0.13025 * inp
+        x = self.vae.decode(img, return_dict=False)[0]
         return (x / 2 + 0.5).clamp(0, 1)
 
-    def encode_inp(self, inp):
+    def encode(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
         return 0.13025 * latents
 
@@ -105,45 +105,65 @@ def export_vae_model(
         )
         return vmfb_path
 
-    mapper = {}
-    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
-    if decomp_attn == True:
-        decomp_list.extend(
-            [
-                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-                torch.ops.aten._scaled_dot_product_flash_attention.default,
-            ]
-        )
+    if device == "cpu":
+        decomp_attn = True
+    
     dtype = torch.float16 if precision == "fp16" else torch.float32
     if precision == "fp16":
         vae_model = vae_model.half()
+
+    mapper = {}
+
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
     )
     if weights_only:
         return external_weight_path
-    sample = (batch_size, 4, height // 8, width // 8)
-    if variant == "encode":
-        sample = (batch_size, 3, height, width)
+    
+    input_image_shape = (height, width, 3)
+    input_latents_shape = (batch_size, 4, height // 8, width // 8)
+    encode_args = [
+        torch.empty(
+            input_image_shape,
+            dtype=torch.float32,
+        )
+    ]
+    decode_args = [
+        torch.empty(
+            input_latents_shape,
+            dtype=dtype,
+        )
+    ]
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        fxb = FxProgramsBuilder(vae_model)
 
-    class CompiledVae(CompiledModule):
+        # @fxb.export_program(args=(encode_args,))
+        # def _encode(module, inputs,):
+        #     return module.encode(*inputs)
+
+        @fxb.export_program(args=(decode_args,))
+        def _decode(module, inputs):
+            return module.decode(*inputs)
+
+        class CompiledVae(CompiledModule):
+            main = _decode
+
         if external_weights:
-            params = export_parameters(
-                vae_model, external=True, external_scope="", name_mapper=mapper.get
-            )
-        else:
-            params = export_parameters(vae_model)
+            externalize_module_parameters(vae_model)
 
-        def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
-            if variant == "decode":
-                return jittable(vae_model.decode_inp, decompose_ops=decomp_list)(inp)
-            elif variant == "encode":
-                return jittable(vae_model.encode_inp, decompose_ops=decomp_list)(inp)
+        inst = CompiledVae(context=Context(), import_to="IMPORT")
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledVae(context=Context(), import_to=import_to)
-
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
     if compile_to != "vmfb":
         return module_str

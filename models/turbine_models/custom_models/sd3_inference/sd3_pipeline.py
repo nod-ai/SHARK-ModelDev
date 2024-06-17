@@ -774,13 +774,18 @@ if __name__ == "__main__":
         args.vae_decomp_attn,
         custom_vae=None,
         cpu_scheduling=args.cpu_scheduling,
+        vae_precision=args.vae_precision,
     )
     vmfbs, weights = sd3_pipe.check_prepared(mlirs, vmfbs, weights)
     if args.cpu_scheduling:
         vmfbs.pop("scheduler")
         weights.pop("scheduler")
+    if args.npu_delegate_path:
+        extra_device_args = {"npu_delegate_path": args.npu_delegate_path}
+    else:
+        extra_device_args = {}
     sd3_pipe.load_pipeline(
-        vmfbs, weights, args.compiled_pipeline, args.split_scheduler
+        vmfbs, weights, args.compiled_pipeline, args.split_scheduler, extra_device_args=extra_device_args
     )
     sd3_pipe.generate_images(
         args.prompt,

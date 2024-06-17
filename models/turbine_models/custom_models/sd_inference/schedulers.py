@@ -160,7 +160,6 @@ class SharkSchedulerCPUWrapper:
         step_indexes = torch.tensor(len(self.module.timesteps))
         timesteps = self.timesteps
         sample = sample * self.module.init_noise_sigma
-        print(sample, add_time_ids, step_indexes, timesteps)
         add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
         return sample, add_time_ids, step_indexes, timesteps
 
@@ -184,11 +183,6 @@ class SharkSchedulerCPUWrapper:
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond
             )
-        print(
-            noise_pred[:, :, 0, 2],
-            t,
-            latents[:, :, 0, 2],
-        )
         return self.module.step(
             noise_pred,
             t,

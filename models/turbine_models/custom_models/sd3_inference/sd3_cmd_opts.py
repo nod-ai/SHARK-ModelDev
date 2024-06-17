@@ -178,6 +178,14 @@ p.add_argument(
 )
 
 p.add_argument(
+    "--npu_delegate_path",
+    type=str,
+    default=None,
+    help="Path to npu executable plugin .dll for running VAE on NPU.",
+)
+
+
+p.add_argument(
     "--clip_device",
     default=None,
     type=str,
