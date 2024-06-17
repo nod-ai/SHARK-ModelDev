@@ -66,7 +66,7 @@ class FlowSchedulingModel(torch.nn.Module):
     def initialize(self, sample):
         step_count = torch.tensor(len(self.timesteps))
         timesteps = self.model.timesteps
-        ops.trace_tensor("sample", sample[:,:,0,0])
+        #ops.trace_tensor("sample", sample[:,:,0,0])
         return (
             sample,
             step_count,
