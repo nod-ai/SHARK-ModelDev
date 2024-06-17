@@ -1,5 +1,4 @@
 protobuf
-sentencepiece
 shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
 transformers==4.37.1
 torchsde
