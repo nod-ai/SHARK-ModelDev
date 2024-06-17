@@ -66,13 +66,18 @@ GFX11_flags = {
 }
 znver4_flags = {
     "all": [
-        # "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))",
         "--iree-llvmcpu-target-cpu=znver4",
         "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
         "--iree-flow-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
         "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
+    ],
+    "bf16": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
+    ],
+    "winograd": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-linalg-ext-convert-conv2d-to-winograd{replace-all-convs=true},iree-global-opt-demote-contraction-inputs-to-bf16))"
     ],
 }
 
@@ -182,10 +187,12 @@ def compile_to_vmfb(
     if attn_spec in ["default", "mfma"]:
         attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    elif attn_spec in ["wmma"] or "gfx11" in target_triple:
+    elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    elif attn_spec and attn_spec != "None":
+        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]

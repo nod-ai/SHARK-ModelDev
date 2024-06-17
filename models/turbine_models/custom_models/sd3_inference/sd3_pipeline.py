@@ -68,8 +68,8 @@ class SharkSD3Pipeline:
         max_length: int,
         batch_size: int,
         num_inference_steps: int,
-        device: str,
-        iree_target_triple: str,
+        device: str | dict[str],
+        iree_target_triple: str | dict[str],
         ireec_flags: dict = EMPTY_FLAGS,
         attn_spec: str = None,
         decomp_attn: bool = False,
@@ -89,7 +89,25 @@ class SharkSD3Pipeline:
         self.max_length = max_length
         self.batch_size = batch_size
         self.num_inference_steps = num_inference_steps
-        self.device = device
+        self.devices = {}
+        if isinstance(self.device, dict):
+            assert isinstance(iree_target_triple, dict), "Device and target triple must be both dicts or both strings."
+            self.devices["clip"] = {
+                "device": device["clip"],
+                "target": iree_target_triple["clip"]
+            }
+            self.devices["mmdit"] = {
+                "device": device["mmdit"],
+                "target": iree_target_triple["mmdit"]
+            }
+            self.devices["vae"] = {
+                "device": device["vae"],
+                "target": iree_target_triple["vae"]
+            }
+        else:
+            self.devices["clip"] = device
+            self.devices["mmdit"] = device
+            self.devices["vae"] = device
         self.iree_target_triple = iree_target_triple
         self.ireec_flags = ireec_flags if ireec_flags else EMPTY_FLAGS
         self.attn_spec = attn_spec
@@ -291,8 +309,8 @@ class SharkSD3Pipeline:
                     "vmfb",
                     self.external_weights,
                     mmdit_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["mmdit"]["device"],
+                    self.devices["mmdit"]["target"],
                     self.ireec_flags["mmdit"],
                     self.decomp_attn,
                     exit_on_vmfb=False,
@@ -313,8 +331,8 @@ class SharkSD3Pipeline:
                     self.num_inference_steps,
                     self.precision,
                     "vmfb",
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["mmdit"]["device"],
+                    self.devices["mmdit"]["target"],
                     self.ireec_flags["scheduler"],
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
@@ -336,8 +354,8 @@ class SharkSD3Pipeline:
                     "vmfb",
                     self.external_weights,
                     vae_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["vae"]["device"],
+                    self.devices["vae"]["target"],
                     self.ireec_flags["vae"],
                     self.vae_decomp_attn,
                     exit_on_vmfb=False,
@@ -357,8 +375,8 @@ class SharkSD3Pipeline:
                     "vmfb",
                     self.external_weights,
                     text_encoders_external_weight_path,
-                    self.device,
-                    self.iree_target_triple,
+                    self.devices["clip"]["device"],
+                    self.devices["clip"]["target"],
                     self.ireec_flags["clip"],
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
@@ -374,10 +392,15 @@ class SharkSD3Pipeline:
         self,
         vmfbs: dict,
         weights: dict,
-        rt_device: str = "local-task",
+        rt_device: str | dict[str],
         compiled_pipeline: bool = False,
         split_scheduler: bool = True,
+        extra_device_args: dict = {},
     ):
+        if "npu_delegate_path" in extra_device_args.keys():
+            delegate = extra_device_args["npu_delegate_path"]
+        else:
+            delegate = None
         self.runners = {}
         runners = {}
         load_start = time.time()
@@ -399,7 +422,7 @@ class SharkSD3Pipeline:
         runners["vae"] = vmfbRunner(
             rt_device,
             vmfbs["vae"],
-            weights["vae"],
+            weights["vae"], 
         )
         vae_loaded = time.time()
         print("\n[LOG] VAE Decode loaded in ", vae_loaded - sched_loaded, "sec")

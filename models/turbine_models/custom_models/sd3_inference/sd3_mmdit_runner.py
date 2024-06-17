@@ -110,15 +110,17 @@ if __name__ == "__main__":
 
     if args.precision == "fp16":
         dtype = torch.float16
+        np_dtype = np.float16
     else:
         dtype = torch.float32
+        np_dtype = np.float32
 
     if args.attn_repro:
         qkv_shape = (2, 24, 4250, 64)
         example_qkv = [
-            np.load("q.npy").astype(np.float16),
-            np.load("k.npy").astype(np.float16),
-            np.load("v.npy").astype(np.float16),
+            np.load("q.npy").astype(np_dtype),
+            np.load("k.npy").astype(np_dtype),
+            np.load("v.npy").astype(np_dtype),
         ]
         turbine_output = run_attn_turbine(
             *example_qkv,

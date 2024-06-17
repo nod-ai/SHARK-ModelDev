@@ -773,6 +773,7 @@ class SharkSDXLPipeline:
                     ](samples[i], prompt_embeds, add_text_embeds, guidance_scale)
 
                 vae_start = time.time()
+                np.save("latents_winter_cat.npy", latents.to_host().astype(np.float32))
                 vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
                     latents
                 )
@@ -780,7 +781,7 @@ class SharkSDXLPipeline:
                 pipe_end = time.time()
 
                 image = vae_out.to_host()
-
+                np.save("image_winter_cat.npy", image.astype(np.float32))
                 numpy_images.append(image)
                 print("Batch #", i + 1, "\n")
                 print(
