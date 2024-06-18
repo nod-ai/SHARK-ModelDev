@@ -341,8 +341,10 @@ class SD3Tokenizer:
         self.clip_g = SDXLClipGTokenizer(clip_tokenizer)
         self.t5xxl = T5XXLTokenizer()
 
-    def tokenize_with_weights(self, text: str):
+    def tokenize_with_weights(self, text: str | list[str]):
         out = {}
+        if isinstance(text, list):
+            text = text[0]
         out["g"] = self.clip_g.tokenize_with_weights(text)
         out["l"] = self.clip_l.tokenize_with_weights(text)
         out["t5xxl"] = self.t5xxl.tokenize_with_weights(text)

@@ -46,7 +46,6 @@ class SharkSD3Pipeline:
         hf_model_name: str,
         height: int,
         width: int,
-        shift: float,
         precision: str,
         max_length: int,
         batch_size: int,
@@ -59,10 +58,12 @@ class SharkSD3Pipeline:
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
         external_weights: str = "safetensors",
-        vae_decomp_attn: bool = True,
-        custom_vae: str = "",
+        vae_decomp_attn: bool = False,
         cpu_scheduling: bool = False,
+        vae_precision: str = "fp32",
         scheduler_id: str = None, #compatibility only, always uses EulerFlowScheduler
+        shift: float = 1.0,
+
     ):
         self.hf_model_name = hf_model_name
         # self.scheduler_id = scheduler_id
@@ -120,10 +121,11 @@ class SharkSD3Pipeline:
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
-        self.custom_vae = custom_vae
+        self.custom_vae = None
         self.cpu_scheduling = cpu_scheduling
         self.torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16
-        self.vae_dtype = torch.float32
+        self.vae_precision = vae_precision if vae_precision else self.precision
+        self.vae_dtype = torch.float32 if vae_precision == "fp32" else torch.float16
         # TODO: set this based on user-inputted guidance scale and negative prompt.
         self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
 
@@ -206,7 +208,12 @@ class SharkSD3Pipeline:
             )
             if w_key == "clip":
                 default_name = os.path.join(
-                    self.external_weights_dir, f"sd3_clip_fp16.irpa"
+                    self.external_weights_dir, f"sd3_text_encoders_{self.precision}.irpa"
+                )
+            if w_key == "mmdit":
+                default_name = os.path.join(
+                    self.external_weights_dir,
+                    f"sd3_mmdit_{self.precision}." + self.external_weights,
                 )
             if weights[w_key] is None and os.path.exists(default_name):
                 weights[w_key] = os.path.join(default_name)
@@ -357,7 +364,7 @@ class SharkSD3Pipeline:
                     self.batch_size,
                     self.height,
                     self.width,
-                    "fp32",
+                    self.vae_precision,
                     "vmfb",
                     self.external_weights,
                     vae_external_weight_path,
@@ -586,7 +593,8 @@ class SharkSD3Pipeline:
                     dtype=self.vae_dtype,
                 )
             else:
-                latents = sample.astype("float32")
+                vae_numpy_dtype = np.float32 if self.vae_precision == "fp32" else np.float16
+                latents = sample.astype(vae_numpy_dtype)
 
             vae_start = time.time()
             vae_out = self.runners["vae"].ctx.modules.compiled_vae["decode"](latents)
@@ -634,7 +642,7 @@ class SharkSD3Pipeline:
             out_image = Image.fromarray(image)
             images.extend([[out_image]])
         if return_imgs:
-            return images
+            return images[0]
         for idx_batch, image_batch in enumerate(images):
             for idx, image in enumerate(image_batch):
                 img_path = (
@@ -767,7 +775,6 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.height,
         args.width,
-        args.shift,
         args.precision,
         args.max_length,
         args.batch_size,
@@ -779,9 +786,8 @@ if __name__ == "__main__":
         args.decomp_attn,
         args.pipeline_dir,
         args.external_weights_dir,
-        args.external_weights,
-        args.vae_decomp_attn,
-        custom_vae=None,
+        external_weights=args.external_weights,
+        vae_decomp_attn=args.vae_decomp_attn,
         cpu_scheduling=args.cpu_scheduling,
         vae_precision=args.vae_precision,
     )

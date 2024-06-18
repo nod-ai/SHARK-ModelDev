@@ -31,9 +31,8 @@ def run_unet(
         ireert.asdevicearray(runner.config.device, prompt_embeds),
         ireert.asdevicearray(runner.config.device, text_embeds),
         ireert.asdevicearray(runner.config.device, time_ids),
-        ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
-    results = runner.ctx.modules.compiled_unet["main"](*inputs)
+    results = runner.ctx.modules.compiled_unet["run_forward"](*inputs)
 
     return results
 
@@ -57,7 +56,6 @@ def run_unet_steps(
         ireert.asdevicearray(runner.config.device, prompt_embeds),
         ireert.asdevicearray(runner.config.device, text_embeds),
         ireert.asdevicearray(runner.config.device, time_ids),
-        ireert.asdevicearray(runner.config.device, (guidance_scale,)),
     ]
     for i, t in tqdm(enumerate(scheduler.timesteps)):
         timestep = t
@@ -69,7 +67,7 @@ def run_unet_steps(
         inputs[1] = timestep = ireert.asdevicearray(
             runner.config.device, (timestep,), dtype="int64"
         )
-        noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs).to_host()
+        noise_pred = runner.ctx.modules.compiled_unet["run_forward"](*inputs).to_host()
         sample = scheduler.step(
             torch.from_numpy(noise_pred).cpu(),
             timestep,

@@ -248,6 +248,12 @@ p.add_argument(
     help="Precision of Stable Diffusion weights and graph.",
 )
 p.add_argument(
+    "--vae_precision",
+    type=str,
+    default=None,
+    help="Precision of Stable Diffusion VAE weights and graph.",
+)
+p.add_argument(
     "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
 )
 p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
@@ -257,7 +263,7 @@ p.add_argument(
 p.add_argument(
     "--vae_decomp_attn",
     type=bool,
-    default=True,
+    default=False,
     help="Decompose attention for VAE decode only at fx graph level",
 )
 p.add_argument(
