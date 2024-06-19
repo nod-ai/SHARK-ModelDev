@@ -82,7 +82,7 @@ class FlowSchedulingModel(torch.nn.Module):
             latent_model_input = torch.cat([sample] * 2)
         else:
             latent_model_input = sample
-        t = t.expand(sample.shape[0])
+        t = t.expand(latent_model_input.shape[0])
         return latent_model_input.type(self.dtype), t.type(self.dtype)
 
     def step(self, noise_pred, t, sample, guidance_scale, i):

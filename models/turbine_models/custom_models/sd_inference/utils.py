@@ -35,7 +35,7 @@ MI_flags = {
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-waves-per-eu=2",
         "--iree-flow-inline-constants-max-byte-length=1",
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
@@ -275,7 +275,7 @@ def create_safe_name(hf_model_name, model_name_str):
 
 
 def get_mfma_spec_path(target_chip, save_dir):
-    url = "https://raw.githubusercontent.com/iree-org/iree/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
+    url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, "attention_and_matmul_spec_mfma.mlir")
     if os.path.exists(spec_path):
@@ -287,9 +287,9 @@ def get_mfma_spec_path(target_chip, save_dir):
 
 def get_wmma_spec_path(target_chip, save_dir):
     if target_chip == "gfx1100":
-        url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1100.spec.mlir"
+        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1100.mlir"
     elif target_chip in ["gfx1103", "gfx1150"]:
-        url = "https://github.com/iree-org/iree/raw/shared/tresleches-united/scripts/attention_gfx1103.spec.mlir"
+        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1150.mlir"
     else:
         return None
     attn_spec = urlopen(url).read().decode("utf-8")
