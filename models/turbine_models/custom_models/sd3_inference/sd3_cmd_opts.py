@@ -346,6 +346,12 @@ p.add_argument(
     action="store_true",
     help="Just compile attention reproducer for mmdit.",
 )
+p.add_argument(
+    "--vae_input_path",
+    type=str,
+    default=None,
+    help="Path to input latents for VAE inference numerics validation.",
+)
 
 
 ##############################################################################

@@ -154,7 +154,7 @@ if __name__ == "__main__":
         (batch_size, args.max_length * 2, 4096), dtype=dtype
     )
     pooled_projections = torch.randn((batch_size, 2048), dtype=dtype)
-    timestep = torch.tensor([0], dtype=dtype)
+    timestep = torch.tensor([0, 0], dtype=dtype)
 
     turbine_output = run_mmdit_turbine(
         hidden_states,
@@ -180,6 +180,7 @@ if __name__ == "__main__":
             timestep,
             args,
         )
+        np.save("torch_mmdit_output.npy", torch_output.astype(np.float16))
         print("torch OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
 
         print("\n(torch (comfy) image latents to iree image latents): ")

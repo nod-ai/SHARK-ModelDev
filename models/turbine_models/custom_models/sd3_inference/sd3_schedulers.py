@@ -5,9 +5,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import os
+import inspect
 from typing import List
 
 import torch
+from typing import Any, Callable, Dict, List, Optional, Union
 from shark_turbine.aot import *
 import shark_turbine.ops.iree as ops
 from iree.compiler.ir import Context
@@ -75,11 +77,12 @@ class FlowSchedulingModel(torch.nn.Module):
 
     def prepare_model_input(self, sample, t, timesteps):
         t = timesteps[t]
-        t = t.expand(sample.shape[0])
+
         if self.do_classifier_free_guidance:
             latent_model_input = torch.cat([sample] * 2)
         else:
             latent_model_input = sample
+        t = t.expand(sample.shape[0])
         return latent_model_input.type(self.dtype), t.type(self.dtype)
 
     def step(self, noise_pred, t, sample, guidance_scale, i):
@@ -146,6 +149,42 @@ class TorchCPUFlowSchedulerCompat:
             return_dict=False,
         )[0]
 
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
+# Only used for cpu scheduling.
+def retrieve_timesteps(
+    scheduler,
+    num_inference_steps: Optional[int] = None,
+    device: Optional[Union[str, torch.device]] = None,
+    timesteps: Optional[List[int]] = None,
+    sigmas: Optional[List[float]] = None,
+    **kwargs,
+):
+    if timesteps is not None and sigmas is not None:
+        raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
+    if timesteps is not None:
+        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_timesteps:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" timestep schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    elif sigmas is not None:
+        accept_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accept_sigmas:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" sigmas schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    else:
+        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+    return timesteps, num_inference_steps
 
 @torch.no_grad()
 def export_scheduler_model(

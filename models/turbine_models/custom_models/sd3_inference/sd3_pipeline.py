@@ -17,6 +17,7 @@ import iree.runtime as ireert
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
+from diffusers import FlowMatchEulerDiscreteScheduler
 
 from PIL import Image
 import os
@@ -426,10 +427,16 @@ class SharkSD3Pipeline:
         unet_loaded = time.time()
         print("\n[LOG] MMDiT loaded in ", unet_loaded - load_start, "sec")
 
-        runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
-            self.devices["mmdit"]["driver"],
-            vmfbs["scheduler"],
-        )
+        if not self.cpu_scheduling:
+            runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
+                self.devices["mmdit"]["driver"],
+                vmfbs["scheduler"],
+            )
+        else:
+            print("Using torch CPU scheduler.")
+            runners["scheduler"] = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                self.hf_model_name, subfolder="scheduler"
+            )
 
         sched_loaded = time.time()
         print("\n[LOG] Scheduler loaded in ", sched_loaded - unet_loaded, "sec")
@@ -502,11 +509,12 @@ class SharkSD3Pipeline:
                 )
             )
 
-        guidance_scale = ireert.asdevicearray(
-            self.runners["pipe"].config.device,
-            np.asarray([guidance_scale]),
-            dtype=iree_dtype,
-        )
+        if not self.cpu_scheduling:
+            guidance_scale = ireert.asdevicearray(
+                self.runners["pipe"].config.device,
+                np.asarray([guidance_scale]),
+                dtype=iree_dtype,
+            )
 
         tokenize_start = time.time()
         text_input_ids_dict = self.tokenizer.tokenize_with_weights(prompt)
@@ -540,12 +548,23 @@ class SharkSD3Pipeline:
             "clip"
         ].ctx.modules.compiled_text_encoder["encode_tokens"](*text_encoders_inputs)
         encode_prompts_end = time.time()
+        if self.cpu_scheduling:
+            timesteps, num_inference_steps = sd3_schedulers.retrieve_timesteps(
+                self.runners["scheduler"],
+                num_inference_steps=self.num_inference_steps, 
+                timesteps=None,
+            )
+            steps = num_inference_steps
+
 
         for i in range(batch_count):
             unet_start = time.time()
-            sample, steps, timesteps = self.runners["scheduler"].initialize(samples[i])
+            if not self.cpu_scheduling:
+                latents, steps, timesteps = self.runners["scheduler"].initialize(samples[i])
+            else:
+                latents = torch.tensor(samples[i].to_host(), dtype=self.torch_dtype)
             iree_inputs = [
-                sample,
+                latents,
                 ireert.asdevicearray(
                     self.runners["pipe"].config.device, prompt_embeds, dtype=iree_dtype
                 ),
@@ -560,41 +579,71 @@ class SharkSD3Pipeline:
                 # print(f"step {s}")
                 if self.cpu_scheduling:
                     step_index = s
+                    t = timesteps[s]
+                    if self.do_classifier_free_guidance:
+                        latent_model_input = torch.cat([latents] * 2)
+                    timestep = ireert.asdevicearray(
+                        self.runners["pipe"].config.device,
+                        t.expand(latent_model_input.shape[0]),
+                        dtype=iree_dtype,
+                    )
+                    latent_model_input = ireert.asdevicearray(
+                        self.runners["pipe"].config.device,
+                        latent_model_input,
+                        dtype=iree_dtype,
+                    )
                 else:
                     step_index = ireert.asdevicearray(
                         self.runners["scheduler"].runner.config.device,
                         torch.tensor([s]),
                         "int64",
                     )
-                latents, t = self.runners["scheduler"].prep(
-                    sample,
-                    step_index,
-                    timesteps,
-                )
+                    latent_model_input, timestep = self.runners["scheduler"].prep(
+                        latents,
+                        step_index,
+                        timesteps,
+                    )
+                    t = ireert.asdevicearray(
+                        self.runners["scheduler"].runner.config.device,
+                        timestep.to_host()[0]
+                    )
                 noise_pred = self.runners["pipe"].ctx.modules.compiled_mmdit[
                     "run_forward"
                 ](
-                    latents,
+                    latent_model_input,
                     iree_inputs[1],
                     iree_inputs[2],
-                    t,
+                    timestep,
                 )
-                sample = self.runners["scheduler"].step(
-                    noise_pred,
-                    t,
-                    sample,
-                    guidance_scale,
-                    step_index,
-                )
-            if isinstance(sample, torch.Tensor):
+                if not self.cpu_scheduling:
+                    latents = self.runners["scheduler"].step(
+                        noise_pred,
+                        t,
+                        latents,
+                        guidance_scale,
+                        step_index,
+                    )
+                else:
+                    noise_pred = torch.tensor(noise_pred.to_host(), dtype=self.torch_dtype)
+                    if self.do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    latents = self.runners["scheduler"].step(
+                        noise_pred,
+                        t,
+                        latents,
+                        return_dict=False,
+                    )[0]
+
+            if isinstance(latents, torch.Tensor):
+                latents = latents.type(self.vae_dtype)
                 latents = ireert.asdevicearray(
                     self.runners["vae"].config.device,
-                    sample,
-                    dtype=self.vae_dtype,
+                    latents,
                 )
             else:
                 vae_numpy_dtype = np.float32 if self.vae_precision == "fp32" else np.float16
-                latents = sample.astype(vae_numpy_dtype)
+                latents = latents.astype(vae_numpy_dtype)
 
             vae_start = time.time()
             vae_out = self.runners["vae"].ctx.modules.compiled_vae["decode"](latents)
@@ -791,10 +840,10 @@ if __name__ == "__main__":
         cpu_scheduling=args.cpu_scheduling,
         vae_precision=args.vae_precision,
     )
-    vmfbs, weights = sd3_pipe.check_prepared(mlirs, vmfbs, weights)
     if args.cpu_scheduling:
         vmfbs.pop("scheduler")
         weights.pop("scheduler")
+    vmfbs, weights = sd3_pipe.check_prepared(mlirs, vmfbs, weights)
     if args.npu_delegate_path:
         extra_device_args = {"npu_delegate_path": args.npu_delegate_path}
     else:

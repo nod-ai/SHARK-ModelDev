@@ -207,7 +207,7 @@ def export_mmdit_model(
         torch.empty(hidden_states_shape, dtype=dtype),
         torch.empty(encoder_hidden_states_shape, dtype=dtype),
         torch.empty(pooled_projections_shape, dtype=dtype),
-        torch.empty(1, dtype=dtype),
+        torch.empty(init_batch_dim, dtype=dtype),
     ]
 
     decomp_list = []

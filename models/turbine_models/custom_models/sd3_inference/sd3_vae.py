@@ -33,6 +33,7 @@ class VaeModel(torch.nn.Module):
         )
 
     def decode(self, inp):
+        inp = (inp / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         image = self.vae.decode(inp, return_dict=False)[0]
         image = image.float()
         image = torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)[0]

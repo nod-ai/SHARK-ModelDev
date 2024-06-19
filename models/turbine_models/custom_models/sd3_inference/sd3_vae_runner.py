@@ -45,12 +45,17 @@ def imagearray_from_vae_out(image):
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
     import numpy as np
+    from PIL import Image
 
     dtype = torch.float16 if args.precision == "fp16" else torch.float32
     if args.vae_variant == "decode":
         example_input = torch.rand(
             args.batch_size, 16, args.height // 8, args.width // 8, dtype=dtype
         )
+        if args.vae_input_path:
+            example_input = np.load(args.vae_input_path)
+            if example_input.shape[0] == 2:
+                example_input = np.split(example_input, 2)[0]
     elif args.vae_variant == "encode":
         example_input = torch.rand(
             args.batch_size, 3, args.height, args.width, dtype=dtype
@@ -74,13 +79,16 @@ if __name__ == "__main__":
         from turbine_models.custom_models.sd_inference import utils
 
         torch_output = run_torch_vae(
-            args.hf_model_name, args.vae_variant, example_input.float()
+            args.hf_model_name, args.vae_variant, torch.tensor(example_input).float()
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
+        if args.vae_input_path:
+            out_image_torch = Image.fromarray(torch_output)
+            out_image_torch.save("vae_test_output_torch.png")
+            out_image_turbine = Image.fromarray(turbine_results)
+            out_image_turbine.save("vae_test_output_turbine.png")
         # Allow a small amount of wiggle room for rounding errors (1)
+
         np.testing.assert_allclose(
             turbine_results, torch_output, rtol=1, atol=1
         )
-
-    # TODO: Figure out why we occasionally segfault without unlinking output variables
-    turbine_results = None
