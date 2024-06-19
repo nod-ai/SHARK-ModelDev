@@ -406,7 +406,7 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--unet_flags",
+    "--mmdit_flags",
     type=str,
     default="",
     help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",

@@ -301,7 +301,7 @@ if __name__ == "__main__":
         args.external_weight_path,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags + args.attn_flags + args.unet_flags,
+        args.ireec_flags + args.attn_flags + args.mmdit_flags,
         args.decomp_attn,
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
