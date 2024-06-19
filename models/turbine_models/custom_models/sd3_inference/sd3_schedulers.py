@@ -206,31 +206,24 @@ def export_scheduler_model(
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     scheduler_module = FlowSchedulingModel(hf_model_name, num_inference_steps, dtype)
+    vmfb_names = [
+        "EulerFlowScheduler",
+        f"bs{args.batch_size}_{args.height}x{args.width}",
+        precision,
+        str(num_inference_steps),
+        target_triple,
+    ]
+    vmfb_name = "_".join(vmfb_names)
+    safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
     if pipeline_dir:
-        vmfb_names = [
-            "EulerFlowScheduler",
-            str(num_inference_steps),
-        ]
-        vmfb_name = "_".join(vmfb_names)
-        safe_name = os.path.join(pipeline_dir, vmfb_name)
-    else:
-        vmfb_names = [
-            "EulerFlowScheduler",
-            f"bs{args.batch_size}_{args.height}x{args.width}",
-            precision,
-            str(num_inference_steps),
-            target_triple,
-        ]
-        vmfb_name = "_".join(vmfb_names)
-        safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
-
+        safe_name = os.path.join(pipeline_dir, safe_name)
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
         )
@@ -326,7 +319,7 @@ def export_scheduler_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=True,
         )
         if exit_on_vmfb:

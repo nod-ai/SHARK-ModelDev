@@ -171,14 +171,14 @@ def export_scheduled_unet_model(
     # else:
     #     do_classifier_free_guidance = True
     do_classifier_free_guidance = True
+
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_scheduled_unet_{str(num_inference_steps)}",
+    )
     if pipeline_dir:
         safe_name = os.path.join(
-            pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
-        )
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
+            pipeline_dir, safe_name
         )
 
     if input_mlir:
@@ -187,7 +187,7 @@ def export_scheduled_unet_model(
             device,
             iree_target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + iree_target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
@@ -280,7 +280,7 @@ def export_scheduled_unet_model(
             device,
             iree_target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + iree_target_triple,
             return_path=True,
             attn_spec=attn_spec,
         )

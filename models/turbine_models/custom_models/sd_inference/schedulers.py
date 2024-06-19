@@ -214,24 +214,20 @@ def export_scheduler_model(
     scheduler_module = SchedulingModel(
         hf_model_name, scheduler, height, width, batch_size, num_inference_steps, dtype
     )
+
+    vmfb_names = [
+        scheduler_id + "Scheduler",
+        f"bs{batch_size}",
+        f"{height}x{width}",
+        precision,
+        str(num_inference_steps),
+        target_triple,
+    ]  
+    vmfb_name = "_".join(vmfb_names)
+    safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
     if pipeline_dir:
-        vmfb_names = [
-            scheduler_id + "Scheduler",
-            str(num_inference_steps),
-        ]
-        vmfb_name = "_".join(vmfb_names)
-        safe_name = os.path.join(pipeline_dir, vmfb_name)
-    else:
-        vmfb_names = [
-            scheduler_id + "Scheduler",
-            f"bs{batch_size}",
-            f"{height}x{width}",
-            precision,
-            str(num_inference_steps),
-            target_triple,
-        ]
-        vmfb_name = "_".join(vmfb_names)
-        safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -239,7 +235,7 @@ def export_scheduler_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
         )
@@ -335,7 +331,7 @@ def export_scheduler_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=True,
         )
         if exit_on_vmfb:

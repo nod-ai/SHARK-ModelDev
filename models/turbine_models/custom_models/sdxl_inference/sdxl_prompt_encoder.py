@@ -166,19 +166,20 @@ def export_prompt_encoder(
         do_classifier_free_guidance = False
     else:
         do_classifier_free_guidance = True
+
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_bs{output_batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}"
+    )
     if pipeline_dir not in [None, ""]:
-        safe_name = os.path.join(pipeline_dir, "prompt_encoder")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, f"{str(max_length)}-{precision}-prompt-encoder-{device}"
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
@@ -259,7 +260,7 @@ def export_prompt_encoder(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
             attn_spec=attn_spec,

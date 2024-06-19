@@ -129,19 +129,20 @@ def export_text_encoders(
     output_batchsize=1,
     decomp_attn=True,
 ):
-    if pipeline_dir not in [None, ""]:
-        safe_name = os.path.join(pipeline_dir, "text_encoders")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, f"_{str(max_length)}_{precision}_text_encoders-{device}"
-        )
+
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_bs{output_batchsize}_{str(max_length)}_{precision}_text_encoders-{device}"
+    )
+    if pipeline_dir:
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
@@ -200,7 +201,7 @@ def export_text_encoders(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
             attn_spec=attn_spec,

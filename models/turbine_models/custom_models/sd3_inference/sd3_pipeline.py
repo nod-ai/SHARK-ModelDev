@@ -6,6 +6,7 @@
 
 import logging
 import torch
+from tqdm.auto import tqdm
 from turbine_models.custom_models.sd3_inference import (
     sd3_text_encoders,
     sd3_mmdit,
@@ -74,7 +75,7 @@ class SharkSD3Pipeline:
         self.precision = precision
         self.max_length = max_length
         self.batch_size = batch_size
-        self.num_inference_steps = num_inference_steps
+        self.num_inference_steps = None
         self.devices = {}
         if isinstance(device, dict):
             assert isinstance(
@@ -129,7 +130,7 @@ class SharkSD3Pipeline:
         self.vae_dtype = torch.float32 if vae_precision == "fp32" else torch.float16
         # TODO: set this based on user-inputted guidance scale and negative prompt.
         self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
-
+        self._interrupt = False
     # FILE MANAGEMENT AND PIPELINE SETUP
 
     def check_prepared(
@@ -152,7 +153,7 @@ class SharkSD3Pipeline:
             if do_continue.lower() == "y":
                 for submodel in vmfbs.keys():
                     if vmfbs[submodel] == None:
-                        print(submodel)
+                        print("Fetching: ", submodel)
                         vmfb, weight = self.export_submodel(submodel, input_mlir=mlirs)
                         vmfbs[submodel] = vmfb
                         if weights[submodel] is None:
@@ -175,28 +176,28 @@ class SharkSD3Pipeline:
 
     def is_prepared(self, vmfbs, weights):
         missing = []
+        height = self.height
+        width = self.width
         for key in vmfbs:
-            if key == "scheduler" and not self.cpu_scheduling:
-                val = f"EulerFlowScheduler_{self.num_inference_steps}"
-                default_filepath = os.path.join(self.pipeline_dir, val + ".vmfb")
-            elif key == "scheduler":
-                val = None
-                default_filepath = None
+            if key == "scheduler":
                 continue
+            elif key == "vae":
+                keywords = ["vae", self.vae_precision, height, width]
+                device_key = "vae"
             elif key == "clip":
-                val = "text_encoders"
-                default_filepath = os.path.join(self.pipeline_dir, val + ".vmfb")
+                keywords = ["text_encoders", self.precision, self.max_length]
+                device_key = "clip"
             else:
-                val = vmfbs[key]
-                default_filepath = os.path.join(self.pipeline_dir, key + ".vmfb")
-            if vmfbs[key] is not None and os.path.exists(vmfbs[key]):
-                continue
-            elif vmfbs[key] == None and os.path.exists(default_filepath):
-                vmfbs[key] = default_filepath
-            elif val is None:
-                missing.append(key + ".vmfb")
-            else:
-                missing.append(val + ".vmfb")
+                keywords = [key, self.precision, self.max_length, height, width]
+                device_key = key
+            avail_files = os.listdir(self.pipeline_dir)
+            keywords.append("vmfb")
+            keywords.append(self.devices[device_key]["target"])
+            for filename in avail_files:
+                if all(str(x) in filename for x in keywords):
+                    vmfbs[key] = os.path.join(self.pipeline_dir, filename)
+            if not vmfbs[key]:
+                missing.append(key + " vmfb")
         for w_key in weights:
             if any(x in w_key for x in ["pipeline", "scheduler"]):
                 continue
@@ -267,7 +268,7 @@ class SharkSD3Pipeline:
             if not os.path.exists(self.external_weights_dir):
                 os.makedirs(self.external_weights_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.external_weights_dir, "vae." + self.external_weights
+                self.external_weights_dir, f"sd3_vae_{self.vae_precision}." + self.external_weights
             )
             mmdit_external_weight_path = os.path.join(
                 self.external_weights_dir,
@@ -290,7 +291,7 @@ class SharkSD3Pipeline:
             if not os.path.exists(self.pipeline_dir):
                 os.makedirs(self.pipeline_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.pipeline_dir, "vae." + self.external_weights
+                self.pipeline_dir, f"sd3_vae_{self.vae_precision}." + self.external_weights
             )
             mmdit_external_weight_path = os.path.join(
                 self.pipeline_dir,
@@ -351,7 +352,7 @@ class SharkSD3Pipeline:
                     self.ireec_flags["scheduler"],
                     exit_on_vmfb=False,
                     pipeline_dir=self.pipeline_dir,
-                    input_mlir=input_mlir["scheduler"],
+                    input_mlir=None,
                 )
                 return scheduler_vmfb, None
             case "vae":
@@ -427,19 +428,19 @@ class SharkSD3Pipeline:
         unet_loaded = time.time()
         print("\n[LOG] MMDiT loaded in ", unet_loaded - load_start, "sec")
 
-        if not self.cpu_scheduling:
-            runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
-                self.devices["mmdit"]["driver"],
-                vmfbs["scheduler"],
-            )
-        else:
-            print("Using torch CPU scheduler.")
-            runners["scheduler"] = FlowMatchEulerDiscreteScheduler.from_pretrained(
-                self.hf_model_name, subfolder="scheduler"
-            )
+        # if not self.cpu_scheduling:
+        #     runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
+        #         self.devices["mmdit"]["driver"],
+        #         vmfbs["scheduler"],
+        #     )
+        # else:
+        #     print("Using torch CPU scheduler.")
+        #     runners["scheduler"] = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        #         self.hf_model_name, subfolder="scheduler"
+        #     )
 
-        sched_loaded = time.time()
-        print("\n[LOG] Scheduler loaded in ", sched_loaded - unet_loaded, "sec")
+        # sched_loaded = time.time()
+        # print("\n[LOG] Scheduler loaded in ", sched_loaded - unet_loaded, "sec")
         runners["vae"] = vmfbRunner(
             self.devices["vae"]["driver"],
             vmfbs["vae"],
@@ -447,7 +448,7 @@ class SharkSD3Pipeline:
             extra_plugin=delegate,
         )
         vae_loaded = time.time()
-        print("\n[LOG] VAE Decode loaded in ", vae_loaded - sched_loaded, "sec")
+        print("\n[LOG] VAE Decode loaded in ", vae_loaded - unet_loaded, "sec")
         runners["clip"] = vmfbRunner(
             self.devices["clip"]["driver"],
             vmfbs["clip"],
@@ -474,7 +475,34 @@ class SharkSD3Pipeline:
         guidance_scale: float = 4,
         seed: float = -1,
         return_imgs: bool = False,
+        steps: int = None,
+        cpu_scheduling: bool = False,
+        scheduler_id: str = None,
+        progress=None,
     ):
+        needs_new_scheduler = (steps and steps != self.num_inference_steps) or cpu_scheduling != self.cpu_scheduling
+        self.cpu_scheduling = cpu_scheduling
+        if steps:
+            self.num_inference_steps = steps
+        if steps and not self.cpu_scheduling and needs_new_scheduler:
+            self.runners["scheduler"] = None
+            self.num_inference_steps = steps
+            scheduler_path = f"EulerFlowScheduler_{self.num_inference_steps}"
+            if not os.path.exists(scheduler_path):
+               scheduler_path, _ = self.export_submodel("scheduler") 
+            try:
+                self.runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
+                    self.devices["mmdit"]["driver"],
+                    scheduler_path,
+                )
+            except:
+                print("JIT export of scheduler failed. Loading CPU scheduler.")
+                self.cpu_scheduling = True
+        if self.cpu_scheduling and needs_new_scheduler:
+            self.runners["scheduler"] = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                self.hf_model_name, subfolder="scheduler"
+            )
+
         # TODO: implement case where this is false e.g. in SDXL Turbo
         do_classifier_free_guidance = True
 
@@ -551,13 +579,16 @@ class SharkSD3Pipeline:
         if self.cpu_scheduling:
             timesteps, num_inference_steps = sd3_schedulers.retrieve_timesteps(
                 self.runners["scheduler"],
-                num_inference_steps=self.num_inference_steps, 
+                num_inference_steps=steps, 
                 timesteps=None,
             )
             steps = num_inference_steps
 
 
         for i in range(batch_count):
+            if self._interrupt:
+                self._interrupt = False
+                return
             unet_start = time.time()
             if not self.cpu_scheduling:
                 latents, steps, timesteps = self.runners["scheduler"].initialize(samples[i])
@@ -575,7 +606,10 @@ class SharkSD3Pipeline:
                 ),
                 None,
             ]
-            for s in range(steps):
+            for s in tqdm(iterable=range(steps), desc=f"Inference steps ({steps}), batch {i+1}"):
+                if self._interrupt:
+                    self._interrupt = False
+                    return
                 # print(f"step {s}")
                 if self.cpu_scheduling:
                     step_index = s
@@ -634,7 +668,6 @@ class SharkSD3Pipeline:
                         latents,
                         return_dict=False,
                     )[0]
-
             if isinstance(latents, torch.Tensor):
                 latents = latents.type(self.vae_dtype)
                 latents = ireert.asdevicearray(
@@ -691,7 +724,7 @@ class SharkSD3Pipeline:
             out_image = Image.fromarray(image)
             images.extend([[out_image]])
         if return_imgs:
-            return images[0]
+            return images
         for idx_batch, image_batch in enumerate(images):
             for idx, image in enumerate(image_batch):
                 img_path = (

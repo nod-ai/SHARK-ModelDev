@@ -160,13 +160,12 @@ def export_mmdit_model(
     weights_only=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_mmdit",
+    )
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, f"mmdit")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_mmdit",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
     if decomp_attn == True:
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
@@ -250,7 +249,7 @@ def export_mmdit_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=True,
             attn_spec=attn_spec,
         )

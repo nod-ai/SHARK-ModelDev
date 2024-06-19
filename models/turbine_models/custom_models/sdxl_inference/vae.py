@@ -85,26 +85,29 @@ def export_vae_model(
     input_mlir=None,
     weights_only=False,
 ):
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{height}x{width}_{precision}_vae_{variant}",
+    )
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, "vae_" + variant)
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{height}x{width}_{precision}_vae_{variant}_{device}",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )
         return vmfb_path
-
+    if precision == "fp32" and device == "rocm":
+        decomp_attn = True
+        external_weights = None
+        print("Decomposing attention and inlining weights for fp32 VAE on ROCm")
     if device == "cpu":
         decomp_attn = True
 
@@ -136,6 +139,7 @@ def export_vae_model(
     ]
     decomp_list = []
     if decomp_attn == True:
+        safe_name += "_decomp"
         decomp_list = [
             torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
             torch.ops.aten._scaled_dot_product_flash_attention.default,
@@ -173,7 +177,7 @@ def export_vae_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )

@@ -71,20 +71,20 @@ def export_vae_model(
     weights_only=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{height}x{width}_{precision}_vae_{device}",
+    )
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, "vae")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{height}x{width}_{precision}_vae_{device}",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
@@ -156,7 +156,7 @@ def export_vae_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )

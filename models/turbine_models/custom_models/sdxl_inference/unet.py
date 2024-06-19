@@ -93,13 +93,13 @@ def export_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet",
+    )
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, f"unet")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if decomp_attn == True:
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
@@ -190,7 +190,7 @@ def export_unet_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + target_triple,
             return_path=True,
             attn_spec=attn_spec,
         )
