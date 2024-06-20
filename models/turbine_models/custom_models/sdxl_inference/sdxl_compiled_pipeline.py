@@ -174,7 +174,13 @@ class SharkSDXLPipeline:
         dims = f"{str(self.width)}x{str(self.height)}"
         for key in vmfbs:
             if key == "scheduled_unet":
-                keywords = ["unet", self.scheduler_id, self.num_inference_steps, self.precision, dims]
+                keywords = [
+                    "unet",
+                    self.scheduler_id,
+                    self.num_inference_steps,
+                    self.precision,
+                    dims,
+                ]
                 device_key = "unet"
             elif key == "scheduler":
                 continue
@@ -189,7 +195,9 @@ class SharkSDXLPipeline:
                 device_key = key
             avail_files = os.listdir(self.pipeline_dir)
             keywords.append("vmfb")
-            keywords.append(utils.create_safe_name(self.hf_model_name.split("/")[-1], ""))
+            keywords.append(
+                utils.create_safe_name(self.hf_model_name.split("/")[-1], "")
+            )
             keywords.append(self.devices[device_key]["target"])
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords):
@@ -285,13 +293,16 @@ class SharkSDXLPipeline:
             if not os.path.exists(self.external_weights_dir):
                 os.makedirs(self.external_weights_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.external_weights_dir, f"vae_decode_{self.vae_precision}." + self.external_weights
+                self.external_weights_dir,
+                f"vae_decode_{self.vae_precision}." + self.external_weights,
             )
             unet_external_weight_path = os.path.join(
-                self.external_weights_dir, f"unet_{self.precision}." + self.external_weights
+                self.external_weights_dir,
+                f"unet_{self.precision}." + self.external_weights,
             )
             prompt_encoder_external_weight_path = os.path.join(
-                self.external_weights_dir, f"prompt_encoder_{self.precision}." + self.external_weights
+                self.external_weights_dir,
+                f"prompt_encoder_{self.precision}." + self.external_weights,
             )
         elif self.external_weights is None:
             print(
@@ -307,13 +318,15 @@ class SharkSDXLPipeline:
             if not os.path.exists(self.pipeline_dir):
                 os.makedirs(self.pipeline_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.pipeline_dir, f"vae_decode_{self.vae_precision}." + self.external_weights
+                self.pipeline_dir,
+                f"vae_decode_{self.vae_precision}." + self.external_weights,
             )
             unet_external_weight_path = os.path.join(
                 self.pipeline_dir, f"unet_{self.precision}." + self.external_weights
             )
             prompt_encoder_external_weight_path = os.path.join(
-                self.pipeline_dir, f"prompt_encoder_{self.precision}." + self.external_weights
+                self.pipeline_dir,
+                f"prompt_encoder_{self.precision}." + self.external_weights,
             )
         if weights_only:
             input_mlir = {
@@ -617,17 +630,24 @@ class SharkSDXLPipeline:
         scheduler_id: str = "EulerDiscrete",
         progress=None,
     ):
-        needs_new_scheduler = (steps and steps != self.num_inference_steps) or cpu_scheduling != self.cpu_scheduling
+        needs_new_scheduler = (
+            steps and steps != self.num_inference_steps
+        ) or cpu_scheduling != self.cpu_scheduling
         self.cpu_scheduling = cpu_scheduling
         if steps and not self.compiled_pipeline and needs_new_scheduler:
             self.num_inference_steps = steps
-        if steps and not self.cpu_scheduling and not self.compiled_pipeline and needs_new_scheduler:
+        if (
+            steps
+            and not self.cpu_scheduling
+            and not self.compiled_pipeline
+            and needs_new_scheduler
+        ):
             self.runners["scheduler"] = None
             self.num_inference_steps = steps
             self.scheduler_id = scheduler_id
             scheduler_path = f"{scheduler_id}Scheduler_{self.num_inference_steps}"
             if not os.path.exists(scheduler_path):
-               scheduler_path, _ = self.export_submodel("scheduler") 
+                scheduler_path, _ = self.export_submodel("scheduler")
             try:
                 self.runners["scheduler"] = schedulers.SharkSchedulerWrapper(
                     self.devices["unet"]["driver"],
@@ -637,9 +657,7 @@ class SharkSDXLPipeline:
                 print("JIT export of scheduler failed. Loading CPU scheduler.")
                 self.cpu_scheduling = True
         if self.cpu_scheduling and needs_new_scheduler:
-            scheduler = schedulers.get_scheduler(
-                self.hf_model_name, scheduler_id
-            )
+            scheduler = schedulers.get_scheduler(self.hf_model_name, scheduler_id)
             self.runners["scheduler"] = schedulers.SharkSchedulerCPUWrapper(
                 scheduler,
                 self.batch_size,
@@ -847,11 +865,11 @@ class SharkSDXLPipeline:
                         dtype=self.vae_dtype,
                     )
                 vae_start = time.time()
-                #print(latents.to_host()[0,0,:])
+                # print(latents.to_host()[0,0,:])
                 vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
                     latents
                 )
-                #print(vae_out.to_host()[0,0,:])
+                # print(vae_out.to_host()[0,0,:])
 
                 pipe_end = time.time()
 

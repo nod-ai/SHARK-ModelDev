@@ -32,8 +32,9 @@ def run_torch_vae(hf_model_name, variant, example_input):
     elif variant == "encode":
         results = vae_model.encode(example_input)
     np_torch_output = results.detach().cpu().numpy()
-    np_torch_output = imagearray_from_vae_out(np_torch_output)  
+    np_torch_output = imagearray_from_vae_out(np_torch_output)
     return np_torch_output
+
 
 def imagearray_from_vae_out(image):
     if image.ndim == 4:
@@ -41,6 +42,7 @@ def imagearray_from_vae_out(image):
     image = torch.from_numpy(image).cpu().permute(1, 2, 0).float().numpy()
     image = (image * 255).round().astype("uint8")
     return image
+
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
@@ -89,6 +91,4 @@ if __name__ == "__main__":
             out_image_turbine.save("vae_test_output_turbine.png")
         # Allow a small amount of wiggle room for rounding errors (1)
 
-        np.testing.assert_allclose(
-            turbine_results, torch_output, rtol=1, atol=1
-        )
+        np.testing.assert_allclose(turbine_results, torch_output, rtol=1, atol=1)

@@ -224,12 +224,11 @@ def export_scheduler_model(
         precision,
         str(num_inference_steps),
         target_triple,
-    ]  
+    ]
     vmfb_name = "_".join(vmfb_names)
     safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
-
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(

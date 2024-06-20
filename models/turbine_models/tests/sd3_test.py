@@ -57,7 +57,9 @@ def command_line_args(request):
         "--external_weight_path"
     )
     arguments["external_weight_dir"] = request.config.getoption("--external_weight_dir")
-    arguments["external_weight_file"] = request.config.getoption("--external_weight_file")
+    arguments["external_weight_file"] = request.config.getoption(
+        "--external_weight_file"
+    )
     arguments["vmfb_path"] = request.config.getoption("--vmfb_path")
     arguments["pipeline_vmfb_path"] = request.config.getoption("--pipeline_vmfb_path")
     arguments["scheduler_vmfb_path"] = request.config.getoption("--scheduler_vmfb_path")
@@ -96,6 +98,7 @@ def command_line_args(request):
     arguments["vae_flags"] = request.config.getoption("--vae_flags")
     arguments["mmdit_flags"] = request.config.getoption("--mmdit_flags")
 
+
 @pytest.mark.usefixtures("command_line_args")
 class StableDiffusion3Test(unittest.TestCase):
     def setUp(self):
@@ -116,11 +119,12 @@ class StableDiffusion3Test(unittest.TestCase):
 
     def test01_ExportPromptEncoder(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Not testing sd3 on vk or cuda"
-            )
+            self.skipTest("Not testing sd3 on vk or cuda")
         arguments["external_weight_path"] = (
-            arguments["external_weight_path"] + "/sd3_text_encoders_"+arguments["precision"]+ ".irpa" 
+            arguments["external_weight_path"]
+            + "/sd3_text_encoders_"
+            + arguments["precision"]
+            + ".irpa"
         )
         _, prompt_encoder_vmfb = sd3_text_encoders.export_text_encoders(
             arguments["hf_model_name"],
@@ -216,8 +220,14 @@ class StableDiffusion3Test(unittest.TestCase):
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
 
         hidden_states = torch.randn(
-        (arguments["batch_size"], 16, arguments["height"] // 8, arguments["width"] // 8), dtype=dtype
-    )
+            (
+                arguments["batch_size"],
+                16,
+                arguments["height"] // 8,
+                arguments["width"] // 8,
+            ),
+            dtype=dtype,
+        )
         encoder_hidden_states = torch.randn(
             (arguments["batch_size"], arguments["max_length"] * 2, 4096), dtype=dtype
         )
@@ -237,20 +247,20 @@ class StableDiffusion3Test(unittest.TestCase):
             timestep,
             arguments,
         )
-#        if arguments["benchmark"] or arguments["tracy_profile"]:
-#            run_benchmark(
-#                "unet",
-#                arguments["vmfb_path"],
-#                arguments["external_weight_path"],
-#                arguments["rt_device"],
-#                max_length=arguments["max_length"],
-#                height=arguments["height"],
-#                width=arguments["width"],
-#                batch_size=arguments["batch_size"],
-#                in_channels=arguments["in_channels"],
-#                precision=arguments["precision"],
-#                tracy_profile=arguments["tracy_profile"],
-#            )
+        #        if arguments["benchmark"] or arguments["tracy_profile"]:
+        #            run_benchmark(
+        #                "unet",
+        #                arguments["vmfb_path"],
+        #                arguments["external_weight_path"],
+        #                arguments["rt_device"],
+        #                max_length=arguments["max_length"],
+        #                height=arguments["height"],
+        #                width=arguments["width"],
+        #                batch_size=arguments["batch_size"],
+        #                in_channels=arguments["in_channels"],
+        #                precision=arguments["precision"],
+        #                tracy_profile=arguments["tracy_profile"],
+        #            )
         rtol = 4e-2
         atol = 4e-1
 
@@ -264,7 +274,7 @@ class StableDiffusion3Test(unittest.TestCase):
             # This is a public model, so no auth required
             exit_on_vmfb=True,
         )
-    
+
         arguments["external_weight_path"] = (
             self.safe_model_name
             + "_"
@@ -328,7 +338,7 @@ class StableDiffusion3Test(unittest.TestCase):
             "decode",
             example_input_torch,
         )
-        #if arguments["benchmark"] or arguments["tracy_profile"]:
+        # if arguments["benchmark"] or arguments["tracy_profile"]:
         #    run_benchmark(
         #        "vae_decode",
         #        arguments["vmfb_path"],
@@ -343,6 +353,7 @@ class StableDiffusion3Test(unittest.TestCase):
         atol = 4e-1
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
+
 
 #    def test04_ExportVaeModelEncode(self):
 #        if arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"]:

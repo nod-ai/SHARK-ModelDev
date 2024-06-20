@@ -177,9 +177,7 @@ def export_scheduled_unet_model(
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_scheduled_unet_{str(num_inference_steps)}",
     )
     if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, safe_name
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(

@@ -131,7 +131,8 @@ def export_text_encoders(
 ):
 
     safe_name = utils.create_safe_name(
-        hf_model_name, f"_bs{output_batchsize}_{str(max_length)}_{precision}_text_encoders-{device}"
+        hf_model_name,
+        f"_bs{output_batchsize}_{str(max_length)}_{precision}_text_encoders-{device}",
     )
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)

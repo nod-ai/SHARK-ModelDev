@@ -21,7 +21,7 @@ jobs:
         run: git fetch --no-tags --prune --depth=1 origin "${GITHUB_BASE_REF?}:${GITHUB_BASE_REF?}"
       - name: Install black
         run: |
-          python3 -m pip install black==23.3
+          python3 -m pip install black
       - name: Check if modified files are formatted
         run: |
           # The filter lowercase `d` means to exclude deleted files.

@@ -168,7 +168,8 @@ def export_prompt_encoder(
         do_classifier_free_guidance = True
 
     safe_name = utils.create_safe_name(
-        hf_model_name, f"_bs{output_batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}"
+        hf_model_name,
+        f"_bs{output_batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}",
     )
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, safe_name)

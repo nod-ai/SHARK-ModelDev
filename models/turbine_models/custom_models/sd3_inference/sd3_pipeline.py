@@ -63,9 +63,8 @@ class SharkSD3Pipeline:
         vae_decomp_attn: bool = False,
         cpu_scheduling: bool = False,
         vae_precision: str = "fp32",
-        scheduler_id: str = None, #compatibility only, always uses EulerFlowScheduler
+        scheduler_id: str = None,  # compatibility only, always uses EulerFlowScheduler
         shift: float = 1.0,
-
     ):
         self.hf_model_name = hf_model_name
         # self.scheduler_id = scheduler_id
@@ -131,6 +130,7 @@ class SharkSD3Pipeline:
         # TODO: set this based on user-inputted guidance scale and negative prompt.
         self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
         self._interrupt = False
+
     # FILE MANAGEMENT AND PIPELINE SETUP
 
     def check_prepared(
@@ -211,7 +211,8 @@ class SharkSD3Pipeline:
             )
             if w_key == "clip":
                 default_name = os.path.join(
-                    self.external_weights_dir, f"sd3_text_encoders_{self.precision}.irpa"
+                    self.external_weights_dir,
+                    f"sd3_text_encoders_{self.precision}.irpa",
                 )
             if w_key == "mmdit":
                 default_name = os.path.join(
@@ -269,7 +270,8 @@ class SharkSD3Pipeline:
             if not os.path.exists(self.external_weights_dir):
                 os.makedirs(self.external_weights_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.external_weights_dir, f"sd3_vae_{self.vae_precision}." + self.external_weights
+                self.external_weights_dir,
+                f"sd3_vae_{self.vae_precision}." + self.external_weights,
             )
             mmdit_external_weight_path = os.path.join(
                 self.external_weights_dir,
@@ -292,7 +294,8 @@ class SharkSD3Pipeline:
             if not os.path.exists(self.pipeline_dir):
                 os.makedirs(self.pipeline_dir, exist_ok=True)
             vae_external_weight_path = os.path.join(
-                self.pipeline_dir, f"sd3_vae_{self.vae_precision}." + self.external_weights
+                self.pipeline_dir,
+                f"sd3_vae_{self.vae_precision}." + self.external_weights,
             )
             mmdit_external_weight_path = os.path.join(
                 self.pipeline_dir,
@@ -481,7 +484,9 @@ class SharkSD3Pipeline:
         scheduler_id: str = None,
         progress=None,
     ):
-        needs_new_scheduler = (steps and steps != self.num_inference_steps) or cpu_scheduling != self.cpu_scheduling
+        needs_new_scheduler = (
+            steps and steps != self.num_inference_steps
+        ) or cpu_scheduling != self.cpu_scheduling
         self.cpu_scheduling = cpu_scheduling
         if steps:
             self.num_inference_steps = steps
@@ -490,7 +495,7 @@ class SharkSD3Pipeline:
             self.num_inference_steps = steps
             scheduler_path = f"EulerFlowScheduler_{self.num_inference_steps}"
             if not os.path.exists(scheduler_path):
-               scheduler_path, _ = self.export_submodel("scheduler") 
+                scheduler_path, _ = self.export_submodel("scheduler")
             try:
                 self.runners["scheduler"] = sd3_schedulers.SharkSchedulerWrapper(
                     self.devices["mmdit"]["driver"],
@@ -580,11 +585,10 @@ class SharkSD3Pipeline:
         if self.cpu_scheduling:
             timesteps, num_inference_steps = sd3_schedulers.retrieve_timesteps(
                 self.runners["scheduler"],
-                num_inference_steps=steps, 
+                num_inference_steps=steps,
                 timesteps=None,
             )
             steps = num_inference_steps
-
 
         for i in range(batch_count):
             if self._interrupt:
@@ -592,7 +596,9 @@ class SharkSD3Pipeline:
                 return
             unet_start = time.time()
             if not self.cpu_scheduling:
-                latents, steps, timesteps = self.runners["scheduler"].initialize(samples[i])
+                latents, steps, timesteps = self.runners["scheduler"].initialize(
+                    samples[i]
+                )
             else:
                 latents = torch.tensor(samples[i].to_host(), dtype=self.torch_dtype)
             iree_inputs = [
@@ -607,7 +613,9 @@ class SharkSD3Pipeline:
                 ),
                 None,
             ]
-            for s in tqdm(iterable=range(steps), desc=f"Inference steps ({steps}), batch {i+1}"):
+            for s in tqdm(
+                iterable=range(steps), desc=f"Inference steps ({steps}), batch {i+1}"
+            ):
                 if self._interrupt:
                     self._interrupt = False
                     return
@@ -640,7 +648,7 @@ class SharkSD3Pipeline:
                     )
                     t = ireert.asdevicearray(
                         self.runners["scheduler"].runner.config.device,
-                        timestep.to_host()[0]
+                        timestep.to_host()[0],
                     )
                 noise_pred = self.runners["pipe"].ctx.modules.compiled_mmdit[
                     "run_forward"
@@ -659,10 +667,14 @@ class SharkSD3Pipeline:
                         step_index,
                     )
                 else:
-                    noise_pred = torch.tensor(noise_pred.to_host(), dtype=self.torch_dtype)
+                    noise_pred = torch.tensor(
+                        noise_pred.to_host(), dtype=self.torch_dtype
+                    )
                     if self.do_classifier_free_guidance:
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                        noise_pred = noise_pred_uncond + guidance_scale * (
+                            noise_pred_text - noise_pred_uncond
+                        )
                     latents = self.runners["scheduler"].step(
                         noise_pred,
                         t,
@@ -676,7 +688,9 @@ class SharkSD3Pipeline:
                     latents,
                 )
             else:
-                vae_numpy_dtype = np.float32 if self.vae_precision == "fp32" else np.float16
+                vae_numpy_dtype = (
+                    np.float32 if self.vae_precision == "fp32" else np.float16
+                )
                 latents = latents.astype(vae_numpy_dtype)
 
             vae_start = time.time()
