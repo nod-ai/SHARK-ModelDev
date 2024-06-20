@@ -240,6 +240,16 @@ def compile_to_vmfb(
             flags.pop(idx)
     print("Compiling to", device, "with flags:", flags)
 
+    # Forces a standard for naming files:
+    # If safe_name has target triple in it, get rid of target triple in mlir name
+    #
+    if target_triple not in safe_name:
+        safe_vmfb_name = safe_name + "_" + target_triple
+        safe_mlir_name = safe_name
+    else:
+        safe_vmfb_name = safe_name
+        safe_mlir_name = "".join(safe_name.split(target_triple))
+
     if mlir_source == "file":
         flatbuffer_blob = ireec.compile_file(
             module_str,
@@ -249,9 +259,9 @@ def compile_to_vmfb(
         )
     elif mlir_source == "str":
         if save_mlir:
-            with open(f"{safe_name}.mlir", "w+") as f:
+            with open(f"{safe_mlir_name}.mlir", "w+") as f:
                 f.write(module_str)
-            print("Saved to", safe_name + ".mlir")
+            print("Saved to", safe_mlir_name + ".mlir")
         flatbuffer_blob = ireec.compile_str(
             module_str,
             target_backends=[device],
@@ -260,11 +270,11 @@ def compile_to_vmfb(
         )
     else:
         raise ValueError("mlir_source must be either 'file' or 'str'")
-    with open(f"{safe_name}.vmfb", "wb+") as f:
+    with open(f"{safe_vmfb_name}.vmfb", "wb+") as f:
         f.write(flatbuffer_blob)
-    print("Saved to", safe_name + ".vmfb")
+    print(f"Saved to {safe_vmfb_name}.vmfb")
     if return_path == True:
-        return safe_name + ".vmfb"
+        return safe_vmfb_name + ".vmfb"
 
 
 def create_safe_name(hf_model_name, model_name_str):

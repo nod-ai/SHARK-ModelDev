@@ -171,10 +171,18 @@ def export_scheduled_unet_model(
     # else:
     #     do_classifier_free_guidance = True
     do_classifier_free_guidance = True
-
+    filename_keys = [
+        f"bs{batch_size}",
+        str(max_length),
+        f"{height}x{width}",
+        precision,
+        scheduler_id,
+        "DiffusionModule",
+        str(num_inference_steps),
+    ]
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_scheduled_unet_{str(num_inference_steps)}",
+        "_".join(filename_keys),
     )
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)

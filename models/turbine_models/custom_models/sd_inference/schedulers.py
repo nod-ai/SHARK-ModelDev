@@ -223,7 +223,6 @@ def export_scheduler_model(
         f"{height}x{width}",
         precision,
         str(num_inference_steps),
-        target_triple,
     ]
     vmfb_name = "_".join(vmfb_names)
     safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)

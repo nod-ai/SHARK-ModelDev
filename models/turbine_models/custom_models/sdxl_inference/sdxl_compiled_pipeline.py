@@ -119,6 +119,7 @@ class SharkSDXLPipeline:
         self.custom_vae = custom_vae
         self.cpu_scheduling = cpu_scheduling
         self.compiled_pipeline = False
+        self.split_scheduler = False
         # TODO: set this based on user-inputted guidance scale and negative prompt.
         self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
         self._interrupt = False
@@ -166,7 +167,7 @@ class SharkSDXLPipeline:
                     print("There was an error generating the necessary files.")
                     exit()
         else:
-            print("All necessary files found. Loading pipeline.")
+            print("All necessary files found.")
         return vmfbs, weights
 
     def is_prepared(self, vmfbs, weights):
@@ -175,10 +176,11 @@ class SharkSDXLPipeline:
         for key in vmfbs:
             if key == "scheduled_unet":
                 keywords = [
-                    "unet",
+                    "DiffusionModule",
                     self.scheduler_id,
-                    self.num_inference_steps,
+                    str(self.num_inference_steps),
                     self.precision,
+                    self.max_length,
                     dims,
                 ]
                 device_key = "unet"
@@ -192,38 +194,44 @@ class SharkSDXLPipeline:
                 device_key = "clip"
             else:
                 keywords = [key, self.precision, self.max_length, dims]
-                device_key = key
-            avail_files = os.listdir(self.pipeline_dir)
-            keywords.append("vmfb")
-            keywords.append(
-                utils.create_safe_name(self.hf_model_name.split("/")[-1], "")
+                device_key = "unet"
+            keywords.extend(
+                [
+                    utils.create_safe_name(self.hf_model_name.split("/")[-1], ""),
+                    "vmfb",
+                    "bs" + str(self.batch_size),
+                    self.devices[device_key]["target"],
+                ]
             )
-            keywords.append(self.devices[device_key]["target"])
+            avail_files = os.listdir(self.pipeline_dir)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords):
                     vmfbs[key] = os.path.join(self.pipeline_dir, filename)
             if not vmfbs[key]:
                 missing.append(key + " vmfb")
+
         for w_key in weights:
-            if any(x in w_key for x in ["pipeline", "scheduler"]):
-                continue
-            if weights[w_key] is not None:
-                continue
-            if self.external_weights is None:
-                continue
-            default_name = os.path.join(
-                self.external_weights_dir, w_key + "." + self.external_weights
-            )
-            if weights[w_key] is None and os.path.exists(default_name):
-                weights[w_key] = os.path.join(default_name)
-            elif w_key in ["scheduled_unet"] and os.path.exists(
-                os.path.join(self.external_weights_dir, "unet." + self.external_weights)
+            if any(x in w_key for x in ["pipeline", "scheduler"]) or (
+                self.external_weights is None
             ):
-                weights[w_key] = os.path.join(
-                    self.external_weights_dir, "unet." + self.external_weights
+                continue
+            elif weights[w_key] is not None:
+                print("Weights already found for ", w_key, "at: ", weights[w_key])
+            elif w_key == "vae_decode":
+                keywords = ["vae", self.vae_precision]
+            elif w_key in ["prompt_encoder", "clip"]:
+                keywords = ["prompt_encoder", self.precision]
+            elif w_key in ["scheduled_unet", "unet"]:
+                keywords = ["unet", self.precision]
+            avail_weights = os.listdir(self.external_weights_dir)
+            for filename in avail_weights:
+                if all(str(x) in filename for x in keywords):
+                    weights[w_key] = os.path.join(self.external_weights_dir, filename)
+            if not weights[w_key]:
+                missing.append(
+                    " ".join([keywords[0], keywords[1], self.external_weights])
                 )
-            else:
-                missing.append(w_key + "." + self.external_weights)
+
         if len(missing) > 0:
             print(f"Missing files: " + ", ".join(missing))
             return False, vmfbs, weights
@@ -476,12 +484,20 @@ class SharkSDXLPipeline:
                     self.max_length,
                     "unet_loop",
                 )
+                pipeline_keys = [
+                    utils.create_safe_name(self.hf_model_name.split("/")[-1], ""),
+                    "bs" + str(self.batch_size),
+                    f"{str(self.width)}x{str(self.height)}",
+                    self.precision,
+                    str(self.max_length),
+                    "pipeline",
+                ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
                     self.devices["unet"]["device"],
                     self.devices["unet"]["target"],
                     self.ireec_flags["pipeline"],
-                    os.path.join(self.pipeline_dir, "pipeline"),
+                    os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
                     return_path=True,
                     mlir_source="str",
                 )
@@ -495,12 +511,20 @@ class SharkSDXLPipeline:
                     self.max_length,
                     "tokens_to_image",
                 )
+                pipeline_keys = [
+                    utils.create_safe_name(self.hf_model_name.split("/")[-1], ""),
+                    "bs" + str(self.batch_size),
+                    f"{str(self.width)}x{str(self.height)}",
+                    self.precision,
+                    str(self.max_length),
+                    "full_pipeline",
+                ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
                     self.devices["unet"]["device"],
                     self.devices["unet"]["target"],
                     self.ireec_flags["pipeline"],
-                    os.path.join(self.pipeline_dir, "full_pipeline"),
+                    os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
                     return_path=True,
                     mlir_source="str",
                 )
@@ -631,9 +655,13 @@ class SharkSDXLPipeline:
         progress=None,
     ):
         needs_new_scheduler = (
-            steps and steps != self.num_inference_steps
-        ) or cpu_scheduling != self.cpu_scheduling
+            (steps and steps != self.num_inference_steps)
+            or (cpu_scheduling != self.cpu_scheduling)
+            and self.split_scheduler
+        )
+
         self.cpu_scheduling = cpu_scheduling
+
         if steps and not self.compiled_pipeline and needs_new_scheduler:
             self.num_inference_steps = steps
         if (
@@ -953,13 +981,10 @@ if __name__ == "__main__":
 
     map = empty_pipe_dict
     if args.split_scheduler:
-        map["scheduler"] = None
         map["unet"] = None
         map.pop("scheduled_unet")
         map.pop("pipeline")
         map.pop("full_pipeline")
-        if args.cpu_scheduling:
-            map.pop("scheduler")
     mlirs = copy.deepcopy(map)
     vmfbs = copy.deepcopy(map)
     weights = copy.deepcopy(map)
@@ -1002,20 +1027,12 @@ if __name__ == "__main__":
         "scheduler": args.ireec_flags,
     }
     if not args.pipeline_dir:
-        pipe_id_list = [
-            args.hf_model_name.split("/")[-1],
-            str(args.height),
-            str(args.width),
-            str(args.max_length),
-            args.precision,
-            args.device,
-        ]
-        if args.decomp_attn:
-            pipe_id_list.append("decomp")
         args.pipeline_dir = os.path.join(
             ".",
-            "_".join(pipe_id_list),
+            utils.create_safe_name(args.hf_model_name, ""),
         )
+        if not os.path.exists(args.pipeline_dir):
+            os.makedirs(args.pipeline_dir, exist_ok=True)
     if args.input_mlir:
         user_mlir_list = args.input_mlir.split(",")
     else:
@@ -1027,14 +1044,15 @@ if __name__ == "__main__":
         args.external_weights_dir = args.pipeline_dir
     sdxl_pipe = SharkSDXLPipeline(
         args.hf_model_name,
-        args.scheduler_id,
         args.height,
         args.width,
         args.precision,
         args.max_length,
         args.batch_size,
+        args.num_inference_steps,
         devices,
         targets,
+        args.scheduler_id,
         ireec_flags,
         args.attn_spec,
         args.decomp_attn,
@@ -1045,9 +1063,9 @@ if __name__ == "__main__":
         custom_vae=None,
         vae_precision=args.vae_precision,
     )
+
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)
-    if args.cpu_scheduling:
-        vmfbs["scheduler"] = None
+
     if args.npu_delegate_path:
         extra_device_args = {"npu_delegate_path": args.npu_delegate_path}
     else:

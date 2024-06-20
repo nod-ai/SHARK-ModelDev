@@ -125,7 +125,7 @@ p.add_argument(
 
 p.add_argument(
     "--split_scheduler",
-    default=True,
+    default=False,
     action="store_true",
     help="Use a decoupled unet and scheduler for better QOL.",
 )
