@@ -208,7 +208,7 @@ def export_scheduler_model(
     scheduler_module = FlowSchedulingModel(hf_model_name, num_inference_steps, dtype)
     vmfb_names = [
         "EulerFlowScheduler",
-        f"bs{args.batch_size}_{args.height}x{args.width}",
+        f"bs{batch_size}_{height}x{width}",
         precision,
         str(num_inference_steps),
         target_triple,

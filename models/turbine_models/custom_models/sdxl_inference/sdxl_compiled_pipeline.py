@@ -118,8 +118,10 @@ class SharkSDXLPipeline:
         self.vae_dtype = "float32" if vae_precision == "fp32" else "float16"
         self.custom_vae = custom_vae
         self.cpu_scheduling = cpu_scheduling
+        self.compiled_pipeline = False
         # TODO: set this based on user-inputted guidance scale and negative prompt.
         self.do_classifier_free_guidance = True  # False if any(x in hf_model_name for x in ["turbo", "lightning"]) else True
+        self._interrupt = False
 
     # FILE MANAGEMENT AND PIPELINE SETUP
 
@@ -145,6 +147,9 @@ class SharkSDXLPipeline:
                     if vmfbs[submodel] == None:
                         print("Fetching: ", submodel)
                         vmfb, weight = self.export_submodel(submodel, input_mlir=mlirs)
+                        if self._interrupt:
+                            self._interrupt = False
+                            return None, None
                         vmfbs[submodel] = vmfb
                         if weights[submodel] is None:
                             weights[submodel] = weight
@@ -166,25 +171,25 @@ class SharkSDXLPipeline:
 
     def is_prepared(self, vmfbs, weights):
         missing = []
-        height = self.height
-        width = self.width
+        dims = f"{str(self.width)}x{str(self.height)}"
         for key in vmfbs:
             if key == "scheduled_unet":
-                keywords = ["unet", self.scheduler_id, self.num_inference_steps, self.precision, height, width]
+                keywords = ["unet", self.scheduler_id, self.num_inference_steps, self.precision, dims]
                 device_key = "unet"
             elif key == "scheduler":
                 continue
             elif key == "vae_decode":
-                keywords = ["vae", self.vae_precision, height, width]
+                keywords = ["vae", self.vae_precision, dims]
                 device_key = "vae"
             elif key == "prompt_encoder":
                 keywords = ["prompt_encoder", self.precision, self.max_length]
                 device_key = "clip"
             else:
-                keywords = [key, self.precision, self.max_length, height, width]
+                keywords = [key, self.precision, self.max_length, dims]
                 device_key = key
             avail_files = os.listdir(self.pipeline_dir)
             keywords.append("vmfb")
+            keywords.append(utils.create_safe_name(self.hf_model_name.split("/")[-1], ""))
             keywords.append(self.devices[device_key]["target"])
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords):
@@ -272,6 +277,8 @@ class SharkSDXLPipeline:
         input_mlir: str = None,
         weights_only: bool = False,
     ):
+        if self._interrupt:
+            return None, None
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
         if self.external_weights and self.external_weights_dir:
@@ -760,11 +767,19 @@ class SharkSDXLPipeline:
             encode_prompts_end = time.time()
 
             for i in range(batch_count):
+                if self._interrupt:
+                    self._interrupt = False
+                    return None
                 unet_start = time.time()
                 if self.split_scheduler:
-                    sample, time_ids, steps, timesteps = self.runners[
-                        "scheduler"
-                    ].initialize(samples[i])
+                    if self.cpu_scheduling:
+                        sample, time_ids, steps, timesteps = self.runners[
+                            "scheduler"
+                        ].initialize(samples[i], self.num_inference_steps)
+                    else:
+                        sample, time_ids, steps, timesteps = self.runners[
+                            "scheduler"
+                        ].initialize(samples[i])
                     iree_inputs = [
                         sample,
                         ireert.asdevicearray(
@@ -777,6 +792,9 @@ class SharkSDXLPipeline:
                         None,
                     ]
                     for s in range(steps):
+                        if self._interrupt:
+                            self._interrupt = False
+                            return None
                         # print(f"step {s}")
                         if self.cpu_scheduling:
                             step_index = s
@@ -829,9 +847,11 @@ class SharkSDXLPipeline:
                         dtype=self.vae_dtype,
                     )
                 vae_start = time.time()
+                #print(latents.to_host()[0,0,:])
                 vae_out = self.runners["vae_decode"].ctx.modules.compiled_vae["main"](
                     latents
                 )
+                #print(vae_out.to_host()[0,0,:])
 
                 pipe_end = time.time()
 

@@ -136,15 +136,17 @@ class SharkSchedulerCPUWrapper:
         self.dest = dest_device
         self.dtype = latents_dtype
         self.batch_size = batch_size
-        self.module.set_timesteps(num_inference_steps)
-        self.timesteps = self.module.timesteps
+        self.timesteps = None
         self.torch_dtype = (
             torch.float32 if latents_dtype == "float32" else torch.float16
         )
 
-    def initialize(self, sample):
+    def initialize(self, sample, num_inference_steps):
         if isinstance(sample, ireert.DeviceArray):
             sample = torch.tensor(sample.to_host(), dtype=torch.float32)
+
+        self.module.set_timesteps(num_inference_steps)
+        self.timesteps = self.module.timesteps
         height = sample.shape[2] * 8
         width = sample.shape[3] * 8
         original_size = (height, width)
@@ -157,7 +159,7 @@ class SharkSchedulerCPUWrapper:
             add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(
                 self.torch_dtype
             )
-        step_indexes = torch.tensor(len(self.module.timesteps))
+        step_indexes = torch.tensor(len(self.timesteps))
         timesteps = self.timesteps
         sample = sample * self.module.init_noise_sigma
         add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)

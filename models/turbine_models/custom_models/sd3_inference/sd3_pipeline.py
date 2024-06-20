@@ -176,23 +176,24 @@ class SharkSD3Pipeline:
 
     def is_prepared(self, vmfbs, weights):
         missing = []
-        height = self.height
-        width = self.width
+        dims = f"{str(self.width)}x{str(self.height)}"
         for key in vmfbs:
             if key == "scheduler":
                 continue
             elif key == "vae":
-                keywords = ["vae", self.vae_precision, height, width]
+                keywords = ["vae", self.vae_precision, dims]
                 device_key = "vae"
             elif key == "clip":
                 keywords = ["text_encoders", self.precision, self.max_length]
                 device_key = "clip"
             else:
-                keywords = [key, self.precision, self.max_length, height, width]
+                keywords = [key, self.precision, self.max_length, dims]
                 device_key = key
             avail_files = os.listdir(self.pipeline_dir)
             keywords.append("vmfb")
+            keywords.append(utils.create_safe_name(self.hf_model_name, ""))
             keywords.append(self.devices[device_key]["target"])
+            print(keywords)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords):
                     vmfbs[key] = os.path.join(self.pipeline_dir, filename)
