@@ -65,6 +65,7 @@ class SharkSD3Pipeline:
         vae_precision: str = "fp32",
         scheduler_id: str = None,  # compatibility only, always uses EulerFlowScheduler
         shift: float = 1.0,
+        custom_vae: str = None,
     ):
         self.hf_model_name = hf_model_name
         # self.scheduler_id = scheduler_id
@@ -122,7 +123,7 @@ class SharkSD3Pipeline:
         self.external_weights_dir = external_weights_dir
         self.external_weights = external_weights
         self.vae_decomp_attn = vae_decomp_attn
-        self.custom_vae = None
+        self.custom_vae = custom_vae
         self.cpu_scheduling = cpu_scheduling
         self.torch_dtype = torch.float32 if self.precision == "fp32" else torch.float16
         self.vae_precision = vae_precision if vae_precision else self.precision

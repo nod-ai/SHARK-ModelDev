@@ -32,8 +32,8 @@ empty_pipe_dict = {
     "vae_decode": None,
     "prompt_encoder": None,
     "scheduled_unet": None,
-    "pipeline": None,
-    "full_pipeline": None,
+    "unetloop": None,
+    "fullpipeline": None,
 }
 
 EMPTY_FLAGS = {
@@ -117,6 +117,12 @@ class SharkSDXLPipeline:
         self.vae_precision = vae_precision
         self.vae_dtype = "float32" if vae_precision == "fp32" else "float16"
         self.custom_vae = custom_vae
+        if self.custom_vae:
+            self.vae_dir = os.path.join(
+                self.pipeline_dir, utils.create_safe_name(custom_vae, "")
+            )
+            if not os.path.exists(self.vae_dir):
+                os.makedirs(self.vae_dir)
         self.cpu_scheduling = cpu_scheduling
         self.compiled_pipeline = False
         self.split_scheduler = False
@@ -173,6 +179,7 @@ class SharkSDXLPipeline:
     def is_prepared(self, vmfbs, weights):
         missing = []
         dims = f"{str(self.width)}x{str(self.height)}"
+        pipeline_dir = self.pipeline_dir
         for key in vmfbs:
             if key == "scheduled_unet":
                 keywords = [
@@ -189,6 +196,8 @@ class SharkSDXLPipeline:
             elif key == "vae_decode":
                 keywords = ["vae", self.vae_precision, dims]
                 device_key = "vae"
+                if self.custom_vae:
+                    pipeline_dir = self.vae_dir
             elif key == "prompt_encoder":
                 keywords = ["prompt_encoder", self.precision, self.max_length]
                 device_key = "clip"
@@ -203,10 +212,10 @@ class SharkSDXLPipeline:
                     self.devices[device_key]["target"],
                 ]
             )
-            avail_files = os.listdir(self.pipeline_dir)
+            avail_files = os.listdir(pipeline_dir)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords):
-                    vmfbs[key] = os.path.join(self.pipeline_dir, filename)
+                    vmfbs[key] = os.path.join(pipeline_dir, filename)
             if not vmfbs[key]:
                 missing.append(key + " vmfb")
 
@@ -432,6 +441,14 @@ class SharkSDXLPipeline:
                     vae_torch = self.get_torch_models("vae_decode")
                 else:
                     vae_torch = None
+                if self.custom_vae:
+                    vae_external_weight_path = os.path.join(
+                        self.vae_dir,
+                        f"vae_decode_{self.vae_precision}." + self.external_weights,
+                    )
+                    vae_dir = self.vae_dir
+                else:
+                    vae_dir = self.pipeline_dir
                 vae_decode_vmfb = vae.export_vae_model(
                     vae_torch,
                     self.hf_model_name,
@@ -448,7 +465,7 @@ class SharkSDXLPipeline:
                     "decode",
                     self.vae_decomp_attn,
                     exit_on_vmfb=False,
-                    pipeline_dir=self.pipeline_dir,
+                    pipeline_dir=vae_dir,
                     attn_spec=self.attn_spec,
                     input_mlir=input_mlir["vae_decode"],
                     weights_only=weights_only,
@@ -468,14 +485,16 @@ class SharkSDXLPipeline:
                     self.devices["clip"]["target"],
                     self.ireec_flags["clip"],
                     exit_on_vmfb=False,
-                    pipeline_dir=self.pipeline_dir,
+                    pipeline_dir=(
+                        self.pipeline_dir if not self.custom_vae else self.vae_dir
+                    ),
                     input_mlir=input_mlir["prompt_encoder"],
                     attn_spec=self.attn_spec,
                     weights_only=weights_only,
                     output_batchsize=self.batch_size,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
-            case "pipeline":
+            case "unetloop":
                 pipeline_file = get_pipeline_ir(
                     self.width,
                     self.height,
@@ -490,7 +509,7 @@ class SharkSDXLPipeline:
                     f"{str(self.width)}x{str(self.height)}",
                     self.precision,
                     str(self.max_length),
-                    "pipeline",
+                    "unetloop",
                 ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
@@ -502,7 +521,7 @@ class SharkSDXLPipeline:
                     mlir_source="str",
                 )
                 return pipeline_vmfb, None
-            case "full_pipeline":
+            case "fullpipeline":
                 pipeline_file = get_pipeline_ir(
                     self.width,
                     self.height,
@@ -517,7 +536,7 @@ class SharkSDXLPipeline:
                     f"{str(self.width)}x{str(self.height)}",
                     self.precision,
                     str(self.max_length),
-                    "full_pipeline",
+                    "fullpipeline",
                 ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,

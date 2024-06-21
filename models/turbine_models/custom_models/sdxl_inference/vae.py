@@ -19,6 +19,7 @@ from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
 from diffusers import AutoencoderKL
+import safetensors
 
 
 class VaeModel(torch.nn.Module):
@@ -34,6 +35,14 @@ class VaeModel(torch.nn.Module):
                 hf_model_name,
                 subfolder="vae",
             )
+        elif "safetensors" in custom_vae:
+            custom_vae = safetensors.torch.load_file(custom_vae)
+            # custom vae as a HF state dict
+            self.vae = AutoencoderKL.from_pretrained(
+                hf_model_name,
+                subfolder="vae",
+            )
+            self.vae.load_state_dict(custom_vae)
         elif not isinstance(custom_vae, dict):
             try:
                 # custom HF repo with no vae subfolder
@@ -46,13 +55,6 @@ class VaeModel(torch.nn.Module):
                     custom_vae,
                     subfolder="vae",
                 )
-        else:
-            # custom vae as a HF state dict
-            self.vae = AutoencoderKL.from_pretrained(
-                hf_model_name,
-                subfolder="vae",
-            )
-            self.vae.load_state_dict(custom_vae)
 
     def decode(self, inp):
         img = 1 / 0.13025 * inp
@@ -104,10 +106,10 @@ def export_vae_model(
             attn_spec=attn_spec,
         )
         return vmfb_path
-    if precision == "fp32" and device == "rocm":
-        decomp_attn = True
-        external_weights = None
-        print("Decomposing attention and inlining weights for fp32 VAE on ROCm")
+    # if precision == "fp32" and device == "rocm":
+    #     decomp_attn = True
+    #     external_weights = None
+    #     print("Decomposing attention and inlining weights for fp32 VAE on ROCm")
     if device == "cpu":
         decomp_attn = True
 
