@@ -220,7 +220,7 @@ class SharkSDXLPipeline:
                 missing.append(key + " vmfb")
 
         for w_key in weights:
-            if any(x in w_key for x in ["pipeline", "scheduler"]) or (
+            if any(x in w_key for x in ["fullpipeline", "unetloop", "scheduler"]) or (
                 self.external_weights is None
             ):
                 continue
