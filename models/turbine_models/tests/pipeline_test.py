@@ -13,7 +13,11 @@ import numpy as np
 from iree.compiler.ir import Context
 from shark_turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
-from shark_turbine.transforms import FuncOpMatcher, Pass
+from turbine_models.custom_models.pipeline_base import (
+    PipelineComponent,
+    TurbinePipelineBase,
+)
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 
 
 class TestModule(torch.nn.Module):
@@ -35,17 +39,22 @@ def export_dummy_model():
     model = TestModule()
     target = "x86_64-unknown-linux-gnu"
     device = "llvm-cpu"
-    model_metadata = {
+    model_metadata_forward = {
         "model_name": "TestModel2xLinear",
-        "input_shapes": [(10,)],
+        "input_shapes": [10],
         "input_dtypes": ["float32"],
-        "output_shapes": [(10,)],
+        "output_shapes": [10],
         "output_dtypes": ["float32"],
         "test_kwarg_1": "test_kwarg_1_value",
         "test_kwarg_2": "test_kwarg_2_value",
     }
     dummy_input = torch.empty(10)
-    safe_name = model_metadata["model_name"].replace("/", "_")
+    safe_keys = [
+        model_metadata_forward["model_name"],
+        "fp32",
+        "bs1",
+    ]
+    safe_name = "_".join(safe_keys)
     vmfb_path = f"./{safe_name}.vmfb"
 
     fxb = FxProgramsBuilder(model)
@@ -59,16 +68,81 @@ def export_dummy_model():
 
     inst = CompiledTester(context=Context(), import_to="IMPORT")
     mlir_module = CompiledModule.get_mlir_module(inst)
-    funcop_pass = Pass(mlir_module.operation)
+    metadata_pass = AddMetadataPass(mlir_module)
+    mlir_module = metadata_pass.run(model_metadata_forward, "forward")
+    vmfb_path = utils.compile_to_vmfb(
+        str(mlir_module),
+        device,
+        target,
+        None,
+        safe_name + "_" + target,
+        return_path=True,
+    )
+    return vmfb_path
 
-    breakpoint()
+
+class TestPipeline(TurbinePipelineBase):
+    def __init__(
+        self,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+    def run(self, inputs: list):
+        return self.test_model_1("forward", *inputs)
 
 
-# class PipelineTest(unittest.TestCase):
-#     def setUp(self):
-#         model_map = {
-#             'test_model_1':
-#         }
+class PipelineTest(unittest.TestCase):
+    def setUp(self):
+        model_map = {
+            "test_model_1": {
+                "model_name": "TestModel1",
+                "external_weights": None,
+                "module_name": "compiled_tester",
+                "safe_name": "TestModel2xLinear",
+                "keywords": ["Test", "Model", "2x", "Linear"],
+                "export_fn": export_dummy_model,
+                "export_args": None,
+            }
+        }
+        self.model_metadata_forward = {
+            "model_name": "TestModel2xLinear",
+            "input_shapes": {"0": "10,"},
+            "input_dtypes": {"0": "float32"},
+            "output_shapes": {"0": "10,"},
+            "output_dtypes": {"0": "float32"},
+            "test_kwarg_1": "test_kwarg_1_value",
+            "test_kwarg_2": "test_kwarg_2_value",
+        }
+        self.pipe = TestPipeline(
+            model_map=model_map,
+            batch_size=1,
+            device="cpu",
+            iree_target_triple="x86_64-unknown-linux-gnu",
+            pipeline_dir="./",
+            precision="fp32",
+        )
+        self.pipe.prepare_all()
+        self.pipe.load_map()
+        self.test_input = [torch.ones(10)]
+
+    def test_pipeline(self):
+        output = self.pipe.run(self.test_input).to_host()
+        print(output)
+
+    def test_pipeline_benchmark(self):
+        self.pipe.test_model_1.benchmark = True
+        output = self.pipe.run(self.test_input).to_host()
+        print(output)
+
+    def test_pipeline_metadata(self):
+        metadata = self.pipe.test_model_1.get_metadata("forward")
+        assert (
+            self.model_metadata_forward.keys() == metadata.keys()
+        ), "Metadata keys mismatch: expected {}, got {}".format(
+            self.model_metadata_forward.keys(), metadata.keys()
+        )
+
 
 if __name__ == "__main__":
-    export_dummy_model()
+    unittest.main()

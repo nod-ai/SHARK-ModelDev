@@ -27,10 +27,12 @@ from datetime import datetime as dt
 def merge_arg_into_map(model_map, arg, arg_name):
     if isinstance(arg, dict):
         for key in arg.keys():
-            model_map[key][arg_name] = arg[key]
+            if not model_map[key].get(arg_name):
+                model_map[key][arg_name] = arg[key]
     else:
         for key in model_map.keys():
-            model_map[key][arg_name] = arg
+            if not model_map[key].get(arg_name):
+                model_map[key][arg_name] = arg
     return model_map
 
 
@@ -65,15 +67,20 @@ class PipelineComponent:
         )
         self.device = self.runner.config.device
         self.module = getattr(self.runner.ctx.modules, module_name)
-        if "get_metadata" in self.module.keys():
-            self.metadata = self.module["get_metadata"]()
+        self.metadata = None
 
     def unload(self):
         self.device = None
         self.runner = None
         gc.collect()
 
+    def get_metadata(self, function_name):
+        if not self.metadata:
+            self.metadata = self.module[function_name].vm_function.reflection
+        return self.metadata
+
     def _run(self, function_name, inputs: list):
+        print(inputs)
         return self.module[function_name](*inputs)
 
     def _run_and_benchmark(self, function_name, inputs: list):
@@ -84,17 +91,22 @@ class PipelineComponent:
         return output
 
     def __call__(self, function_name, inputs: list):
+        casted_output = False
         if not isinstance(inputs, list):
             inputs = [inputs]
         if self.benchmark:
             output = self._run_and_benchmark(function_name, inputs)
         else:
             output = self._run(function_name, inputs)
-        if output.dtype() != self.output_dtype:
+        if output.dtype != self.output_dtype:
+            casted_output = True
             output = output.astype(self.output_dtype)
-
         match self.output_type:
             case ireert.DeviceArray:
+                if casted_output:
+                    output = ireert.asdevicearray(
+                        self.device, output, self.output_dtype
+                    )
                 return output
             case torch.Tensor:
                 return torch.tensor(output.to_host())
@@ -159,7 +171,7 @@ class TurbinePipelineBase:
         precision: str | dict[str] = "fp16",
         td_spec: str | dict[str] = None,
         decomp_attn: bool | dict[bool] = False,
-        external_weights: str | dict[str] = "safetensors",
+        external_weights: str | dict[str] = None,
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
     ):
@@ -174,21 +186,17 @@ class TurbinePipelineBase:
                 assert (
                     submodel in iree_target_triple.keys()
                 ), f"Target arch for {submodel} not found."
-                self.map[submodel]["device"] = (device[submodel],)
-                self.map[submodel]["driver"] = (
-                    utils.iree_device_map(device[submodel]),
-                )
+                self.map[submodel]["device"] = device[submodel]
+                self.map[submodel]["driver"] = utils.iree_device_map(device[submodel])
                 self.map[submodel]["target"] = iree_target_triple[submodel]
         else:
             assert isinstance(
                 iree_target_triple, str
             ), "Device and target triple must be both dicts or both strings."
             for submodel in self.map.keys():
-                self.map[submodel]["device"] = (device[submodel],)
-                self.map[submodel]["driver"] = (
-                    utils.iree_device_map(device[submodel]),
-                )
-                self.map[submodel]["target"] = iree_target_triple[submodel]
+                self.map[submodel]["device"] = device
+                self.map[submodel]["driver"] = utils.iree_device_map(device)
+                self.map[submodel]["target"] = iree_target_triple
         map_arguments = {
             "ireec_flags": ireec_flags,
             "precision": precision,
@@ -216,7 +224,11 @@ class TurbinePipelineBase:
         print(self.map)
 
         self.pipeline_dir = pipeline_dir
+        if not os.path.exists(self.pipeline_dir):
+            os.makedirs(self.pipeline_dir)
         self.external_weights_dir = external_weights_dir
+        if not os.path.exists(self.external_weights_dir):
+            os.makedirs(self.external_weights_dir)
 
         # Disabled for now -- enable through option when turbine tank is ready.
         self.download = False
@@ -234,10 +246,10 @@ class TurbinePipelineBase:
 
     def prepare_all(
         self,
-        mlirs: dict,
-        vmfbs: dict,
-        weights: dict,
-        interactive: bool = True,
+        mlirs: dict = {},
+        vmfbs: dict = {},
+        weights: dict = {},
+        interactive: bool = False,
     ):
         ready = self.is_prepared(vmfbs, weights)
         match ready:
@@ -263,6 +275,7 @@ class TurbinePipelineBase:
 
     def is_prepared(self, vmfbs, weights):
         missing = {}
+        ready = False
         pipeline_dir = self.pipeline_dir
         for key in self.map:
             missing[key] = []
@@ -301,6 +314,8 @@ class TurbinePipelineBase:
 
             # Make sure vmfb needs external weights, as they may be inlined.
             if self.map[key].get("external_weights"):
+                if self.map[key]["external_weights"]:
+                    continue
                 if self.map[key].get("weights"):
                     # weights already found in model map
                     continue
@@ -330,11 +345,10 @@ class TurbinePipelineBase:
                 else:
                     # weights not found in external_weights_dir. Add to list of files to generate.
                     missing[key].append("weights")
-            if any(missing[key].values()):
-                print(f"Missing files for {key}: ", missing[key])
-                ready = False
-            else:
-                ready = True
+        if not any(x for x in missing.values()):
+            ready = True
+        else:
+            print("Missing files: ", missing)
         return ready
 
     def get_mlir_from_turbine_tank(self, submodel, container_name):
@@ -355,6 +369,7 @@ class TurbinePipelineBase:
     def export_submodel(
         self,
         submodel: str,
+        input_mlir: str = None,
         weights_only: bool = False,
     ):
         if not os.path.exists(self.pipeline_dir):
@@ -367,10 +382,10 @@ class TurbinePipelineBase:
             self.map[submodel]["weights"] = os.path.join(
                 self.external_weights_dir,
                 f"{submodel}_{self.map[submodel]['precision']}."
-                + self.map["submodel"]["external_weights"],
+                + self.map[submodel]["external_weights"],
             )
 
-        elif not self.map["submodel"]["external_weights"]:
+        elif not self.map[submodel].get("external_weights"):
             print(
                 "No external weights type specified using --external_weights, weights for imported .mlir files will not be externalized."
             )
@@ -449,9 +464,13 @@ class TurbinePipelineBase:
                 self.map[submodel]["vmfb"] = vmfb_path
                 self.map[submodel]["weights"] = None
             case _:
-                export_args = dict(**self.map[submodel]["export_args"])
-                export_args["input_mlir"] = self.map[submodel].get("mlir")
-                vmfb_path = self.map[submodel]["export"](*export_args)
+                export_args = self.map[submodel].get("export_args", {})
+                if self.map[submodel].get("input_mlir"):
+                    export_args["input_mlir"] = self.map[submodel].get("mlir")
+                if export_args:
+                    vmfb_path = self.map[submodel]["export_fn"](**export_args)
+                else:
+                    vmfb_path = self.map[submodel]["export_fn"]()
 
     # LOAD
     def load_map(self):
