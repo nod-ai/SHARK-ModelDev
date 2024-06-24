@@ -221,10 +221,14 @@ def compile_to_vmfb(
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
     if attn_spec in ["default", "mfma"]:
-        attn_spec = get_mfma_spec_path(target_triple, os.path.dirname(safe_name))
+        attn_spec = get_mfma_spec_path(
+            target_triple, os.path.dirname(safe_name), masked_attention
+        )
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+        attn_spec = get_wmma_spec_path(
+            target_triple, os.path.dirname(safe_name), masked_attention
+        )
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     elif attn_spec and attn_spec != "None":
@@ -294,8 +298,11 @@ def create_safe_name(hf_model_name, model_name_str):
     return safe_name
 
 
-def get_mfma_spec_path(target_chip, save_dir):
-    url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
+def get_mfma_spec_path(target_chip, save_dir, masked_attention=False):
+    if not masked_attention:
+        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_mfma.mlir"
+    else:
+        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, "attention_and_matmul_spec_mfma.mlir")
     if os.path.exists(spec_path):
@@ -305,8 +312,10 @@ def get_mfma_spec_path(target_chip, save_dir):
     return spec_path
 
 
-def get_wmma_spec_path(target_chip, save_dir):
-    if target_chip == "gfx1100":
+def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
+    if not masked_attention:
+        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_wmma.mlir"
+    elif target_chip == "gfx1100":
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1100.mlir"
     elif target_chip in ["gfx1103", "gfx1150"]:
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1150.mlir"

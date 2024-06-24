@@ -392,7 +392,7 @@ class TurbinePipelineBase:
         self.map[submodel]["mlir"] = input_mlir
 
         match submodel:
-            case "unetloop": #SDXL ONLY FOR NOW
+            case "unetloop":  # SDXL ONLY FOR NOW
                 pipeline_file = get_pipeline_ir(
                     self.width,
                     self.height,
@@ -420,7 +420,7 @@ class TurbinePipelineBase:
                 )
                 self.map[submodel]["vmfb"] = vmfb_path
                 self.map[submodel]["weights"] = None
-            case "fullpipeline": #SDXL ONLY FOR NOW
+            case "fullpipeline":  # SDXL ONLY FOR NOW
                 pipeline_file = get_pipeline_ir(
                     self.width,
                     self.height,
