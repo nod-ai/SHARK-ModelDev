@@ -68,8 +68,13 @@ GFX11_flags = {
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
+    ],
+    "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
+    "preprocess_default": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+    ]
     "unet": [""],
     "clip": [""],
     "vae": [""],
@@ -121,6 +126,7 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
+    masked_attention=False,
 ):
     flags = []
     if mlir_source == "file" and not isinstance(module_str, str):
@@ -205,6 +211,10 @@ def compile_to_vmfb(
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
+        if masked_attention:
+            flags.extend(GFX11_flags["pad_attention"])
+        else:
+            flags.extend(GFX11_flags["preprocess_default"])
 
     # Currently, we need a transform dialect script to be applied to the compilation through IREE in certain cases.
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.

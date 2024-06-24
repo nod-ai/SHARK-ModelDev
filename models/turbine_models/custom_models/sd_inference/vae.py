@@ -7,7 +7,6 @@
 import os
 import sys
 
-from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
