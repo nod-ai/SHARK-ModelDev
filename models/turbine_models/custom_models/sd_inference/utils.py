@@ -35,7 +35,12 @@ MI_flags = {
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-rocm-waves-per-eu=2",
         "--iree-flow-inline-constants-max-byte-length=1",
+    ],
+    "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
+    ],
+    "preprocess_default": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
@@ -208,6 +213,10 @@ def compile_to_vmfb(
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
+        if masked_attention:
+            flags.extend(GFX11_flags["pad_attention"])
+        else:
+            flags.extend(GFX11_flags["preprocess_default"])
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
