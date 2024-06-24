@@ -40,7 +40,8 @@ EMPTY_FLAGS = {
     "clip": None,
     "unet": None,
     "vae": None,
-    "pipeline": None,
+    "unetloop": None,
+    "fullpipeline": None,
 }
 
 
@@ -161,7 +162,7 @@ class SharkSDXLPipeline:
                         if weights[submodel] is None:
                             weights[submodel] = weight
                     elif weights[submodel] is None and not any(
-                        x in submodel for x in ["pipeline", "scheduler"]
+                        x in submodel for x in ["unetloop", "scheduler"]
                     ):
                         _, weight = self.export_submodel(submodel, weights_only=True)
                         weights[submodel] = weight
@@ -351,8 +352,8 @@ class SharkSDXLPipeline:
                 "prompt_encoder": None,
                 "scheduled_unet": None,
                 "unet": None,
-                "pipeline": None,
-                "full_pipeline": None,
+                "unetloop": None,
+                "fullpipeline": None,
             }
         match submodel:
             case "scheduled_unet":
@@ -515,7 +516,7 @@ class SharkSDXLPipeline:
                     pipeline_file,
                     self.devices["unet"]["device"],
                     self.devices["unet"]["target"],
-                    self.ireec_flags["pipeline"],
+                    self.ireec_flags["unetloop"],
                     os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
                     return_path=True,
                     mlir_source="str",
@@ -542,7 +543,7 @@ class SharkSDXLPipeline:
                     pipeline_file,
                     self.devices["unet"]["device"],
                     self.devices["unet"]["target"],
-                    self.ireec_flags["pipeline"],
+                    self.ireec_flags["unetloop"],
                     os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
                     return_path=True,
                     mlir_source="str",
@@ -607,7 +608,7 @@ class SharkSDXLPipeline:
                     vmfbs["scheduled_unet"],
                     vmfbs["prompt_encoder"],
                     vmfbs["vae_decode"],
-                    vmfbs["full_pipeline"],
+                    vmfbs["fullpipeline"],
                 ],
                 [
                     weights["scheduled_unet"],
@@ -626,7 +627,7 @@ class SharkSDXLPipeline:
                 self.devices["unet"]["driver"],
                 [
                     vmfbs["scheduled_unet"],
-                    vmfbs["pipeline"],
+                    vmfbs["unetloop"],
                     vmfbs["vae_decode"],
                     vmfbs["prompt_encoder"],
                 ],
@@ -1002,8 +1003,8 @@ if __name__ == "__main__":
     if args.split_scheduler:
         map["unet"] = None
         map.pop("scheduled_unet")
-        map.pop("pipeline")
-        map.pop("full_pipeline")
+        map.pop("unetloop")
+        map.pop("fullpipeline")
     mlirs = copy.deepcopy(map)
     vmfbs = copy.deepcopy(map)
     weights = copy.deepcopy(map)
@@ -1042,7 +1043,7 @@ if __name__ == "__main__":
         "clip": args.ireec_flags + args.clip_flags,
         "unet": args.ireec_flags + args.unet_flags,
         "vae": args.ireec_flags + args.vae_flags,
-        "pipeline": args.ireec_flags,
+        "unetloop": args.ireec_flags,
         "scheduler": args.ireec_flags,
     }
     if not args.pipeline_dir:
