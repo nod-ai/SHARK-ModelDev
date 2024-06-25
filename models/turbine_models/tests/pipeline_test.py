@@ -19,6 +19,16 @@ from turbine_models.custom_models.pipeline_base import (
 )
 from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 
+model_metadata_forward = {
+    "model_name": "TestModel2xLinear",
+    "input_shapes": [10],
+    "input_dtypes": ["float32"],
+    "output_shapes": [10],
+    "output_dtypes": ["float32"],
+    "test_kwarg_1": "test_kwarg_1_value",
+    "test_kwarg_2": "test_kwarg_2_value",
+}
+
 
 class TestModule(torch.nn.Module):
     def __init__(self):
@@ -39,15 +49,7 @@ def export_dummy_model():
     model = TestModule()
     target = "x86_64-unknown-linux-gnu"
     device = "llvm-cpu"
-    model_metadata_forward = {
-        "model_name": "TestModel2xLinear",
-        "input_shapes": [10],
-        "input_dtypes": ["float32"],
-        "output_shapes": [10],
-        "output_dtypes": ["float32"],
-        "test_kwarg_1": "test_kwarg_1_value",
-        "test_kwarg_2": "test_kwarg_2_value",
-    }
+
     dummy_input = torch.empty(10)
     safe_keys = [
         model_metadata_forward["model_name"],
@@ -68,8 +70,7 @@ def export_dummy_model():
 
     inst = CompiledTester(context=Context(), import_to="IMPORT")
     mlir_module = CompiledModule.get_mlir_module(inst)
-    metadata_pass = AddMetadataPass(mlir_module)
-    mlir_module = metadata_pass.run(model_metadata_forward, "forward")
+    mlir_module = AddMetadataPass(mlir_module, model_metadata_forward, "forward").run()
     vmfb_path = utils.compile_to_vmfb(
         str(mlir_module),
         device,
@@ -105,15 +106,6 @@ class PipelineTest(unittest.TestCase):
                 "export_args": None,
             }
         }
-        self.model_metadata_forward = {
-            "model_name": "TestModel2xLinear",
-            "input_shapes": {"0": "10,"},
-            "input_dtypes": {"0": "float32"},
-            "output_shapes": {"0": "10,"},
-            "output_dtypes": {"0": "float32"},
-            "test_kwarg_1": "test_kwarg_1_value",
-            "test_kwarg_2": "test_kwarg_2_value",
-        }
         self.pipe = TestPipeline(
             model_map=model_map,
             batch_size=1,
@@ -137,10 +129,11 @@ class PipelineTest(unittest.TestCase):
 
     def test_pipeline_metadata(self):
         metadata = self.pipe.test_model_1.get_metadata("forward")
-        assert (
-            self.model_metadata_forward.keys() == metadata.keys()
-        ), "Metadata keys mismatch: expected {}, got {}".format(
-            self.model_metadata_forward.keys(), metadata.keys()
+        expected = model_metadata_forward
+        for i in expected.keys():
+            expected[i] = str(expected[i])
+        assert expected == metadata, "Metadata mismatch: expected {}, got {}".format(
+            expected, metadata
         )
 
 
