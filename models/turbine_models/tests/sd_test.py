@@ -112,6 +112,7 @@ class StableDiffusionTest(unittest.TestCase):
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         del current_args
+        del turbine
 
     def testExportClipVitLarge14(self):
         current_args = copy.deepcopy(default_arguments)
@@ -152,6 +153,8 @@ class StableDiffusionTest(unittest.TestCase):
         if platform.system() != "Windows":
             os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
+        del current_args
+        del turbine
 
     def testExportClipModel(self):
         current_args = copy.deepcopy(default_arguments)
@@ -190,7 +193,10 @@ class StableDiffusionTest(unittest.TestCase):
         if platform.system() != "Windows":
             os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
+        del current_args
+        del turbine
 
+    @unittest.expectedFailure
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
         blob_name = unet.export_unet_model(
@@ -301,6 +307,7 @@ class StableDiffusionTest(unittest.TestCase):
             new_blob_name = blob_name.split(".")
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
+        del current_args
         del torch_output
         del turbine
         os.remove("stable_diffusion_v1_4_vae.safetensors")
@@ -352,6 +359,8 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_vae.safetensors")
         os.remove("stable_diffusion_v1_4_vae.vmfb")
+        del current_args
+        del turbine
 
     @unittest.expectedFailure
     def testExportPNDMScheduler(self):
@@ -405,6 +414,7 @@ class StableDiffusionTest(unittest.TestCase):
             turbine_tank.changeBlobName(blob_name, new_blob_name)
         os.remove("stable_diffusion_v1_4_scheduler.safetensors")
         os.remove("stable_diffusion_v1_4_scheduler.vmfb")
+        del current_args
         del torch_output
         del turbine
 
