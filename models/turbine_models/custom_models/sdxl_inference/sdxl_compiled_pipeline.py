@@ -514,7 +514,7 @@ class SharkSDXLPipeline:
                 ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
-                    self.devices["unet"]["device"],
+                    self.devices["unet"]["driver"],
                     self.devices["unet"]["target"],
                     self.ireec_flags["unetloop"],
                     os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
@@ -541,7 +541,7 @@ class SharkSDXLPipeline:
                 ]
                 pipeline_vmfb = utils.compile_to_vmfb(
                     pipeline_file,
-                    self.devices["unet"]["device"],
+                    self.devices["unet"]["driver"],
                     self.devices["unet"]["target"],
                     self.ireec_flags["unetloop"],
                     os.path.join(self.pipeline_dir, "_".join(pipeline_keys)),
