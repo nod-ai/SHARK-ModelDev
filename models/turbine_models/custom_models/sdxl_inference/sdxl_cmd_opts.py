@@ -223,6 +223,13 @@ p.add_argument(
 
 p.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
 p.add_argument(
+    "--batch_prompt_input",
+    type=bool,
+    default=False,
+    help="If batch size > 1 this enables batching the prompt encoder input rather than concating prompt encoders output",
+)
+
+p.add_argument(
     "--height", type=int, default=1024, help="Height of Stable Diffusion output image."
 )
 p.add_argument(

@@ -68,6 +68,7 @@ class SharkSDXLPipeline:
         custom_vae: str = "",
         cpu_scheduling: bool = False,
         vae_precision: str = "fp32",
+        batch_prompt_input: bool = False,
     ):
         self.hf_model_name = hf_model_name
         self.scheduler_id = scheduler_id
@@ -76,6 +77,7 @@ class SharkSDXLPipeline:
         self.precision = precision
         self.max_length = max_length
         self.batch_size = batch_size
+        self.batch_prompt_input = batch_prompt_input
         self.num_inference_steps = num_inference_steps
         self.devices = {}
         if isinstance(device, dict):
@@ -492,7 +494,8 @@ class SharkSDXLPipeline:
                     input_mlir=input_mlir["prompt_encoder"],
                     attn_spec=self.attn_spec,
                     weights_only=weights_only,
-                    output_batchsize=self.batch_size,
+                    batch_size=self.batch_size,
+                    batch_input=self.batch_prompt_input,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
             case "unetloop":
@@ -1082,6 +1085,7 @@ if __name__ == "__main__":
         args.vae_decomp_attn,
         custom_vae=None,
         vae_precision=args.vae_precision,
+        batch_prompt_input=args.batch_prompt_input,
     )
 
     vmfbs, weights = sdxl_pipe.check_prepared(mlirs, vmfbs, weights)

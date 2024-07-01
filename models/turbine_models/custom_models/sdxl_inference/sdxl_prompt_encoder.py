@@ -25,6 +25,7 @@ class PromptEncoderModule(torch.nn.Module):
         hf_auth_token=None,
         do_classifier_free_guidance=True,
         batch_size=1,
+        batch_input=False,
     ):
         super().__init__()
         self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -40,6 +41,7 @@ class PromptEncoderModule(torch.nn.Module):
         )
         self.do_classifier_free_guidance = True
         self.batch_size = batch_size
+        self.batch_input = batch_input
 
     def forward(
         self, text_input_ids_1, text_input_ids_2, uncond_input_ids_1, uncond_input_ids_2
@@ -83,20 +85,25 @@ class PromptEncoderModule(torch.nn.Module):
             pooled_prompt_embeds = pooled_prompt_embeds.repeat(1, 1).view(
                 bs_embed * 1, -1
             )
-            prompt_embeds = prompt_embeds.repeat(self.batch_size, 1, 1)
+            if not self.batch_input:
+                prompt_embeds = prompt_embeds.repeat(self.batch_size, 1, 1)
             add_text_embeds = pooled_prompt_embeds
-            add_text_embeds = add_text_embeds.repeat(self.batch_size, 1)
+            if not self.batch_input:
+                add_text_embeds = add_text_embeds.repeat(self.batch_size, 1)
             if self.do_classifier_free_guidance:
-                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(1, 1).view(
-                    1, -1
-                )
+                if not self.batch_input:
+                    neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(
+                        1, 1
+                    ).view(1, -1)
                 neg_prompt_embeds = neg_prompt_embeds.repeat(1, 1, 1)
                 neg_prompt_embeds = neg_prompt_embeds.view(bs_embed * 1, seq_len, -1)
-                neg_prompt_embeds = neg_prompt_embeds.repeat(self.batch_size, 1, 1)
+                if not self.batch_input:
+                    neg_prompt_embeds = neg_prompt_embeds.repeat(self.batch_size, 1, 1)
                 prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
-                neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(
-                    self.batch_size, 1
-                )
+                if not self.batch_input:
+                    neg_pooled_prompt_embeds = neg_pooled_prompt_embeds.repeat(
+                        self.batch_size, 1
+                    )
                 add_text_embeds = torch.cat(
                     [neg_pooled_prompt_embeds, add_text_embeds], dim=0
                 )
@@ -160,7 +167,8 @@ def export_prompt_encoder(
     input_mlir=None,
     attn_spec=None,
     weights_only=False,
-    output_batchsize=1,
+    batchsize=1,
+    batch_input=False,
 ):
     if "turbo" in hf_model_name:
         do_classifier_free_guidance = False
@@ -169,7 +177,7 @@ def export_prompt_encoder(
 
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{output_batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}",
+        f"_bs{batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}",
     )
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -206,8 +214,14 @@ def export_prompt_encoder(
         precision,
         hf_auth_token,
         do_classifier_free_guidance,
-        batch_size=output_batchsize,
+        batch_size=batchsize,
+        batch_input=batch_input,
     )
+
+    input_batchsize = 1
+    if batch_input:
+        input_batchsize = batchsize
+
     if precision == "fp16":
         prompt_encoder_module = prompt_encoder_module.half()
     mapper = {}
@@ -232,10 +246,10 @@ def export_prompt_encoder(
 
         def encode_prompts(
             self,
-            t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
-            t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
-            uc_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
-            uc_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
+            t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            uc_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            uc_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
         ):
             return jittable(prompt_encoder_module.forward)(
                 t_ids_1, t_ids_2, uc_ids_1, uc_ids_2
@@ -243,8 +257,8 @@ def export_prompt_encoder(
 
         def encode_prompts_turbo(
             self,
-            t_ids_1=AbstractTensor(1, max_length, dtype=torch.int64),
-            t_ids_2=AbstractTensor(1, max_length, dtype=torch.int64),
+            t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
         ):
             return jittable(prompt_encoder_module.forward_turbo)(t_ids_1, t_ids_2)
 
@@ -287,7 +301,7 @@ if __name__ == "__main__":
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
         attn_spec=args.attn_spec,
-        output_batchsize=args.batch_size,
+        batchsize=args.batch_size,
     )
     if args.input_mlir:
         exit()
