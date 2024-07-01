@@ -494,7 +494,7 @@ class SharkSDXLPipeline:
                     input_mlir=input_mlir["prompt_encoder"],
                     attn_spec=self.attn_spec,
                     weights_only=weights_only,
-                    batch_size=self.batch_size,
+                    batchsize=self.batch_size,
                     batch_input=self.batch_prompt_input,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path
