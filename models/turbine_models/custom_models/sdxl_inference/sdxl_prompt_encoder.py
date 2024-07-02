@@ -12,6 +12,8 @@ import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
@@ -155,29 +157,26 @@ def export_prompt_encoder(
     hf_model_name,
     hf_auth_token=None,
     max_length=64,
+    batch_size=1,
     precision="fp16",
     compile_to="torch",
     external_weights=None,
     external_weight_path=None,
     device=None,
-    target_triple=None,
+    target=None,
     ireec_flags=None,
     exit_on_vmfb=True,
     pipeline_dir=None,
     input_mlir=None,
     attn_spec=None,
     weights_only=False,
-    batchsize=1,
     batch_input=False,
 ):
-    if "turbo" in hf_model_name:
-        do_classifier_free_guidance = False
-    else:
-        do_classifier_free_guidance = True
+    do_classifier_free_guidance = True
 
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{batchsize}_{str(max_length)}-{precision}-prompt-encoder-{device}",
+        f"_bs{batch_size}_{str(max_length)}-{precision}-prompt-encoder-{device}",
     )
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -186,9 +185,9 @@ def export_prompt_encoder(
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
@@ -214,7 +213,7 @@ def export_prompt_encoder(
         precision,
         hf_auth_token,
         do_classifier_free_guidance,
-        batch_size=batchsize,
+        batch_size=batch_size,
         batch_input=batch_input,
     )
 
@@ -265,7 +264,16 @@ def export_prompt_encoder(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledClip(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+    module = CompiledModule.get_mlir_module(inst)
+
+    model_metadata_encode = {
+        "model_name": hf_model_name + "_text_encoder",
+        "input_shapes": [str((1, max_length)) for i in range(4)],
+        "input_dtypes": ['int64' for i in range(4)],
+        "use_attention_mask": False,
+    }
+    module = AddMetadataPass(module, model_metadata_encode, "encode_prompts").run()
+    module_str = str(module)
 
     if compile_to != "vmfb":
         return module_str, tokenizers
@@ -273,9 +281,9 @@ def export_prompt_encoder(
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
             attn_spec=attn_spec,
@@ -290,6 +298,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.max_length,
+        args.batch_size,
         args.precision,
         args.compile_to,
         args.external_weights,
@@ -301,7 +310,6 @@ if __name__ == "__main__":
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
         attn_spec=args.attn_spec,
-        batchsize=args.batch_size,
     )
     if args.input_mlir:
         exit()

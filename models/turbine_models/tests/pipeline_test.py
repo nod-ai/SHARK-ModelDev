@@ -43,8 +43,6 @@ class TestModule(torch.nn.Module):
 
 
 torch.no_grad()
-
-
 def export_dummy_model():
     model = TestModule()
     target = "x86_64-unknown-linux-gnu"
@@ -85,9 +83,9 @@ def export_dummy_model():
 class TestPipeline(TurbinePipelineBase):
     def __init__(
         self,
-        **kwargs,
+        **base_args,
     ):
-        super().__init__(**kwargs)
+        super().__init__(**base_args)
 
     def run(self, inputs: list):
         return self.test_model_1("forward", *inputs)
@@ -103,14 +101,12 @@ class PipelineTest(unittest.TestCase):
                 "safe_name": "TestModel2xLinear",
                 "keywords": ["Test", "Model", "2x", "Linear"],
                 "export_fn": export_dummy_model,
-                "export_args": None,
             }
         }
         self.pipe = TestPipeline(
             model_map=model_map,
-            batch_size=1,
             device="cpu",
-            iree_target_triple="x86_64-unknown-linux-gnu",
+            target="x86_64-unknown-linux-gnu",
             pipeline_dir="./",
             precision="fp32",
         )
@@ -135,7 +131,6 @@ class PipelineTest(unittest.TestCase):
         assert expected == metadata, "Metadata mismatch: expected {}, got {}".format(
             expected, metadata
         )
-
 
 if __name__ == "__main__":
     unittest.main()

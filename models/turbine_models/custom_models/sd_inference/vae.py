@@ -13,6 +13,7 @@ from shark_turbine.aot import *
 from shark_turbine.dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
 )
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -54,50 +55,79 @@ class VaeModel(torch.nn.Module):
             )
             self.vae.load_state_dict(custom_vae)
 
-    def decode_inp(self, inp):
-        inp = 1 / 0.18215 * inp
+    def decode(self, inp):
+        inp = 1 / self.vae.config.scaling_factor * inp
         x = self.vae.decode(inp, return_dict=False)[0]
         return (x / 2 + 0.5).clamp(0, 1)
 
-    def encode_inp(self, inp):
+    def encode(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
-        return 0.18215 * latents
+        return self.vae.config.scaling_factor * latents
+    
+class SD3VaeModel(torch.nn.Module):
+    def __init__(
+        self,
+        hf_model_name,
+    ):
+        super().__init__()
+        self.vae = AutoencoderKL.from_pretrained(
+            hf_model_name,
+            subfolder="vae",
+        )
 
+    def decode(self, inp):
+        inp = (inp / self.vae.config.scaling_factor) + self.vae.config.shift_factor
+        image = self.vae.decode(inp, return_dict=False)[0]
+        image = image.float()
+        image = torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)[0]
+        return image
+
+    def encode(self, inp):
+        image_np = inp / 255.0
+        image_np = np.moveaxis(image_np, 2, 0)
+        batch_images = np.expand_dims(image_np, axis=0).repeat(1, axis=0)
+        image_torch = torch.from_numpy(batch_images)
+        image_torch = 2.0 * image_torch - 1.0
+        image_torch = image_torch
+        latent = self.vae.encode(image_torch)
+        return latent
 
 def export_vae_model(
-    vae_model,
     hf_model_name,
     batch_size,
     height,
     width,
     precision,
     compile_to="torch",
+    num_channels=4,
     external_weights=None,
     external_weight_path=None,
     device=None,
-    target_triple=None,
+    target=None,
     ireec_flags=None,
-    variant="decode",
     decomp_attn=False,
     exit_on_vmfb=False,
     pipeline_dir=None,
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
-    upload_ir=False,
 ):
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    np_dtype = "float16" if precision == "fp16" else "float32"
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{height}x{width}_{precision}_vae",
+    )
+    if decomp_attn:
+        safe_name += "_decomp_attn"
     if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, "vae_" + variant)
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_bs{batch_size}_{height}x{width}_{precision}_vae_{variant}_{device}",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             mlir_source="file",
@@ -105,46 +135,93 @@ def export_vae_model(
             attn_spec=attn_spec,
         )
         return vmfb_path
+    
+    if "stable-diffusion-3" in hf_model_name:
+        vae_model = SD3VaeModel(hf_model_name)
+    else:
+        if "xl" in hf_model_name and precision == "fp16":
+            custom_vae = "madebyollin/sdxl-vae-fp16-fix"
+        else:
+            custom_vae = None
+        vae_model = VaeModel(hf_model_name, custom_vae=custom_vae)
+
+    if dtype == torch.float16:
+        vae_model = vae_model.half()
     mapper = {}
-    decomp_list = DEFAULT_DECOMPOSITIONS
-    if decomp_attn:
-        decomp_list.extend(
-            [
-                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-                torch.ops.aten._scaled_dot_product_flash_attention.default,
-            ]
-        )
-    dtype = torch.float16 if precision == "fp16" else torch.float32
-    vae_model = vae_model.to(dtype)
     utils.save_external_weights(
         mapper, vae_model, external_weights, external_weight_path
     )
     if weights_only:
         return external_weight_path
-    sample = (batch_size, 4, height // 8, width // 8)
-    if variant == "encode":
-        sample = (batch_size, 3, height, width)
 
-    class CompiledVae(CompiledModule):
-        params = export_parameters(vae_model)
+    input_image_shape = (height, width, 3)
+    input_latents_shape = (batch_size, num_channels, height // 8, width // 8)
+    encode_args = [
+        torch.empty(
+            input_image_shape,
+            dtype=torch.float32,
+        )
+    ]
+    decode_args = [
+        torch.empty(
+            input_latents_shape,
+            dtype=dtype,
+        )
+    ]
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        fxb = FxProgramsBuilder(vae_model)
 
-        def main(self, inp=AbstractTensor(*sample, dtype=dtype)):
-            if variant == "decode":
-                return jittable(vae_model.decode_inp, decompose_ops=decomp_list)(inp)
-            elif variant == "encode":
-                return jittable(vae_model.encode_inp, decompose_ops=decomp_list)(inp)
+        # @fxb.export_program(args=(encode_args,))
+        # def _encode(module, inputs,):
+        #     return module.encode(*inputs)
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledVae(context=Context(), import_to=import_to)
+        @fxb.export_program(args=(decode_args,))
+        def _decode(module, inputs):
+            return module.decode(*inputs)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        class CompiledVae(CompiledModule):
+            decode = _decode
+
+        if external_weights:
+            externalize_module_parameters(vae_model)
+
+        inst = CompiledVae(context=Context(), import_to="IMPORT")
+
+        module = CompiledModule.get_mlir_module(inst)
+    
+    model_metadata_decode = {
+        "model_name": "vae_decode",
+        "input_shapes": [input_latents_shape],
+        "input_dtypes": [np_dtype],
+        "output_shapes": [(3, width, height) * batch_size],
+        "output_dtypes": ["float32"],
+    }
+    model_metadata_encode = {
+        "model_name": "vae_encode",
+        "input_shapes": [input_image_shape],
+        "input_dtypes": [np_dtype],
+        "output_shapes": [input_latents_shape],
+        "output_dtypes": [np_dtype],
+    }
+    module = AddMetadataPass(module, model_metadata_decode, "decode").run()
+
     if compile_to != "vmfb":
-        return module_str
+        return str(module)
     else:
         vmfb_path = utils.compile_to_vmfb(
-            module_str,
+            str(module),
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             return_path=not exit_on_vmfb,
@@ -161,7 +238,7 @@ if __name__ == "__main__":
     else:
         vae_model = VaeModel(
             args.hf_model_name,
-            custom_vae=custom_vae,
+            custom_vae=None,
         )
     mod_str = export_vae_model(
         vae_model,
@@ -174,7 +251,7 @@ if __name__ == "__main__":
         external_weights=args.external_weights,
         external_weight_path=args.external_weight_path,
         device=args.device,
-        target_triple=args.iree_target_triple,
+        target=args.iree_target_triple,
         ireec_flags=args.ireec_flags + args.attn_flags + args.vae_flags,
         variant=args.vae_variant,
         decomp_attn=args.decomp_attn,

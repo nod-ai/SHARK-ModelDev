@@ -12,9 +12,8 @@ from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
-from shark_turbine.dynamo.passes import (
-    DEFAULT_DECOMPOSITIONS,
-)
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -72,7 +71,6 @@ class UnetModel(torch.nn.Module):
 
 @torch.no_grad()
 def export_unet_model(
-    unet_model,
     hf_model_name,
     batch_size,
     height,
@@ -84,7 +82,7 @@ def export_unet_model(
     external_weights=None,
     external_weight_path=None,
     device=None,
-    target_triple=None,
+    target=None,
     ireec_flags=None,
     decomp_attn=False,
     exit_on_vmfb=False,
@@ -93,6 +91,7 @@ def export_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
+    unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet",
@@ -107,9 +106,9 @@ def export_unet_model(
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
@@ -117,8 +116,18 @@ def export_unet_model(
         return vmfb_path
 
     mapper = {}
-    dtype = torch.float16 if precision == "fp16" else torch.float32
-
+    np_dtypes = {
+        "fp16": "float16",
+        "fp32": "float32",
+        "i8": "int8",
+    }
+    torch_dtypes = {
+        "fp16": torch.float16,
+        "fp32": torch.float32,
+        "i8": torch.int8,
+    }
+    dtype = torch_dtypes[precision]
+    np_dtype = np_dtypes[precision]
     if precision == "fp16":
         unet_model = unet_model.half()
 
@@ -132,6 +141,12 @@ def export_unet_model(
     do_classifier_free_guidance = True
     init_batch_dim = 2 if do_classifier_free_guidance else 1
 
+    sample = [
+        batch_size,
+        unet_model.unet.config.in_channels,
+        height // 8,
+        width // 8,
+    ]
     prepared_latents = (
         batch_size * init_batch_dim,
         unet_model.unet.config.in_channels,
@@ -180,17 +195,34 @@ def export_unet_model(
 
         inst = CompiledUnet(context=Context(), import_to="IMPORT")
 
-        module_str = str(CompiledModule.get_mlir_module(inst))
+        module = CompiledModule.get_mlir_module(inst)
 
+    model_metadata_run_forward = {
+        "model_name": "sd_unet",
+        "input_shapes": [
+            prepared_latents,
+            (1,),
+            prompt_embeds_shape,
+            text_embeds_shape,
+            time_ids_shape,
+        ],
+        "input_dtypes": [np_dtype for x in range(5)],
+        "output_shapes": [sample],
+        "output_dtypes": [np_dtype],
+    }
+
+    module = AddMetadataPass(module, model_metadata_run_forward, "run_forward").run()
+
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=True,
             attn_spec=attn_spec,
         )

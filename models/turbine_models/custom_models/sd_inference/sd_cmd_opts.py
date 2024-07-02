@@ -47,7 +47,7 @@ p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",
-    default="Euler",
+    default="EulerDiscrete",
 )
 
 ##############################################################################
@@ -101,7 +101,7 @@ p.add_argument(
 p.add_argument(
     "--external_weights_dir",
     type=str,
-    default="",
+    default="./weights",
     help="Directory containing external weights for a job that requires more than one weights file. When importing, this is used to specify where to save the model weights, and at runtime, this is used to specify where to load the model weights from. Files will then be saved according to the parameters that make them unique, i.e. <hf_model_name>_<precision>_<submodel>_<submodel-specific>.<external_weights>",
 )
 
@@ -126,7 +126,7 @@ p.add_argument(
 p.add_argument(
     "--pipeline_dir",
     type=str,
-    default=None,
+    default="./vmfbs",
     help="Directory to save pipeline artifacts",
 )
 
@@ -135,6 +135,13 @@ p.add_argument(
     default=False,
     action="store_true",
     help="Do one-shot inference from tokens to image in a shrink-wrapped pipeline binary.",
+)
+
+p.add_argument(
+    "--cpu_scheduling",
+    default=True,
+    action="store_true",
+    help="Run scheduling on native pytorch CPU backend.",
 )
 
 ##############################################################################
@@ -146,10 +153,10 @@ p.add_argument(
 
 p.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
 p.add_argument(
-    "--height", type=int, default=1024, help="Height of Stable Diffusion output image."
+    "--height", type=int, default=512, help="Height of Stable Diffusion output image."
 )
 p.add_argument(
-    "--width", type=int, default=1024, help="Width of Stable Diffusion output image"
+    "--width", type=int, default=512, help="Width of Stable Diffusion output image"
 )
 p.add_argument(
     "--precision",
@@ -244,7 +251,7 @@ p.add_argument(
 p.add_argument(
     "--iree_target_triple",
     type=str,
-    default="",
+    default="x86_64-linux-gnu",
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 

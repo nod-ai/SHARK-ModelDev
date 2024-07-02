@@ -12,6 +12,7 @@ import torch
 from typing import Any, Callable, Dict, List, Optional, Union
 from shark_turbine.aot import *
 import shark_turbine.ops.iree as ops
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from iree.compiler.ir import Context
 import iree.runtime as ireert
 import numpy as np
@@ -213,6 +214,7 @@ def export_scheduler_model(
     upload_ir=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    np_dtype = "float16" if precision == "fp16" else "float32"
     scheduler_module = FlowSchedulingModel(hf_model_name, num_inference_steps, dtype)
     vmfb_names = [
         "EulerFlowScheduler",
@@ -317,8 +319,34 @@ def export_scheduler_model(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+    module = CompiledModule.get_mlir_module(inst)
+    
+    model_metadata_run_init = {
+        "model_name": "sd3_scheduler_FlowEulerDiscrete",
+        "input_shapes": [sample],
+        "input_dtypes": [np_dtype],
+        "output_shapes": [sample, "?", "?"],
+        "output_dtypes": [np_dtype, "int32", "float32"],
+    }
+    model_metadata_run_prep = {
+        "model_name": "sd3_scheduler_FlowEulerDiscrete",
+        "input_shapes": [sample, 1, [19]],
+        "input_dtypes": [np_dtype, "float32", "float32"],
+        "output_shapes": [noise_pred_shape, noise_pred_shape[0]],
+        "output_dtypes": [np_dtype, "float32"],
+    }
+    model_metadata_run_step = {
+        "model_name": "sd3_scheduler_FlowEulerDiscrete",
+        "input_shapes": [noise_pred_shape, 1, sample, 1, 1],
+        "input_dtypes": [np_dtype, np_dtype, np_dtype, np_dtype, "int64"],
+        "output_shapes": [sample],
+        "output_dtypes": [np_dtype],
+    }
+    module = AddMetadataPass(module, model_metadata_run_init, "run_init").run()
+    module = AddMetadataPass(module, model_metadata_run_prep, "run_prep").run()
+    module = AddMetadataPass(module, model_metadata_run_step, "run_step").run()
 
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     elif compile_to == "vmfb":

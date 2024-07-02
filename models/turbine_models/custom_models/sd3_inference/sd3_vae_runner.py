@@ -21,9 +21,9 @@ def run_vae(
 
 
 def run_torch_vae(hf_model_name, variant, example_input):
-    from turbine_models.custom_models.sd3_inference.sd3_vae import VaeModel
+    from turbine_models.custom_models.sd_inference.vae import SD3VaeModel
 
-    vae_model = VaeModel(
+    vae_model = SD3VaeModel(
         hf_model_name,
     )
 

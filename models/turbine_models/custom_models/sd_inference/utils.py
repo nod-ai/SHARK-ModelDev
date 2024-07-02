@@ -131,7 +131,8 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
-    masked_attention=False,
+    masked_attention=True,
+    debug=False,
 ):
     flags = []
     if mlir_source == "file" and not isinstance(module_str, str):
@@ -199,7 +200,6 @@ def compile_to_vmfb(
     elif ireec_flags == None:
         ireec_flags = []
 
-    debug = False
     if debug:
         flags.extend(
             ["--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"]

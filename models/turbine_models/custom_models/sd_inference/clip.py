@@ -9,78 +9,49 @@ import re
 
 from iree.compiler.ir import Context
 from shark_turbine.aot import *
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 from turbine_models.turbine_tank import turbine_tank
 
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="CompVis/stable-diffusion-v1-4",
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument("--external_weight_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [safetensors]",
-)
-parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-# TODO: Bring in detection for target triple
-parser.add_argument(
-    "--iree_target_triple",
-    type=str,
-    default="",
-    help="Specify vulkan target triple or rocm/cuda target device.",
-)
-parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
-
-
+@torch.no_grad()
 def export_clip_model(
     hf_model_name,
-    hf_auth_token: str = None,
+    batch_size: int = 1,
     max_length: int = 64,
     precision: str = "fp16",
     compile_to: str = "torch",
     external_weights: str = None,
     external_weight_path: str = None,
     device: str = "llvm-cpu",
-    target_triple: str = "x86_64-linux-gnu",
+    target: str = "x86_64-linux-gnu",
     ireec_flags: str = None,
     exit_on_vmfb: bool = False,
     pipeline_dir: str = None,
     input_mlir: str = None,
-    td_spec: str = None,
+    attn_spec: str = None,
     weights_only: bool = False,
     upload_ir: bool = False,
+    decomp_attn: bool = False,
 ):
     input_len = max_length
+    safe_name = utils.create_safe_name(
+        hf_model_name, f"_bs{batch_size}_{str(max_length)}-{precision}-clip"
+    )
     if pipeline_dir not in [None, ""]:
-        safe_name = os.path.join(pipeline_dir, "clip")
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name, f"_{str(max_length)}-{precision}-clip-{device}"
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
-            attn_spec=td_spec,
+            attn_spec=attn_spec,
         )
         return vmfb_path
     if "google/t5" in hf_model_name:
@@ -101,27 +72,25 @@ def export_clip_model(
             tokenizer = CLIPTokenizer.from_pretrained(
                 hf_model_name,
                 subfolder="tokenizer",
-                token=hf_auth_token,
             )
             hf_subfolder = "text_encoder"
 
         text_encoder_model = CLIPTextModel.from_pretrained(
             hf_model_name,
             subfolder=hf_subfolder,
-            token=hf_auth_token,
         )
-
+    if precision == "fp16":
+        text_encoder_model = text_encoder_model.half()
     mapper = {}
     utils.save_external_weights(
         mapper, text_encoder_model, external_weights, external_weight_path
     )
-
     if weights_only:
         return external_weight_path
-
+    
     if "google/t5" in hf_model_name:
-
-        class CompiledClip(CompiledModule):
+        input_shapes = [(batch_size, input_len), (batch_size, input_len)]
+        class CompiledTextEncoder(CompiledModule):
             if external_weights:
                 params = export_parameters(
                     text_encoder_model,
@@ -132,7 +101,7 @@ def export_clip_model(
             else:
                 params = export_parameters(text_encoder_model)
 
-            def main(
+            def encode_tokens(
                 self,
                 inp=AbstractTensor(1, input_len, dtype=torch.int64),
                 decoder_input_ids=AbstractTensor(1, input_len, dtype=torch.int64),
@@ -140,10 +109,9 @@ def export_clip_model(
                 return jittable(text_encoder_model.forward)(
                     input_ids=inp, decoder_input_ids=decoder_input_ids
                 )
-
     else:
-
-        class CompiledClip(CompiledModule):
+        input_shapes = [str((batch_size, input_len)), str((batch_size, input_len))]
+        class CompiledTextEncoder(CompiledModule):
             if external_weights:
                 params = export_parameters(
                     text_encoder_model,
@@ -154,31 +122,57 @@ def export_clip_model(
             else:
                 params = export_parameters(text_encoder_model)
 
-            def main(self, inp=AbstractTensor(1, input_len, dtype=torch.int64)):
+            def encode_tokens_attn_mask(
+                self,
+                inp=AbstractTensor(1, input_len, dtype=torch.int64),
+                attn_mask=AbstractTensor(1, input_len, dtype=torch.int64),
+            ):
+                return jittable(text_encoder_model.forward)(input_ids=inp, attention_mask=attn_mask)
+
+            def encode_tokens(
+                self,
+                inp=AbstractTensor(1, input_len, dtype=torch.int64),
+            ):
                 return jittable(text_encoder_model.forward)(input_ids=inp)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledClip(context=Context(), import_to=import_to)
+    inst = CompiledTextEncoder(context=Context(), import_to=import_to)
+    module = CompiledModule.get_mlir_module(inst)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+    model_metadata_attn_mask = {
+        "model_name": hf_model_name + "_text_encoder",
+        "input_shapes": input_shapes,
+        "input_dtypes": ['int64', 'int64'],
+        "use_attention_mask": True,
+    }
+    model_metadata_encode = {
+        "model_name": hf_model_name + "_text_encoder",
+        "input_shapes": input_shapes[0],
+        "input_dtypes": ['int64'],
+        "use_attention_mask": False,
+    }
+    module = AddMetadataPass(module, model_metadata_attn_mask, "encode_tokens_attn_mask").run()
+    module = AddMetadataPass(module, model_metadata_encode, "encode_tokens").run()
+
+    module_str = str(module)
     if compile_to != "vmfb":
-        return module_str, tokenizer
+        return module_str
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
-            attn_spec=td_spec,
+            attn_spec=attn_spec,
         )
-        return vmfb_path, None
+        return vmfb_path
 
 
 if __name__ == "__main__":
-    from .sd_cmd_opts import args
+    from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
     mod_str, _ = export_clip_model(
         args.hf_model_name,
@@ -193,7 +187,7 @@ if __name__ == "__main__":
         exit_on_vmfb=True,
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
-        td_spec=args.attn_spec,
+        attn_spec=args.attn_spec,
         weights_only=False,
         upload_ir=False,
     )
