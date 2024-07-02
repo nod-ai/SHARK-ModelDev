@@ -181,6 +181,12 @@ p.add_argument(
     help="Decompose attention for VAE decode only at fx graph level",
 )
 
+p.add_argument(
+    "--use_i8_punet",
+    action="store_true",
+    help="Use i8 quantized Partitioned UNet for inference",
+)
+
 ##############################################################################
 # SDXL script general options.
 ##############################################################################

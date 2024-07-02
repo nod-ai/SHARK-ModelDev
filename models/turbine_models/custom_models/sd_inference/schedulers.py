@@ -147,6 +147,7 @@ class SharkSchedulerCPUWrapper:
         self.conditional_timesteps = conditional_timesteps
 
         self.dtype = latents_dtype
+        self.use_punet = False
         self.torch_dtype = (
             torch.float32 if latents_dtype == "float32" else torch.float16
         )
@@ -183,7 +184,7 @@ class SharkSchedulerCPUWrapper:
         return sample, timesteps
 
     def scale_model_input(self, sample, t, t_uncond=None):
-        if self.do_classifier_free_guidance:
+        if self.do_classifier_free_guidance and not self.use_punet:
             sample = torch.cat([sample] * 2)
         if self.conditional_timesteps:
             if t_uncond:
@@ -202,7 +203,7 @@ class SharkSchedulerCPUWrapper:
             noise_pred = torch.tensor(noise_pred.to_host())
         if isinstance(guidance_scale, ireert.DeviceArray):
             guidance_scale = torch.tensor(guidance_scale.to_host())
-        if self.do_classifier_free_guidance:
+        if self.do_classifier_free_guidance and not self.use_punet:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond

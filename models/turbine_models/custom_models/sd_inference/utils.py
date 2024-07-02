@@ -131,7 +131,7 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
-    masked_attention=True,
+    masked_attention=False,
     debug=False,
 ):
     flags = []

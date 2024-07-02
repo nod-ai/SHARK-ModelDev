@@ -194,6 +194,8 @@ torch_dtypes = {
     "fp16": torch.float16,
     "float32": torch.float32,
     "float16": torch.float16,
+    "int8": torch.int8,
+    "i8": torch.int8,
 }
 class SharkSDPipeline(TurbinePipelineBase):
     def __init__(
@@ -216,6 +218,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         cpu_scheduling: bool = True,
         scheduler_id: str = None,  # compatibility only
         shift: float = 1.0,  # compatibility only
+        use_i8_punet: bool = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -295,6 +298,16 @@ class SharkSDPipeline(TurbinePipelineBase):
             ]
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(self.base_model_name, subfolder="tokenizer")
+
+        self.use_i8_punet = self.use_punet = use_i8_punet
+        if self.use_i8_punet:
+            self.map["unet"]["export_args"]["precision"] = "i8"
+            self.map["unet"]["export_args"]["use_punet"] = True
+            for i in self.map["unet"]["keywords"]:
+                i = i.replace("fp16", "i8").replace("fp32", "i8")
+            self.map["unet"]["keywords"].append("punet")
+        else:
+            self.map["unet"]["keywords"].append("!punet")
 
 
     # RUN
@@ -401,6 +414,8 @@ class SharkSDPipeline(TurbinePipelineBase):
                 scheduler_device,
                 latents_dtype=self.latents_dtype,
             )
+            if self.use_punet:
+                self.scheduler.use_punet = True
 
     def _produce_latents_sd(
         self,
@@ -447,13 +462,13 @@ class SharkSDPipeline(TurbinePipelineBase):
         latents, add_time_ids, step_indexes, timesteps = self.prepare_latents(
             sample, self.num_inference_steps, image, strength
         )
-        iree_inputs = [
-            sample,
+        iree_unet_inputs = [
             prompt_embeds,
             add_text_embeds,
             add_time_ids,
-            None,
         ]
+        if self.use_punet:
+            iree_unet_inputs.append(guidance_scale)
         for i, t in tqdm(enumerate(timesteps)):
             if self.cpu_scheduling:
                 step_index = i
@@ -468,9 +483,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                 [
                     latent_model_input,
                     t,
-                    iree_inputs[1],
-                    iree_inputs[2],
-                    iree_inputs[3],
+                    *iree_unet_inputs,
                 ],
             )
             latents = self.scheduler.step(
@@ -605,6 +618,8 @@ if __name__ == "__main__":
         args.num_inference_steps,
         args.cpu_scheduling,
         args.scheduler_id,
+        None,
+        args.use_i8_punet,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()
