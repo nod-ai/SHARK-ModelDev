@@ -249,7 +249,7 @@ def export_mmdit_model(
             hidden_states_shape,
             encoder_hidden_states_shape,
             pooled_projections_shape,
-            init_batch_dim
+            init_batch_dim,
         ],
         "input_dtypes": [np_dtype for x in range(4)],
         "output_shapes": [hidden_states_shape],

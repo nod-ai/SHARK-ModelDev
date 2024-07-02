@@ -320,7 +320,7 @@ def export_scheduler_model(
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
     module = CompiledModule.get_mlir_module(inst)
-    
+
     model_metadata_run_init = {
         "model_name": "sd3_scheduler_FlowEulerDiscrete",
         "input_shapes": [sample],

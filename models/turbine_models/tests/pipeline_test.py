@@ -43,6 +43,8 @@ class TestModule(torch.nn.Module):
 
 
 torch.no_grad()
+
+
 def export_dummy_model():
     model = TestModule()
     target = "x86_64-unknown-linux-gnu"
@@ -131,6 +133,7 @@ class PipelineTest(unittest.TestCase):
         assert expected == metadata, "Metadata mismatch: expected {}, got {}".format(
             expected, metadata
         )
+
 
 if __name__ == "__main__":
     unittest.main()

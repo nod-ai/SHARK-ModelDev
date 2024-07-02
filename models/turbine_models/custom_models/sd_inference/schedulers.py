@@ -132,7 +132,12 @@ class SchedulingModel(torch.nn.Module):
 class SharkSchedulerCPUWrapper:
     @torch.no_grad()
     def __init__(
-        self, scheduler, batch_size, dest_device, latents_dtype, conditional_timesteps=False
+        self,
+        scheduler,
+        batch_size,
+        dest_device,
+        latents_dtype,
+        conditional_timesteps=False,
     ):
         self.do_classifier_free_guidance = True
         self.module = scheduler

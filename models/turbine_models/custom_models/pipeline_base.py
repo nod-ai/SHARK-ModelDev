@@ -38,6 +38,7 @@ torch_dtypes = {
     "float32": torch.float32,
 }
 
+
 def merge_arg_into_map(model_map, arg, arg_name):
     if isinstance(arg, dict):
         for key in arg.keys():
@@ -50,6 +51,7 @@ def merge_arg_into_map(model_map, arg, arg_name):
             if not model_map[key].get(arg_name):
                 model_map[key][arg_name] = arg
     return model_map
+
 
 def merge_export_arg(model_map, arg, arg_name):
     if isinstance(arg, dict):
@@ -64,13 +66,14 @@ def merge_export_arg(model_map, arg, arg_name):
                 continue
             model_map[key]["export_args"][arg_name] = arg
     return model_map
-            
+
 
 # def str_to_list(string):
 #     out = string.strip("[]").replace(" ", "").split(";")
 #     for item in out:
 #         item = ast.literal_eval(item)
 #     return out
+
 
 class PipelineComponent:
     """
@@ -98,7 +101,9 @@ class PipelineComponent:
         extra_plugin=None,
     ):
         self.module_name = module_name
-        print(f"Loading {module_name} from {vmfb_path} with external weights: {external_weight_path}.")
+        print(
+            f"Loading {module_name} from {vmfb_path} with external weights: {external_weight_path}."
+        )
         self.runner = vmfbRunner(
             rt_device, vmfb_path, external_weight_path, extra_plugin
         )
@@ -117,7 +122,9 @@ class PipelineComponent:
             if any(x in function_name for x in ["$async", "__init"]):
                 continue
             try:
-                self.metadata[function_name] = self.module[function_name].vm_function.reflection
+                self.metadata[function_name] = self.module[
+                    function_name
+                ].vm_function.reflection
             except:
                 logging.warning(
                     f"Could not get metadata for {self.module_name}['{function_name}']."
@@ -126,10 +133,14 @@ class PipelineComponent:
 
     def _validate_or_convert_inputs(self, function_name, inputs):
         if self.metadata:
-            expected_input_shapes = self.metadata.get(function_name, {}).get("input_shapes")
+            expected_input_shapes = self.metadata.get(function_name, {}).get(
+                "input_shapes"
+            )
             if expected_input_shapes:
                 expected_input_shapes = ast.literal_eval(expected_input_shapes)
-            expected_input_dtypes = self.metadata.get(function_name, {}).get("input_dtypes", "")
+            expected_input_dtypes = self.metadata.get(function_name, {}).get(
+                "input_dtypes", ""
+            )
             if expected_input_dtypes:
                 expected_input_dtypes = ast.literal_eval(expected_input_dtypes)
             if not isinstance(expected_input_shapes, list):
@@ -146,7 +157,9 @@ class PipelineComponent:
                 pass
             for i, input_dtype in enumerate(expected_input_dtypes):
                 if not isinstance(inputs[i], ireert.DeviceArray):
-                    if isinstance(inputs[i], torch.Tensor) or isinstance(inputs[i], torch.HalfTensor):
+                    if isinstance(inputs[i], torch.Tensor) or isinstance(
+                        inputs[i], torch.HalfTensor
+                    ):
                         new_input = inputs[i].float().cpu().numpy()
                     else:
                         new_input = inputs[i]
@@ -175,7 +188,7 @@ class PipelineComponent:
             for i in inputs:
                 if not isinstance(i, ireert.DeviceArray):
                     i = ireert.asdevicearray(self.device, i)
-        
+
     def _output_cast(self, output):
         if isinstance(output, tuple):
             out_tuple = ()
@@ -185,16 +198,22 @@ class PipelineComponent:
             return out_tuple
         match self.dest_type:
             case "devicearray":
-                output = output.astype(self.dest_dtype) if output.dtype != self.dest_dtype else output
+                output = (
+                    output.astype(self.dest_dtype)
+                    if output.dtype != self.dest_dtype
+                    else output
+                )
                 return output
             case "torch":
-                output = torch.tensor(output.to_host(), dtype=torch_dtypes[self.dest_dtype])
+                output = torch.tensor(
+                    output.to_host(), dtype=torch_dtypes[self.dest_dtype]
+                )
                 return output
             case "numpy":
                 return output.to_host().astype(np_dtypes[self.dest_dtype])
             case _:
                 return output
-        
+
     def _run(self, function_name, inputs: list):
         return self.module[function_name](*inputs)
 
@@ -314,7 +333,7 @@ class TurbinePipelineBase:
         print(map_arguments)
         for arg in map_arguments.keys():
             self.map = merge_arg_into_map(self.map, map_arguments[arg], arg)
-                
+
         self.map = merge_arg_into_map(
             self.map, np_dtypes[self.map[submodel]["precision"]], "np_dtype"
         )
@@ -323,13 +342,17 @@ class TurbinePipelineBase:
         )
         for arg in common_export_args.keys():
             for submodel in self.map.keys():
-                self.map[submodel].get("export_args", {})[arg] = self.map[submodel].get(arg, common_export_args[arg])
+                self.map[submodel].get("export_args", {})[arg] = self.map[submodel].get(
+                    arg, common_export_args[arg]
+                )
         for submodel in self.map.keys():
             for key, value in map_arguments.items():
                 self.map = merge_export_arg(self.map, value, key)
             for key, value in self.map[submodel].get("export_args", {}).items():
                 if key == "hf_model_name":
-                    self.map[submodel]["keywords"].append(utils.create_safe_name(value.split("/")[-1], ""))
+                    self.map[submodel]["keywords"].append(
+                        utils.create_safe_name(value.split("/")[-1], "")
+                    )
                 if key == "decomp_attn":
                     if not value:
                         self.map[submodel]["keywords"].append("!decomp_attn")
@@ -343,7 +366,6 @@ class TurbinePipelineBase:
                 elif key in ["max_length", "precision"]:
                     self.map[submodel]["keywords"].append(str(value))
 
-        
         self.pipeline_dir = pipeline_dir
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
@@ -387,12 +409,16 @@ class TurbinePipelineBase:
                 for submodel in self.map.keys():
                     if not self.map[submodel].get("vmfb"):
                         print("Fetching: ", submodel)
-                        self.export_submodel(submodel, input_mlir=self.map[submodel].get("mlir"))
+                        self.export_submodel(
+                            submodel, input_mlir=self.map[submodel].get("mlir")
+                        )
                         if not self.map[submodel]["export_args"]["external_weights"]:
                             assert not self.map[submodel].get(
                                 "weights"
                             ), f"External weights should not be used for a model with inlined params."
-                    if not self.map[submodel].get("weights") and self.map[submodel]["export_args"].get("external_weights"):
+                    if not self.map[submodel].get("weights") and self.map[submodel][
+                        "export_args"
+                    ].get("external_weights"):
                         self.export_submodel(submodel, weights_only=True)
                 return self.prepare_all(mlirs, vmfbs, weights, interactive)
 
@@ -434,9 +460,13 @@ class TurbinePipelineBase:
             avail_files = os.listdir(pipeline_dir)
             candidates = []
             for filename in avail_files:
-                if all(str(x) in filename for x in keywords) and not any(x in filename for x in neg_keywords):
+                if all(str(x) in filename for x in keywords) and not any(
+                    x in filename for x in neg_keywords
+                ):
                     candidates.append(os.path.join(pipeline_dir, filename))
-                if all(str(x) in filename for x in mlir_keywords) and not any(x in filename for x in neg_keywords):
+                if all(str(x) in filename for x in mlir_keywords) and not any(
+                    x in filename for x in neg_keywords
+                ):
                     self.map[key]["mlir"] = os.path.join(pipeline_dir, filename)
             if len(candidates) == 1:
                 self.map[key]["vmfb"] = candidates[0]
@@ -519,7 +549,9 @@ class TurbinePipelineBase:
 
             self.map[submodel]["export_args"]["external_weight_path"] = os.path.join(
                 self.external_weights_dir,
-                utils.create_safe_name(self.map[submodel]["export_args"].get("hf_model_name", ""), "")
+                utils.create_safe_name(
+                    self.map[submodel]["export_args"].get("hf_model_name", ""), ""
+                )
                 + f"_{submodel}_{self.map[submodel]['precision']}."
                 + self.map[submodel]["external_weights"],
             )
@@ -555,10 +587,18 @@ class TurbinePipelineBase:
                     self.map[submodel]["export_args"]["max_length"],
                     "unet_loop",
                 )
-                dims = [self.map[submodel]["export_args"]["width"], self.map[submodel]["export_args"]["height"]]
+                dims = [
+                    self.map[submodel]["export_args"]["width"],
+                    self.map[submodel]["export_args"]["height"],
+                ]
                 dims = "x".join([str(x) for x in dims])
                 pipeline_keys = [
-                    utils.create_safe_name(self.map[submodel]["export_args"]["hf_model_name"].split("/")[-1], ""),
+                    utils.create_safe_name(
+                        self.map[submodel]["export_args"]["hf_model_name"].split("/")[
+                            -1
+                        ],
+                        "",
+                    ),
                     "bs" + str(self.map[submodel]["export_args"]["batch_size"]),
                     dims,
                     self.map[submodel]["export_args"]["precision"],
@@ -585,10 +625,18 @@ class TurbinePipelineBase:
                     self.map[submodel]["export_args"]["max_length"],
                     "tokens_to_image",
                 )
-                dims = [self.map[submodel]["export_args"]["width"], self.map[submodel]["export_args"]["height"]]
+                dims = [
+                    self.map[submodel]["export_args"]["width"],
+                    self.map[submodel]["export_args"]["height"],
+                ]
                 dims = "x".join([str(x) for x in dims])
                 pipeline_keys = [
-                    utils.create_safe_name(self.map[submodel]["export_args"]["hf_model_name"].split("/")[-1], ""),
+                    utils.create_safe_name(
+                        self.map[submodel]["export_args"]["hf_model_name"].split("/")[
+                            -1
+                        ],
+                        "",
+                    ),
                     "bs" + str(self.map[submodel]["export_args"]["batch_size"]),
                     dims,
                     self.map[submodel]["export_args"]["precision"],
@@ -616,11 +664,14 @@ class TurbinePipelineBase:
                     exported = self.map[submodel]["export_fn"](**export_args)
                 else:
                     exported = self.map[submodel]["export_fn"]()
-                if not self.map[submodel].get("weights") and os.path.exists(self.map[submodel]["export_args"].get("external_weight_path")):
-                    self.map[submodel]["weights"] = self.map[submodel]["export_args"].get("external_weight_path", None)
+                if not self.map[submodel].get("weights") and os.path.exists(
+                    self.map[submodel]["export_args"].get("external_weight_path")
+                ):
+                    self.map[submodel]["weights"] = self.map[submodel][
+                        "export_args"
+                    ].get("external_weight_path", None)
                 if not weights_only:
                     self.map[submodel]["vmfb"] = exported
-                
 
     # LOAD
     def load_map(self):

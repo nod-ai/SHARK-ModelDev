@@ -15,6 +15,7 @@ import torch
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 from turbine_models.turbine_tank import turbine_tank
 
+
 @torch.no_grad()
 def export_clip_model(
     hf_model_name,
@@ -87,9 +88,10 @@ def export_clip_model(
     )
     if weights_only:
         return external_weight_path
-    
+
     if "google/t5" in hf_model_name:
         input_shapes = [(batch_size, input_len), (batch_size, input_len)]
+
         class CompiledTextEncoder(CompiledModule):
             if external_weights:
                 params = export_parameters(
@@ -109,8 +111,10 @@ def export_clip_model(
                 return jittable(text_encoder_model.forward)(
                     input_ids=inp, decoder_input_ids=decoder_input_ids
                 )
+
     else:
         input_shapes = [str((batch_size, input_len)), str((batch_size, input_len))]
+
         class CompiledTextEncoder(CompiledModule):
             if external_weights:
                 params = export_parameters(
@@ -127,7 +131,9 @@ def export_clip_model(
                 inp=AbstractTensor(1, input_len, dtype=torch.int64),
                 attn_mask=AbstractTensor(1, input_len, dtype=torch.int64),
             ):
-                return jittable(text_encoder_model.forward)(input_ids=inp, attention_mask=attn_mask)
+                return jittable(text_encoder_model.forward)(
+                    input_ids=inp, attention_mask=attn_mask
+                )
 
             def encode_tokens(
                 self,
@@ -142,16 +148,18 @@ def export_clip_model(
     model_metadata_attn_mask = {
         "model_name": hf_model_name + "_text_encoder",
         "input_shapes": input_shapes,
-        "input_dtypes": ['int64', 'int64'],
+        "input_dtypes": ["int64", "int64"],
         "use_attention_mask": True,
     }
     model_metadata_encode = {
         "model_name": hf_model_name + "_text_encoder",
         "input_shapes": input_shapes[0],
-        "input_dtypes": ['int64'],
+        "input_dtypes": ["int64"],
         "use_attention_mask": False,
     }
-    module = AddMetadataPass(module, model_metadata_attn_mask, "encode_tokens_attn_mask").run()
+    module = AddMetadataPass(
+        module, model_metadata_attn_mask, "encode_tokens_attn_mask"
+    ).run()
     module = AddMetadataPass(module, model_metadata_encode, "encode_tokens").run()
 
     module_str = str(module)

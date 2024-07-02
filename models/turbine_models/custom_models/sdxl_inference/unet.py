@@ -24,6 +24,7 @@ from huggingface_hub import hf_hub_download
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name, hf_auth_token=None, precision="fp32"):
         from diffusers import UNet2DConditionModel
+
         super().__init__()
         if precision == "fp16":
             try:
@@ -70,8 +71,12 @@ class UnetModel(torch.nn.Module):
         )[0]
         return noise_pred
 
+
 def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
-    from sharktank.models.punet.model import Unet2DConditionModel as punet_unet, ClassifierFreeGuidanceUnetModel as CFGPunetModel
+    from sharktank.models.punet.model import (
+        Unet2DConditionModel as punet_unet,
+        ClassifierFreeGuidanceUnetModel as CFGPunetModel,
+    )
 
     if precision == "i8":
         repo_id = "amd-shark/sdxl-quant-models"
@@ -81,10 +86,12 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
         repo_id = hf_model_name
         subfolder = "unet"
         revision = "76d28af79639c28a79fa5c6c6468febd3490a37e"
+
     def download(filename):
         return hf_hub_download(
             repo_id=repo_id, subfolder=subfolder, filename=filename, revision=revision
         )
+
     results = {
         "config.json": download("config.json"),
         "params.safetensors": download("params.safetensors"),
@@ -92,15 +99,29 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
     if precision == "i8":
         results["quant_params.json"] = download("quant_params.json")
         output_path = external_weight_path.split("unet")[0] + "punet_dataset_i8.irpa"
-        ds = get_punet_i8_dataset(results["config.json"], results["quant_params.json"], results["params.safetensors"], output_path, base_params=None)
+        ds = get_punet_i8_dataset(
+            results["config.json"],
+            results["quant_params.json"],
+            results["params.safetensors"],
+            output_path,
+            base_params=None,
+        )
     else:
-        ds = None # get_punet_dataset(results["config.json"], results["params.safetensors"], base_params=None)
-    
+        ds = None  # get_punet_dataset(results["config.json"], results["params.safetensors"], base_params=None)
+
     cond_unet = punet_unet.from_dataset(ds)
     mdl = CFGPunetModel(cond_unet)
     return mdl
 
-def get_punet_i8_dataset(config_json_path, quant_params_path, params_path, output_path="./punet_dataset_i8.irpa", quant_params_struct=None, base_params=None):
+
+def get_punet_i8_dataset(
+    config_json_path,
+    quant_params_path,
+    params_path,
+    output_path="./punet_dataset_i8.irpa",
+    quant_params_struct=None,
+    base_params=None,
+):
     from sharktank.models.punet.tools.import_brevitas_dataset import (
         _load_json,
         _load_theta,
@@ -110,6 +131,7 @@ def get_punet_i8_dataset(config_json_path, quant_params_path, params_path, outpu
         Theta,
         InferenceTensor,
     )
+
     # Construct the pre-transform dataset.
     dataset_props = _get_dataset_props(_load_json(config_json_path))
     quant_params_struct = _load_json(quant_params_path)
@@ -118,9 +140,7 @@ def get_punet_i8_dataset(config_json_path, quant_params_path, params_path, outpu
     base_theta = None
     if base_params is not None:
         print("Initializing from base parameters:", args.base_params)
-        with safetensors.safe_open(
-            base_params, framework="pt", device="cpu"
-        ) as st:
+        with safetensors.safe_open(base_params, framework="pt", device="cpu") as st:
             base_theta = _load_theta(st)
 
     ds = Dataset(dataset_props, quant_theta if base_theta is None else base_theta)
@@ -143,6 +163,7 @@ def get_punet_i8_dataset(config_json_path, quant_params_path, params_path, outpu
 
     ds.save(output_path, io_report_callback=print)
     return ds
+
 
 @torch.no_grad()
 def export_unet_model(
@@ -214,7 +235,7 @@ def export_unet_model(
 
     if use_punet:
         dtype = torch.float16
-    
+
     utils.save_external_weights(
         mapper, unet_model, external_weights, external_weight_path
     )
@@ -287,7 +308,7 @@ def export_unet_model(
                 inputs,
             ):
                 return module.forward(*inputs)
-            
+
             class CompiledUnet(CompiledModule):
                 run_forward = _forward
 

@@ -191,14 +191,17 @@ def export_text_encoders(
             save_module_parameters(external_weight_path, model)
 
         inst = CompiledTextEncoder(context=Context(), import_to="IMPORT")
-        
+
         module = CompiledModule.get_mlir_module(inst)
-    
+
     model_metadata_forward = {
         "model_name": "sd3_clip_t5xxl_text_encoders",
         "input_shapes": [(1, max_length, 2) for x in range(6)],
         "input_dtypes": ["int64" for x in range(6)],
-        "output_shapes": [(2*output_batchsize,max_length*2,4096), (2*output_batchsize,2048)],
+        "output_shapes": [
+            (2 * output_batchsize, max_length * 2, 4096),
+            (2 * output_batchsize, 2048),
+        ],
         "output_dtypes": ["float32"],
     }
     module = AddMetadataPass(module, model_metadata_forward, "forward").run()

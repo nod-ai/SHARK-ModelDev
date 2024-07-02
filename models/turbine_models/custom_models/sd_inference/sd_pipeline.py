@@ -25,7 +25,10 @@ from turbine_models.custom_models.sd3_inference import (
     sd3_text_encoders,
     sd3_mmdit,
 )
-from turbine_models.custom_models.pipeline_base import TurbinePipelineBase, merge_arg_into_map
+from turbine_models.custom_models.pipeline_base import (
+    TurbinePipelineBase,
+    merge_arg_into_map,
+)
 from turbine_models.custom_models.sd_inference.tokenization import encode_prompt
 from turbine_models.model_runner import vmfbRunner
 from transformers import CLIPTokenizer
@@ -174,8 +177,9 @@ sd3_model_map = {
             "num_channels": 16,
             "decomp_attn": None,
         },
-    }
+    },
 }
+
 
 def get_sd_model_map(hf_model_name):
     if isinstance(hf_model_name, dict):
@@ -188,7 +192,8 @@ def get_sd_model_map(hf_model_name):
         return sd3_model_map
     else:
         return sd1_sd2_model_map
-    
+
+
 torch_dtypes = {
     "fp32": torch.float32,
     "fp16": torch.float16,
@@ -197,6 +202,8 @@ torch_dtypes = {
     "int8": torch.int8,
     "i8": torch.int8,
 }
+
+
 class SharkSDPipeline(TurbinePipelineBase):
     def __init__(
         self,
@@ -239,7 +246,9 @@ class SharkSDPipeline(TurbinePipelineBase):
                 sd_model_map[submodel]["load"] = True
             sd_model_map[submodel]["export_args"]["batch_size"] = batch_size
             if "max_length" in sd_model_map[submodel]["export_args"]:
-                max_length_sub = max_length if isinstance(max_length, int) else max_length[submodel]
+                max_length_sub = (
+                    max_length if isinstance(max_length, int) else max_length[submodel]
+                )
                 sd_model_map[submodel]["export_args"]["max_length"] = max_length_sub
             if "height" in sd_model_map[submodel]["export_args"]:
                 sd_model_map[submodel]["export_args"]["height"] = height
@@ -264,8 +273,12 @@ class SharkSDPipeline(TurbinePipelineBase):
                     self.map[submodel]["export_args"]["hf_model_name"],
                     f"_{submodel}_{self.map[submodel]['precision']}",
                 )
-                weights_filename += "." + self.map[submodel]["export_args"]["external_weights"]
-                self.map[submodel]["export_args"]["external_weight_path"] = weights_filename
+                weights_filename += (
+                    "." + self.map[submodel]["export_args"]["external_weights"]
+                )
+                self.map[submodel]["export_args"][
+                    "external_weight_path"
+                ] = weights_filename
 
         self.batch_size = batch_size
         self.model_max_length = max_length
@@ -287,17 +300,27 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.map.pop("unetloop")
             self.map.pop("fullpipeline")
 
-        self.base_model_name = hf_model_name if isinstance(hf_model_name, str) else hf_model_name.get("unet", hf_model_name.get("mmdit"))
+        self.base_model_name = (
+            hf_model_name
+            if isinstance(hf_model_name, str)
+            else hf_model_name.get("unet", hf_model_name.get("mmdit"))
+        )
         self.is_img2img = False
         self.is_sdxl = "xl" in self.base_model_name
         self.is_sd3 = "stable-diffusion-3" in self.base_model_name
         if self.is_sdxl:
             self.tokenizers = [
-                CLIPTokenizer.from_pretrained(self.base_model_name, subfolder="tokenizer"),
-                CLIPTokenizer.from_pretrained(self.base_model_name, subfolder="tokenizer_2"),
+                CLIPTokenizer.from_pretrained(
+                    self.base_model_name, subfolder="tokenizer"
+                ),
+                CLIPTokenizer.from_pretrained(
+                    self.base_model_name, subfolder="tokenizer_2"
+                ),
             ]
         elif not self.is_sd3:
-            self.tokenizer = CLIPTokenizer.from_pretrained(self.base_model_name, subfolder="tokenizer")
+            self.tokenizer = CLIPTokenizer.from_pretrained(
+                self.base_model_name, subfolder="tokenizer"
+            )
 
         self.use_i8_punet = self.use_punet = use_i8_punet
         if self.use_i8_punet:
@@ -309,8 +332,48 @@ class SharkSDPipeline(TurbinePipelineBase):
         else:
             self.map["unet"]["keywords"].append("!punet")
 
+    # LOAD
+
+    def load_scheduler(
+        self,
+        scheduler_id: str,
+        steps: int = 30,
+    ):
+        self.scheduler = schedulers.get_scheduler(
+            self.base_model_name, self.scheduler_id
+        )
+        if self.is_sd3:
+            scheduler_device = self.mmdit.device
+        else:
+            scheduler_device = self.unet.device
+        if not self.cpu_scheduling:
+            self.scheduler = None
+            self.num_inference_steps = steps
+            self.scheduler_id = scheduler_id
+            scheduler_path = f"{scheduler_id}Scheduler_{self.num_inference_steps}"
+            if not os.path.exists(scheduler_path):
+                scheduler_path, _ = self.export_submodel("scheduler")
+            try:
+                self.scheduler = schedulers.SharkSchedulerWrapper(
+                    scheduler_device,
+                    scheduler_path,
+                )
+            except:
+                print("JIT export of scheduler failed. Loading CPU scheduler.")
+                self.cpu_scheduling = True
+        if self.cpu_scheduling:
+            scheduler = schedulers.get_scheduler(self.base_model_name, scheduler_id)
+            self.scheduler = schedulers.SharkSchedulerCPUWrapper(
+                scheduler,
+                self.batch_size,
+                scheduler_device,
+                latents_dtype=self.latents_dtype,
+            )
+            if self.use_punet:
+                self.scheduler.use_punet = True
 
     # RUN
+
     def encode_prompts_sdxl(self, prompt, negative_prompt):
         # Tokenize prompt and negative prompt.
         text_input_ids_list = []
@@ -346,13 +409,15 @@ class SharkSDPipeline(TurbinePipelineBase):
         self,
         noise,
         num_inference_steps,
-        image = None,
-        strength = None,
+        image=None,
+        strength=None,
     ):
         if self.is_img2img:
             raise NotImplementedError("Image-to-image not supported yet.")
         elif self.is_sdxl:
-            sample, add_time_ids, step_indexes, timesteps = self.scheduler.initialize_sdxl(noise, num_inference_steps)
+            sample, add_time_ids, step_indexes, timesteps = (
+                self.scheduler.initialize_sdxl(noise, num_inference_steps)
+            )
             return sample, add_time_ids, step_indexes, timesteps
         elif self.is_sd3:
             raise NotImplementedError("Stable Diffusion 3 not supported yet.")
@@ -381,49 +446,13 @@ class SharkSDPipeline(TurbinePipelineBase):
             samples.append(rand_sample)
         return samples
 
-    def load_scheduler(
-        self,
-        scheduler_id: str,
-        steps: int = 30,
-    ):
-        self.scheduler = schedulers.get_scheduler(self.base_model_name, self.scheduler_id)
-        if self.is_sd3:
-            scheduler_device = self.mmdit.device
-        else:
-            scheduler_device = self.unet.device
-        if not self.cpu_scheduling:
-            self.scheduler = None
-            self.num_inference_steps = steps
-            self.scheduler_id = scheduler_id
-            scheduler_path = f"{scheduler_id}Scheduler_{self.num_inference_steps}"
-            if not os.path.exists(scheduler_path):
-                scheduler_path, _ = self.export_submodel("scheduler")
-            try:
-                self.scheduler = schedulers.SharkSchedulerWrapper(
-                    scheduler_device,
-                    scheduler_path,
-                )
-            except:
-                print("JIT export of scheduler failed. Loading CPU scheduler.")
-                self.cpu_scheduling = True
-        if self.cpu_scheduling:
-            scheduler = schedulers.get_scheduler(self.base_model_name, scheduler_id)
-            self.scheduler = schedulers.SharkSchedulerCPUWrapper(
-                scheduler,
-                self.batch_size,
-                scheduler_device,
-                latents_dtype=self.latents_dtype,
-            )
-            if self.use_punet:
-                self.scheduler.use_punet = True
-
     def _produce_latents_sd(
         self,
         sample,
         prompt_embeds,
         negative_prompt_embeds,
         steps,
-        guidance_scale,  
+        guidance_scale,
     ):
         image = None
         strength = 0
@@ -440,10 +469,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                 timestep,
             ]
             unet_inputs.extend([text_embeddings, guidance_scale])
-            latents = self.unet(
-                "run_forward",
-                unet_inputs
-            )
+            latents = self.unet("run_forward", unet_inputs)
             sample = self.scheduler.step(
                 torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample
             ).prev_sample
@@ -455,7 +481,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         prompt_embeds,
         add_text_embeds,
         steps,
-        guidance_scale, 
+        guidance_scale,
     ):
         image = None
         strength = 0
@@ -522,7 +548,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         if steps and needs_new_scheduler:
             self.num_inference_steps = steps
             self.load_scheduler(scheduler_id, steps)
-        
+
         pipe_start = time.time()
         numpy_images = []
 
@@ -530,7 +556,9 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         # Tokenize prompt and negative prompt.
         if self.is_sdxl:
-            prompt_embeds, negative_embeds = self.encode_prompts_sdxl(prompt, negative_prompt)
+            prompt_embeds, negative_embeds = self.encode_prompts_sdxl(
+                prompt, negative_prompt
+            )
         else:
             prompt_embeds, negative_embeds = encode_prompt(
                 self, prompt, negative_prompt
@@ -545,13 +573,9 @@ class SharkSDPipeline(TurbinePipelineBase):
                 guidance_scale,
             ]
             if self.is_sdxl:
-                latents = self._produce_latents_sdxl(
-                    *produce_latents_input
-                )
+                latents = self._produce_latents_sdxl(*produce_latents_input)
             else:
-                latents = self._produce_latents_sd(
-                    *produce_latents_input
-                )
+                latents = self._produce_latents_sd(*produce_latents_input)
             image = self.vae("decode", [latents])
             numpy_images.append(image)
             pipe_end = time.time()

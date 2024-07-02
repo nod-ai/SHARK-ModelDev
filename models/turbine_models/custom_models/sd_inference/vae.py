@@ -63,7 +63,8 @@ class VaeModel(torch.nn.Module):
     def encode(self, inp):
         latents = self.vae.encode(inp).latent_dist.sample()
         return self.vae.config.scaling_factor * latents
-    
+
+
 class SD3VaeModel(torch.nn.Module):
     def __init__(
         self,
@@ -91,6 +92,7 @@ class SD3VaeModel(torch.nn.Module):
         image_torch = image_torch
         latent = self.vae.encode(image_torch)
         return latent
+
 
 def export_vae_model(
     hf_model_name,
@@ -135,7 +137,7 @@ def export_vae_model(
             attn_spec=attn_spec,
         )
         return vmfb_path
-    
+
     if "stable-diffusion-3" in hf_model_name:
         vae_model = SD3VaeModel(hf_model_name)
     else:
@@ -198,7 +200,7 @@ def export_vae_model(
         inst = CompiledVae(context=Context(), import_to="IMPORT")
 
         module = CompiledModule.get_mlir_module(inst)
-    
+
     model_metadata_decode = {
         "model_name": "vae_decode",
         "input_shapes": [input_latents_shape],
