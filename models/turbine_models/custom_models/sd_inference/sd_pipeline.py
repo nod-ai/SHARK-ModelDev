@@ -253,6 +253,10 @@ class SharkSDPipeline(TurbinePipelineBase):
             if "height" in sd_model_map[submodel]["export_args"]:
                 sd_model_map[submodel]["export_args"]["height"] = height
                 sd_model_map[submodel]["export_args"]["width"] = width
+            if "decomp_attn" in sd_model_map[submodel]["export_args"]:
+                sd_model_map[submodel]["export_args"]["decomp_attn"] = decomp_attn[
+                    submodel
+                ]
         super().__init__(
             sd_model_map,
             device,
@@ -326,11 +330,19 @@ class SharkSDPipeline(TurbinePipelineBase):
         if self.use_i8_punet:
             self.map["unet"]["export_args"]["precision"] = "i8"
             self.map["unet"]["export_args"]["use_punet"] = True
-            for i in self.map["unet"]["keywords"]:
-                i = i.replace("fp16", "i8").replace("fp32", "i8")
             self.map["unet"]["keywords"].append("punet")
+            self.map["unet"]["module_name"] = "module"
+            self.map["unet"]["function_name"] = "main"
+            self.map["unet"]["export_args"]["external_weight_path"] = (
+                utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
+            )
+            for idx, word in enumerate(self.map["unet"]["keywords"]):
+                if word in ["fp32", "fp16"]:
+                    self.map["unet"]["keywords"][idx] = "i8"
+                    break
         else:
             self.map["unet"]["keywords"].append("!punet")
+            self.map["unet"]["function_name"] = "run_forward"
 
     # LOAD
 
@@ -469,7 +481,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                 timestep,
             ]
             unet_inputs.extend([text_embeddings, guidance_scale])
-            latents = self.unet("run_forward", unet_inputs)
+            latents = self.unet(self.map["unet"]["function_name"], unet_inputs)
             sample = self.scheduler.step(
                 torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample
             ).prev_sample
@@ -488,13 +500,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         latents, add_time_ids, step_indexes, timesteps = self.prepare_latents(
             sample, self.num_inference_steps, image, strength
         )
-        iree_unet_inputs = [
-            prompt_embeds,
-            add_text_embeds,
-            add_time_ids,
-        ]
-        if self.use_punet:
-            iree_unet_inputs.append(guidance_scale)
         for i, t in tqdm(enumerate(timesteps)):
             if self.cpu_scheduling:
                 step_index = i
@@ -504,13 +509,32 @@ class SharkSDPipeline(TurbinePipelineBase):
                 latents,
                 t,
             )
+            unet_inputs = [
+                latent_model_input,
+                t,
+                prompt_embeds,
+                add_text_embeds,
+                add_time_ids,
+            ]
+            if self.use_punet:
+                unet_inputs.append(
+                    ireert.asdevicearray(
+                        self.unet.device,
+                        [guidance_scale],
+                        dtype=self.map["unet"]["np_dtype"],
+                    )
+                )
+                unet_inputs[1] = ireert.asdevicearray(
+                    self.unet.device, t, dtype="int32"
+                )
+                for inp_idx, inp in enumerate(unet_inputs):
+                    if not isinstance(inp, ireert.DeviceArray):
+                        unet_inputs[inp_idx] = ireert.asdevicearray(
+                            self.unet.device, inp, dtype=self.map["unet"]["np_dtype"]
+                        )
             noise_pred = self.unet(
-                "run_forward",
-                [
-                    latent_model_input,
-                    t,
-                    *iree_unet_inputs,
-                ],
+                self.map["unet"]["function_name"],
+                unet_inputs,
             )
             latents = self.scheduler.step(
                 noise_pred,
@@ -623,7 +647,14 @@ if __name__ == "__main__":
     }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
-
+    if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
+        args.decomp_attn = {
+            "text_encoder": args.decomp_attn,
+            "unet": (
+                args.unet_decomp_attn if args.unet_decomp_attn else args.decomp_attn
+            ),
+            "vae": args.vae_decomp_attn if args.vae_decomp_attn else args.decomp_attn,
+        }
     sd_pipe = SharkSDPipeline(
         args.hf_model_name,
         args.height,

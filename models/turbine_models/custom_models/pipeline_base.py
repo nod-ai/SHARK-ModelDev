@@ -185,9 +185,9 @@ class PipelineComponent:
             logging.warning(
                 f"No metadata found for {self.module_name}['{function_name}']."
             )
-            for i in inputs:
+            for idx, i in enumerate(inputs):
                 if not isinstance(i, ireert.DeviceArray):
-                    i = ireert.asdevicearray(self.device, i)
+                    inputs[idx] = ireert.asdevicearray(self.device, i)
 
     def _output_cast(self, output):
         if isinstance(output, tuple):
@@ -233,9 +233,7 @@ class PipelineComponent:
             output = self._run_and_benchmark(function_name, inputs)
         else:
             output = self._run(function_name, inputs)
-        print("Output before cast: ", output)
         output = self._output_cast(output)
-        print("Output after cast: ", output)
         return output
 
 
@@ -441,24 +439,24 @@ class TurbinePipelineBase:
             mlir_keywords.extend(
                 [
                     "mlir",
-                    self.map[key]["precision"],
                 ]
             )
             keywords.extend(
                 [
                     "vmfb",
                     self.map[key]["target"],
-                    self.map[key]["precision"],
                 ]
             )
-            print(keywords)
             neg_keywords = []
             for kw in keywords:
                 if kw.startswith("!"):
                     neg_keywords.append(kw.strip("!"))
                     keywords.remove(kw)
+                    mlir_keywords.remove(kw)
             avail_files = os.listdir(pipeline_dir)
             candidates = []
+            # print("MLIR KEYS: ", mlir_keywords)
+            # print("AVAILABLE FILES: ", avail_files)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords) and not any(
                     x in filename for x in neg_keywords
@@ -575,7 +573,9 @@ class TurbinePipelineBase:
                 input_mlir = None
         else:
             input_mlir = None
-        self.map[submodel]["export_args"]["input_mlir"] = input_mlir
+        self.map[submodel]["export_args"]["input_mlir"] = self.map[submodel].get(
+            "mlir", input_mlir
+        )
 
         match submodel:
             case "unetloop":  # SDXL ONLY FOR NOW
@@ -656,10 +656,9 @@ class TurbinePipelineBase:
                 self.map[submodel]["weights"] = None
             case _:
                 export_args = self.map[submodel].get("export_args", {})
-                if self.map[submodel].get("input_mlir"):
-                    export_args["input_mlir"] = self.map[submodel].get("mlir")
                 if weights_only:
                     export_args["weights_only"] = True
+                    export_args["input_mlir"] = None
                 if export_args:
                     exported = self.map[submodel]["export_fn"](**export_args)
                 else:

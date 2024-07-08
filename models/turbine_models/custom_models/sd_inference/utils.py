@@ -229,7 +229,7 @@ def compile_to_vmfb(
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
-    if attn_spec in ["default", "mfma"]:
+    if attn_spec in ["default", "mfma", "i8"]:
         attn_spec = get_mfma_spec_path(
             target_triple, os.path.dirname(safe_name), masked_attention
         )
@@ -300,7 +300,7 @@ def compile_to_vmfb(
         return safe_vmfb_name + ".vmfb"
 
 
-def create_safe_name(hf_model_name, model_name_str):
+def create_safe_name(hf_model_name, model_name_str=""):
     safe_name = hf_model_name.split("/")[-1].strip() + model_name_str
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)
@@ -309,7 +309,7 @@ def create_safe_name(hf_model_name, model_name_str):
 
 def get_mfma_spec_path(target_chip, save_dir, masked_attention=False):
     if not masked_attention:
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_mfma.mlir"
+        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
     else:
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
     attn_spec = urlopen(url).read().decode("utf-8")
@@ -331,7 +331,8 @@ def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
     else:
         return None
     attn_spec = urlopen(url).read().decode("utf-8")
-    spec_path = os.path.join(save_dir, "attention_and_matmul_spec_wmma.mlir")
+    suffix = "masked" if masked_attention else ""
+    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_wmma{suffix}.mlir")
     with open(spec_path, "w") as f:
         f.write(attn_spec)
     return spec_path

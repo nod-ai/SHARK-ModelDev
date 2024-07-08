@@ -189,11 +189,11 @@ def export_unet_model(
     use_punet=False,
 ):
     if use_punet:
-        unet_model = get_punet_model(hf_model_name, external_weight_path, precision)
         submodel_name = "punet"
     else:
-        unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
         submodel_name = "unet"
+    if (not decomp_attn) and use_punet:
+        attn_spec = "i8"
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_{submodel_name}",
@@ -216,6 +216,10 @@ def export_unet_model(
             attn_spec=attn_spec,
         )
         return vmfb_path
+    elif use_punet:
+        unet_model = get_punet_model(hf_model_name, external_weight_path, precision)
+    else:
+        unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
 
     mapper = {}
     np_dtypes = {
