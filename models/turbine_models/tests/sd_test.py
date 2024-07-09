@@ -196,7 +196,6 @@ class StableDiffusionTest(unittest.TestCase):
         del current_args
         del turbine
 
-    @unittest.expectedFailure
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
         blob_name = unet.export_unet_model(
