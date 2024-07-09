@@ -309,7 +309,7 @@ class TurbinePipelineBase:
                 assert (
                     submodel in target.keys()
                 ), f"Target arch for {submodel} not found."
-                self.map[submodel]["device"] = device[submodel]
+                self.map[submodel]["device"] = device[submodel].split("://")[0]
                 self.map[submodel]["driver"] = utils.iree_device_map(device[submodel])
                 self.map[submodel]["target"] = target[submodel]
         else:
@@ -317,7 +317,7 @@ class TurbinePipelineBase:
                 target, str
             ), "Device and target triple must be both dicts or both strings."
             for submodel in self.map.keys():
-                self.map[submodel]["device"] = device
+                self.map[submodel]["device"] = device.split("://")[0]
                 self.map[submodel]["driver"] = utils.iree_device_map(device)
                 self.map[submodel]["target"] = target
         map_arguments = {
@@ -328,7 +328,6 @@ class TurbinePipelineBase:
             "external_weights": external_weights,
             "hf_model_name": hf_model_name,
         }
-        print(map_arguments)
         for arg in map_arguments.keys():
             self.map = merge_arg_into_map(self.map, map_arguments[arg], arg)
 

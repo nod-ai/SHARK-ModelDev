@@ -331,7 +331,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.map["unet"]["export_args"]["precision"] = "i8"
             self.map["unet"]["export_args"]["use_punet"] = True
             self.map["unet"]["keywords"].append("punet")
-            self.map["unet"]["module_name"] = "module"
+            self.map["unet"]["module_name"] = "compiled_punet"
             self.map["unet"]["function_name"] = "main"
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
@@ -525,7 +525,9 @@ class SharkSDPipeline(TurbinePipelineBase):
                     )
                 )
                 unet_inputs[1] = ireert.asdevicearray(
-                    self.unet.device, t, dtype="int32"
+                    self.unet.device,
+                    t,
+                    dtype=self.map["unet"]["np_dtype"],
                 )
                 for inp_idx, inp in enumerate(unet_inputs):
                     if not isinstance(inp, ireert.DeviceArray):

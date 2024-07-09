@@ -171,6 +171,7 @@ def export_prompt_encoder(
     attn_spec=None,
     weights_only=False,
     batch_input=False,
+    decomp_attn=False,  # Compatibility
 ):
     do_classifier_free_guidance = True
 

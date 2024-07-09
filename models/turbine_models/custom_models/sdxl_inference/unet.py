@@ -74,9 +74,10 @@ class UnetModel(torch.nn.Module):
 
 def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
     from sharktank.models.punet.model import (
-        Unet2DConditionModel as punet_unet,
-        ClassifierFreeGuidanceUnetModel as CFGPunetModel,
+        Unet2DConditionModel as sharktank_unet2d,
+        ClassifierFreeGuidanceUnetModel as sharktank_CFGPunetModel,
     )
+    from sharktank.utils import cli
 
     if precision == "i8":
         repo_id = "amd-shark/sdxl-quant-models"
@@ -99,70 +100,45 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
     if precision == "i8":
         results["quant_params.json"] = download("quant_params.json")
         output_path = external_weight_path.split("unet")[0] + "punet_dataset_i8.irpa"
-        ds = get_punet_i8_dataset(
+        ds = get_punet_dataset(
             results["config.json"],
+            results["params.safetensors"],
+            output_path,
             results["quant_params.json"],
+            base_params=None,
+        )
+    else:
+        ds = get_punet_dataset(
+            results["config.json"],
             results["params.safetensors"],
             output_path,
             base_params=None,
         )
-    else:
-        ds = None  # get_punet_dataset(results["config.json"], results["params.safetensors"], base_params=None)
 
-    cond_unet = punet_unet.from_dataset(ds)
-    mdl = CFGPunetModel(cond_unet)
+    cond_unet = sharktank_unet2d.from_dataset(ds)
+    mdl = sharktank_CFGPunetModel(cond_unet)
     return mdl
 
 
-def get_punet_i8_dataset(
+def get_punet_dataset(
     config_json_path,
-    quant_params_path,
     params_path,
     output_path="./punet_dataset_i8.irpa",
+    quant_params_path=None,
     quant_params_struct=None,
     base_params=None,
 ):
-    from sharktank.models.punet.tools.import_brevitas_dataset import (
-        _load_json,
-        _load_theta,
-        _get_dataset_props,
-        apply_per_layer_quant,
-        Dataset,
-        Theta,
-        InferenceTensor,
+    from sharktank.models.punet.tools import import_brevitas_dataset
+
+    import_brevitas_dataset.main(
+        [
+            f"--config-json={config_json_path}",
+            f"--params={params_path}",
+            f"--quant-params={quant_params_path}",
+            f"--output-irpa-file={output_path}",
+        ]
     )
-
-    # Construct the pre-transform dataset.
-    dataset_props = _get_dataset_props(_load_json(config_json_path))
-    quant_params_struct = _load_json(quant_params_path)
-    with safetensors.safe_open(params_path, framework="pt", device="cpu") as st:
-        quant_theta = _load_theta(st)
-    base_theta = None
-    if base_params is not None:
-        print("Initializing from base parameters:", args.base_params)
-        with safetensors.safe_open(base_params, framework="pt", device="cpu") as st:
-            base_theta = _load_theta(st)
-
-    ds = Dataset(dataset_props, quant_theta if base_theta is None else base_theta)
-
-    # The quant_params_struct has quantization parameter structs keyed by full
-    # layer name. We process each of these in turn to produce a per-layer
-    # quantization scheme where no quantized tensors escape their layer.
-    updated_tensors: dict[str, InferenceTensor] = {}
-    for layer_name, qp in quant_params_struct.items():
-        print(f"Applying per-layer quants: {layer_name}")
-        apply_per_layer_quant(quant_theta, layer_name, qp, updated_tensors)
-
-    # Apply updates into a new Theta.
-    theta = base_theta if base_theta is not None else quant_theta
-    flat_tensors = theta.flatten()
-    flat_tensors.update(updated_tensors)
-    ds.root_theta = Theta(flat_tensors)
-
-    # TODO: Post-process to introduce fused cross-layer connections.
-
-    ds.save(output_path, io_report_callback=print)
-    return ds
+    return import_brevitas_dataset.Dataset.load(output_path)
 
 
 @torch.no_grad()
@@ -238,15 +214,17 @@ def export_unet_model(
     }
     dtype = torch_dtypes[precision]
     np_dtype = np_dtypes[precision]
-    if precision == "fp16":
+
+    if precision == "fp16" and not use_punet:
         unet_model = unet_model.half()
 
     if use_punet:
         dtype = torch.float16
 
-    utils.save_external_weights(
-        mapper, unet_model, external_weights, external_weight_path
-    )
+    if not use_punet:
+        utils.save_external_weights(
+            mapper, unet_model, external_weights, external_weight_path
+        )
 
     if weights_only:
         return external_weight_path
@@ -296,13 +274,11 @@ def export_unet_model(
         from_current=True,
         add_ops=decomp_list,
     ):
-        if external_weights:
-            externalize_module_parameters(unet_model)
         if use_punet:
             output = export(
                 unet_model,
                 kwargs=example_forward_args_dict,
-                module_name="compiled_unet",
+                module_name="compiled_punet",
             )
             module = output.mlir_module
         else:
@@ -398,7 +374,7 @@ if __name__ == "__main__":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,
-        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet",
+        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_{'p' if args.use_i8_punet else ''}unet",
     )
     if args.compile_to != "vmfb":
         with open(f"{safe_name}.mlir", "w+") as f:

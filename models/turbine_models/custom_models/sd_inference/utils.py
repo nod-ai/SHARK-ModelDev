@@ -233,10 +233,13 @@ def compile_to_vmfb(
     if attn_spec in ["default", "mfma", "punet"]:
         use_punet = True if attn_spec in ["punet", "i8"] else False
         attn_spec = get_mfma_spec_path(
-            target_triple, os.path.dirname(safe_name), masked_attention, use_punet=use_punet
+            target_triple,
+            os.path.dirname(safe_name),
+            masked_attention,
+            use_punet=use_punet,
         )
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    
+
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(
             target_triple, os.path.dirname(safe_name), masked_attention
