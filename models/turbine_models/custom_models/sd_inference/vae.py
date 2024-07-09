@@ -183,6 +183,7 @@ def export_vae_model(
     ):
         fxb = FxProgramsBuilder(vae_model)
 
+        # TODO: fix issues with exporting the encode function.
         # @fxb.export_program(args=(encode_args,))
         # def _encode(module, inputs,):
         #     return module.encode(*inputs)
