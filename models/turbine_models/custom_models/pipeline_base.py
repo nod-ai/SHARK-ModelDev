@@ -547,11 +547,7 @@ class TurbinePipelineBase:
 
             self.map[submodel]["export_args"]["external_weight_path"] = os.path.join(
                 self.external_weights_dir,
-                utils.create_safe_name(
-                    self.map[submodel]["export_args"].get("hf_model_name", ""), ""
-                )
-                + f"_{submodel}_{self.map[submodel]['precision']}."
-                + self.map[submodel]["external_weights"],
+                self.map[submodel]["export_args"]["external_weight_path"],
             )
 
         elif not self.map[submodel].get("external_weights"):
