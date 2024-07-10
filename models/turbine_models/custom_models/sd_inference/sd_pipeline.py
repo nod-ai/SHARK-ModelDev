@@ -186,7 +186,11 @@ def get_sd_model_map(hf_model_name):
         name = hf_model_name["text_encoder"]
     else:
         name = hf_model_name
-    if name in ["stabilityai/sdxl-turbo", "stabilityai/stable-diffusion-xl-base-1.0"]:
+    if name in [
+        "stabilityai/sdxl-turbo",
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16//checkpoint_pipe",
+    ]:
         return sdxl_model_map
     elif "stabilityai/stable-diffusion-3" in name:
         return sd3_model_map
