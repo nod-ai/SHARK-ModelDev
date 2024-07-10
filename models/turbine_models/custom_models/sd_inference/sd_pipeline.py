@@ -311,7 +311,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             else hf_model_name.get("unet", hf_model_name.get("mmdit"))
         )
         self.is_img2img = False
-        self.is_sdxl = "xl" in self.base_model_name
+        self.is_sdxl = "xl" in self.base_model_name.lower()
         self.is_sd3 = "stable-diffusion-3" in self.base_model_name
         if self.is_sdxl:
             if self.split_scheduler:
