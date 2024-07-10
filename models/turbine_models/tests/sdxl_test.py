@@ -82,9 +82,9 @@ class StableDiffusionXLTest(unittest.TestCase):
         self.safe_model_name = create_safe_name(arguments["hf_model_name"], "")
 
     def test01_ExportPromptEncoder(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
-                "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
+                "Compilation error on vulkan; recent numerics regression (nans) on hip driver, To be tested on cuda."
             )
         arguments["external_weight_path"] = (
             "prompt_encoder." + arguments["external_weights"]
@@ -400,9 +400,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
     def test05_t2i_generate_images(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Have issues with submodels on vulkan, cuda; ROCM hangs on mi250 despite submodels working."
-            )
+            self.skipTest("Have issues with submodels on vulkan, cuda")
         from turbine_models.custom_models.sd_inference.sd_pipeline import (
             SharkSDPipeline,
         )

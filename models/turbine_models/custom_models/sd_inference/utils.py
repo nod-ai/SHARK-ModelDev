@@ -194,7 +194,7 @@ def compile_to_vmfb(
             ]
         )
         device = "vulkan-spirv"
-    elif device == "rocm":
+    elif device in ["rocm", "hip"]:
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
