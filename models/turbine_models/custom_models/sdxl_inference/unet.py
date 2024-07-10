@@ -111,10 +111,7 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
 
     if precision == "i8":
         results["quant_params.json"] = download("quant_params.json")
-        ds_filename = (
-            os.path.basename(external_weight_path).split("unet")[0]
-            + "punet_dataset_i8.irpa"
-        )
+        ds_filename = os.path.basename(external_weight_path)
         output_path = os.path.join(output_dir, ds_filename)
         ds = get_punet_dataset(
             results["config.json"],
