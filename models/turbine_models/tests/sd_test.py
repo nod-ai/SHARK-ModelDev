@@ -103,6 +103,8 @@ class StableDiffusionTest(unittest.TestCase):
         if platform.system() != "Windows":
             os.remove(current_args["external_weight_path"])
             os.remove(current_args["vmfb_path"])
+        del current_args
+        del turbine
 
     def testExportUnetModel(self):
         current_args = copy.deepcopy(default_arguments)
@@ -217,6 +219,7 @@ class StableDiffusionTest(unittest.TestCase):
             new_blob_name = blob_name.split(".")
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
+        del current_args
         del torch_output
         del turbine
         os.remove("stable_diffusion_v1_4_vae.safetensors")
