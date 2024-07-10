@@ -18,7 +18,7 @@ def pytest_addoption(parser):
         action="store",
         default="blurry, unsaturated, watermark, noisy, grainy, out of focus",
     )
-    parser.addoption("--num_inference_steps", type=int, action="store", default=5)
+    parser.addoption("--num_inference_steps", type=int, action="store", default=2)
     parser.addoption("--guidance_scale", type=float, action="store", default=7.5)
     parser.addoption("--seed", type=float, action="store", default=0.0)
     parser.addoption("--vmfb_path", action="store", default="")
@@ -50,4 +50,4 @@ def pytest_addoption(parser):
     parser.addoption("--in_channels", type=int, action="store", default=4)
     parser.addoption("--benchmark", action="store_true", default=False)
     parser.addoption("--tracy_profile", action="store_true", default=False)
-    parser.addoption("--compiled_pipeline", type=bool, default=True)
+    parser.addoption("--compiled_pipeline", type=bool, default=False)

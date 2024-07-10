@@ -55,7 +55,7 @@ def run_clip(
 
     if "google/t5" in hf_model_name:
         inp += [ireert.asdevicearray(runner.config.device, example_input)]
-    results = runner.ctx.modules.compiled_clip["main"](*inp)
+    results = runner.ctx.modules.compiled_text_encoder["encode_tokens"](*inp)
     return results
 
 

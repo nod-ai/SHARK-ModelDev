@@ -12,17 +12,6 @@ from diffusers import (
     # DPMSolverSDEScheduler,
 )
 
-_IREE_DEVICE_MAP = {
-    "cpu": "local-task",
-    "cpu-task": "local-task",
-    "cpu-sync": "local-sync",
-    "cuda": "cuda",
-    "vulkan": "vulkan",
-    "metal": "metal",
-    "rocm": "rocm",
-    "hip": "hip",
-    "intel-gpu": "level_zero",
-}
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 MI_flags = {
     "all": [
@@ -102,20 +91,51 @@ znver4_flags = {
     ],
 }
 
+_IREE_DRIVER_MAP = {
+    "cpu": "local-task",
+    "cpu-task": "local-task",
+    "cpu-sync": "local-sync",
+    "cuda": "cuda",
+    "vulkan": "vulkan",
+    "metal": "metal",
+    "rocm": "hip",
+    "rocm-legacy": "rocm",
+    "hip": "hip",
+    "intel-gpu": "level_zero",
+}
+
+_IREE_BACKEND_MAP = {
+    "cpu": "llvm-cpu",
+    "rocm": "rocm",
+    "rocm-legacy": "rocm",
+    "hip": "rocm",
+    "cuda": "cuda",
+    "vulkan": "vulkan-spirv",
+    "metal": "metal",
+}
+
 
 def iree_device_map(device):
     uri_parts = device.split("://", 2)
     iree_driver = (
-        _IREE_DEVICE_MAP[uri_parts[0]]
-        if uri_parts[0] in _IREE_DEVICE_MAP
+        _IREE_DRIVER_MAP[uri_parts[0]]
+        if uri_parts[0] in _IREE_DRIVER_MAP
         else uri_parts[0]
     )
     if len(uri_parts) == 1:
         return iree_driver
-    elif "rocm" in uri_parts:
-        return "rocm"
     else:
         return f"{iree_driver}://{uri_parts[1]}"
+
+
+def iree_backend_map(device):
+    uri_parts = device.split("://", 2)
+    iree_device = (
+        _IREE_BACKEND_MAP[uri_parts[0]]
+        if uri_parts[0] in _IREE_BACKEND_MAP
+        else uri_parts[0]
+    )
+    return iree_device
 
 
 def compile_to_vmfb(
@@ -132,6 +152,7 @@ def compile_to_vmfb(
     attn_spec=None,
     winograd=False,
     masked_attention=False,
+    debug=False,
 ):
     flags = []
     if mlir_source == "file" and not isinstance(module_str, str):
@@ -173,7 +194,7 @@ def compile_to_vmfb(
             ]
         )
         device = "vulkan-spirv"
-    elif device == "rocm":
+    elif device in ["rocm", "hip"]:
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
@@ -199,7 +220,6 @@ def compile_to_vmfb(
     elif ireec_flags == None:
         ireec_flags = []
 
-    debug = False
     if debug:
         flags.extend(
             ["--iree-hal-dump-executable-files-to=" + safe_name + "_dispatches"]
@@ -229,11 +249,17 @@ def compile_to_vmfb(
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
-    if attn_spec in ["default", "mfma"]:
+
+    if attn_spec in ["default", "mfma", "punet"]:
+        use_punet = True if attn_spec in ["punet", "i8"] else False
         attn_spec = get_mfma_spec_path(
-            target_triple, os.path.dirname(safe_name), masked_attention
+            target_triple,
+            os.path.dirname(safe_name),
+            masked_attention,
+            use_punet=use_punet,
         )
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(
             target_triple, os.path.dirname(safe_name), masked_attention
@@ -300,22 +326,25 @@ def compile_to_vmfb(
         return safe_vmfb_name + ".vmfb"
 
 
-def create_safe_name(hf_model_name, model_name_str):
+def create_safe_name(hf_model_name, model_name_str=""):
     safe_name = hf_model_name.split("/")[-1].strip() + model_name_str
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)
     return safe_name
 
 
-def get_mfma_spec_path(target_chip, save_dir, masked_attention=False):
-    if not masked_attention:
+def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
+    if use_punet:
+        suffix = "_punet"
+        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
+    elif not masked_attention:
+        suffix = ""
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_mfma.mlir"
     else:
+        suffix = "_pad"
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
     attn_spec = urlopen(url).read().decode("utf-8")
-    spec_path = os.path.join(save_dir, "attention_and_matmul_spec_mfma.mlir")
-    if os.path.exists(spec_path):
-        return spec_path
+    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_mfma{suffix}.mlir")
     with open(spec_path, "w") as f:
         f.write(attn_spec)
     return spec_path
@@ -331,7 +360,8 @@ def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
     else:
         return None
     attn_spec = urlopen(url).read().decode("utf-8")
-    spec_path = os.path.join(save_dir, "attention_and_matmul_spec_wmma.mlir")
+    suffix = "masked" if masked_attention else ""
+    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_wmma{suffix}.mlir")
     with open(spec_path, "w") as f:
         f.write(attn_spec)
     return spec_path

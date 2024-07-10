@@ -15,6 +15,7 @@ from shark_turbine.aot import *
 from shark_turbine.dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
 )
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -28,37 +29,38 @@ from turbine_models.turbine_tank import turbine_tank
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name):
         super().__init__()
+        self.do_classifier_free_guidance = True
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
             subfolder="unet",
         )
 
-    def forward(self, sample, timestep, encoder_hidden_states, guidance_scale):
-        samples = torch.cat([sample] * 2)
-        unet_out = self.unet.forward(
-            samples, timestep, encoder_hidden_states, return_dict=False
+    def forward(
+        self, latent_model_input, timestep, encoder_hidden_states, guidance_scale
+    ):
+        noise_pred = self.unet.forward(
+            latent_model_input, timestep, encoder_hidden_states, return_dict=False
         )[0]
-        noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
-        noise_pred = noise_pred_uncond + guidance_scale * (
-            noise_pred_text - noise_pred_uncond
-        )
+        if self.do_classifier_free_guidance:
+            noise_preds = noise_pred.chunk(2)
+            noise_pred = noise_preds[0] + guidance_scale * (
+                noise_preds[1] - noise_preds[0]
+            )
         return noise_pred
 
 
 def export_unet_model(
-    unet_model,
     hf_model_name,
     batch_size,
     height,
     width,
     precision="fp32",
     max_length=77,
-    hf_auth_token=None,
     compile_to="torch",
     external_weights=None,
     external_weight_path=None,
     device=None,
-    target_triple=None,
+    target=None,
     ireec_flags=None,
     decomp_attn=False,
     exit_on_vmfb=False,
@@ -68,22 +70,28 @@ def export_unet_model(
     weights_only=False,
     upload_ir=False,
 ):
-    if "turbo" in hf_model_name:
-        do_classifier_free_guidance = False
+    if input_mlir:
+        unet_model = None
     else:
-        do_classifier_free_guidance = True
-    if pipeline_dir:
-        safe_name = os.path.join(pipeline_dir, f"unet")
-    else:
-        safe_name = utils.create_safe_name(
+        unet_model = UnetModel(
             hf_model_name,
-            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet_{device}",
         )
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    np_dtype = "float16" if precision == "fp16" else "float32"
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_unet",
+    )
+    if decomp_attn:
+        safe_name += "_decomp_attn"
+    if pipeline_dir:
+        safe_name = os.path.join(pipeline_dir, safe_name)
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             mlir_source="file",
@@ -93,15 +101,6 @@ def export_unet_model(
         return vmfb_path
 
     mapper = {}
-    decomp_list = copy.deepcopy(DEFAULT_DECOMPOSITIONS)
-    if decomp_attn == True:
-        decomp_list.extend(
-            [
-                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-                torch.ops.aten._scaled_dot_product_flash_attention.default,
-            ]
-        )
-    dtype = torch.float16 if precision == "fp16" else torch.float32
 
     if precision == "fp16":
         unet_model = unet_model.half()
@@ -114,76 +113,96 @@ def export_unet_model(
         return external_weight_path
 
     sample = (
-        batch_size,
+        batch_size * 2,
         unet_model.unet.config.in_channels,
         height // 8,
         width // 8,
     )
-
     encoder_hidden_states_sizes = (
         unet_model.unet.config.layers_per_block,
         max_length,
         unet_model.unet.config.cross_attention_dim,
     )
+    example_forward_args = [
+        torch.empty(sample, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+        torch.empty(encoder_hidden_states_sizes, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+    ]
+    decomp_list = []
+    if decomp_attn:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        fxb = FxProgramsBuilder(unet_model)
 
-    class CompiledUnet(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                unet_model, external=True, external_scope="", name_mapper=mapper.get
-            )
-        else:
-            params = export_parameters(unet_model)
-
-        def main(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            timestep=AbstractTensor(1, dtype=dtype),
-            encoder_hidden_states=AbstractTensor(
-                *encoder_hidden_states_sizes, dtype=dtype
-            ),
-            guidance_scale=AbstractTensor(1, dtype=dtype),
+        @fxb.export_program(
+            args=(example_forward_args,),
+        )
+        def _forward(
+            module,
+            inputs,
         ):
-            return jittable(unet_model.forward, decompose_ops=decomp_list)(
-                sample, timestep, encoder_hidden_states, guidance_scale
-            )
+            return module.forward(*inputs)
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledUnet(context=Context(), import_to=import_to)
+        class CompiledUnet(CompiledModule):
+            run_forward = _forward
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        if external_weights:
+            externalize_module_parameters(unet_model)
 
+        inst = CompiledUnet(context=Context(), import_to="IMPORT")
+
+        module = CompiledModule.get_mlir_module(inst)
+
+    model_metadata_run_forward = {
+        "model_name": "sd_unet",
+        "input_shapes": [
+            sample,
+            (1,),
+            encoder_hidden_states_sizes,
+            (1,),
+        ],
+        "input_dtypes": [np_dtype for x in range(4)],
+        "output_shapes": [sample],
+        "output_dtypes": [np_dtype],
+    }
+
+    module = AddMetadataPass(module, model_metadata_run_forward, "run_forward").run()
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     else:
-        utils.compile_to_vmfb(
+        vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
-            return_path=False,
+            return_path=True,
             attn_spec=attn_spec,
         )
+        if exit_on_vmfb:
+            exit()
+    return vmfb_path
 
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
-    if args.input_mlir:
-        unet_model = None
-    else:
-        unet_model = UnetModel(
-            args.hf_model_name,
-        )
     mod_str = export_unet_model(
-        unet_model,
         args.hf_model_name,
         args.batch_size,
         args.height,
         args.width,
         args.precision,
         args.max_length,
-        args.hf_auth_token,
         args.compile_to,
         args.external_weights,
         args.external_weight_path,

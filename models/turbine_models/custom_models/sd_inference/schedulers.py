@@ -74,6 +74,9 @@ class SchedulingModel(torch.nn.Module):
         self.model = scheduler
         self.height = height
         self.width = width
+        self.is_sd3 = False
+        if "stable-diffusion-3" in hf_model_name:
+            self.is_sd3 = True
         self.batch_size = batch_size
         self.do_classifier_free_guidance = True
         self.model.set_timesteps(num_inference_steps)
@@ -129,19 +132,32 @@ class SchedulingModel(torch.nn.Module):
 class SharkSchedulerCPUWrapper:
     @torch.no_grad()
     def __init__(
-        self, scheduler, batch_size, num_inference_steps, dest_device, latents_dtype
+        self,
+        scheduler,
+        batch_size,
+        dest_device,
+        latents_dtype,
+        conditional_timesteps=False,
     ):
-        self.do_classifier_free_guidance = True
         self.module = scheduler
         self.dest = dest_device
-        self.dtype = latents_dtype
         self.batch_size = batch_size
         self.timesteps = None
+        self.do_guidance = True
+        self.repeat_sample = True
+
+        # Enable this on init for models that use a pair of timestep values per unet step.
+        # this includes sd3 and some others we don't support yet.
+        # It allows passage of 'uncond_t' to the scale_model_input function and repeats the
+        # default timestep value if no 'uncond_t' is passed.
+        self.conditional_timesteps = conditional_timesteps
+
+        self.dtype = latents_dtype
         self.torch_dtype = (
             torch.float32 if latents_dtype == "float32" else torch.float16
         )
 
-    def initialize(self, sample, num_inference_steps):
+    def initialize_sdxl(self, sample, num_inference_steps):
         if isinstance(sample, ireert.DeviceArray):
             sample = torch.tensor(sample.to_host(), dtype=torch.float32)
 
@@ -154,7 +170,7 @@ class SharkSchedulerCPUWrapper:
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
         add_time_ids = torch.tensor([add_time_ids], dtype=self.torch_dtype)
-        if self.do_classifier_free_guidance:
+        if self.do_guidance:
             add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
             add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(
                 self.torch_dtype
@@ -162,25 +178,39 @@ class SharkSchedulerCPUWrapper:
         step_indexes = torch.tensor(len(self.timesteps))
         timesteps = self.timesteps
         sample = sample * self.module.init_noise_sigma
-        add_time_ids = ireert.asdevicearray(self.dest, add_time_ids, self.dtype)
         return sample, add_time_ids, step_indexes, timesteps
 
-    def scale_model_input(self, sample, t, timesteps):
-        if self.do_classifier_free_guidance:
+    def initialize_sd(self, sample, num_inference_steps):
+        if isinstance(sample, ireert.DeviceArray):
+            sample = torch.tensor(sample.to_host(), dtype=torch.float32)
+        self.module.set_timesteps(num_inference_steps)
+        timesteps = self.module.timesteps
+        sample = sample * self.module.init_noise_sigma
+        return sample, timesteps
+
+    def scale_model_input(self, sample, t, t_uncond=None):
+        if self.repeat_sample:
             sample = torch.cat([sample] * 2)
-        t = timesteps[t]
+        if self.conditional_timesteps:
+            if t_uncond:
+                t = torch.tensor([t, t_uncond])
+            else:
+                t = torch.tensor([t, t])
+        else:
+            t = torch.tensor([t])
         scaled = self.module.scale_model_input(sample, t)
-        t = ireert.asdevicearray(self.dest, [t], self.dtype)
-        scaled = ireert.asdevicearray(self.dest, scaled, self.dtype)
         return scaled, t
 
-    def step(self, noise_pred, t, latents, guidance_scale, i):
+    def step(self, noise_pred, t, latents, guidance_scale=None):
         if isinstance(t, ireert.DeviceArray):
             t = torch.tensor(t.to_host())
+        if isinstance(noise_pred, ireert.DeviceArray):
+            noise_pred = torch.tensor(noise_pred.to_host())
+        elif isinstance(noise_pred, np.ndarray):
+            noise_pred = torch.tensor(noise_pred)
         if isinstance(guidance_scale, ireert.DeviceArray):
             guidance_scale = torch.tensor(guidance_scale.to_host())
-        noise_pred = torch.tensor(noise_pred.to_host())
-        if self.do_classifier_free_guidance:
+        if self.do_guidance:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond
@@ -189,8 +219,7 @@ class SharkSchedulerCPUWrapper:
             noise_pred,
             t,
             latents,
-            return_dict=False,
-        )[0]
+        ).prev_sample
 
 
 @torch.no_grad()
@@ -204,11 +233,14 @@ def export_scheduler_model(
     precision: str = "fp16",
     compile_to: str = "torch",
     device: str = None,
-    target_triple: str = None,
+    target: str = None,
     ireec_flags: str = None,
     exit_on_vmfb: bool = False,
     pipeline_dir: str = None,
     input_mlir: str = None,
+    attn_spec: str = None,
+    external_weights: str = None,
+    external_weight_path: str = None,
     upload_ir=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -233,9 +265,9 @@ def export_scheduler_model(
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
         )
@@ -329,9 +361,9 @@ def export_scheduler_model(
         vmfb = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=True,
         )
         if exit_on_vmfb:
@@ -350,6 +382,8 @@ def get_scheduler(model_id, scheduler_id):
         scheduler = DPMSolverMultistepScheduler.from_pretrained(
             model_id, subfolder="scheduler", algorithm_type="dpmsolver++"
         )
+    else:
+        raise ValueError(f"Scheduler {scheduler_id} not found.")
     if "Karras" in scheduler_id:
         scheduler.config.use_karras_sigmas = True
 

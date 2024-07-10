@@ -17,6 +17,7 @@ from shark_turbine.aot import *
 from shark_turbine.dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
 )
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
@@ -160,6 +161,7 @@ def export_mmdit_model(
     weights_only=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    np_dtype = "float16" if precision == "fp16" else "float32"
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_mmdit",
@@ -239,8 +241,22 @@ def export_mmdit_model(
 
         inst = CompiledMmdit(context=Context(), import_to="IMPORT")
 
-        module_str = str(CompiledModule.get_mlir_module(inst))
+        module = CompiledModule.get_mlir_module(inst)
 
+    model_metadata_run_forward = {
+        "model_name": "sd3_mmdit",
+        "input_shapes": [
+            hidden_states_shape,
+            encoder_hidden_states_shape,
+            pooled_projections_shape,
+            init_batch_dim,
+        ],
+        "input_dtypes": [np_dtype for x in range(4)],
+        "output_shapes": [hidden_states_shape],
+        "output_dtypes": [np_dtype],
+    }
+    module = AddMetadataPass(module, model_metadata_run_forward, "run_forward").run()
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     else:

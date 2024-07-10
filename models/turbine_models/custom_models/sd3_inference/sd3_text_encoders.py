@@ -13,6 +13,7 @@ import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
 from shark_turbine.aot import *
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from turbine_models.custom_models.sd3_inference.text_encoder_impls import (
@@ -113,8 +114,8 @@ class TextEncoderModule(torch.nn.Module):
 @torch.no_grad()
 def export_text_encoders(
     hf_model_name,
-    hf_auth_token=None,
     max_length=64,
+    batch_size=1,
     precision="fp16",
     compile_to="torch",
     external_weights=None,
@@ -126,7 +127,6 @@ def export_text_encoders(
     pipeline_dir=None,
     input_mlir=None,
     attn_spec=None,
-    output_batchsize=1,
     decomp_attn=True,
 ):
 
@@ -192,8 +192,20 @@ def export_text_encoders(
 
         inst = CompiledTextEncoder(context=Context(), import_to="IMPORT")
 
-        module_str = str(CompiledModule.get_mlir_module(inst))
+        module = CompiledModule.get_mlir_module(inst)
 
+    model_metadata_forward = {
+        "model_name": "sd3_clip_t5xxl_text_encoders",
+        "input_shapes": [(1, max_length, 2) for x in range(6)],
+        "input_dtypes": ["int64" for x in range(6)],
+        "output_shapes": [
+            (2 * output_batchsize, max_length * 2, 4096),
+            (2 * output_batchsize, 2048),
+        ],
+        "output_dtypes": ["float32"],
+    }
+    module = AddMetadataPass(module, model_metadata_forward, "forward").run()
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     else:
@@ -215,8 +227,8 @@ if __name__ == "__main__":
 
     mod_str, _ = export_text_encoders(
         args.hf_model_name,
-        args.hf_auth_token,
         args.max_length,
+        args.batch_size,
         args.precision,
         args.compile_to,
         args.external_weights,
@@ -228,7 +240,6 @@ if __name__ == "__main__":
         pipeline_dir=args.pipeline_dir,
         input_mlir=args.input_mlir,
         attn_spec=args.attn_spec,
-        output_batchsize=args.batch_size,
     )
     if args.input_mlir or args.weights_only or args.compile_to == "vmfb":
         exit()

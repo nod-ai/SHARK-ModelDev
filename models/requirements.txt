@@ -1,5 +1,5 @@
 protobuf
-shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
+gguf
 transformers==4.37.1
 torchsde
 accelerate
@@ -12,3 +12,5 @@ azure-storage-blob
 einops
 pytest
 scipy
+shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
+sharktank @ git+https://github.com/nod-ai/sharktank@main#subdirectory=sharktank
