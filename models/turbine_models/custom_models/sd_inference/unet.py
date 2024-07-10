@@ -130,7 +130,7 @@ def export_unet_model(
         torch.empty(1, dtype=dtype),
     ]
     decomp_list = []
-    if decomp_attn == True:
+    if decomp_attn:
         decomp_list = [
             torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
             torch.ops.aten._scaled_dot_product_flash_attention.default,

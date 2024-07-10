@@ -3,6 +3,7 @@ from iree import runtime as ireert
 import re
 import torch
 import numpy as np
+import warnings
 
 
 # The following is copied from Diffusers' "encode_prompt" function in the StableDiffusion pipeline.
@@ -86,7 +87,9 @@ def encode_prompt(
             removed_text = pipe.tokenizer.batch_decode(
                 untruncated_ids[:, pipe.model_max_length - 1 : -1]
             )
-            print("The following text was removed due to truncation:", removed_text)
+            warnings.warn(
+                "The following text was removed due to truncation: " + removed_text
+            )
         if pipe.text_encoder.metadata.get("use_attention_mask"):
             attention_mask = text_inputs.attention_mask
             prompt_embeds = pipe.text_encoder(

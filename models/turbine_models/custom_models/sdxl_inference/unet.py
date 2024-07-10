@@ -107,22 +107,31 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
         "config.json": download("config.json"),
         "params.safetensors": download("params.safetensors"),
     }
+    output_dir = os.path.dirname(external_weight_path)
+
     if precision == "i8":
         results["quant_params.json"] = download("quant_params.json")
-        output_path = external_weight_path.split("unet")[0] + "punet_dataset_i8.irpa"
+        ds_filename = (
+            os.path.basename(external_weight_path).split("unet")[0]
+            + "punet_dataset_i8.irpa"
+        )
+        output_path = os.path.join(output_dir, ds_filename)
         ds = get_punet_dataset(
             results["config.json"],
             results["params.safetensors"],
             output_path,
             results["quant_params.json"],
-            base_params=None,
         )
     else:
+        ds_filename = (
+            os.path.basename(external_weight_path).split("unet")[0]
+            + f"punet_dataset_{precision}.irpa"
+        )
+        output_path = os.path.join(output_dir, ds_filename)
         ds = get_punet_dataset(
             results["config.json"],
             results["params.safetensors"],
             output_path,
-            base_params=None,
         )
 
     cond_unet = sharktank_unet2d.from_dataset(ds)
@@ -133,21 +142,19 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
 def get_punet_dataset(
     config_json_path,
     params_path,
-    output_path="./punet_dataset_i8.irpa",
+    output_path,
     quant_params_path=None,
-    quant_params_struct=None,
-    base_params=None,
 ):
     from sharktank.models.punet.tools import import_brevitas_dataset
 
-    import_brevitas_dataset.main(
-        [
-            f"--config-json={config_json_path}",
-            f"--params={params_path}",
-            f"--quant-params={quant_params_path}",
-            f"--output-irpa-file={output_path}",
-        ]
-    )
+    ds_import_args = [
+        f"--config-json={config_json_path}",
+        f"--params={params_path}",
+        f"--output-irpa-file={output_path}",
+    ]
+    if quant_params_path:
+        ds_import_args.extend([f"--quant-params={quant_params_path}"])
+    import_brevitas_dataset.main(ds_import_args)
     return import_brevitas_dataset.Dataset.load(output_path)
 
 
