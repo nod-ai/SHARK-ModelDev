@@ -49,18 +49,23 @@ class UnetModel(torch.nn.Module):
                 auth_token=hf_auth_token,
                 low_cpu_mem_usage=False,
             )
-        # if "turbo" in hf_model_name:
-        #     self.do_classifier_free_guidance = False
-        # else:
         self.do_classifier_free_guidance = True
 
     def forward(
-        self, latent_model_input, timestep, prompt_embeds, text_embeds, time_ids
+        self,
+        latent_model_input,
+        timestep,
+        prompt_embeds,
+        text_embeds,
+        time_ids,
+        guidance_scale,
     ):
         added_cond_kwargs = {
             "text_embeds": text_embeds,
             "time_ids": time_ids,
         }
+        if self.do_classifier_free_guidance:
+            latent_model_input = torch.cat([latent_model_input] * 2)
         noise_pred = self.unet.forward(
             latent_model_input,
             timestep,
@@ -69,6 +74,11 @@ class UnetModel(torch.nn.Module):
             added_cond_kwargs=added_cond_kwargs,
             return_dict=False,
         )[0]
+        if self.do_classifier_free_guidance:
+            noise_preds = noise_pred.chunk(2)
+            noise_pred = noise_preds[0] + guidance_scale * (
+                noise_preds[1] - noise_preds[0]
+            )
         return noise_pred
 
 
@@ -238,22 +248,17 @@ def export_unet_model(
         height // 8,
         width // 8,
     ]
-    prepared_latents = (
-        batch_size * init_batch_dim,
-        4,
-        height // 8,
-        width // 8,
-    )
 
     time_ids_shape = (init_batch_dim * batch_size, 6)
     prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
     text_embeds_shape = (init_batch_dim * batch_size, 1280)
     example_forward_args = [
-        torch.empty(prepared_latents, dtype=dtype),
+        torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=dtype),
         torch.empty(prompt_embeds_shape, dtype=dtype),
         torch.empty(text_embeds_shape, dtype=dtype),
         torch.empty(time_ids_shape, dtype=dtype),
+        torch.tensor([7.5], dtype=dtype),
     ]
     example_forward_args_dict = {
         "sample": torch.rand(sample, dtype=dtype),
@@ -282,6 +287,8 @@ def export_unet_model(
             )
             module = output.mlir_module
         else:
+            if external_weights:
+                externalize_module_parameters(unet_model)
             fxb = FxProgramsBuilder(unet_model)
 
             @fxb.export_program(
@@ -303,19 +310,17 @@ def export_unet_model(
     model_metadata_run_forward = {
         "model_name": "sd_unet",
         "input_shapes": [
-            prepared_latents,
+            sample,
             (1,),
             prompt_embeds_shape,
             text_embeds_shape,
             time_ids_shape,
+            (1,),
         ],
-        "input_dtypes": [np_dtype for x in range(5)],
+        "input_dtypes": [np_dtype for x in range(6)],
         "output_shapes": [sample],
         "output_dtypes": [np_dtype],
     }
-    if use_punet:
-        model_metadata_run_forward["input_shapes"].append((1,))
-        model_metadata_run_forward["input_dtypes"].append(np_dtype)
 
     module = AddMetadataPass(module, model_metadata_run_forward, "run_forward").run()
 

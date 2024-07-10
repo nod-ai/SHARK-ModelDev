@@ -113,6 +113,7 @@ def export_vae_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
+    upload_ir=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     np_dtype = "float16" if precision == "fp16" else "float32"

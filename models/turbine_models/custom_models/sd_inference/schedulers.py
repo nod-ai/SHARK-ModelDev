@@ -139,11 +139,12 @@ class SharkSchedulerCPUWrapper:
         latents_dtype,
         conditional_timesteps=False,
     ):
-        self.do_classifier_free_guidance = True
         self.module = scheduler
         self.dest = dest_device
         self.batch_size = batch_size
         self.timesteps = None
+        self.do_guidance = True
+        self.repeat_sample = True
 
         # Enable this on init for models that use a pair of timestep values per unet step.
         # this includes sd3 and some others we don't support yet.
@@ -152,7 +153,6 @@ class SharkSchedulerCPUWrapper:
         self.conditional_timesteps = conditional_timesteps
 
         self.dtype = latents_dtype
-        self.use_punet = False
         self.torch_dtype = (
             torch.float32 if latents_dtype == "float32" else torch.float16
         )
@@ -170,7 +170,7 @@ class SharkSchedulerCPUWrapper:
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
         add_time_ids = torch.tensor([add_time_ids], dtype=self.torch_dtype)
-        if self.do_classifier_free_guidance:
+        if self.do_guidance:
             add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
             add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(
                 self.torch_dtype
@@ -189,7 +189,7 @@ class SharkSchedulerCPUWrapper:
         return sample, timesteps
 
     def scale_model_input(self, sample, t, t_uncond=None):
-        if self.do_classifier_free_guidance and not self.use_punet:
+        if self.repeat_sample:
             sample = torch.cat([sample] * 2)
         if self.conditional_timesteps:
             if t_uncond:
@@ -201,14 +201,16 @@ class SharkSchedulerCPUWrapper:
         scaled = self.module.scale_model_input(sample, t)
         return scaled, t
 
-    def step(self, noise_pred, t, latents, guidance_scale):
+    def step(self, noise_pred, t, latents, guidance_scale=None):
         if isinstance(t, ireert.DeviceArray):
             t = torch.tensor(t.to_host())
         if isinstance(noise_pred, ireert.DeviceArray):
             noise_pred = torch.tensor(noise_pred.to_host())
+        elif isinstance(noise_pred, np.ndarray):
+            noise_pred = torch.tensor(noise_pred)
         if isinstance(guidance_scale, ireert.DeviceArray):
             guidance_scale = torch.tensor(guidance_scale.to_host())
-        if self.do_classifier_free_guidance and not self.use_punet:
+        if self.do_guidance:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond
@@ -217,8 +219,7 @@ class SharkSchedulerCPUWrapper:
             noise_pred,
             t,
             latents,
-            return_dict=False,
-        )[0]
+        ).prev_sample
 
 
 @torch.no_grad()

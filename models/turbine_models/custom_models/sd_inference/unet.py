@@ -29,16 +29,24 @@ from turbine_models.turbine_tank import turbine_tank
 class UnetModel(torch.nn.Module):
     def __init__(self, hf_model_name):
         super().__init__()
+        self.do_classifier_free_guidance = True
         self.unet = UNet2DConditionModel.from_pretrained(
             hf_model_name,
             subfolder="unet",
         )
 
-    def forward(self, latent_model_input, timestep, encoder_hidden_states):
-        unet_out = self.unet.forward(
+    def forward(
+        self, latent_model_input, timestep, encoder_hidden_states, guidance_scale
+    ):
+        noise_pred = self.unet.forward(
             latent_model_input, timestep, encoder_hidden_states, return_dict=False
         )[0]
-        return unet_out
+        if self.do_classifier_free_guidance:
+            noise_preds = noise_pred.chunk(2)
+            noise_pred = noise_preds[0] + guidance_scale * (
+                noise_preds[1] - noise_preds[0]
+            )
+        return noise_pred
 
 
 def export_unet_model(
@@ -119,6 +127,7 @@ def export_unet_model(
         torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=dtype),
         torch.empty(encoder_hidden_states_sizes, dtype=dtype),
+        torch.empty(1, dtype=dtype),
     ]
     decomp_list = []
     if decomp_attn == True:
@@ -158,8 +167,9 @@ def export_unet_model(
             sample,
             (1,),
             encoder_hidden_states_sizes,
+            (1,),
         ],
-        "input_dtypes": [np_dtype for x in range(3)],
+        "input_dtypes": [np_dtype for x in range(4)],
         "output_shapes": [sample],
         "output_dtypes": [np_dtype],
     }

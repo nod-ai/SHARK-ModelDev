@@ -15,7 +15,7 @@ def run_vae(
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
     inputs = [ireert.asdevicearray(runner.config.device, example_input)]
-    results = runner.ctx.modules.compiled_vae["main"](*inputs)
+    results = runner.ctx.modules.compiled_vae["decode"](*inputs)
 
     return results
 
@@ -28,9 +28,9 @@ def run_torch_vae(hf_model_name, custom_vae, variant, example_input):
     )
 
     if variant == "decode":
-        results = vae_model.decode_inp(example_input)
+        results = vae_model.decode(example_input)
     elif variant == "encode":
-        results = vae_model.encode_inp(example_input)
+        results = vae_model.encode(example_input)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
 

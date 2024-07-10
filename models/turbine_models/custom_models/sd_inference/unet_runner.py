@@ -15,16 +15,18 @@ def run_unet(
     hf_model_name,
     hf_auth_token,
     external_weight_path,
+    iree_dtype,
 ):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
-
     inputs = [
-        ireert.asdevicearray(runner.config.device, sample),
-        ireert.asdevicearray(runner.config.device, timestep),
-        ireert.asdevicearray(runner.config.device, encoder_hidden_states),
-        ireert.asdevicearray(runner.config.device, guidance_scale),
+        ireert.asdevicearray(runner.config.device, sample, dtype=iree_dtype),
+        ireert.asdevicearray(runner.config.device, timestep, dtype=iree_dtype),
+        ireert.asdevicearray(
+            runner.config.device, encoder_hidden_states, dtype=iree_dtype
+        ),
+        ireert.asdevicearray(runner.config.device, guidance_scale, dtype=iree_dtype),
     ]
-    results = runner.ctx.modules.compiled_unet["main"](*inputs)
+    results = runner.ctx.modules.compiled_unet["run_forward"](*inputs)
     return results
 
 
@@ -36,32 +38,10 @@ def run_torch_unet(
     encoder_hidden_states,
     guidance_scale,
 ):
-    from diffusers import UNet2DConditionModel
-
-    class UnetModel(torch.nn.Module):
-        def __init__(self, hf_model_name, hf_auth_token):
-            super().__init__()
-            self.unet = UNet2DConditionModel.from_pretrained(
-                hf_model_name,
-                subfolder="unet",
-                token=hf_auth_token,
-            )
-            self.guidance_scale = 7.5
-
-        def forward(self, sample, timestep, encoder_hidden_states, guidance_scale):
-            samples = torch.cat([sample] * 2)
-            unet_out = self.unet.forward(
-                samples, timestep, encoder_hidden_states, return_dict=False
-            )[0]
-            noise_pred_uncond, noise_pred_text = unet_out.chunk(2)
-            noise_pred = noise_pred_uncond + self.guidance_scale * (
-                noise_pred_text - noise_pred_uncond
-            )
-            return noise_pred
+    from turbine_models.custom_models.sd_inference.unet import UnetModel
 
     unet_model = UnetModel(
         hf_model_name,
-        hf_auth_token,
     )
     results = unet_model.forward(
         sample, timestep, encoder_hidden_states, guidance_scale
@@ -72,15 +52,21 @@ def run_torch_unet(
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    iree_dtypes = {
+        "fp16": "float16",
+        "fp32": "float32",
+    }
     sample = torch.rand(
-        args.batch_size, 4, args.height // 8, args.width // 8, dtype=torch.float32
+        args.batch_size * 2, 4, args.height // 8, args.width // 8, dtype=torch.float32
     )
     timestep = torch.zeros(1, dtype=torch.float32)
     guidance_scale = torch.Tensor([7.5], dtype=torch.float32)
     if args.hf_model_name == "CompVis/stable-diffusion-v1-4":
-        encoder_hidden_states = torch.rand(2, 77, 768, dtype=torch.float32)
+        encoder_hidden_states = torch.rand(2, args.max_length, 768, dtype=torch.float32)
     elif args.hf_model_name == "stabilityai/stable-diffusion-2-1-base":
-        encoder_hidden_states = torch.rand(2, 77, 1024, dtype=torch.float32)
+        encoder_hidden_states = torch.rand(
+            2, args.max_length, 1024, dtype=torch.float32
+        )
 
     turbine_output = run_unet(
         args.device,
@@ -92,6 +78,7 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.external_weight_path,
+        iree_dtypes[args.precision],
     )
     print(
         "TURBINE OUTPUT:",

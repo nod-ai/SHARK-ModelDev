@@ -354,191 +354,54 @@ class StableDiffusion3Test(unittest.TestCase):
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
+    @pytest.mark.skip("Waiting on inference plumbing for generalized sd pipeline")
+    def test04SDPipeline(self):
+        from turbine_models.custom_models.sd_inference.sd_pipeline import (
+            SharkSDPipeline,
+        )
 
-#    def test04_ExportVaeModelEncode(self):
-#        if arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"]:
-#            self.skipTest(
-#                "Compilation error on cpu, vulkan and rocm; To be tested on cuda."
-#            )
-#        vae.export_vae_model(
-#            vae_model=self.vae_model,
-#            # This is a public model, so no auth required
-#            hf_model_name=arguments["hf_model_name"],
-#            batch_size=arguments["batch_size"],
-#            height=arguments["height"],
-#            width=arguments["width"],
-#            precision=arguments["precision"],
-#            compile_to="vmfb",
-#            external_weights=arguments["external_weights"],
-#            external_weight_path=self.safe_model_name
-#            + "_"
-#            + arguments["precision"]
-#            + "_vae_encode."
-#            + arguments["external_weights"],
-#            device=arguments["device"],
-#            target_triple=arguments["iree_target_triple"],
-#            ireec_flags=arguments["ireec_flags"],
-#            variant="encode",
-#            decomp_attn=arguments["decomp_attn"],
-#            exit_on_vmfb=True,
-#        )
-#        arguments["external_weight_path"] = (
-#            self.safe_model_name
-#            + "_"
-#            + arguments["precision"]
-#            + "_vae_encode."
-#            + arguments["external_weights"]
-#        )
-#        arguments["vmfb_path"] = (
-#            self.safe_model_name
-#            + "_"
-#            + str(arguments["height"])
-#            + "x"
-#            + str(arguments["width"])
-#            + "_"
-#            + arguments["precision"]
-#            + "_vae_encode_"
-#            + arguments["device"]
-#            + ".vmfb"
-#        )
-#        example_input = torch.ones(
-#            arguments["batch_size"],
-#            3,
-#            arguments["height"],
-#            arguments["width"],
-#            dtype=torch.float32,
-#        )
-#        example_input_torch = example_input
-#        if arguments["precision"] == "fp16":
-#            example_input = example_input.half()
-#        turbine = vae_runner.run_vae(
-#            arguments["rt_device"],
-#            example_input,
-#            arguments["vmfb_path"],
-#            arguments["hf_model_name"],
-#            arguments["external_weight_path"],
-#        )
-#        torch_output = vae_runner.run_torch_vae(
-#            arguments["hf_model_name"],
-#            (
-#                "madebyollin/sdxl-vae-fp16-fix"
-#                if arguments["precision"] == "fp16"
-#                else ""
-#            ),
-#            "encode",
-#            example_input_torch,
-#        )
-#        if arguments["benchmark"] or arguments["tracy_profile"]:
-#            run_benchmark(
-#                "vae_encode",
-#                arguments["vmfb_path"],
-#                arguments["external_weight_path"],
-#                arguments["rt_device"],
-#                height=arguments["height"],
-#                width=arguments["width"],
-#                precision=arguments["precision"],
-#                tracy_profile=arguments["tracy_profile"],
-#            )
-#        rtol = 4e-2
-#        atol = 4e-2
-#        np.testing.assert_allclose(torch_output, turbine, rtol, atol)
+        current_args = copy.deepcopy(default_arguments)
+        decomp_attn = {
+            "text_encoder": False,
+            "unet": False,
+            "vae": current_args["vae_decomp_attn"],
+        }
+        sd_pipe = SharkSDPipeline(
+            current_args["hf_model_name"],
+            current_args["height"],
+            current_args["width"],
+            current_args["batch_size"],
+            current_args["max_length"],
+            current_args["precision"],
+            current_args["device"],
+            current_args["iree_target_triple"],
+            ireec_flags=None,  # ireec_flags
+            attn_spec=current_args["attn_spec"],
+            decomp_attn=decomp_attn,
+            pipeline_dir="test_vmfbs",  # pipeline_dir
+            external_weights_dir="test_weights",  # external_weights_dir
+            external_weights=current_args["external_weights"],
+            num_inference_steps=current_args["num_inference_steps"],
+            cpu_scheduling=True,
+            scheduler_id=current_args["scheduler_id"],
+            shift=None,  # shift
+            use_i8_punet=False,
+        )
+        sd_pipe.prepare_all()
+        sd_pipe.load_map()
+        output = sd_pipe.generate_images(
+            current_args["prompt"],
+            current_args["negative_prompt"],
+            current_args["num_inference_steps"],
+            1,  # batch count
+            current_args["guidance_scale"],
+            current_args["seed"],
+            current_args["cpu_scheduling"],
+            current_args["scheduler_id"],
+            True,  # return_img
+        )
+        assert output is not None
 
-#    def test05_t2i_generate_images(self):
-#        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-#            self.skipTest(
-#                "Have issues with submodels on vulkan, cuda; ROCM hangs on mi250 despite submodels working."
-#            )
-#        mlirs = {
-#            "vae_decode": None,
-#            "prompt_encoder": None,
-#            "scheduled_unet": None,
-#            "pipeline": None,
-#            "full_pipeline": None,
-#        }
-#        vmfbs = {
-#            "vae_decode": None,
-#            "prompt_encoder": None,
-#            "scheduled_unet": None,
-#            "pipeline": None,
-#            "full_pipeline": None,
-#        }
-#        weights = {
-#            "vae_decode": None,
-#            "prompt_encoder": None,
-#            "scheduled_unet": None,
-#            "pipeline": None,
-#            "full_pipeline": None,
-#        }
-#
-#        if not arguments["pipeline_dir"]:
-#            pipe_id_list = [
-#                "sdxl_1_0",
-#                str(arguments["height"]),
-#                str(arguments["width"]),
-#                str(arguments["max_length"]),
-#                arguments["precision"],
-#                arguments["device"],
-#            ]
-#            arguments["pipeline_dir"] = os.path.join(
-#                ".",
-#                "_".join(pipe_id_list),
-#            )
-#        ireec_flags = {
-#            "unet": arguments["ireec_flags"],
-#            "vae": arguments["ireec_flags"],
-#            "clip": arguments["ireec_flags"],
-#            "pipeline": arguments["ireec_flags"],
-#        }
-#        user_mlir_list = []
-#        for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
-#            if submodel_id in mlir_path:
-#                mlirs[submodel_id] = mlir_path
-#        external_weights_dir = arguments["pipeline_dir"]
-#        sdxl_pipe = sdxl_compiled_pipeline.SharkSDXLPipeline(
-#            arguments["hf_model_name"],
-#            arguments["scheduler_id"],
-#            arguments["height"],
-#            arguments["width"],
-#            arguments["precision"],
-#            arguments["max_length"],
-#            arguments["batch_size"],
-#            arguments["num_inference_steps"],
-#            arguments["device"],
-#            arguments["iree_target_triple"],
-#            ireec_flags,
-#            arguments["attn_spec"],
-#            arguments["decomp_attn"],
-#            arguments["pipeline_dir"],
-#            external_weights_dir,
-#            arguments["external_weights"],
-#        )
-#        vmfbs, weights = sdxl_pipe.check_prepared(
-#            mlirs, vmfbs, weights, interactive=False
-#        )
-#        sdxl_pipe.load_pipeline(
-#            vmfbs, weights, arguments["rt_device"], arguments["compiled_pipeline"]
-#        )
-#        sdxl_pipe.generate_images(
-#            arguments["prompt"],
-#            arguments["negative_prompt"],
-#            1,
-#            arguments["guidance_scale"],
-#            arguments["seed"],
-#        )
-#        print("Image generation complete.")
-#        os.remove(os.path.join(arguments["pipeline_dir"], "prompt_encoder.vmfb"))
-#        os.remove(
-#            os.path.join(
-#                arguments["pipeline_dir"],
-#                arguments["scheduler_id"]
-#                + "_unet_"
-#                + str(arguments["num_inference_steps"])
-#                + ".vmfb",
-#            )
-#        )
-#        os.remove(os.path.join(arguments["pipeline_dir"], "vae_decode.vmfb"))
-#        os.remove(os.path.join(arguments["pipeline_dir"], "full_pipeline.vmfb"))
-#
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

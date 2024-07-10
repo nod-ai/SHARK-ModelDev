@@ -300,9 +300,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.scheduler = None
 
         self.split_scheduler = True
-        if self.split_scheduler:
-            self.map.pop("unetloop")
-            self.map.pop("fullpipeline")
 
         self.base_model_name = (
             hf_model_name
@@ -313,6 +310,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.is_sdxl = "xl" in self.base_model_name
         self.is_sd3 = "stable-diffusion-3" in self.base_model_name
         if self.is_sdxl:
+            if self.split_scheduler:
+                self.map.pop("unetloop")
+                self.map.pop("fullpipeline")
             self.tokenizers = [
                 CLIPTokenizer.from_pretrained(
                     self.base_model_name, subfolder="tokenizer"
@@ -472,7 +472,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             sample, self.num_inference_steps, image, strength
         )
         text_embeddings = torch.cat((negative_prompt_embeds, prompt_embeds), dim=0)
-
+        self.scheduler.do_guidance = False
         for i, t in tqdm(enumerate(timesteps)):
             latent_model_input, _ = self.scheduler.scale_model_input(sample, t)
             timestep = torch.tensor([t])
@@ -480,11 +480,15 @@ class SharkSDPipeline(TurbinePipelineBase):
                 latent_model_input,
                 timestep,
             ]
-            unet_inputs.extend([text_embeddings, guidance_scale])
+            unet_inputs.extend([text_embeddings, [guidance_scale]])
             latents = self.unet(self.map["unet"]["function_name"], unet_inputs)
             sample = self.scheduler.step(
-                torch.tensor(latents.to_host(), dtype=self.torch_dtype), t, sample
-            ).prev_sample
+                torch.tensor(
+                    latents, dtype=torch_dtypes[self.map["unet"]["precision"]]
+                ),
+                t,
+                sample,
+            )
         return sample
 
     def _produce_latents_sdxl(
@@ -500,6 +504,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         latents, add_time_ids, step_indexes, timesteps = self.prepare_latents(
             sample, self.num_inference_steps, image, strength
         )
+        self.scheduler.do_guidance = False
+        self.scheduler.repeat_sample = False
         for i, t in tqdm(enumerate(timesteps)):
             if self.cpu_scheduling:
                 step_index = i
@@ -515,15 +521,13 @@ class SharkSDPipeline(TurbinePipelineBase):
                 prompt_embeds,
                 add_text_embeds,
                 add_time_ids,
+                ireert.asdevicearray(
+                    self.unet.device,
+                    [guidance_scale],
+                    dtype=self.map["unet"]["np_dtype"],
+                ),
             ]
             if self.use_punet:
-                unet_inputs.append(
-                    ireert.asdevicearray(
-                        self.unet.device,
-                        [guidance_scale],
-                        dtype=self.map["unet"]["np_dtype"],
-                    )
-                )
                 unet_inputs[1] = ireert.asdevicearray(
                     self.unet.device,
                     t,
@@ -542,7 +546,6 @@ class SharkSDPipeline(TurbinePipelineBase):
                 noise_pred,
                 t,
                 latents,
-                guidance_scale,
             )
         return latents
 

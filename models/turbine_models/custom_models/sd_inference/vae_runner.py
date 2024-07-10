@@ -5,17 +5,19 @@ from iree import runtime as ireert
 import torch
 
 
-def run_vae(device, example_input, vmfb_path, hf_model_name, external_weight_path):
+def run_vae_decode(
+    device, example_input, vmfb_path, hf_model_name, external_weight_path
+):
     runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
     inputs = [ireert.asdevicearray(runner.config.device, example_input)]
 
-    results = runner.ctx.modules.compiled_vae["main"](*inputs).to_host()
+    results = runner.ctx.modules.compiled_vae["decode"](*inputs).to_host()
 
     return results
 
 
-def run_torch_vae(hf_model_name, variant, example_input):
+def run_torch_vae_decode(hf_model_name, variant, example_input):
     from diffusers import AutoencoderKL
 
     class VaeModel(torch.nn.Module):
@@ -87,7 +89,7 @@ if __name__ == "__main__":
             args.batch_size, 3, args.height, args.width, dtype=torch.float32
         )
     print("generating turbine output:")
-    turbine_results = run_vae(
+    turbine_results = run_vae_decode(
         args.device,
         example_input,
         args.vmfb_path,
@@ -104,7 +106,7 @@ if __name__ == "__main__":
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
 
-        torch_output = run_torch_vae(
+        torch_output = run_torch_vae_decode(
             args.hf_model_name, args.hf_auth_token, args.variant, example_input
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)

@@ -662,9 +662,9 @@ class TurbinePipelineBase:
                     exported = self.map[submodel]["export_fn"](**export_args)
                 else:
                     exported = self.map[submodel]["export_fn"]()
-                if not self.map[submodel].get("weights") and os.path.exists(
-                    self.map[submodel]["export_args"].get("external_weight_path")
-                ):
+                if not self.map[submodel].get("weights") and self.map[submodel][
+                    "export_args"
+                ].get("external_weights", None):
                     self.map[submodel]["weights"] = self.map[submodel][
                         "export_args"
                     ].get("external_weight_path", None)
