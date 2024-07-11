@@ -123,7 +123,7 @@ def export_text_encoders(
     device=None,
     target_triple=None,
     ireec_flags=None,
-    exit_on_vmfb=True,
+    exit_on_vmfb=False,
     pipeline_dir=None,
     input_mlir=None,
     attn_spec=None,
@@ -132,7 +132,7 @@ def export_text_encoders(
 
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{output_batchsize}_{str(max_length)}_{precision}_text_encoders-{device}",
+        f"_bs{batch_size}_{str(max_length)}_{precision}_text_encoders",
     )
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -143,7 +143,7 @@ def export_text_encoders(
             device,
             target_triple,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
@@ -151,7 +151,7 @@ def export_text_encoders(
         )
         return vmfb_path
     model = TextEncoderModule(
-        batch_size=output_batchsize,
+        batch_size=batch_size,
     )
     mapper = {}
 
@@ -199,8 +199,8 @@ def export_text_encoders(
         "input_shapes": [(1, max_length, 2) for x in range(6)],
         "input_dtypes": ["int64" for x in range(6)],
         "output_shapes": [
-            (2 * output_batchsize, max_length * 2, 4096),
-            (2 * output_batchsize, 2048),
+            (2 * batch_size, max_length * 2, 4096),
+            (2 * batch_size, 2048),
         ],
         "output_dtypes": ["float32"],
     }
@@ -214,12 +214,12 @@ def export_text_encoders(
             device,
             target_triple,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=not exit_on_vmfb,
             const_expr_hoisting=True,
             attn_spec=attn_spec,
         )
-        return module_str, vmfb_path
+        return vmfb_path
 
 
 if __name__ == "__main__":

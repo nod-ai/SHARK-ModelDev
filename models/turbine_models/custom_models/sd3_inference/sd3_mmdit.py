@@ -177,7 +177,7 @@ def export_mmdit_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
@@ -265,7 +265,7 @@ def export_mmdit_model(
             device,
             target_triple,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=True,
             attn_spec=attn_spec,
         )

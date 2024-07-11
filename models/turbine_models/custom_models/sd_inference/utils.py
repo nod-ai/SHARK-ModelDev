@@ -106,6 +106,8 @@ _IREE_DRIVER_MAP = {
 
 _IREE_BACKEND_MAP = {
     "cpu": "llvm-cpu",
+    "local-task": "llvm-cpu",
+    "local-sync": "llvm-cpu",
     "rocm": "rocm",
     "rocm-legacy": "rocm",
     "hip": "rocm",
