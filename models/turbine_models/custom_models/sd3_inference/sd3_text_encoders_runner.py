@@ -1,5 +1,9 @@
 from turbine_models.model_runner import vmfbRunner
-from text_encoder_impls import SD3Tokenizer, T5XXLTokenizer, SDXLClipGTokenizer
+from turbine_models.custom_models.sd3_inference.text_encoder_impls import (
+    SD3Tokenizer,
+    T5XXLTokenizer,
+    SDXLClipGTokenizer,
+)
 from iree import runtime as ireert
 import torch
 import numpy as np
