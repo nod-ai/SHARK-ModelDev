@@ -315,8 +315,10 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.is_sd3 = "stable-diffusion-3" in self.base_model_name
         if self.is_sdxl:
             if self.split_scheduler:
-                self.map.pop("unetloop")
-                self.map.pop("fullpipeline")
+                if self.map.get("unetloop"):
+                    self.map.pop("unetloop")
+                if self.map.get("fullpipeline"):
+                    self.map.pop("fullpipeline")
             self.tokenizers = [
                 CLIPTokenizer.from_pretrained(
                     self.base_model_name, subfolder="tokenizer"
