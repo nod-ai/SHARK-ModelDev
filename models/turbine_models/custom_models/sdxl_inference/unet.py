@@ -365,7 +365,6 @@ if __name__ == "__main__":
             args.precision,
         )
     mod_str = export_unet_model(
-        unet_model,
         args.hf_model_name,
         args.batch_size,
         args.height,
