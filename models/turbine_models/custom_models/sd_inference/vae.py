@@ -142,7 +142,7 @@ def export_vae_model(
     if "stable-diffusion-3" in hf_model_name:
         vae_model = SD3VaeModel(hf_model_name)
     else:
-        if "xl" in hf_model_name and precision == "fp16":
+        if "xl" in hf_model_name.lower() and precision == "fp16":
             custom_vae = "madebyollin/sdxl-vae-fp16-fix"
         else:
             custom_vae = None
