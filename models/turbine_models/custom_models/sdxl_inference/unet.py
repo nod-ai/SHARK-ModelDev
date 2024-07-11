@@ -92,7 +92,7 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
     if precision == "i8":
         repo_id = "amd-shark/sdxl-quant-models"
         subfolder = "unet/int8"
-        revision = "82e06d6ea22ac78102a9aded69e8ddfb9fa4ae37"
+        revision = "942e771bf0c2657a8b33380103d04747a75dfa4a"
     elif precision in ["fp16", "fp32"]:
         repo_id = hf_model_name
         subfolder = "unet"
@@ -160,6 +160,7 @@ def get_punet_dataset(
 
 @torch.no_grad()
 def export_unet_model(
+    unet_model,
     hf_model_name,
     batch_size,
     height,
