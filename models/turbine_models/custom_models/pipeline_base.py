@@ -541,7 +541,11 @@ class TurbinePipelineBase:
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
 
-        if self.map[submodel]["external_weights"] and self.external_weights_dir:
+        if (
+            self.map[submodel]["external_weights"]
+            and self.external_weights_dir
+            and not self.map[submodel].get("weights")
+        ):
             if not os.path.exists(self.external_weights_dir):
                 os.makedirs(self.external_weights_dir, exist_ok=False)
 
