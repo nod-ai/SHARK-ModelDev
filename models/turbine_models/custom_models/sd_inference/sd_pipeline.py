@@ -334,6 +334,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         if self.use_i8_punet:
             self.map["unet"]["export_args"]["precision"] = "i8"
             self.map["unet"]["export_args"]["use_punet"] = True
+            self.map["unet"]["use_weights_for_export"] = True
             self.map["unet"]["keywords"].append("punet")
             self.map["unet"]["module_name"] = "compiled_punet"
             self.map["unet"]["function_name"] = "main"

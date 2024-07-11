@@ -501,12 +501,10 @@ class TurbinePipelineBase:
                         )
                 if len(candidates) == 1:
                     self.map[key]["weights"] = candidates[0]
-                    self.map[key]["export_args"]["external_weight_path"] = None
                 elif len(candidates) > 1:
                     print(f"Multiple weight files found for {key}: {candidates}")
                     print(f"Choosing {candidates[0]} for {key}.")
                     self.map[key][weights] = candidates[0]
-                    self.map[key]["export_args"]["external_weight_path"] = None
                 elif self.map[key].get("external_weights"):
                     # weights not found in external_weights_dir. Add to list of files to generate.
                     missing[key].append("weights")
@@ -553,6 +551,12 @@ class TurbinePipelineBase:
                 self.external_weights_dir,
                 self.map[submodel]["export_args"]["external_weight_path"],
             )
+        elif self.map[submodel].get("weights") and self.map[submodel].get(
+            "use_weights_to_export"
+        ):
+            self.map[submodel]["export_args"]["external_weight_path"] = self.map[
+                submodel
+            ]["weights"]
 
         elif not self.map[submodel].get("external_weights"):
             print(
