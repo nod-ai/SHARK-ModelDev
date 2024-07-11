@@ -160,7 +160,6 @@ def get_punet_dataset(
 
 @torch.no_grad()
 def export_unet_model(
-    unet_model,
     hf_model_name,
     batch_size,
     height,
@@ -365,6 +364,7 @@ if __name__ == "__main__":
             args.precision,
         )
     mod_str = export_unet_model(
+        unet_model,
         args.hf_model_name,
         args.batch_size,
         args.height,
