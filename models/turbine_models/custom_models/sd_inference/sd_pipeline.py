@@ -565,7 +565,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
         )
-        for i, t in tqdm(enumerate(timesteps)):
+        for i, t in tqdm(enumerate(timesteps), disable=(self.benchmark and self.verbose)):
             if self.cpu_scheduling:
                 latent_model_input, t = self.scheduler.scale_model_input(
                     latents,

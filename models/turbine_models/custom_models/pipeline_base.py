@@ -343,7 +343,8 @@ class TurbinePipelineBase:
         common_export_args: dict = {},
     ):
         self.map = model_map
-        self.printer = Printer(verbose, time.time(), True)
+        self.verbose = verbose
+        self.printer = Printer(self.verbose, time.time(), True)
         if isinstance(device, dict):
             assert isinstance(
                 target, dict
