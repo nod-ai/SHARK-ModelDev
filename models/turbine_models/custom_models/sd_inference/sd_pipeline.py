@@ -408,7 +408,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             )
             scheduler_path = os.path.join(
                 self.pipeline_dir,
-                utils.create_safe_name(self.base_model_name, scheduler_uid),
+                utils.create_safe_name(self.base_model_name, scheduler_uid) + ".vmfb",
             )
             if not os.path.exists(scheduler_path):
                 self.export_submodel("scheduler")
