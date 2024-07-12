@@ -17,6 +17,8 @@ from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
 from diffusers import AutoencoderKL
 import argparse
 from turbine_models.turbine_tank import turbine_tank
@@ -36,17 +38,19 @@ class VaeModel(torch.nn.Module):
                 subfolder="vae",
             )
         elif not isinstance(custom_vae, dict):
-            try:
-                # custom HF repo with no vae subfolder
-                self.vae = AutoencoderKL.from_pretrained(
-                    custom_vae,
-                )
-            except:
-                # some larger repo with vae subfolder
-                self.vae = AutoencoderKL.from_pretrained(
-                    custom_vae,
-                    subfolder="vae",
-                )
+            self.vae = AutoencoderKL.from_pretrained(
+                hf_model_name,
+                subfolder="vae",
+            )
+            fp16_weights = hf_hub_download(
+                repo_id=custom_vae,
+                filename="vae/vae.safetensors",
+            )
+            with safe_open(fp16_weights, framework="pt", device="cpu") as f:
+                state_dict = {}
+                for key in f.keys():
+                    state_dict[key] = f.get_tensor(key)
+                self.vae.load_state_dict(state_dict)
         else:
             # custom vae as a HF state dict
             self.vae = AutoencoderKL.from_pretrained(
@@ -143,7 +147,7 @@ def export_vae_model(
         vae_model = SD3VaeModel(hf_model_name)
     else:
         if "xl" in hf_model_name.lower() and precision == "fp16":
-            custom_vae = "madebyollin/sdxl-vae-fp16-fix"
+            custom_vae = "amd-shark/sdxl-quant-models"
         else:
             custom_vae = None
         vae_model = VaeModel(hf_model_name, custom_vae=custom_vae)
