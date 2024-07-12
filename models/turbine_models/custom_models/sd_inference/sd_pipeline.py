@@ -710,8 +710,9 @@ if __name__ == "__main__":
     if args.benchmark:
         if args.benchmark.lower() == "all":
             benchmark = True
-        for i in args.benchmark.split(","):
-            benchmark[i] = True
+        else:
+            for i in args.benchmark.split(","):
+                benchmark[i] = True
     else:
         benchmark = False
     if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
