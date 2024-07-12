@@ -329,6 +329,11 @@ def compile_to_vmfb(
 
 
 def create_safe_name(hf_model_name, model_name_str=""):
+    if not model_name_str:
+        model_name_str = ""
+    if model_name_str != "" and (not model_name_str.startswith("_")):
+        model_name_str = "_" + model_name_str
+
     safe_name = hf_model_name.split("/")[-1].strip() + model_name_str
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)

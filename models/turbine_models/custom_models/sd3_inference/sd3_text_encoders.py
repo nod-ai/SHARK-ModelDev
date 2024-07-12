@@ -159,7 +159,7 @@ def export_text_encoders(
         ".safetensors" not in external_weight_path
     ), "Original parameters format incompatible with IREE safetensors parser. Use '.irpa' instead."
 
-    input_args = [torch.empty([1, 77, 2], dtype=torch.int64) for x in range(6)]
+    input_args = [torch.empty([batch_size, 77, 2], dtype=torch.int64) for x in range(6)]
 
     decomp_list = []
     if decomp_attn == True:
@@ -196,7 +196,7 @@ def export_text_encoders(
 
     model_metadata_forward = {
         "model_name": "sd3_clip_t5xxl_text_encoders",
-        "input_shapes": [(1, max_length, 2) for x in range(6)],
+        "input_shapes": [(batch_size, max_length, 2) for x in range(6)],
         "input_dtypes": ["int64" for x in range(6)],
         "output_shapes": [
             (2 * batch_size, max_length * 2, 4096),

@@ -292,7 +292,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.model_max_length = max_length
         self.height = height
         self.width = width
-        self.latents_dtype = torch_dtypes[self.map["unet"]["precision"]]
         self.cpu_scheduling = cpu_scheduling
         self.scheduler_id = scheduler_id
         self.num_inference_steps = num_inference_steps
@@ -327,11 +326,21 @@ class SharkSDPipeline(TurbinePipelineBase):
                     self.base_model_name, subfolder="tokenizer_2"
                 ),
             ]
+            self.latents_precision = self.map["unet"]["precision"]
+            self.scheduler_device = self.map["unet"]["device"]
+            self.scheduler_driver = self.map["unet"]["driver"]
+            self.scheduler_target = self.map["unet"]["target"]
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
             )
+            self.latents_precision = self.map["unet"]["precision"]
+            self.scheduler_device = self.map["unet"]["device"]
+            self.scheduler_driver = self.map["unet"]["driver"]
+            self.scheduler_target = self.map["unet"]["target"]
+        # TODO: Add SD3 init
 
+        self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
         if self.use_i8_punet:
             self.map["unet"]["export_args"]["precision"] = "i8"
@@ -358,25 +367,52 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str,
         steps: int = 30,
     ):
-        self.scheduler = schedulers.get_scheduler(
-            self.base_model_name, self.scheduler_id
-        )
         if self.is_sd3:
             scheduler_device = self.mmdit.device
         else:
             scheduler_device = self.unet.device
         if not self.cpu_scheduling:
+            self.map["scheduler"] = {
+                "module_name": "compiled_scheduler",
+                "export_fn": schedulers.export_scheduler_model,
+                "driver": self.scheduler_driver,
+                "export_args": {
+                    "hf_model_name": self.base_model_name,
+                    "scheduler_id": scheduler_id,
+                    "batch_size": self.batch_size,
+                    "height": self.height,
+                    "width": self.width,
+                    "num_inference_steps": steps,
+                    "precision": self.latents_precision,
+                    "compile_to": "vmfb",
+                    "device": self.scheduler_device,
+                    "target": self.scheduler_target,
+                    "pipeline_dir": self.pipeline_dir,
+                },
+            }
             self.scheduler = None
             self.num_inference_steps = steps
             self.scheduler_id = scheduler_id
-            scheduler_path = f"{scheduler_id}Scheduler_{self.num_inference_steps}"
+            scheduler_uid = "_".join(
+                [
+                    f"{scheduler_id}Scheduler",
+                    f"bs{self.batch_size}",
+                    "x".join([str(self.width), str(self.height)]),
+                    self.latents_precision,
+                    str(self.num_inference_steps),
+                    self.scheduler_target,
+                ]
+            )
+            scheduler_path = os.path.join(
+                self.pipeline_dir,
+                utils.create_safe_name(self.base_model_name, scheduler_uid),
+            )
             if not os.path.exists(scheduler_path):
-                scheduler_path, _ = self.export_submodel("scheduler")
+                self.export_submodel("scheduler")
+            else:
+                self.map["scheduler"]["vmfb"] = scheduler_path
             try:
-                self.scheduler = schedulers.SharkSchedulerWrapper(
-                    scheduler_device,
-                    scheduler_path,
-                )
+                self.load_submodel("scheduler")
             except:
                 print("JIT export of scheduler failed. Loading CPU scheduler.")
                 self.cpu_scheduling = True
@@ -433,11 +469,15 @@ class SharkSDPipeline(TurbinePipelineBase):
     ):
         if self.is_img2img:
             raise NotImplementedError("Image-to-image not supported yet.")
-        elif self.is_sdxl:
+        elif self.is_sdxl and self.cpu_scheduling:
+            self.scheduler.do_guidance = False
+            self.scheduler.repeat_sample = False
             sample, add_time_ids, step_indexes, timesteps = (
                 self.scheduler.initialize_sdxl(noise, num_inference_steps)
             )
             return sample, add_time_ids, step_indexes, timesteps
+        elif self.is_sdxl:
+            return self.scheduler("run_initialize", noise)
         elif self.is_sd3:
             raise NotImplementedError("Stable Diffusion 3 not supported yet.")
         else:
@@ -511,35 +551,33 @@ class SharkSDPipeline(TurbinePipelineBase):
         latents, add_time_ids, step_indexes, timesteps = self.prepare_latents(
             sample, self.num_inference_steps, image, strength
         )
-        self.scheduler.do_guidance = False
-        self.scheduler.repeat_sample = False
+        guidance_scale = ireert.asdevicearray(
+            self.unet.device,
+            [guidance_scale],
+            dtype=self.map["unet"]["np_dtype"],
+        )
         for i, t in tqdm(enumerate(timesteps)):
             if self.cpu_scheduling:
-                step_index = i
+                latent_model_input, t = self.scheduler.scale_model_input(
+                    latents,
+                    t,
+                )
+                t = t.type(self.map["unet"]["torch_dtype"])
             else:
-                step_index = torch.tensor([i])
-            latent_model_input, t = self.scheduler.scale_model_input(
-                latents,
-                t,
-            )
+                step = torch.tensor([i], dtype=torch.float32)
+                latent_model_input, t = self.scheduler(
+                    "run_scale", [latents, step, timesteps]
+                )
+
             unet_inputs = [
                 latent_model_input,
                 t,
                 prompt_embeds,
                 add_text_embeds,
                 add_time_ids,
-                ireert.asdevicearray(
-                    self.unet.device,
-                    [guidance_scale],
-                    dtype=self.map["unet"]["np_dtype"],
-                ),
+                guidance_scale,
             ]
             if self.use_punet:
-                unet_inputs[1] = ireert.asdevicearray(
-                    self.unet.device,
-                    t,
-                    dtype=self.map["unet"]["np_dtype"],
-                )
                 for inp_idx, inp in enumerate(unet_inputs):
                     if not isinstance(inp, ireert.DeviceArray):
                         unet_inputs[inp_idx] = ireert.asdevicearray(
@@ -549,11 +587,14 @@ class SharkSDPipeline(TurbinePipelineBase):
                 self.map["unet"]["function_name"],
                 unet_inputs,
             )
-            latents = self.scheduler.step(
-                noise_pred,
-                t,
-                latents,
-            )
+            if self.cpu_scheduling:
+                latents = self.scheduler.step(
+                    noise_pred,
+                    t,
+                    latents,
+                )
+            else:
+                latents = self.scheduler("run_step", [noise_pred, t, latents])
         return latents
 
     def generate_images(

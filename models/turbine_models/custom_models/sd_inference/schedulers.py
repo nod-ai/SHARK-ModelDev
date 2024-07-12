@@ -10,6 +10,7 @@ from typing import List
 import torch
 from shark_turbine.aot import *
 import shark_turbine.ops.iree as ops
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from iree.compiler.ir import Context
 import iree.runtime as ireert
 import numpy as np
@@ -51,7 +52,7 @@ class SharkSchedulerWrapper:
             sample, t, timesteps
         )
 
-    def step(self, noise_pred, t, sample, guidance_scale, step_index):
+    def step(self, noise_pred, t, sample, step_index):
         return self.runner.ctx.modules.compiled_scheduler["run_step"](
             noise_pred, t, sample, guidance_scale, step_index
         )
@@ -78,7 +79,9 @@ class SchedulingModel(torch.nn.Module):
         if "stable-diffusion-3" in hf_model_name:
             self.is_sd3 = True
         self.batch_size = batch_size
+        # Whether this will be used with CFG-enabled pipeline.
         self.do_classifier_free_guidance = True
+
         self.model.set_timesteps(num_inference_steps)
         self.timesteps = self.model.timesteps
         self.model.is_scale_input_called = True
@@ -107,24 +110,17 @@ class SchedulingModel(torch.nn.Module):
             timesteps.type(torch.float32),
         )
 
-    def prepare_model_input(self, sample, t, timesteps):
-        t = timesteps[t]
-        if self.do_classifier_free_guidance:
-            latent_model_input = torch.cat([sample] * 2)
-        else:
-            latent_model_input = sample
+    def prepare_model_input(self, sample, i, timesteps):
+        t = timesteps[i]
+
+        latent_model_input = sample
         return self.model.scale_model_input(latent_model_input, t).type(
             self.dtype
         ), t.type(self.dtype)
 
-    def step(self, noise_pred, t, sample, guidance_scale, i):
-        self.model._step_index = i
+    def step(self, noise_pred, t, sample):
+        self.model._step_index = self.model.index_for_timestep(t)
 
-        if self.do_classifier_free_guidance:
-            noise_preds = noise_pred.chunk(2)
-            noise_pred = noise_preds[0] + guidance_scale * (
-                noise_preds[1] - noise_preds[0]
-            )
         sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
 
@@ -244,6 +240,7 @@ def export_scheduler_model(
     upload_ir=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    iree_dtype = "float16" if precision == "fp16" else "float32"
     scheduler = get_scheduler(hf_model_name, scheduler_id)
     scheduler_module = SchedulingModel(
         hf_model_name, scheduler, height, width, batch_size, num_inference_steps, dtype
@@ -273,12 +270,6 @@ def export_scheduler_model(
         )
         return vmfb_path
 
-    do_classifier_free_guidance = True
-    if do_classifier_free_guidance:
-        init_batch_dim = 2
-    else:
-        init_batch_dim = 1
-
     sample = (
         batch_size,
         4,
@@ -286,7 +277,7 @@ def export_scheduler_model(
         width // 8,
     )
     noise_pred_shape = (
-        batch_size * init_batch_dim,
+        batch_size,
         4,
         height // 8,
         width // 8,
@@ -307,8 +298,6 @@ def export_scheduler_model(
         torch.empty(noise_pred_shape, dtype=dtype),
         torch.empty(1, dtype=dtype),
         torch.empty(sample, dtype=dtype),
-        torch.empty(1, dtype=dtype),
-        torch.empty(1, dtype=torch.int64),
     ]
 
     fxb = FxProgramsBuilder(scheduler_module)
@@ -353,8 +342,29 @@ def export_scheduler_model(
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     inst = CompiledScheduler(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
-
+    module = CompiledModule.get_mlir_module(inst)
+    metadata_modelname = "_".join(
+        [hf_model_name, scheduler_id, "scheduler", str(num_inference_steps)]
+    )
+    model_metadata_init = {
+        "model_name": metadata_modelname,
+        "input_shapes": [sample],
+        "input_dtypes": [iree_dtype],
+    }
+    model_metadata_prep = {
+        "model_name": metadata_modelname,
+        "input_shapes": [sample, (1,), ("?",)],
+        "input_dtypes": [iree_dtype, "int64", "float32"],
+    }
+    model_metadata_step = {
+        "model_name": metadata_modelname,
+        "input_shapes": [noise_pred_shape, (1,), sample],
+        "input_dtypes": [iree_dtype, iree_dtype, iree_dtype],
+    }
+    module = AddMetadataPass(module, model_metadata_init, "run_initialize").run()
+    module = AddMetadataPass(module, model_metadata_prep, "run_scale").run()
+    module = AddMetadataPass(module, model_metadata_step, "run_step").run()
+    module_str = str(module)
     if compile_to != "vmfb":
         return module_str
     elif compile_to == "vmfb":
@@ -366,8 +376,6 @@ def export_scheduler_model(
             safe_name,
             return_path=True,
         )
-        if exit_on_vmfb:
-            exit()
         return vmfb
 
 

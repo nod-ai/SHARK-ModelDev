@@ -132,7 +132,8 @@ class PipelineComponent:
                 self.metadata[function_name] = None
 
     def _validate_or_convert_inputs(self, function_name, inputs):
-        if self.metadata:
+        val_inputs = [None for i in inputs]
+        if self.metadata.get(function_name):
             expected_input_shapes = self.metadata.get(function_name, {}).get(
                 "input_shapes"
             )
@@ -143,51 +144,51 @@ class PipelineComponent:
             )
             if expected_input_dtypes:
                 expected_input_dtypes = ast.literal_eval(expected_input_dtypes)
-            if not isinstance(expected_input_shapes, list):
-                expected_input_shapes = [expected_input_shapes]
             if not expected_input_dtypes:
                 pass
             if not expected_input_shapes:
                 logging.warning(
                     f"No input shapes found for {self.module_name}['{function_name}']."
                 )
-                for i in inputs:
+                for idx, i in enumerate(inputs):
                     if not isinstance(i, ireert.DeviceArray):
-                        i = ireert.asdevicearray(self.device, i)
+                        val_inputs[idx] = ireert.asdevicearray(self.device, i)
                 pass
+            if not isinstance(expected_input_shapes, list):
+                expected_input_shapes = [expected_input_shapes]
             for i, input_dtype in enumerate(expected_input_dtypes):
                 if not isinstance(inputs[i], ireert.DeviceArray):
-                    if isinstance(inputs[i], torch.Tensor) or isinstance(
-                        inputs[i], torch.HalfTensor
-                    ):
-                        new_input = inputs[i].float().cpu().numpy()
-                    else:
-                        new_input = inputs[i]
-
-                    inputs[i] = ireert.asdevicearray(
-                        self.device, new_input, input_dtype
+                    val_inputs[i] = ireert.asdevicearray(
+                        self.device, inputs[i], input_dtype
                     )
-                if str(inputs[i].dtype).split(".")[-1] != input_dtype:
+                elif str(inputs[i].dtype).split(".")[-1] != input_dtype:
                     logging.warning(
                         f"Converting input {i} to {input_dtype} for {self.module_name}['{function_name}']."
                     )
-                    inputs[i] = inputs[i].astype(input_dtype)
+                    val_inputs[i] = inputs[i].astype(input_dtype)
+                else:
+                    val_inputs[i] = inputs[i]
             for i, input_shape in enumerate(expected_input_shapes):
                 if isinstance(input_shape, str):
                     input_shape = ast.literal_eval(input_shape)
                 elif not input_shape:
                     continue
-                if tuple(inputs[i].shape) != tuple(input_shape):
-                    raise ValueError(
-                        f"Expected input {i} to be of shape {input_shape} for {self.module_name}['{function_name}'], got {str(tuple(inputs[i].shape))}."
-                    )
+                actual = tuple(val_inputs[i].shape)
+                expected = tuple(input_shape)
+                for idx, shape in enumerate(expected):
+                    if shape == "?":
+                        pass
+                    elif actual[idx] != shape:
+                        raise ValueError(
+                            f"Expected input {i} to be of shape {input_shape} for {self.module_name}['{function_name}'], got {str(tuple(inputs[i].shape))}."
+                        )
         else:
-            logging.warning(
-                f"No metadata found for {self.module_name}['{function_name}']."
-            )
             for idx, i in enumerate(inputs):
                 if not isinstance(i, ireert.DeviceArray):
-                    inputs[idx] = ireert.asdevicearray(self.device, i)
+                    val_inputs[idx] = ireert.asdevicearray(self.device, i)
+                else:
+                    val_inputs[idx] = inputs[idx]
+        return val_inputs
 
     def _output_cast(self, output):
         if isinstance(output, tuple):
@@ -226,9 +227,9 @@ class PipelineComponent:
 
     def __call__(self, function_name, inputs: list):
         casted_output = False
-        self._validate_or_convert_inputs(function_name, inputs)
         if not isinstance(inputs, list):
             inputs = [inputs]
+        inputs = self._validate_or_convert_inputs(function_name, inputs)
         if self.benchmark:
             output = self._run_and_benchmark(function_name, inputs)
         else:
@@ -540,7 +541,7 @@ class TurbinePipelineBase:
             os.makedirs(self.pipeline_dir)
 
         if (
-            self.map[submodel]["external_weights"]
+            self.map[submodel].get("external_weights")
             and self.external_weights_dir
             and not self.map[submodel].get("weights")
         ):
@@ -559,9 +560,6 @@ class TurbinePipelineBase:
             ]["weights"]
 
         elif not self.map[submodel].get("external_weights"):
-            print(
-                "No external weights type specified using --external_weights, weights for imported .mlir files will not be externalized."
-            )
             self.map[submodel]["weights"] = None
 
         if weights_only:

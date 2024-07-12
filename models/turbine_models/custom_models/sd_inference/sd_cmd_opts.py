@@ -139,7 +139,7 @@ p.add_argument(
 
 p.add_argument(
     "--cpu_scheduling",
-    default=True,
+    default=False,
     action="store_true",
     help="Run scheduling on native pytorch CPU backend.",
 )
