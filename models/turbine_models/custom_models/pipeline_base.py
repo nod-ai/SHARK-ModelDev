@@ -751,6 +751,10 @@ class TurbinePipelineBase:
 
     def unload_submodel(self, submodel):
         self.map[submodel]["runner"].unload()
+        self.map[submodel]["vmfb"] = None
+        self.map[submodel]["mlir"] = None
+        self.map[submodel]["weights"] = None
+        self.map[submodel]["export_args"]["input_mlir"] = None
         setattr(self, submodel, None)
 
 
