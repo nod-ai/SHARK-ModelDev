@@ -139,6 +139,7 @@ class SharkSchedulerCPUWrapper:
         self.dest = dest_device
         self.batch_size = batch_size
         self.timesteps = None
+        self.do_classifier_free_guidance = True
         self.do_guidance = True
         self.repeat_sample = True
 
@@ -166,7 +167,7 @@ class SharkSchedulerCPUWrapper:
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
         add_time_ids = torch.tensor([add_time_ids], dtype=self.torch_dtype)
-        if self.do_guidance:
+        if self.do_classifier_free_guidance:
             add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
             add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(
                 self.torch_dtype

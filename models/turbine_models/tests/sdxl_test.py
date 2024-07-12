@@ -7,6 +7,7 @@
 import logging
 import pytest
 import torch
+import shutil
 from transformers import CLIPTokenizer
 from turbine_models.custom_models.sd_inference.utils import create_safe_name
 from turbine_models.custom_models.sd_inference import schedulers, vae
