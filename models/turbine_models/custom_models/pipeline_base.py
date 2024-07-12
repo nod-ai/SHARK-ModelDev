@@ -500,8 +500,6 @@ class TurbinePipelineBase:
                     mlir_keywords.remove(kw)
             avail_files = os.listdir(pipeline_dir)
             candidates = []
-            # self.printer.print("MLIR KEYS: ", mlir_keywords)
-            # self.printer.print("AVAILABLE FILES: ", avail_files)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords) and not any(
                     x in filename for x in neg_keywords

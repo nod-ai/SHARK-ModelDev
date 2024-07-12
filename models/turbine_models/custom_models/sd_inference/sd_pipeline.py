@@ -232,6 +232,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         use_i8_punet: bool = False,
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
+        batch_prompts: bool = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -333,6 +334,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                     self.base_model_name, subfolder="tokenizer_2"
                 ),
             ]
+            self.map["text_encoder"]["export_args"]["batch_input"] = batch_prompts
             self.latents_precision = self.map["unet"]["precision"]
             self.scheduler_device = self.map["unet"]["device"]
             self.scheduler_driver = self.map["unet"]["driver"]
