@@ -262,7 +262,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                     sd_model_map[submodel]["export_args"]["decomp_attn"] = decomp_attn
                 else:
                     sd_model_map[submodel]["export_args"]["decomp_attn"] = (
-                        decomp_attn.get[submodel, False]
+                        decomp_attn.get(submodel, False)
                     )
         super().__init__(
             sd_model_map,
