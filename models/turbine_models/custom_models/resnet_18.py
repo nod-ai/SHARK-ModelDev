@@ -8,7 +8,7 @@ from shark_turbine.aot import *
 from iree.compiler.ir import Context
 import iree.runtime as rt
 from turbine_models.custom_models.sd_inference import utils
-
+import shark_turbine.ops.iree as ops
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -32,6 +32,7 @@ parser.add_argument(
 parser.add_argument("--vulkan_max_allocation", type=str, default="4294967296")
 
 # TODO: Add other resnet models
+torch.random.manual_seed(0)
 
 
 class Resnet18Model(torch.nn.Module):
@@ -43,8 +44,7 @@ class Resnet18Model(torch.nn.Module):
         # self.extractor = AutoFeatureExtractor.from_pretrained("microsoft/resnet-18")
 
     def forward(self, pixel_values_tensor: torch.Tensor):
-        with torch.no_grad():
-            logits = self.model.forward(pixel_values_tensor).logits
+        logits = self.model.forward(pixel_values_tensor).logits
         predicted_id = torch.argmax(logits, -1)
         return predicted_id
 
@@ -69,7 +69,24 @@ def export_resnet_18_model(
         utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
 
 
+def export_static_resnet_18_model(
+    resnet_model, compile_to="torch", device=None, target_triple=None, max_alloc=None
+):
+    resnet_model = resnet_model.half()
+    input_args = (torch.empty((5, 3, 224, 224), dtype=torch.float16),)
+    exported = export(resnet_model, args=input_args)
+
+    module_str = str(exported.mlir_module)
+    if compile_to != "vmfb":
+        return module_str
+    else:
+        utils.compile_to_vmfb(module_str, device, target_triple, max_alloc, "resnet_18")
+
+
 def run_resnet_18_vmfb_comparison(resnet_model, args):
+    import numpy as np
+
+    torch_dtype = torch.float32 if args.precision == "fp32" else torch.float16
     config = rt.Config(args.device)
 
     if args.vmfb_path:
@@ -87,7 +104,8 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
         vm_modules=vm_modules,
         config=config,
     )
-    inp = torch.rand(5, 3, 224, 224, dtype=torch.float32)
+    inp = torch.rand(5, 3, 224, 224, dtype=torch_dtype)
+    np.save(f"test_input_{args.precision}.npy", inp.numpy())
     device_inputs = [rt.asdevicearray(config.device, inp)]
 
     # Turbine output
@@ -104,10 +122,12 @@ def run_resnet_18_vmfb_comparison(resnet_model, args):
     torch_output = resnet_model.forward(inp)
     torch_output = torch_output.detach().cpu().numpy()
     print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
+    np.save(f"resnet18_golden_out.npy", torch_output)
 
     err = utils.largest_error(torch_output, turbine_output)
     print("LARGEST ERROR:", err)
-    assert err < 9e-5
+    del CompModule
+    return err
 
 
 if __name__ == "__main__":

@@ -139,6 +139,9 @@ class StatelessLlamaChecks(unittest.TestCase):
             new_blob_name = new_blob_name[0] + "-pass.mlir"
             turbine_tank.changeBlobName(blob_name, new_blob_name)
 
+    # See: https://github.com/nod-ai/SHARK-Turbine/issues/601
+    # Developed issues related to the pytorch 2.3 upgrade.
+    @unittest.expectedFailure
     def test_streaming_vmfb_comparison(self):
         """
         Similar test to above but for streaming-LLM.

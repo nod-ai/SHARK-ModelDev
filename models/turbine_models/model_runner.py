@@ -72,8 +72,9 @@ class vmfbRunner:
                     self.config.vm_instance, index.create_provider(scope="model")
                 )
                 vm_modules.insert(i, param_module)
+                del param_module
             del index
-            del param_module
+
         self.ctx = ireert.SystemContext(
             vm_modules=vm_modules,
             config=self.config,

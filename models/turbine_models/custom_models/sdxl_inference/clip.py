@@ -67,7 +67,7 @@ def export_clip_model(
         safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
     else:
         safe_name = utils.create_safe_name(
-            hf_model_name, f"-{str(max_length)}-{precision}-clip-{index}-{device}"
+            hf_model_name, f"_{str(max_length)}-{precision}-clip-{index}-{device}"
         )
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(

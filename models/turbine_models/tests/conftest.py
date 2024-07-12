@@ -18,7 +18,7 @@ def pytest_addoption(parser):
         action="store",
         default="blurry, unsaturated, watermark, noisy, grainy, out of focus",
     )
-    parser.addoption("--num_inference_steps", type=int, action="store", default=5)
+    parser.addoption("--num_inference_steps", type=int, action="store", default=2)
     parser.addoption("--guidance_scale", type=float, action="store", default=7.5)
     parser.addoption("--seed", type=float, action="store", default=0.0)
     parser.addoption("--vmfb_path", action="store", default="")
@@ -36,7 +36,8 @@ def pytest_addoption(parser):
     # General Options
     parser.addoption("--compile_to", action="store", default=None)
     parser.addoption("--external_weights", action="store", default="safetensors")
-    parser.addoption("--decomp_attn", action="store", default=True)
+    parser.addoption("--decomp_attn", action="store", default=False)
+    parser.addoption("--vae_decomp_attn", action="store", default=False)
     parser.addoption("--attn_spec", action="store", default="")
     # Compiler Options
     parser.addoption("--device", action="store", default="cpu")
@@ -50,4 +51,17 @@ def pytest_addoption(parser):
     parser.addoption("--in_channels", type=int, action="store", default=4)
     parser.addoption("--benchmark", action="store_true", default=False)
     parser.addoption("--tracy_profile", action="store_true", default=False)
-    parser.addoption("--compiled_pipeline", type=bool, default=True)
+    parser.addoption("--compiled_pipeline", type=bool, default=False)
+    parser.addoption("--model_path", type=str, action="store", default=None)
+    parser.addoption("--vae_model_path", type=str, action="store", default=None)
+    parser.addoption("--pipeline_vmfb_path", type=str, action="store", default=None)
+    parser.addoption("--scheduler_vmfb_path", type=str, action="store", default=None)
+    parser.addoption("--split_scheduler", action="store_true", default=True)
+    parser.addoption("--cpu_scheduling", action="store_true", default=True)
+    parser.addoption("--npu_delegate_path", type=str, action="store", default=None)
+    parser.addoption("--clip_precision", type=str, action="store", default=None)
+    parser.addoption("--mmdit_precision", type=str, action="store", default=None)
+    parser.addoption("--unet_precision", type=str, action="store", default=None)
+    parser.addoption("--vae_precision", type=str, action="store", default=None)
+    parser.addoption("--shift", type=float, action="store", default=None)
+    parser.addoption("--denoise", action="store_true", default=None)

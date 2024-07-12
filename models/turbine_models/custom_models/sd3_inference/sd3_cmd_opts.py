@@ -28,7 +28,7 @@ p = argparse.ArgumentParser(
 )
 
 ##############################################################################
-# SDXL Huggingface Options
+# SD3 Source Options
 ##############################################################################
 
 p.add_argument(
@@ -41,18 +41,30 @@ p.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
+    default="stabilityai/stable-diffusion-3-medium-diffusers",
 )
 p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",
-    default="PNDM",
+    default="EulerDiscrete",
+)
+p.add_argument(
+    "--model_path",
+    type=str,
+    help="Path to model .safetensors from which the model is defined.",
+    default=None,
+)
+p.add_argument(
+    "--vae_model_path",
+    type=str,
+    help="Path to vae model .safetensors from which the model is defined.",
+    default=None,
 )
 
 ##############################################################################
-# SDXL Inference Options
-#    These options are used to control runtime parameters for SDXL inference.
+# SD3 Inference Options
+#    These options are used to control runtime parameters for SD3 inference.
 ##############################################################################
 
 p.add_argument(
@@ -83,12 +95,19 @@ p.add_argument(
 p.add_argument(
     "--guidance_scale",
     type=float,
-    default=7.5,
+    default=4,
     help="Scale by which to adjust prompt guidance to the unconditional noise prediction output of UNet after each iteration.",
 )
 
 p.add_argument(
     "--seed", type=float, default=0, help="Seed for random number/latents generation."
+)
+
+p.add_argument(
+    "--denoise",
+    type=float,
+    default=1.0,
+    help="Denoising factor for image to image",
 )
 
 p.add_argument(
@@ -159,18 +178,12 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--vae_precision",
-    type=str,
-    default="fp16",
-    help="Precision of VAE weights and graph.",
-)
-
-p.add_argument(
     "--npu_delegate_path",
     type=str,
     default=None,
     help="Path to npu executable plugin .dll for running VAE on NPU.",
 )
+
 
 p.add_argument(
     "--clip_device",
@@ -180,10 +193,10 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--unet_device",
+    "--mmdit_device",
     default=None,
     type=str,
-    help="Device to run unet on. If None, defaults to the device specified in args.device.",
+    help="Device to run MMDiT on. If None, defaults to the device specified in args.device.",
 )
 
 p.add_argument(
@@ -201,10 +214,10 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--unet_target",
+    "--mmdit_target",
     default=None,
     type=str,
-    help="IREE target for unet compilation. If None, defaults to the target specified by --iree_target_triple.",
+    help="IREE target for mmdit compilation. If None, defaults to the target specified by --iree_target_triple.",
 )
 
 p.add_argument(
@@ -215,20 +228,13 @@ p.add_argument(
 )
 
 ##############################################################################
-# SDXL Modelling Options
-#    These options are used to control model defining parameters for SDXL.
+# SD3 Modelling Options
+#    These options are used to control model defining parameters for SD3.
 #    These are MLIR - changing variables! If you change them, you will need
 #    to import/download and recompile the model.
 ##############################################################################
 
 p.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
-p.add_argument(
-    "--batch_prompt_input",
-    type=bool,
-    default=False,
-    help="If batch size > 1 this enables batching the prompt encoder input rather than concating prompt encoders output",
-)
-
 p.add_argument(
     "--height", type=int, default=1024, help="Height of Stable Diffusion output image."
 )
@@ -242,28 +248,42 @@ p.add_argument(
     help="Precision of Stable Diffusion weights and graph.",
 )
 p.add_argument(
-    "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
+    "--vae_precision",
+    type=str,
+    default=None,
+    help="Precision of Stable Diffusion VAE weights and graph.",
+)
+p.add_argument(
+    "--max_length", type=int, default=77, help="Sequence Length of Stable Diffusion"
 )
 p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
 p.add_argument(
-    "--return_index",
-    action="store_true",
-    help="Make scheduled unet compiled module return the step index.",
+    "--shift", type=float, default=3, help="Sampling shift value for sd3 scheduling"
 )
-
 p.add_argument(
     "--vae_decomp_attn",
     type=bool,
     default=False,
     help="Decompose attention for VAE decode only at fx graph level",
 )
+p.add_argument(
+    "--vae_dtype",
+    type=str,
+    default="fp32",
+    help="Precision of VAE graph.",
+)
 
 ##############################################################################
-# SDXL script general options.
+# SD3 script general options.
 ##############################################################################
 
 p.add_argument("--compile_to", type=str, default="mlir", help="torch, linalg, vmfb")
-
+p.add_argument(
+    "--init_image",
+    type=str,
+    default=None,
+    help="Path to initial image for inference",
+)
 p.add_argument(
     "--external_weights",
     type=str,
@@ -273,7 +293,11 @@ p.add_argument(
 )
 
 # See --external_weight_path and --external_weight_dir to specify where to save the model weights.
-
+p.add_argument(
+    "--weights_only",
+    action="store_true",
+    help="Just grab the weights for your model and exit instead of exporting any IR.",
+)
 p.add_argument(
     "--compare_vs_torch",
     action="store_true",
@@ -308,6 +332,25 @@ p.add_argument(
     type=str,
     default=None,
     help="Azure storage container name to download mlir files from.",
+)
+p.add_argument("--export", type=str, default="all", help="clip, mmdit, vae, all")
+p.add_argument(
+    "--output",
+    type=str,
+    default="SD3_output.png",
+    help="Path to output file for generated images.",
+)
+p.add_argument(
+    "--attn_repro",
+    default=False,
+    action="store_true",
+    help="Just compile attention reproducer for mmdit.",
+)
+p.add_argument(
+    "--vae_input_path",
+    type=str,
+    default=None,
+    help="Path to input latents for VAE inference numerics validation.",
 )
 
 
@@ -363,7 +406,7 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--unet_flags",
+    "--mmdit_flags",
     type=str,
     default="",
     help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",

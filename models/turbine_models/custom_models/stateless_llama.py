@@ -13,6 +13,7 @@ from iree.compiler.ir import Context
 from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
     enable_llama_pos_shift_attention,
 )
+from turbine_models.custom_models.sd_inference.utils import compile_to_vmfb
 
 from turbine_models.custom_models import remap_gguf
 import safetensors
@@ -61,6 +62,11 @@ parser.add_argument(
     "--streaming_llm",
     action="store_true",
     help="Compile LLM with StreamingLLM optimizations",
+)
+parser.add_argument(
+    "--decomp_attn",
+    action="store_true",
+    help="Decompose attention ops at fx graph level.",
 )
 
 
@@ -116,14 +122,39 @@ def export_transformer_model(
     quantization=None,
     precision=None,
     device=None,
-    target_triple=None,
+    target_triple="x86_64-unknown-linux-gnu",
     vulkan_max_allocation=None,
     streaming_llm=False,
     vmfb_path=None,
     upload_ir=False,
     mod=None,
     tokenizer=None,
+    decomp_attn=False,
+    input_mlir=None,
 ):
+    safe_name = hf_model_name.replace("-", "_").replace("/", "_")
+    if streaming_llm:
+        safe_name += "_streaming"
+    if not vmfb_path:
+        vmfb_path = safe_name + "_" + target_triple
+
+    iree_flags = []
+    ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
+    if target_triple in ukernel_supported_arch:
+        iree_flags.extend(["--iree-rocm-enable-ukernels=argmax"])
+    if input_mlir is not None:
+        vmfb_path = compile_to_vmfb(
+            input_mlir,
+            device,
+            target_triple,
+            ireec_flags=iree_flags,
+            safe_name=vmfb_path.split(".vmfb")[0],
+            return_path=True,
+            const_expr_hoisting=True,
+            mlir_source="file",
+            save_mlir=False,
+            attn_spec="mfma" if "gfx9" in target_triple else "wmma",
+        )
     if tokenizer == None:
         tokenizer = AutoTokenizer.from_pretrained(
             hf_model_name,
@@ -175,243 +206,261 @@ def export_transformer_model(
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
 
-    class StateUpdateModule(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                mod, external=True, external_scope="", name_mapper=mapper.get
+    initial_table = decompositions.current_aot_decompositions()
+    print("Decomposing torch SDPA")
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=[
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.masked_fill_.Scalar,
+            torch.ops.aten.copy,
+        ],
+    ):
+        current_table = decompositions.current_aot_decompositions()
+
+        class StateUpdateModule(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    mod, external=True, external_scope="", name_mapper=mapper.get
+                )
+            else:
+                params = export_parameters(mod)
+            global_seq_step = export_global(AbstractIndex, mutable=True)
+            global_k_caches = export_global_tree(
+                kv_cache_structure, uninitialized=True, mutable=True
             )
+            global_v_caches = export_global_tree(
+                kv_cache_structure, uninitialized=True, mutable=True
+            )
+
+            def run_initialize(
+                self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
+            ):
+                init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
+                token, *state = self.initialize(x, constraints=init_const)
+                self.global_seq_step = IREE.tensor_dim(
+                    state[0], 1
+                )  # ? dimension of arbitrarily 0th kv tensor
+                for i in range(NUM_LAYERS):
+                    slice_of_state = IREE.tensor_reshape(
+                        state[i * 2], 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                    )
+                    self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_k_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
+                    )
+                for i in range(NUM_LAYERS):
+                    slice_of_state = IREE.tensor_reshape(
+                        state[i * 2 + 1], 1, self.global_seq_step, HEADS, HIDDEN_DIM
+                    )
+                    self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_v_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
+                    )
+                return token
+
+            def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
+                state_arg = slice_up_to_step(
+                    self.global_k_caches,
+                    self.global_v_caches,
+                    self.global_seq_step,
+                    HEADS,
+                    HIDDEN_DIM,
+                    NUM_LAYERS,
+                )
+                forw_const = (
+                    [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                    + [
+                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
+                        for x in state_arg[1:]
+                    ]
+                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                )
+                token, *state_update = self.forward(
+                    x, *state_arg, constraints=forw_const
+                )
+                for i in range(NUM_LAYERS):
+                    update = IREE.tensor_reshape(
+                        state_update[i * 2], 1, 1, HEADS, HIDDEN_DIM
+                    )
+                    self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_k_caches["layer_idx"][i],
+                        update,
+                        0,
+                        self.global_seq_step,
+                        0,
+                        0,
+                    )
+                for i in range(NUM_LAYERS):
+                    update = IREE.tensor_reshape(
+                        state_update[i * 2 + 1], 1, 1, HEADS, HIDDEN_DIM
+                    )
+                    self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_v_caches["layer_idx"][i],
+                        update,
+                        0,
+                        self.global_seq_step,
+                        0,
+                        0,
+                    )
+                self.global_seq_step = self.global_seq_step + 1
+                return token
+
+            def get_seq_step(self):
+                return self.global_seq_step
+
+            @jittable
+            def initialize(input_ids):
+                result = mod.forward(input_ids)
+                state1_flat, _ = pytree.tree_flatten(result.past_key_values)
+                token1 = torch.argmax(result.logits[:, -1, :], dim=1)
+                token1 = token1[None, :]
+                state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
+                return token1, *state1_flat
+
+            @jittable
+            def forward(token0: torch.Tensor, *state0_flat):
+                # Unpad the states.
+                state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
+                state0 = pytree.tree_unflatten(state0_flat, state_schema)
+                result = mod.forward(token0, past_key_values=state0)
+                state1_flat, _ = pytree.tree_flatten(result.past_key_values)
+                state1_flat = [
+                    torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat
+                ]
+                token1 = torch.argmax(result.logits[:, -1, :], dim=1)
+                token1 = token1[None, :]
+                return token1, *state1_flat
+
+        class StreamingStateUpdateModule(StateUpdateModule):
+            def run_cached_initialize(
+                self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
+            ):
+                state_arg = slice_up_to_step(
+                    self.global_k_caches,
+                    self.global_v_caches,
+                    self.global_seq_step,
+                    HEADS,
+                    HIDDEN_DIM,
+                    NUM_LAYERS,
+                )
+                forw_const = (
+                    [x.dynamic_dim(1) < MAX_STEP_SEQ]
+                    + [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
+                    + [
+                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
+                        for x in state_arg[1:]
+                    ]
+                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                )
+                token, *state = self.cached_initialize(
+                    x, *state_arg, constraints=forw_const
+                )
+                len_of_new_tokens = IREE.tensor_dim(
+                    state[0], 1
+                )  # ? dimension of arbitrarily 0th kv tensor
+                for i in range(NUM_LAYERS):
+                    slice_of_state = IREE.tensor_reshape(
+                        state[i * 2], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
+                    )
+                    self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_k_caches["layer_idx"][i],
+                        slice_of_state,
+                        0,
+                        self.global_seq_step,
+                        0,
+                        0,
+                    )
+                for i in range(NUM_LAYERS):
+                    slice_of_state = IREE.tensor_reshape(
+                        state[i * 2 + 1], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
+                    )
+                    self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_v_caches["layer_idx"][i],
+                        slice_of_state,
+                        0,
+                        self.global_seq_step,
+                        0,
+                        0,
+                    )
+                self.global_seq_step = self.global_seq_step + len_of_new_tokens
+                return token
+
+            @jittable
+            def cached_initialize(input_ids, *state0_flat):
+                # Unpad the states.
+                cur_token_len = state0_flat[0].size(1)
+                state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
+                state0 = pytree.tree_unflatten(state0_flat, state_schema)
+                result = mod.forward(input_ids, past_key_values=state0)
+                state1_flat, _ = pytree.tree_flatten(result.past_key_values)
+                state1_flat = [
+                    torch.transpose(x[:, :, cur_token_len:, :], 1, 2)
+                    for x in state1_flat
+                ]
+                token1 = torch.argmax(result.logits[:, -1, :], dim=1)
+                token1 = token1[None, :]
+                return token1, *state1_flat
+
+            # Streaming-LLM KVCache evict algorithm:
+            # slice1 = KVCache[0 : sink]
+            # slice2 = KVCache[seq_len - window_size : seq_len]
+            # KVCache = torch.cat([slice1, slice2])
+            # TODO: Add move to handle overlap of data.
+            def evict_kvcache_space(self):
+                # TODO: Replace hardcoded with global variable.
+                sink_size = 4
+                window_size = 252
+                most_recent_window = self.global_seq_step + (-window_size)
+                for i in range(NUM_LAYERS):
+                    update_window_state = IREE.tensor_slice(
+                        self.global_k_caches["layer_idx"][i],
+                        0,
+                        (most_recent_window, window_size),
+                        (0, HEADS),
+                        (0, HIDDEN_DIM),
+                    )  # sequence context dim
+                    self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_k_caches["layer_idx"][i],
+                        update_window_state,
+                        0,
+                        sink_size,
+                        0,
+                        0,
+                    )
+                for i in range(NUM_LAYERS):
+                    update_window_state = IREE.tensor_slice(
+                        self.global_v_caches["layer_idx"][i],
+                        0,
+                        (most_recent_window, window_size),
+                        (0, HEADS),
+                        (0, HIDDEN_DIM),
+                    )  # sequence context dim
+                    self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
+                        self.global_v_caches["layer_idx"][i],
+                        update_window_state,
+                        0,
+                        sink_size,
+                        0,
+                        0,
+                    )
+                self.global_seq_step.set(window_size + sink_size)
+                return self.global_seq_step
+
+        import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+        if streaming_llm:
+            print("Compiling with Streaming LLM")
+            inst = StreamingStateUpdateModule(context=Context(), import_to=import_to)
         else:
-            params = export_parameters(mod)
-        global_seq_step = export_global(AbstractIndex, mutable=True)
-        global_k_caches = export_global_tree(
-            kv_cache_structure, uninitialized=True, mutable=True
-        )
-        global_v_caches = export_global_tree(
-            kv_cache_structure, uninitialized=True, mutable=True
-        )
+            inst = StateUpdateModule(context=Context(), import_to=import_to)
+        # TODO: Integrate with external parameters to actually be able to run
+        # TODO: Make more generalizable to be able to quantize with all  compile_to options
+        if quantization == "int4" and not compile_to == "linalg":
+            from shark_turbine.transforms.quantization import mm_group_quant
 
-        def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
-            token, *state = self.initialize(x, constraints=init_const)
-            self.global_seq_step = IREE.tensor_dim(
-                state[0], 1
-            )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(NUM_LAYERS):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i * 2], 1, self.global_seq_step, HEADS, HIDDEN_DIM
-                )
-                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_k_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
-                )
-            for i in range(NUM_LAYERS):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i * 2 + 1], 1, self.global_seq_step, HEADS, HIDDEN_DIM
-                )
-                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_v_caches["layer_idx"][i], slice_of_state, 0, 0, 0, 0
-                )
-            return token
-
-        def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
-            state_arg = slice_up_to_step(
-                self.global_k_caches,
-                self.global_v_caches,
-                self.global_seq_step,
-                HEADS,
-                HIDDEN_DIM,
-                NUM_LAYERS,
-            )
-            forw_const = (
-                [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                + [
-                    x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                    for x in state_arg[1:]
-                ]
-                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
-            )
-            token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
-            for i in range(NUM_LAYERS):
-                update = IREE.tensor_reshape(
-                    state_update[i * 2], 1, 1, HEADS, HIDDEN_DIM
-                )
-                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_k_caches["layer_idx"][i],
-                    update,
-                    0,
-                    self.global_seq_step,
-                    0,
-                    0,
-                )
-            for i in range(NUM_LAYERS):
-                update = IREE.tensor_reshape(
-                    state_update[i * 2 + 1], 1, 1, HEADS, HIDDEN_DIM
-                )
-                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_v_caches["layer_idx"][i],
-                    update,
-                    0,
-                    self.global_seq_step,
-                    0,
-                    0,
-                )
-            self.global_seq_step = self.global_seq_step + 1
-            return token
-
-        def get_seq_step(self):
-            return self.global_seq_step
-
-        @jittable
-        def initialize(input_ids):
-            result = mod.forward(input_ids)
-            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
-            state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
-            return token1, *state1_flat
-
-        @jittable
-        def forward(token0: torch.Tensor, *state0_flat):
-            # Unpad the states.
-            state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
-            state0 = pytree.tree_unflatten(state0_flat, state_schema)
-            result = mod.forward(token0, past_key_values=state0)
-            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
-            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
-            return token1, *state1_flat
-
-    class StreamingStateUpdateModule(StateUpdateModule):
-        def run_cached_initialize(
-            self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
-        ):
-            state_arg = slice_up_to_step(
-                self.global_k_caches,
-                self.global_v_caches,
-                self.global_seq_step,
-                HEADS,
-                HIDDEN_DIM,
-                NUM_LAYERS,
-            )
-            forw_const = (
-                [x.dynamic_dim(1) < MAX_STEP_SEQ]
-                + [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                + [
-                    x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                    for x in state_arg[1:]
-                ]
-                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
-            )
-            token, *state = self.cached_initialize(
-                x, *state_arg, constraints=forw_const
-            )
-            len_of_new_tokens = IREE.tensor_dim(
-                state[0], 1
-            )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(NUM_LAYERS):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i * 2], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
-                )
-                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_k_caches["layer_idx"][i],
-                    slice_of_state,
-                    0,
-                    self.global_seq_step,
-                    0,
-                    0,
-                )
-            for i in range(NUM_LAYERS):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i * 2 + 1], 1, len_of_new_tokens, HEADS, HIDDEN_DIM
-                )
-                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_v_caches["layer_idx"][i],
-                    slice_of_state,
-                    0,
-                    self.global_seq_step,
-                    0,
-                    0,
-                )
-            self.global_seq_step = self.global_seq_step + len_of_new_tokens
-            return token
-
-        @jittable
-        def cached_initialize(input_ids, *state0_flat):
-            # Unpad the states.
-            cur_token_len = state0_flat[0].size(1)
-            state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
-            state0 = pytree.tree_unflatten(state0_flat, state_schema)
-            result = mod.forward(input_ids, past_key_values=state0)
-            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [
-                torch.transpose(x[:, :, cur_token_len:, :], 1, 2) for x in state1_flat
-            ]
-            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
-            return token1, *state1_flat
-
-        # Streaming-LLM KVCache evict algorithm:
-        # slice1 = KVCache[0 : sink]
-        # slice2 = KVCache[seq_len - window_size : seq_len]
-        # KVCache = torch.cat([slice1, slice2])
-        # TODO: Add move to handle overlap of data.
-        def evict_kvcache_space(self):
-            # TODO: Replace hardcoded with global variable.
-            sink_size = 4
-            window_size = 252
-            most_recent_window = self.global_seq_step + (-window_size)
-            for i in range(NUM_LAYERS):
-                update_window_state = IREE.tensor_slice(
-                    self.global_k_caches["layer_idx"][i],
-                    0,
-                    (most_recent_window, window_size),
-                    (0, HEADS),
-                    (0, HIDDEN_DIM),
-                )  # sequence context dim
-                self.global_k_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_k_caches["layer_idx"][i],
-                    update_window_state,
-                    0,
-                    sink_size,
-                    0,
-                    0,
-                )
-            for i in range(NUM_LAYERS):
-                update_window_state = IREE.tensor_slice(
-                    self.global_v_caches["layer_idx"][i],
-                    0,
-                    (most_recent_window, window_size),
-                    (0, HEADS),
-                    (0, HIDDEN_DIM),
-                )  # sequence context dim
-                self.global_v_caches["layer_idx"][i] = IREE.tensor_update(
-                    self.global_v_caches["layer_idx"][i],
-                    update_window_state,
-                    0,
-                    sink_size,
-                    0,
-                    0,
-                )
-            self.global_seq_step.set(window_size + sink_size)
-            return self.global_seq_step
-
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    if streaming_llm:
-        print("Compiling with Streaming LLM")
-        inst = StreamingStateUpdateModule(context=Context(), import_to=import_to)
-    else:
-        inst = StateUpdateModule(context=Context(), import_to=import_to)
-    # TODO: Integrate with external parameters to actually be able to run
-    # TODO: Make more generalizable to be able to quantize with all  compile_to options
-    if quantization == "int4" and not compile_to == "linalg":
-        from shark_turbine.transforms.quantization import mm_group_quant
-
-        mm_group_quant.MMGroupQuantRewriterPass(
-            CompiledModule.get_mlir_module(inst).operation
-        ).run()
-    module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
+            mm_group_quant.MMGroupQuantRewriterPass(
+                CompiledModule.get_mlir_module(inst).operation
+            ).run()
+        module_str = str(CompiledModule.get_mlir_module(inst))
     if upload_ir:
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(module_str)
@@ -423,64 +472,21 @@ def export_transformer_model(
     if compile_to != "vmfb":
         return module_str, tokenizer
     else:
-        flags = [
-            "--iree-input-type=torch",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-        ]
-        if device == "cpu" or device == "llvm-cpu":
-            flags.append("--iree-llvmcpu-enable-ukernels=all")
-            device = "llvm-cpu"
-        elif device == "vulkan":
-            flags.extend(
-                [
-                    "--iree-vulkan-target-triple=" + target_triple,
-                    "--iree-stream-resource-max-allocation-size="
-                    + vulkan_max_allocation,
-                ]
-            )
-        elif device == "rocm":
-            flags.extend(
-                [
-                    "--iree-rocm-target-chip=" + target_triple,
-                    "--iree-rocm-link-bc=true",
-                    "--iree-vm-bytecode-module-strip-source-map=true",
-                    "--iree-opt-strip-assertions=true",
-                    "--iree-vm-target-truncate-unsupported-floats",
-                ]
-            )
-            ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
-            if target_triple in ukernel_supported_arch:
-                flags.extend(["--iree-rocm-enable-ukernels=argmax"])
-        elif device == "cuda":
-            flags.extend(
-                [
-                    "--iree-hal-cuda-llvm-target-arch=" + target_triple,
-                    "--iree-vm-bytecode-module-strip-source-map=true",
-                    "--iree-vm-target-truncate-unsupported-floats",
-                ]
-            )
-        else:
-            print("Unknown device kind: ", device)
-        import iree.compiler as ireec
-
-        flatbuffer_blob = ireec.compile_str(
+        blob_name = compile_to_vmfb(
             module_str,
-            target_backends=[device],
-            extra_args=flags,
+            device,
+            target_triple,
+            ireec_flags=iree_flags,
+            safe_name=vmfb_path.split(".vmfb")[0],
+            return_path=True,
+            const_expr_hoisting=True,
+            mlir_source="str",
+            save_mlir=False,
+            attn_spec="mfma" if "gfx9" in target_triple else "wmma",
         )
-        if vmfb_path is None:
-            vmfb_path = f"{safe_name}.vmfb"
-        with open(vmfb_path, "wb+") as f:
-            f.write(flatbuffer_blob)
-        print("saved to ", safe_name + ".vmfb")
         if upload_ir:
             return blob_name
-        return module_str, tokenizer
+        return blob_name, tokenizer
 
 
 if __name__ == "__main__":
@@ -498,6 +504,8 @@ if __name__ == "__main__":
         args.vulkan_max_allocation,
         args.streaming_llm,
         args.vmfb_path,
+        upload_ir=False,
+        decomp_attn=args.decomp_attn,
     )
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)

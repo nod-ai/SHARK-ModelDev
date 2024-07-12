@@ -1,5 +1,9 @@
 from turbine_models.model_runner import vmfbRunner
-from transformers import CLIPTokenizer
+from turbine_models.custom_models.sd3_inference.text_encoder_impls import (
+    SD3Tokenizer,
+    T5XXLTokenizer,
+    SDXLClipGTokenizer,
+)
 from iree import runtime as ireert
 import torch
 import numpy as np
@@ -15,17 +19,21 @@ def run_prompt_encoder(
     prompt_encoder_runner = vmfbRunner(device, vmfb_path, external_weight_path)
     # np.save("input0.npy", input_ids[0].numpy())
     # np.save("input1.npy", input_ids[1].numpy())
-    # np.save("input2.npy", uncond_input_ids[0].numpy())
-    # np.save("input3.npy", uncond_input_ids[1].numpy())
+    # np.save("input2.npy", input_ids[2].numpy())
+    # np.save("input3.npy", uncond_input_ids[0].numpy())
+    # np.save("input4.npy", uncond_input_ids[1].numpy())
+    # np.save("input5.npy", uncond_input_ids[2].numpy())
     prompt_encoder_inputs = [
         ireert.asdevicearray(prompt_encoder_runner.config.device, input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, input_ids[1]),
+        ireert.asdevicearray(prompt_encoder_runner.config.device, input_ids[2]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[0]),
         ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[1]),
+        ireert.asdevicearray(prompt_encoder_runner.config.device, uncond_input_ids[2]),
     ]
-    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_clip["encode_prompts"](
-        *prompt_encoder_inputs
-    )
+    encoded_outputs = prompt_encoder_runner.ctx.modules.compiled_text_encoder[
+        "encode_tokens"
+    ](*prompt_encoder_inputs)
     for i in encoded_outputs:
         i = i.to_host()
     del prompt_encoder_inputs
@@ -33,60 +41,26 @@ def run_prompt_encoder(
 
 
 def run_tokenize(
-    tokenizer_1,
-    tokenizer_2,
+    tokenizer,
     prompt,
     negative_prompt,
-    max_length=64,
 ):
-    text_input_ids_list = []
-    uncond_input_ids_list = []
-
-    # Tokenize prompt and negative prompt.
-    tokenizers = [tokenizer_1, tokenizer_2]
-    for tokenizer in tokenizers:
-        text_inputs = tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        uncond_input = tokenizer(
-            negative_prompt,
-            padding="max_length",
-            max_length=max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        text_input_ids = text_inputs.input_ids
-        uncond_input_ids = uncond_input.input_ids
-
-        text_input_ids_list.extend([text_input_ids])
-        uncond_input_ids_list.extend([uncond_input_ids])
+    prompt_tokens_dict = tokenizer.tokenize_with_weights(prompt)
+    neg_prompt_tokens_dict = tokenizer.tokenize_with_weights(negative_prompt)
+    text_input_ids_list = list(prompt_tokens_dict.values())
+    uncond_input_ids_list = list(neg_prompt_tokens_dict.values())
     return text_input_ids_list, uncond_input_ids_list
 
 
 if __name__ == "__main__":
-    from turbine_models.custom_models.sdxl_inference.sdxl_cmd_opts import args
+    from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
-    tokenizer_1 = CLIPTokenizer.from_pretrained(
-        args.hf_model_name,
-        subfolder="tokenizer",
-        token=args.hf_auth_token,
-    )
-    tokenizer_2 = CLIPTokenizer.from_pretrained(
-        args.hf_model_name,
-        subfolder="tokenizer_2",
-        token=args.hf_auth_token,
-    )
+    tokenizer = SD3Tokenizer()
 
     text_input_ids_list, uncond_input_ids_list = run_tokenize(
-        tokenizer_1,
-        tokenizer_2,
+        tokenizer,
         args.prompt,
         args.negative_prompt,
-        args.max_length,
     )
     turbine_output1, turbine_output2 = run_prompt_encoder(
         args.vmfb_path,
@@ -112,12 +86,12 @@ if __name__ == "__main__":
     if args.compare_vs_torch:
         print("generating torch output: ")
         from turbine_models.custom_models.sd_inference import utils
-        from turbine_models.custom_models.sdxl_inference.sdxl_prompt_encoder import (
-            PromptEncoderModule,
+        from turbine_models.custom_models.sd3_inference.sd3_text_encoders import (
+            TextEncoderModule,
         )
 
-        torch_encoder_model = PromptEncoderModule(
-            args.hf_model_name, args.precision, args.hf_auth_token
+        torch_encoder_model = TextEncoderModule(
+            args.batch_size,
         )
         torch_output1, torch_output2 = torch_encoder_model.forward(
             *text_input_ids_list, *uncond_input_ids_list

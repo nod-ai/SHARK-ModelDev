@@ -28,3 +28,7 @@ wheelhouse
 *.safetensors
 *.gguf
 *.vmfb
+*.mlir
+*.npy
+*.png
+*tmp*

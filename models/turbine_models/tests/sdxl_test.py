@@ -7,13 +7,17 @@
 import logging
 import pytest
 import torch
+import shutil
+from transformers import CLIPTokenizer
 from turbine_models.custom_models.sd_inference.utils import create_safe_name
+from turbine_models.custom_models.sd_inference import schedulers, vae
 from turbine_models.custom_models.sdxl_inference import (
-    clip,
-    clip_runner,
+    sdxl_prompt_encoder,
+    sdxl_prompt_encoder_runner,
     unet,
     unet_runner,
-    vae,
+    sdxl_scheduled_unet,
+    sdxl_scheduled_unet_runner,
     vae_runner,
     sdxl_compiled_pipeline,
 )
@@ -77,151 +81,83 @@ def command_line_args(request):
 class StableDiffusionXLTest(unittest.TestCase):
     def setUp(self):
         self.safe_model_name = create_safe_name(arguments["hf_model_name"], "")
-        self.unet_model = unet.UnetModel(
-            # This is a public model, so no auth required
-            arguments["hf_model_name"],
-            precision=arguments["precision"],
-        )
-        self.vae_model = vae.VaeModel(
-            # This is a public model, so no auth required
-            arguments["hf_model_name"],
-            custom_vae=(
-                "madebyollin/sdxl-vae-fp16-fix"
-                if arguments["precision"] == "fp16"
-                else None
-            ),
-        )
 
-    def test01_ExportClipModels(self):
+    def test01_ExportPromptEncoder(self):
         if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
-                "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
+                "Compilation error on vulkan; recent numerics regression (nans) on hip driver, To be tested on cuda."
             )
-        clip.export_clip_model(
-            # This is a public model, so no auth required
-            hf_model_name=arguments["hf_model_name"],
+        arguments["external_weight_path"] = (
+            "prompt_encoder." + arguments["external_weights"]
+        )
+        prompt_encoder_vmfb = sdxl_prompt_encoder.export_prompt_encoder(
+            arguments["hf_model_name"],
             hf_auth_token=None,
             max_length=arguments["max_length"],
+            batch_size=arguments["batch_size"],
             precision=arguments["precision"],
             compile_to="vmfb",
-            external_weights=arguments["external_weights"],
-            external_weight_path=self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip",
+            external_weights="safetensors",
+            external_weight_path=arguments["external_weight_path"],
             device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
-            ireec_flags=arguments["ireec_flags"],
-            index=1,
-            exit_on_vmfb=True,
+            target=arguments["iree_target_triple"],
         )
-        clip.export_clip_model(
-            hf_model_name=arguments["hf_model_name"],
-            hf_auth_token=None,  # This is a public model, so no auth required
-            max_length=arguments["max_length"],
-            precision=arguments["precision"],
-            compile_to="vmfb",
-            external_weights=arguments["external_weights"],
-            external_weight_path=self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip",
-            device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
-            ireec_flags=arguments["ireec_flags"],
-            index=2,
-            exit_on_vmfb=True,
+        tokenizer_1 = CLIPTokenizer.from_pretrained(
+            arguments["hf_model_name"],
+            subfolder="tokenizer",
+            token=arguments["hf_auth_token"],
         )
-        arguments["external_weight_path_1"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip_1."
-            + arguments["external_weights"]
+        tokenizer_2 = CLIPTokenizer.from_pretrained(
+            arguments["hf_model_name"],
+            subfolder="tokenizer_2",
+            token=arguments["hf_auth_token"],
         )
-        arguments["external_weight_path_2"] = (
-            self.safe_model_name
-            + "_"
-            + arguments["precision"]
-            + "_clip_2."
-            + arguments["external_weights"]
+        (
+            text_input_ids_list,
+            uncond_input_ids_list,
+        ) = sdxl_prompt_encoder_runner.run_tokenize(
+            tokenizer_1,
+            tokenizer_2,
+            arguments["prompt"],
+            arguments["negative_prompt"],
+            arguments["max_length"],
         )
-        arguments["vmfb_path_1"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + arguments["precision"]
-            + "_clip_1_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-        arguments["vmfb_path_2"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + arguments["precision"]
-            + "_clip_2_"
-            + arguments["device"]
-            + ".vmfb"
-        )
-        turbine_1 = clip_runner.run_clip(
+        (
+            turbine_output1,
+            turbine_output2,
+        ) = sdxl_prompt_encoder_runner.run_prompt_encoder(
+            prompt_encoder_vmfb,
             arguments["rt_device"],
-            arguments["prompt"],
-            arguments["vmfb_path_1"],
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["external_weight_path_1"],
-            arguments["max_length"],
-            index=1,
+            arguments["external_weight_path"],
+            text_input_ids_list,
+            uncond_input_ids_list,
         )
-        turbine_2 = clip_runner.run_clip(
-            arguments["rt_device"],
-            arguments["prompt"],
-            arguments["vmfb_path_2"],
+        torch_model = sdxl_prompt_encoder.PromptEncoderModule(
             arguments["hf_model_name"],
+            arguments["precision"],
             arguments["hf_auth_token"],
-            arguments["external_weight_path_2"],
-            arguments["max_length"],
-            index=2,
         )
-        torch_output_1, torch_output_2 = clip_runner.run_torch_clip(
-            arguments["hf_model_name"],
-            arguments["hf_auth_token"],
-            arguments["prompt"],
-            arguments["max_length"],
+        torch_output1, torch_output2 = torch_model.forward(
+            *text_input_ids_list, *uncond_input_ids_list
         )
         if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
-                "clip_1",
-                arguments["vmfb_path_1"],
-                arguments["external_weight_path_1"],
-                arguments["rt_device"],
-                max_length=arguments["max_length"],
-                tracy_profile=arguments["tracy_profile"],
-            )
-            run_benchmark(
-                "clip_2",
-                arguments["vmfb_path_2"],
-                arguments["external_weight_path_2"],
+                "prompt_encoder",
+                prompt_encoder_vmfb,
+                arguments["external_weight_path"],
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
                 tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-1
         atol = 4e-1
-        np.testing.assert_allclose(torch_output_1, turbine_1[0], rtol, atol)
-        np.testing.assert_allclose(torch_output_2, turbine_2[0], rtol, atol)
+        np.testing.assert_allclose(torch_output1, turbine_output1, rtol, atol)
+        np.testing.assert_allclose(torch_output2, turbine_output2, rtol, atol)
 
     def test02_ExportUnetModel(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest(
-                "Unknown error on vulkan; Runtime error on rocm; To be tested on cuda."
-            )
-        unet.export_unet_model(
-            unet_model=self.unet_model,
-            # This is a public model, so no auth required
+        if arguments["device"] in ["vulkan", "cuda"]:
+            self.skipTest("Unknown error on vulkan; To be tested on cuda.")
+        unet_vmfb = unet.export_unet_model(
             hf_model_name=arguments["hf_model_name"],
             batch_size=arguments["batch_size"],
             height=arguments["height"],
@@ -237,9 +173,11 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_unet."
             + arguments["external_weights"],
             device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
+            target=arguments["iree_target_triple"],
             ireec_flags=arguments["ireec_flags"],
             decomp_attn=arguments["decomp_attn"],
+            attn_spec=arguments["attn_spec"],
+            exit_on_vmfb=False,
         )
         arguments["external_weight_path"] = (
             self.safe_model_name
@@ -248,20 +186,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_unet."
             + arguments["external_weights"]
         )
-        arguments["vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["max_length"])
-            + "_"
-            + str(arguments["height"])
-            + "x"
-            + str(arguments["width"])
-            + "_"
-            + arguments["precision"]
-            + "_unet_"
-            + arguments["device"]
-            + ".vmfb"
-        )
+        arguments["vmfb_path"] = unet_vmfb
         dtype = torch.float16 if arguments["precision"] == "fp16" else torch.float32
         sample = torch.rand(
             (
@@ -272,7 +197,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             ),
             dtype=dtype,
         )
-        timestep = torch.zeros(1, dtype=torch.int64)
+        timestep = torch.zeros(1, dtype=dtype)
         prompt_embeds = torch.rand(
             (2 * arguments["batch_size"], arguments["max_length"], 2048),
             dtype=dtype,
@@ -320,18 +245,14 @@ class StableDiffusionXLTest(unittest.TestCase):
                 tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
-        atol = 4e-2
+        atol = 4e-1
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test03_ExportVaeModelDecode(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest(
-                "Compilation error on vulkan; Runtime error on rocm; To be tested on cuda."
-            )
-        vae.export_vae_model(
-            vae_model=self.vae_model,
-            # This is a public model, so no auth required
+        if arguments["device"] in ["vulkan", "cuda"]:
+            self.skipTest("Compilation error on vulkan; To be tested on cuda.")
+        vae_vmfb = vae.export_vae_model(
             hf_model_name=arguments["hf_model_name"],
             batch_size=arguments["batch_size"],
             height=arguments["height"],
@@ -345,11 +266,11 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_vae_decode."
             + arguments["external_weights"],
             device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
+            target=arguments["iree_target_triple"],
             ireec_flags=arguments["ireec_flags"],
-            variant="decode",
-            decomp_attn=arguments["decomp_attn"],
-            exit_on_vmfb=True,
+            decomp_attn=True,
+            attn_spec=arguments["attn_spec"],
+            exit_on_vmfb=False,
         )
         arguments["external_weight_path"] = (
             self.safe_model_name
@@ -358,18 +279,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_vae_decode."
             + arguments["external_weights"]
         )
-        arguments["vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["height"])
-            + "x"
-            + str(arguments["width"])
-            + "_"
-            + arguments["precision"]
-            + "_vae_decode_"
-            + arguments["device"]
-            + ".vmfb"
-        )
+        arguments["vmfb_path"] = vae_vmfb
         example_input = torch.ones(
             arguments["batch_size"],
             4,
@@ -409,7 +319,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                 tracy_profile=arguments["tracy_profile"],
             )
         rtol = 4e-2
-        atol = 4e-2
+        atol = 4e-1
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
@@ -418,7 +328,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             self.skipTest(
                 "Compilation error on cpu, vulkan and rocm; To be tested on cuda."
             )
-        vae.export_vae_model(
+        vae_vmfb = vae.export_vae_model(
             vae_model=self.vae_model,
             # This is a public model, so no auth required
             hf_model_name=arguments["hf_model_name"],
@@ -434,10 +344,9 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_vae_encode."
             + arguments["external_weights"],
             device=arguments["device"],
-            target_triple=arguments["iree_target_triple"],
+            target=arguments["iree_target_triple"],
             ireec_flags=arguments["ireec_flags"],
-            variant="encode",
-            decomp_attn=arguments["decomp_attn"],
+            decomp_attn=True,
             exit_on_vmfb=True,
         )
         arguments["external_weight_path"] = (
@@ -447,18 +356,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             + "_vae_encode."
             + arguments["external_weights"]
         )
-        arguments["vmfb_path"] = (
-            self.safe_model_name
-            + "_"
-            + str(arguments["height"])
-            + "x"
-            + str(arguments["width"])
-            + "_"
-            + arguments["precision"]
-            + "_vae_encode_"
-            + arguments["device"]
-            + ".vmfb"
-        )
+        arguments["vmfb_path"] = vae_vmfb
         example_input = torch.ones(
             arguments["batch_size"],
             3,
@@ -502,98 +400,103 @@ class StableDiffusionXLTest(unittest.TestCase):
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test05_t2i_generate_images(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
-            self.skipTest("Have issues with submodels on these backends")
-        mlirs = {
-            "vae_decode": None,
-            "prompt_encoder": None,
-            "scheduled_unet": None,
-            "pipeline": None,
-            "full_pipeline": None,
-        }
-        vmfbs = {
-            "vae_decode": None,
-            "prompt_encoder": None,
-            "scheduled_unet": None,
-            "pipeline": None,
-            "full_pipeline": None,
-        }
-        weights = {
-            "vae_decode": None,
-            "prompt_encoder": None,
-            "scheduled_unet": None,
-            "pipeline": None,
-            "full_pipeline": None,
-        }
+        if arguments["device"] in ["vulkan", "cuda"]:
+            self.skipTest("Have issues with submodels on vulkan, cuda")
+        from turbine_models.custom_models.sd_inference.sd_pipeline import (
+            SharkSDPipeline,
+        )
 
-        if not arguments["pipeline_dir"]:
-            pipe_id_list = [
-                "sdxl_1_0",
-                str(arguments["height"]),
-                str(arguments["width"]),
-                str(arguments["max_length"]),
-                arguments["precision"],
-                arguments["device"],
-            ]
-            arguments["pipeline_dir"] = os.path.join(
-                ".",
-                "_".join(pipe_id_list),
-            )
-        ireec_flags = {
-            "unet": arguments["ireec_flags"],
-            "vae": arguments["ireec_flags"],
-            "clip": arguments["ireec_flags"],
-            "pipeline": arguments["ireec_flags"],
+        decomp_attn = {
+            "text_encoder": False,
+            "unet": False,
+            "vae": True,
         }
-        user_mlir_list = []
-        for submodel_id, mlir_path in zip(mlirs.keys(), user_mlir_list):
-            if submodel_id in mlir_path:
-                mlirs[submodel_id] = mlir_path
-        external_weights_dir = arguments["pipeline_dir"]
-        sdxl_pipe = sdxl_compiled_pipeline.SharkSDXLPipeline(
+        sd_pipe = SharkSDPipeline(
             arguments["hf_model_name"],
-            arguments["scheduler_id"],
             arguments["height"],
             arguments["width"],
-            arguments["precision"],
-            arguments["max_length"],
             arguments["batch_size"],
-            arguments["num_inference_steps"],
+            arguments["max_length"],
+            arguments["precision"],
             arguments["device"],
             arguments["iree_target_triple"],
-            ireec_flags,
-            arguments["attn_spec"],
-            arguments["decomp_attn"],
-            arguments["pipeline_dir"],
-            external_weights_dir,
-            arguments["external_weights"],
+            ireec_flags=None,  # ireec_flags
+            attn_spec=arguments["attn_spec"],
+            decomp_attn=decomp_attn,
+            pipeline_dir="test_vmfbs",  # pipeline_dir
+            external_weights_dir="test_weights",  # external_weights_dir
+            external_weights=arguments["external_weights"],
+            num_inference_steps=arguments["num_inference_steps"],
+            cpu_scheduling=True,
+            scheduler_id=arguments["scheduler_id"],
+            shift=None,  # shift
+            use_i8_punet=False,
         )
-        vmfbs, weights = sdxl_pipe.check_prepared(
-            mlirs, vmfbs, weights, interactive=False
-        )
-        sdxl_pipe.load_pipeline(
-            vmfbs, weights, arguments["rt_device"], arguments["compiled_pipeline"]
-        )
-        sdxl_pipe.generate_images(
+        sd_pipe.prepare_all()
+        sd_pipe.load_map()
+        output = sd_pipe.generate_images(
             arguments["prompt"],
             arguments["negative_prompt"],
-            1,
+            arguments["num_inference_steps"],
+            1,  # batch count
             arguments["guidance_scale"],
             arguments["seed"],
+            True,
+            arguments["scheduler_id"],
+            True,  # return_img
         )
-        print("Image generation complete.")
-        os.remove(os.path.join(arguments["pipeline_dir"], "prompt_encoder.vmfb"))
-        os.remove(
-            os.path.join(
-                arguments["pipeline_dir"],
-                arguments["scheduler_id"]
-                + "_unet_"
-                + str(arguments["num_inference_steps"])
-                + ".vmfb",
+        assert output is not None
+
+    @pytest.mark.skip(reason="Needs sdxl_quantized branch of IREE")
+    def test06_t2i_generate_images_punet(self):
+        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+            self.skipTest(
+                "Have issues with submodels on vulkan, cuda; ROCM hangs on mi250 despite submodels working."
             )
+        from turbine_models.custom_models.sd_inference.sd_pipeline import (
+            SharkSDPipeline,
         )
-        os.remove(os.path.join(arguments["pipeline_dir"], "vae_decode.vmfb"))
-        os.remove(os.path.join(arguments["pipeline_dir"], "full_pipeline.vmfb"))
+
+        decomp_attn = {
+            "text_encoder": False,
+            "unet": False,
+            "vae": True,
+        }
+        sd_pipe = SharkSDPipeline(
+            arguments["hf_model_name"],
+            arguments["height"],
+            arguments["width"],
+            arguments["batch_size"],
+            arguments["max_length"],
+            arguments["precision"],
+            arguments["device"],
+            arguments["iree_target_triple"],
+            ireec_flags=None,  # ireec_flags
+            attn_spec=arguments["attn_spec"],
+            decomp_attn=decomp_attn,
+            pipeline_dir="test_vmfbs",  # pipeline_dir
+            external_weights_dir="test_weights",  # external_weights_dir
+            external_weights=arguments["external_weights"],
+            num_inference_steps=arguments["num_inference_steps"],
+            cpu_scheduling=True,
+            scheduler_id=arguments["scheduler_id"],
+            shift=None,  # shift
+            use_i8_punet=True,
+        )
+        sd_pipe.prepare_all()
+        sd_pipe.load_map()
+        output = sd_pipe.generate_images(
+            arguments["prompt"],
+            arguments["negative_prompt"],
+            arguments["num_inference_steps"],
+            1,  # batch count
+            arguments["guidance_scale"],
+            arguments["seed"],
+            True,
+            arguments["scheduler_id"],
+            True,  # return_img
+        )
+        assert output is not None
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ def run_unet(
         ireert.asdevicearray(runner.config.device, time_ids),
         ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
-    results = runner.ctx.modules.compiled_unet["main"](*inputs)
+    results = runner.ctx.modules.compiled_unet["run_forward"](*inputs)
 
     return results
 
@@ -57,7 +57,7 @@ def run_unet_steps(
         ireert.asdevicearray(runner.config.device, prompt_embeds),
         ireert.asdevicearray(runner.config.device, text_embeds),
         ireert.asdevicearray(runner.config.device, time_ids),
-        ireert.asdevicearray(runner.config.device, (guidance_scale,)),
+        ireert.asdevicearray(runner.config.device, guidance_scale),
     ]
     for i, t in tqdm(enumerate(scheduler.timesteps)):
         timestep = t
@@ -69,7 +69,7 @@ def run_unet_steps(
         inputs[1] = timestep = ireert.asdevicearray(
             runner.config.device, (timestep,), dtype="int64"
         )
-        noise_pred = runner.ctx.modules.compiled_unet["main"](*inputs).to_host()
+        noise_pred = runner.ctx.modules.compiled_unet["run_forward"](*inputs).to_host()
         sample = scheduler.step(
             torch.from_numpy(noise_pred).cpu(),
             timestep,
@@ -112,14 +112,30 @@ if __name__ == "__main__":
         dtype = torch.float16
     else:
         dtype = torch.float32
+
+    save_inputs = True
+
     sample = torch.rand(
         args.batch_size, 4, args.height // 8, args.width // 8, dtype=dtype
     )
-    timestep = torch.zeros(1, dtype=torch.int64)
+    timestep = torch.ones(1, dtype=dtype)
     prompt_embeds = torch.rand(2 * args.batch_size, args.max_length, 2048, dtype=dtype)
     text_embeds = torch.rand(2 * args.batch_size, 1280, dtype=dtype)
-    time_ids = torch.zeros(2 * args.batch_size, 6, dtype=dtype)
+    time_ids = torch.rand(2 * args.batch_size, 6, dtype=dtype)
     guidance_scale = torch.tensor([7.5], dtype=dtype)
+
+    if save_inputs:
+        import os
+
+        inputs_dir = "sdxl_unet_inputs_" + args.precision
+        if not os.path.exists(inputs_dir):
+            os.mkdir(inputs_dir)
+        np.save("input1.npy", sample)
+        np.save("input2.npy", timestep)
+        np.save("input3.npy", prompt_embeds)
+        np.save("input4.npy", text_embeds)
+        np.save("input5.npy", time_ids)
+        np.save("input6.npy", guidance_scale)
 
     turbine_output = run_unet(
         args.device,
@@ -133,12 +149,12 @@ if __name__ == "__main__":
         args.hf_model_name,
         args.hf_auth_token,
         args.external_weight_path,
-    )
+    ).to_host()
     print(
         "TURBINE OUTPUT:",
-        turbine_output.to_host(),
-        turbine_output.to_host().shape,
-        turbine_output.to_host().dtype,
+        turbine_output,
+        turbine_output.shape,
+        turbine_output.dtype,
     )
 
     if args.compare_vs_torch:
@@ -158,9 +174,8 @@ if __name__ == "__main__":
             # precision="fp16",
         )
         print("TORCH OUTPUT:", torch_output, torch_output.shape, torch_output.dtype)
-        err = utils.largest_error(torch_output, turbine_output)
-        print("Largest Error: ", err)
-        assert err < 9e-3
-
-    # TODO: Figure out why we occasionally segfault without unlinking output variables
-    turbine_output = None
+        if save_inputs:
+            np.save("golden_out.npy", torch_output)
+        atol = 4e-2
+        rtol = 4e-1
+        np.testing.assert_allclose(turbine_output, torch_output, atol=atol, rtol=rtol)

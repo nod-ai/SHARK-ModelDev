@@ -20,7 +20,7 @@ def is_valid_file(arg):
 
 # We should consider separating out the options that are "model configs" from
 # the options that control the compiler, runtime, and script behavior,
-# when applicable, as the formermost would best be kept in a separate
+# when applicable, as the former would best be kept in a separate
 # config or imported from huggingface.
 
 p = argparse.ArgumentParser(
@@ -41,13 +41,13 @@ p.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="stabilityai/stable-diffusion-xl-base-1.0",
+    default="stabilityai/stable-diffusion-2-1",
 )
 p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",
-    default="PNDM",
+    default="EulerDiscrete",
 )
 
 ##############################################################################
@@ -101,7 +101,7 @@ p.add_argument(
 p.add_argument(
     "--external_weights_dir",
     type=str,
-    default="",
+    default="./weights",
     help="Directory containing external weights for a job that requires more than one weights file. When importing, this is used to specify where to save the model weights, and at runtime, this is used to specify where to load the model weights from. Files will then be saved according to the parameters that make them unique, i.e. <hf_model_name>_<precision>_<submodel>_<submodel-specific>.<external_weights>",
 )
 
@@ -117,27 +117,6 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--scheduler_vmfb_path",
-    type=str,
-    default="",
-    help="path to vmfb containing compiled scheduler",
-)
-
-p.add_argument(
-    "--split_scheduler",
-    default=False,
-    action="store_true",
-    help="Use a decoupled unet and scheduler for better QOL.",
-)
-
-p.add_argument(
-    "--cpu_scheduling",
-    default=False,
-    action="store_true",
-    help="Run scheduling on torch cpu (will be slower due to data movement costs).",
-)
-
-p.add_argument(
     "--external_weight_file",
     type=str,
     default=None,
@@ -147,7 +126,7 @@ p.add_argument(
 p.add_argument(
     "--pipeline_dir",
     type=str,
-    default=None,
+    default="./vmfbs",
     help="Directory to save pipeline artifacts",
 )
 
@@ -159,59 +138,10 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--vae_precision",
-    type=str,
-    default="fp16",
-    help="Precision of VAE weights and graph.",
-)
-
-p.add_argument(
-    "--npu_delegate_path",
-    type=str,
-    default=None,
-    help="Path to npu executable plugin .dll for running VAE on NPU.",
-)
-
-p.add_argument(
-    "--clip_device",
-    default=None,
-    type=str,
-    help="Device to run CLIP on. If None, defaults to the device specified in args.device.",
-)
-
-p.add_argument(
-    "--unet_device",
-    default=None,
-    type=str,
-    help="Device to run unet on. If None, defaults to the device specified in args.device.",
-)
-
-p.add_argument(
-    "--vae_device",
-    default=None,
-    type=str,
-    help="Device to run VAE on. If None, defaults to the device specified in args.device.",
-)
-
-p.add_argument(
-    "--clip_target",
-    default=None,
-    type=str,
-    help="IREE target for CLIP compilation. If None, defaults to the target specified by --iree_target_triple.",
-)
-
-p.add_argument(
-    "--unet_target",
-    default=None,
-    type=str,
-    help="IREE target for unet compilation. If None, defaults to the target specified by --iree_target_triple.",
-)
-
-p.add_argument(
-    "--vae_target",
-    default=None,
-    type=str,
-    help="IREE target for vae compilation. If None, defaults to the target specified by --iree_target_triple.",
+    "--cpu_scheduling",
+    default=False,
+    action="store_true",
+    help="Run scheduling on native pytorch CPU backend.",
 )
 
 ##############################################################################
@@ -223,17 +153,10 @@ p.add_argument(
 
 p.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
 p.add_argument(
-    "--batch_prompt_input",
-    type=bool,
-    default=False,
-    help="If batch size > 1 this enables batching the prompt encoder input rather than concating prompt encoders output",
-)
-
-p.add_argument(
-    "--height", type=int, default=1024, help="Height of Stable Diffusion output image."
+    "--height", type=int, default=512, help="Height of Stable Diffusion output image."
 )
 p.add_argument(
-    "--width", type=int, default=1024, help="Width of Stable Diffusion output image"
+    "--width", type=int, default=512, help="Width of Stable Diffusion output image"
 )
 p.add_argument(
     "--precision",
@@ -253,9 +176,20 @@ p.add_argument(
 
 p.add_argument(
     "--vae_decomp_attn",
-    type=bool,
-    default=False,
+    action="store_true",
     help="Decompose attention for VAE decode only at fx graph level",
+)
+
+p.add_argument(
+    "--unet_decomp_attn",
+    action="store_true",
+    help="Decompose attention for unet only at fx graph level",
+)
+
+p.add_argument(
+    "--use_i8_punet",
+    action="store_true",
+    help="Use i8 quantized Partitioned UNet for inference",
 )
 
 ##############################################################################
@@ -328,7 +262,7 @@ p.add_argument(
 p.add_argument(
     "--iree_target_triple",
     type=str,
-    default="",
+    default="x86_64-linux-gnu",
     help="Specify vulkan target triple or rocm/cuda target device.",
 )
 

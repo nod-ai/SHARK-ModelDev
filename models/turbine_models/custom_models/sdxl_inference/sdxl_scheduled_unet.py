@@ -6,20 +6,25 @@
 
 # from @aviator19941's gist : https://gist.github.com/aviator19941/4e7967bd1787c83ee389a22637c6eea7
 
+import copy
 import os
 import sys
+import numpy as np
+
+# os.environ["TORCH_LOGS"] = "+dynamo"
+
+import torch
+import torch._dynamo as dynamo
 
 from iree import runtime as ireert
 from iree.compiler.ir import Context
-import numpy as np
+
 from shark_turbine.aot import *
+import shark_turbine.ops as ops
+
 from turbine_models.custom_models.sd_inference import utils
-import torch
-import torch._dynamo as dynamo
+from turbine_models.custom_models.sd_inference.schedulers import get_scheduler
 from diffusers import UNet2DConditionModel
-from shark_turbine.dynamo.passes import (
-    DEFAULT_DECOMPOSITIONS,
-)
 
 
 class SDXLScheduledUnet(torch.nn.Module):
@@ -36,13 +41,19 @@ class SDXLScheduledUnet(torch.nn.Module):
         return_index=False,
     ):
         super().__init__()
+        self.do_classifier_free_guidance = True
+        # if any(key in hf_model_name for key in ["turbo", "lightning"]):
+        #     self.do_classifier_free_guidance = False
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
         self.scheduler = utils.get_schedulers(hf_model_name)[scheduler_id]
-        if scheduler_id == "PNDM":
-            num_inference_steps = num_inference_steps - 1
+        # if scheduler_id == "PNDM":
+        #     num_inference_steps = num_inference_steps - 1
         self.scheduler.set_timesteps(num_inference_steps)
         self.scheduler.is_scale_input_called = True
         self.return_index = return_index
+        self.height = height
+        self.width = width
+        self.batch_size = batch_size
 
         if precision == "fp16":
             try:
@@ -69,15 +80,16 @@ class SDXLScheduledUnet(torch.nn.Module):
             )
 
     def initialize(self, sample):
-        height = sample.shape[-2] * 8
-        width = sample.shape[-1] * 8
+        height = self.height
+        width = self.width
         original_size = (height, width)
         target_size = (height, width)
         crops_coords_top_left = (0, 0)
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids])
-        add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
-        add_time_ids = add_time_ids.repeat(sample.shape[0], 1).type(self.dtype)
+        add_time_ids = torch.tensor([add_time_ids], dtype=self.dtype)
+        if self.do_classifier_free_guidance:
+            add_time_ids = torch.cat([add_time_ids] * 2, dim=0)
+            add_time_ids = add_time_ids.repeat(self.batch_size, 1).type(self.dtype)
         timesteps = self.scheduler.timesteps
         step_indexes = torch.tensor(len(timesteps))
         sample = sample * self.scheduler.init_noise_sigma
@@ -86,31 +98,50 @@ class SDXLScheduledUnet(torch.nn.Module):
     def forward(
         self, sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
     ):
-        with torch.no_grad():
-            added_cond_kwargs = {
-                "text_embeds": text_embeds,
-                "time_ids": time_ids,
-            }
-            t = self.scheduler.timesteps[step_index]
+        added_cond_kwargs = {
+            "time_ids": time_ids,
+            "text_embeds": text_embeds,
+        }
+        t = self.scheduler.timesteps[step_index]
+        if self.do_classifier_free_guidance:
             latent_model_input = torch.cat([sample] * 2)
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-            noise_pred = self.unet.forward(
-                latent_model_input,
-                t,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
+        else:
+            latent_model_input = sample
+        # ops.iree.trace_tensor(f"latent_model_input_{step_index}", latent_model_input)
 
+        latent_model_input = self.scheduler.scale_model_input(
+            latent_model_input, t
+        ).type(self.dtype)
+        print(
+            latent_model_input.shape,
+            t.shape,
+            sample.shape,
+            prompt_embeds.shape,
+            added_cond_kwargs,
+            guidance_scale,
+            step_index,
+        )
+        # ops.iree.trace_tensor(f"latent_model_input_scaled_{step_index}", latent_model_input)
+        noise_pred = self.unet.forward(
+            latent_model_input,
+            t,
+            encoder_hidden_states=prompt_embeds,
+            cross_attention_kwargs=None,
+            added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
+        )[0]
+        # ops.iree.trace_tensor(f"noise_pred_{step_index}", noise_pred)
+
+        if self.do_classifier_free_guidance:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (
                 noise_pred_text - noise_pred_uncond
             )
-            sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
-            return sample.type(self.dtype)
+        sample = self.scheduler.step(noise_pred, t, sample, return_dict=False)[0]
+        return sample.type(self.dtype)
 
 
+@torch.no_grad()
 def export_scheduled_unet_model(
     scheduled_unet_model,
     scheduler_id,
@@ -135,30 +166,26 @@ def export_scheduled_unet_model(
     input_mlir=None,
     weights_only=False,
 ):
-    if "turbo" in hf_model_name:
-        do_classifier_free_guidance = False
-    else:
-        do_classifier_free_guidance = True
-    if (
-        (attn_spec in ["default"])
-        and decomp_attn == False
-        and ("gfx9" in iree_target_triple)
-    ):
-        attn_spec = os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), "default_mfma_attn_spec.mlir"
-        )
-    elif decomp_attn:
-        attn_spec = None
-
+    # if "turbo" in hf_model_name:
+    #     do_classifier_free_guidance = False
+    # else:
+    #     do_classifier_free_guidance = True
+    do_classifier_free_guidance = True
+    filename_keys = [
+        f"bs{batch_size}",
+        str(max_length),
+        f"{height}x{width}",
+        precision,
+        scheduler_id,
+        "DiffusionModule",
+        str(num_inference_steps),
+    ]
+    safe_name = utils.create_safe_name(
+        hf_model_name,
+        "_".join(filename_keys),
+    )
     if pipeline_dir:
-        safe_name = os.path.join(
-            pipeline_dir, f"{scheduler_id}_unet_{str(num_inference_steps)}"
-        )
-    else:
-        safe_name = utils.create_safe_name(
-            hf_model_name,
-            f"_{max_length}_{height}x{width}_{precision}_scheduled_unet_{device}",
-        )
+        safe_name = os.path.join(pipeline_dir, safe_name)
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -166,16 +193,68 @@ def export_scheduled_unet_model(
             device,
             iree_target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + iree_target_triple,
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )
         return vmfb_path
 
-    mapper = {}
+    dtype = torch.float16 if precision == "fp16" else torch.float32
 
-    decomp_list = DEFAULT_DECOMPOSITIONS
+    if precision == "fp16":
+        scheduled_unet_model = scheduled_unet_model.half()
+
+    mapper = {}
+    utils.save_external_weights(
+        mapper, scheduled_unet_model, external_weights, external_weight_path
+    )
+    if weights_only:
+        return external_weight_path
+
+    if do_classifier_free_guidance:
+        init_batch_dim = 2
+    else:
+        init_batch_dim = 1
+
+    sample_shape = [
+        batch_size,
+        scheduled_unet_model.unet.config.in_channels,
+        height // 8,
+        width // 8,
+    ]
+    time_ids_shape = [init_batch_dim * batch_size, 6]
+    prompt_embeds_shape = [init_batch_dim * batch_size, max_length, 2048]
+    text_embeds_shape = [init_batch_dim * batch_size, 1280]
+
+    fxb = FxProgramsBuilder(scheduled_unet_model)
+
+    example_init_args = [torch.empty(sample_shape, dtype=dtype)]
+    example_forward_args = [
+        torch.empty(sample_shape, dtype=dtype),
+        torch.empty(prompt_embeds_shape, dtype=dtype),
+        torch.empty(text_embeds_shape, dtype=dtype),
+        torch.empty(time_ids_shape, dtype=dtype),
+        torch.empty(1, dtype=dtype),  # guidance_scale
+        torch.empty(1, dtype=torch.int64),  # timestep
+    ]
+
+    @fxb.export_program(
+        args=(example_init_args,),
+    )
+    def _initialize(module, sample):
+        return module.initialize(*sample)
+
+    @fxb.export_program(
+        args=(example_forward_args,),
+    )
+    def _forward(
+        module,
+        inputs,
+    ):
+        return module.forward(*inputs)
+
+    decomp_list = []
     if decomp_attn == True:
         decomp_list.extend(
             [
@@ -183,68 +262,21 @@ def export_scheduled_unet_model(
                 torch.ops.aten._scaled_dot_product_flash_attention.default,
             ]
         )
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
 
-    dtype = torch.float16 if precision == "fp16" else torch.float32
+        class CompiledScheduledUnet(CompiledModule):
+            run_initialize = _initialize
+            run_forward = _forward
 
-    if precision == "fp16":
-        scheduled_unet_model = scheduled_unet_model.half()
-
-    utils.save_external_weights(
-        mapper, scheduled_unet_model, external_weights, external_weight_path
-    )
-
-    if weights_only:
-        return external_weight_path
-
-    sample = (
-        batch_size,
-        scheduled_unet_model.unet.config.in_channels,
-        height // 8,
-        width // 8,
-    )
-    if do_classifier_free_guidance:
-        init_batch_dim = 2
-    else:
-        init_batch_dim = 1
-
-    time_ids_shape = (init_batch_dim * batch_size, 6)
-    prompt_embeds_shape = (init_batch_dim * batch_size, max_length, 2048)
-    text_embeds_shape = (init_batch_dim * batch_size, 1280)
-
-    class CompiledScheduledUnet(CompiledModule):
         if external_weights:
-            params = export_parameters(
-                scheduled_unet_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(scheduled_unet_model)
+            externalize_module_parameters(scheduled_unet_model)
 
-        def run_initialize(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-        ):
-            return jittable(scheduled_unet_model.initialize)(sample)
+        inst = CompiledScheduledUnet(context=Context(), import_to="IMPORT")
 
-        def run_forward(
-            self,
-            sample=AbstractTensor(*sample, dtype=dtype),
-            prompt_embeds=AbstractTensor(*prompt_embeds_shape, dtype=dtype),
-            text_embeds=AbstractTensor(*text_embeds_shape, dtype=dtype),
-            time_ids=AbstractTensor(*time_ids_shape, dtype=dtype),
-            guidance_scale=AbstractTensor(1, dtype=dtype),
-            step_index=AbstractTensor(1, dtype=torch.int64),
-        ):
-            return jittable(scheduled_unet_model.forward, decompose_ops=decomp_list)(
-                sample, prompt_embeds, text_embeds, time_ids, guidance_scale, step_index
-            )
-
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledScheduledUnet(context=Context(), import_to=import_to)
-
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
     if compile_to != "vmfb":
         return module_str
@@ -254,7 +286,7 @@ def export_scheduled_unet_model(
             device,
             iree_target_triple,
             ireec_flags,
-            safe_name,
+            safe_name + "_" + iree_target_triple,
             return_path=True,
             attn_spec=attn_spec,
         )
@@ -264,31 +296,43 @@ def export_scheduled_unet_model(
 
 
 def export_pipeline_module(args):
-    pipeline_file = (
-        "sdxl_sched_unet_bench_" + "f32"
-        if args.precision == "fp32"
-        else "sdxl_sched_unet_bench_" + "f16"
+    from turbine_models.custom_models.sdxl_inference.pipeline_ir import get_pipeline_ir
+
+    pipeline_file = get_pipeline_ir(
+        args.width,
+        args.height,
+        args.precision,
+        args.batch_size,
+        args.max_length,
+        "unet_loop",
     )
-    if "turbo" in args.hf_model_name:
-        pipe_prefix = "sdxl_turbo_pipeline_bench_"
-    else:
-        pipe_prefix = "sdxl_pipeline_bench_"
-    full_pipeline_file = (
-        pipe_prefix + "f32" if args.precision == "fp32" else pipe_prefix + "f16"
-    )
-    full_pipeline_vmfb_path = utils.compile_to_vmfb(
-        os.path.join(
-            os.path.realpath(os.path.dirname(__file__)), full_pipeline_file + ".mlir"
-        ),
+    pipeline_vmfb = utils.compile_to_vmfb(
+        pipeline_file,
         args.device,
         args.iree_target_triple,
-        args.ireec_flags,
-        "sdxl_full_pipeline_" + args.precision + "_" + args.iree_target_triple,
+        None,
+        os.path.join(args.pipeline_dir, "pipeline"),
         return_path=True,
-        const_expr_hoisting=False,
-        mlir_source="file",
+        mlir_source="str",
     )
-    return full_pipeline_vmfb_path
+    full_pipeline_file = get_pipeline_ir(
+        args.width,
+        args.height,
+        args.precision,
+        args.batch_size,
+        args.max_length,
+        "tokens_to_image",
+    )
+    full_pipeline_vmfb = utils.compile_to_vmfb(
+        pipeline_file,
+        args.device,
+        args.iree_target_triple,
+        None,
+        os.path.join(args.pipeline_dir, "pipeline"),
+        return_path=True,
+        mlir_source="str",
+    )
+    return full_pipeline_vmfb
 
 
 if __name__ == "__main__":
@@ -308,7 +352,7 @@ if __name__ == "__main__":
             args.num_inference_steps,
             args.return_index,
         )
-    if args.compile_to == "vmfb":
+    if args.compile_to == "vmfb" and args.pipeline_dir is not None:
         pipeline_vmfb_path = export_pipeline_module(args)
     mod_str = export_scheduled_unet_model(
         scheduled_unet_model,
@@ -337,7 +381,7 @@ if __name__ == "__main__":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name + "_" + args.scheduler_id,
-        f"_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet_{str(args.num_inference_steps)}",
+        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_unet_{str(args.num_inference_steps)}",
     )
     with open(f"{safe_name}.mlir", "w+") as f:
         f.write(mod_str)
