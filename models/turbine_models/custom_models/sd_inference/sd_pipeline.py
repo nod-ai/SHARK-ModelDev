@@ -258,9 +258,12 @@ class SharkSDPipeline(TurbinePipelineBase):
                 sd_model_map[submodel]["export_args"]["height"] = height
                 sd_model_map[submodel]["export_args"]["width"] = width
             if "decomp_attn" in sd_model_map[submodel]["export_args"]:
-                sd_model_map[submodel]["export_args"]["decomp_attn"] = decomp_attn[
-                    submodel
-                ]
+                if isinstance(decomp_attn, bool):
+                    sd_model_map[submodel]["export_args"]["decomp_attn"] = decomp_attn
+                else:
+                    sd_model_map[submodel]["export_args"]["decomp_attn"] = (
+                        decomp_attn.get[submodel, False]
+                    )
         super().__init__(
             sd_model_map,
             device,

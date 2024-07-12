@@ -127,6 +127,12 @@ def export_vae_model(
     )
     if decomp_attn:
         safe_name += "_decomp_attn"
+    elif not attn_spec:
+        if "gfx9" in target:
+            attn_spec = "mfma"
+        elif "gfx11" in target:
+            attn_spec = "wmma"
+
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
 
