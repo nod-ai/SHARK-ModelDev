@@ -230,6 +230,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str = None,  # compatibility only
         shift: float = 1.0,  # compatibility only
         use_i8_punet: bool = False,
+        benchmark: bool | dict[bool] = False,
+        verbose: bool = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -276,6 +278,8 @@ class SharkSDPipeline(TurbinePipelineBase):
             pipeline_dir,
             external_weights_dir,
             hf_model_name,
+            benchmark,
+            verbose,
             common_export_args,
         )
         for submodel in sd_model_map:
@@ -571,7 +575,6 @@ class SharkSDPipeline(TurbinePipelineBase):
                 latent_model_input, t = self.scheduler(
                     "run_scale", [latents, step, timesteps]
                 )
-
             unet_inputs = [
                 latent_model_input,
                 t,
@@ -703,6 +706,14 @@ if __name__ == "__main__":
     }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
+    benchmark = {}
+    if args.benchmark:
+        if args.benchmark.lower() == "all":
+            benchmark = True
+        for i in args.benchmark.split(","):
+            benchmark[i] = True
+    else:
+        benchmark = False
     if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
         args.decomp_attn = {
             "text_encoder": args.decomp_attn,
@@ -731,6 +742,8 @@ if __name__ == "__main__":
         args.scheduler_id,
         None,
         args.use_i8_punet,
+        benchmark,
+        args.verbose,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()

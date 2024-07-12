@@ -144,6 +144,13 @@ p.add_argument(
     help="Run scheduling on native pytorch CPU backend.",
 )
 
+p.add_argument(
+    "--benchmark",
+    type=str,
+    default=None,
+    help="A comma-separated list of submodel IDs for which to report benchmarks for, or 'all' for all components.",
+)
+
 ##############################################################################
 # SDXL Modelling Options
 #    These options are used to control model defining parameters for SDXL.
@@ -198,6 +205,7 @@ p.add_argument(
 
 p.add_argument("--compile_to", type=str, default="mlir", help="torch, linalg, vmfb")
 
+p.add_argument("--verbose", "-v", action="store_true")
 p.add_argument(
     "--external_weights",
     type=str,

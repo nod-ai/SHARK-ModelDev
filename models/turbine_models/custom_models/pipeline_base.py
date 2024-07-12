@@ -83,12 +83,15 @@ class PipelineComponent:
     This aims to make new pipelines and execution modes easier to write, manage, and debug.
     """
 
-    def __init__(self, dest_type="devicearray", dest_dtype="float16"):
+    def __init__(
+        self, printer, dest_type="devicearray", dest_dtype="float16", benchmark=False
+    ):
         self.runner = None
         self.module_name = None
         self.device = None
         self.metadata = None
-        self.benchmark = False
+        self.printer = printer
+        self.benchmark = benchmark
         self.dest_type = dest_type
         self.dest_dtype = dest_dtype
 
@@ -101,7 +104,7 @@ class PipelineComponent:
         extra_plugin=None,
     ):
         self.module_name = module_name
-        print(
+        self.printer.print(
             f"Loading {module_name} from {vmfb_path} with external weights: {external_weight_path}."
         )
         self.runner = vmfbRunner(
@@ -222,7 +225,9 @@ class PipelineComponent:
         start_time = time.time()
         output = self._run(function_name, inputs)
         latency = time.time() - start_time
-        print(f"Latency for {self.module_name}['{function_name}']: {latency}sec")
+        self.printer.print(
+            f"Latency for {self.module_name}['{function_name}']: {latency}sec"
+        )
         return output
 
     def __call__(self, function_name, inputs: list):
@@ -236,6 +241,41 @@ class PipelineComponent:
             output = self._run(function_name, inputs)
         output = self._output_cast(output)
         return output
+
+
+class Printer:
+    def __init__(self, verbose, start_time, print_time):
+        """
+        verbose: 0 for silence, 1 for print
+        start_time: time of construction (or reset) of this Printer
+        last_print: time of last call to 'print' method
+        print_time: 1 to print with time prefix, 0 to not
+        """
+        self.verbose = verbose
+        self.start_time = start_time
+        self.last_print = start_time
+        self.print_time = print_time
+
+    def reset(self):
+        if self.print_time:
+            if self.verbose:
+                self.print("Will now reset clock for printer to 0.0 [s].")
+            self.last_print = time.time()
+            self.start_time = time.time()
+            if self.verbose:
+                self.print("Clock for printer reset to t = 0.0 [s].")
+
+    def print(self, message):
+        if self.verbose:
+            # Print something like "[t=0.123 dt=0.004] 'message'"
+            if self.print_time:
+                time_now = time.time()
+                print(
+                    f"[t={time_now - self.start_time:.3f} dt={time_now - self.last_print:.3f}] {message}"
+                )
+                self.last_print = time_now
+            else:
+                print(f"{message}")
 
 
 class TurbinePipelineBase:
@@ -298,9 +338,12 @@ class TurbinePipelineBase:
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
         hf_model_name: str | dict[str] = None,
+        benchmark: bool | dict[bool] = False,
+        verbose: bool = False,
         common_export_args: dict = {},
     ):
         self.map = model_map
+        self.printer = Printer(verbose, time.time(), True)
         if isinstance(device, dict):
             assert isinstance(
                 target, dict
@@ -329,6 +372,7 @@ class TurbinePipelineBase:
             "decomp_attn": decomp_attn,
             "external_weights": external_weights,
             "hf_model_name": hf_model_name,
+            "benchmark": benchmark,
         }
         for arg in map_arguments.keys():
             self.map = merge_arg_into_map(self.map, map_arguments[arg], arg)
@@ -396,7 +440,7 @@ class TurbinePipelineBase:
         ready = self.is_prepared(vmfbs, weights)
         match ready:
             case True:
-                print("All necessary files found.")
+                self.printer.print("All necessary files found.")
                 return
             case False:
                 if interactive:
@@ -407,7 +451,7 @@ class TurbinePipelineBase:
                         exit()
                 for submodel in self.map.keys():
                     if not self.map[submodel].get("vmfb"):
-                        print("Fetching: ", submodel)
+                        self.printer.print("Fetching: ", submodel)
                         self.export_submodel(
                             submodel, input_mlir=self.map[submodel].get("mlir")
                         )
@@ -456,8 +500,8 @@ class TurbinePipelineBase:
                     mlir_keywords.remove(kw)
             avail_files = os.listdir(pipeline_dir)
             candidates = []
-            # print("MLIR KEYS: ", mlir_keywords)
-            # print("AVAILABLE FILES: ", avail_files)
+            # self.printer.print("MLIR KEYS: ", mlir_keywords)
+            # self.printer.print("AVAILABLE FILES: ", avail_files)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords) and not any(
                     x in filename for x in neg_keywords
@@ -470,8 +514,8 @@ class TurbinePipelineBase:
             if len(candidates) == 1:
                 self.map[key]["vmfb"] = candidates[0]
             elif len(candidates) > 1:
-                print(f"Multiple files found for {key}: {candidates}")
-                print(f"Choosing {candidates[0]} for {key}.")
+                self.printer.print(f"Multiple files found for {key}: {candidates}")
+                self.printer.print(f"Choosing {candidates[0]} for {key}.")
                 self.map[key]["vmfb"] = candidates[0]
             else:
                 # vmfb not found in pipeline_dir. Add to list of files to generate.
@@ -503,8 +547,10 @@ class TurbinePipelineBase:
                 if len(candidates) == 1:
                     self.map[key]["weights"] = candidates[0]
                 elif len(candidates) > 1:
-                    print(f"Multiple weight files found for {key}: {candidates}")
-                    print(f"Choosing {candidates[0]} for {key}.")
+                    self.printer.print(
+                        f"Multiple weight files found for {key}: {candidates}"
+                    )
+                    self.printer.print(f"Choosing {candidates[0]} for {key}.")
                     self.map[key][weights] = candidates[0]
                 elif self.map[key].get("external_weights"):
                     # weights not found in external_weights_dir. Add to list of files to generate.
@@ -512,7 +558,7 @@ class TurbinePipelineBase:
         if not any(x for x in missing.values()):
             ready = True
         else:
-            print("Missing files: ", missing)
+            self.printer.print("Missing files: ", missing)
             ready = False
         return ready
 
@@ -678,7 +724,7 @@ class TurbinePipelineBase:
     def load_map(self):
         for submodel in self.map.keys():
             if not self.map[submodel]["load"]:
-                print("Skipping load for ", submodel)
+                self.printer.print("Skipping load for ", submodel)
                 continue
             self.load_submodel(submodel)
 
@@ -690,7 +736,11 @@ class TurbinePipelineBase:
         ):
             raise ValueError(f"Weights not found for {submodel}.")
         dest_type = self.map[submodel].get("dest_type", "devicearray")
-        self.map[submodel]["runner"] = PipelineComponent(dest_type=dest_type)
+        self.map[submodel]["runner"] = PipelineComponent(
+            printer=self.printer,
+            dest_type=dest_type,
+            benchmark=self.map[submodel].get("benchmark", False),
+        )
         self.map[submodel]["runner"].load(
             self.map[submodel]["driver"],
             self.map[submodel]["vmfb"],
