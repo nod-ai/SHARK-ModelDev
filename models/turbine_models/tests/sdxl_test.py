@@ -447,7 +447,6 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         assert output is not None
 
-    @pytest.mark.skip(reason="Needs sdxl_quantized branch of IREE")
     def test06_t2i_generate_images_punet(self):
         if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
