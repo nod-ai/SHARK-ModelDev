@@ -351,13 +351,15 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
+        if self.use_punet:
+            self.setup_punet()
+        else:
+            self.map["unet"]["keywords"].append("!punet")
+            self.map["unet"]["function_name"] = "run_forward"
+
+    def setup_punet(self):
         if self.use_i8_punet:
             self.map["unet"]["export_args"]["precision"] = "i8"
-            self.map["unet"]["export_args"]["use_punet"] = True
-            self.map["unet"]["use_weights_for_export"] = True
-            self.map["unet"]["keywords"].append("punet")
-            self.map["unet"]["module_name"] = "compiled_punet"
-            self.map["unet"]["function_name"] = "main"
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
             )
@@ -365,9 +367,11 @@ class SharkSDPipeline(TurbinePipelineBase):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
                     break
-        else:
-            self.map["unet"]["keywords"].append("!punet")
-            self.map["unet"]["function_name"] = "run_forward"
+        self.map["unet"]["export_args"]["use_punet"] = True
+        self.map["unet"]["use_weights_for_export"] = True
+        self.map["unet"]["keywords"].append("punet")
+        self.map["unet"]["module_name"] = "compiled_punet"
+        self.map["unet"]["function_name"] = "main"
 
     # LOAD
 
