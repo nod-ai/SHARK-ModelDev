@@ -723,7 +723,7 @@ class TurbinePipelineBase:
     def load_map(self):
         for submodel in self.map.keys():
             if not self.map[submodel]["load"]:
-                self.printer.print("Skipping load for ", submodel)
+                self.printer.print(f"Skipping load for {submodel}")
                 continue
             self.load_submodel(submodel)
 
