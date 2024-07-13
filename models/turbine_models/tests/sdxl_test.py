@@ -357,6 +357,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         assert output is not None
 
+    @pytest.mark.xfail(reason="compilation issue on gfx90a")
     def test06_t2i_generate_images_punet(self):
         if arguments["device"] in ["vulkan", "cuda", "rocm"]:
             self.skipTest(
