@@ -28,6 +28,9 @@ MI_flags = {
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
     ],
+    "punet": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+    ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
@@ -65,6 +68,9 @@ GFX11_flags = {
     ],
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+    ],
+    "punet": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
@@ -153,7 +159,7 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
-    masked_attention=False,
+    flagset_keyword="",
     debug=False,
 ):
     flags = []
@@ -235,15 +241,19 @@ def compile_to_vmfb(
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
-        if masked_attention:
-            flags.extend(GFX11_flags["pad_attention"])
+        if "masked_attention" in flagset_keyword:
+            flags.extend(MI_flags["pad_attention"])
+        elif "punet" in flagset_keyword:
+            flags.extend(MI_flags["punet"])
         else:
-            flags.extend(GFX11_flags["preprocess_default"])
+            flags.extend(MI_flags["preprocess_default"])
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
-        if masked_attention:
+        if "masked_attention" in flagset_keyword:
             flags.extend(GFX11_flags["pad_attention"])
+        elif "punet" in flagset_keyword:
+            flags.extend(GFX11_flags["punet"])
         else:
             flags.extend(GFX11_flags["preprocess_default"])
 
@@ -257,15 +267,12 @@ def compile_to_vmfb(
         attn_spec = get_mfma_spec_path(
             target_triple,
             os.path.dirname(safe_name),
-            masked_attention,
             use_punet=use_punet,
         )
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(
-            target_triple, os.path.dirname(safe_name), masked_attention
-        )
+        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     elif attn_spec and attn_spec != "None":

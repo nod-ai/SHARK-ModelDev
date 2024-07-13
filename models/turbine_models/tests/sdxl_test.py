@@ -99,16 +99,16 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["precision"],
             arguments["device"],
             arguments["iree_target_triple"],
-            ireec_flags=None,  # ireec_flags
+            ireec_flags=None,
             attn_spec=arguments["attn_spec"],
             decomp_attn=decomp_attn,
-            pipeline_dir="test_vmfbs",  # pipeline_dir
-            external_weights_dir="test_weights",  # external_weights_dir
+            pipeline_dir="test_vmfbs",
+            external_weights_dir="test_weights",
             external_weights=arguments["external_weights"],
             num_inference_steps=arguments["num_inference_steps"],
             cpu_scheduling=True,
             scheduler_id=arguments["scheduler_id"],
-            shift=None,  # shift
+            shift=None,
             use_i8_punet=False,
         )
         self.pipe.prepare_all()
