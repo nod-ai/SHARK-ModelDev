@@ -208,7 +208,7 @@ class StableDiffusionTest(unittest.TestCase):
             current_args["hf_model_name"],
             current_args["external_weight_path"],
         )
-        torch_output = vae_runner.run_torch_vae_decode(
+        torch_output = vae_runner.run_torch_vae(
             current_args["hf_model_name"],
             "decode",
             example_input,
