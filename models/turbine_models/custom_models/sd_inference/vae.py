@@ -65,6 +65,11 @@ class VaeModel(torch.nn.Module):
         return (x / 2 + 0.5).clamp(0, 1)
 
     def encode(self, inp):
+        image_np = inp / 255.0
+        image_np = np.moveaxis(image_np, 2, 0)
+        batch_images = np.expand_dims(image_np, axis=0).repeat(1, axis=0)
+        image_torch = torch.from_numpy(batch_images)
+        image_torch = 2.0 * image_torch - 1.0
         latents = self.vae.encode(inp).latent_dist.sample()
         return self.vae.config.scaling_factor * latents
 
@@ -97,7 +102,7 @@ class SD3VaeModel(torch.nn.Module):
         latent = self.vae.encode(image_torch)
         return latent
 
-
+@torch.no_grad()
 def export_vae_model(
     hf_model_name,
     batch_size,
@@ -167,12 +172,12 @@ def export_vae_model(
     if weights_only:
         return external_weight_path
 
-    input_image_shape = (height, width, 3)
+    input_image_shape = (batch_size, 3, height, width)
     input_latents_shape = (batch_size, num_channels, height // 8, width // 8)
     encode_args = [
         torch.empty(
             input_image_shape,
-            dtype=torch.float32,
+            dtype=dtype,
         )
     ]
     decode_args = [
@@ -195,9 +200,9 @@ def export_vae_model(
         fxb = FxProgramsBuilder(vae_model)
 
         # TODO: fix issues with exporting the encode function.
-        # @fxb.export_program(args=(encode_args,))
-        # def _encode(module, inputs,):
-        #     return module.encode(*inputs)
+        @fxb.export_program(args=(encode_args,))
+        def _encode(module, inputs,):
+            return module.encode(*inputs)
 
         @fxb.export_program(args=(decode_args,))
         def _decode(module, inputs):
@@ -205,6 +210,7 @@ def export_vae_model(
 
         class CompiledVae(CompiledModule):
             decode = _decode
+            encode = _encode
 
         if external_weights:
             externalize_module_parameters(vae_model)
@@ -228,6 +234,7 @@ def export_vae_model(
         "output_dtypes": [np_dtype],
     }
     module = AddMetadataPass(module, model_metadata_decode, "decode").run()
+    module = AddMetadataPass(module, model_metadata_decode, "encode").run()
 
     if compile_to != "vmfb":
         return str(module)
