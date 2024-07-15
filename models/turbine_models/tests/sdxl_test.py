@@ -281,7 +281,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
-    @pytest.xfail(reason="NaN output on rocm, needs triage and file")
+    @pytest.mark.xfail(reason="NaN output on rocm, needs triage and file")
     def test04_ExportVaeModelEncode(self):
         if arguments["device"] in ["cpu", "vulkan", "cuda", "rocm"]:
             self.skipTest(
