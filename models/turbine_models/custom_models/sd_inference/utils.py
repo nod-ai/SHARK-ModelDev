@@ -159,7 +159,7 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
-    flagset_keyword="",
+    flagset_keywords=[],
     debug=False,
 ):
     flags = []
@@ -241,18 +241,18 @@ def compile_to_vmfb(
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
-        if "masked_attention" in flagset_keyword:
+        if "masked_attention" in flagset_keywords:
             flags.extend(MI_flags["pad_attention"])
-        elif "punet" in flagset_keyword:
+        elif "punet" in flagset_keywords:
             flags.extend(MI_flags["punet"])
         else:
             flags.extend(MI_flags["preprocess_default"])
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
-        if "masked_attention" in flagset_keyword:
+        if "masked_attention" in flagset_keywords:
             flags.extend(GFX11_flags["pad_attention"])
-        elif "punet" in flagset_keyword:
+        elif "punet" in flagset_keywords:
             flags.extend(GFX11_flags["punet"])
         else:
             flags.extend(GFX11_flags["preprocess_default"])

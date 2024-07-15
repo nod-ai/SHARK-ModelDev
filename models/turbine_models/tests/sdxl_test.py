@@ -88,7 +88,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         decomp_attn = {
             "text_encoder": True,
             "unet": False,
-            "vae": True,
+            "vae": False,
         }
         self.pipe = SharkSDPipeline(
             arguments["hf_model_name"],
@@ -257,6 +257,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         example_input_torch = example_input
         if arguments["precision"] == "fp16":
             example_input = example_input.half()
+        breakpoint()
         turbine = vae_runner.run_vae(
             arguments["rt_device"],
             example_input,
