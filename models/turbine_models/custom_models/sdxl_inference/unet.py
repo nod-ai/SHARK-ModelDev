@@ -208,7 +208,7 @@ def export_unet_model(
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
-            flagset_keyword=["punet"] if use_punet else [],
+            flagset_keywords=["punet"] if use_punet else [],
         )
         return vmfb_path
     elif use_punet:
