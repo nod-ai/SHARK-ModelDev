@@ -65,11 +65,6 @@ class VaeModel(torch.nn.Module):
         return (x / 2 + 0.5).clamp(0, 1)
 
     def encode(self, inp):
-        image_np = inp / 255.0
-        image_np = np.moveaxis(image_np, 2, 0)
-        batch_images = np.expand_dims(image_np, axis=0).repeat(1, axis=0)
-        image_torch = torch.from_numpy(batch_images)
-        image_torch = 2.0 * image_torch - 1.0
         latents = self.vae.encode(inp).latent_dist.sample()
         return self.vae.config.scaling_factor * latents
 
