@@ -97,6 +97,7 @@ class SD3VaeModel(torch.nn.Module):
         latent = self.vae.encode(image_torch)
         return latent
 
+
 @torch.no_grad()
 def export_vae_model(
     hf_model_name,
@@ -196,7 +197,10 @@ def export_vae_model(
 
         # TODO: fix issues with exporting the encode function.
         @fxb.export_program(args=(encode_args,))
-        def _encode(module, inputs,):
+        def _encode(
+            module,
+            inputs,
+        ):
             return module.encode(*inputs)
 
         @fxb.export_program(args=(decode_args,))

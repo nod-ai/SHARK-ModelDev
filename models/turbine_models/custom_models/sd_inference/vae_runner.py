@@ -16,6 +16,7 @@ def run_vae_decode(
 
     return results
 
+
 def run_vae_encode(
     device, example_input, vmfb_path, hf_model_name, external_weight_path
 ):
@@ -26,6 +27,7 @@ def run_vae_encode(
     results = runner.ctx.modules.compiled_vae["encode"](*inputs).to_host()
 
     return results
+
 
 def run_torch_vae(hf_model_name, variant, example_input):
     from diffusers import AutoencoderKL
