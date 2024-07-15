@@ -144,7 +144,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             turbine_output1,
             turbine_output2,
         ) = sdxl_prompt_encoder_runner.run_prompt_encoder(
-            prompt_encoder_vmfb,
+            arguments["vmfb_path"],
             arguments["rt_device"],
             arguments["external_weight_path"],
             text_input_ids_list,
@@ -161,7 +161,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         if arguments["benchmark"] or arguments["tracy_profile"]:
             run_benchmark(
                 "prompt_encoder",
-                prompt_encoder_vmfb,
+                arguments["vmfb_path"],
                 arguments["external_weight_path"],
                 arguments["rt_device"],
                 max_length=arguments["max_length"],
@@ -245,7 +245,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest("Compilation error on vulkan; To be tested on cuda.")
 
-        arguments["vmfb_path"] = self.pipe.map["unet"]["vmfb"]
+        arguments["vmfb_path"] = self.pipe.map["vae"]["vmfb"]
         arguments["external_weight_path"] = self.pipe.map["unet"]["weights"]
         example_input = torch.ones(
             arguments["batch_size"],
