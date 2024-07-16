@@ -189,7 +189,7 @@ def get_sd_model_map(hf_model_name):
     if name in [
         "stabilityai/sdxl-turbo",
         "stabilityai/stable-diffusion-xl-base-1.0",
-        "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16//checkpoint_pipe",
+        "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16/checkpoint_pipe",
     ]:
         return sdxl_model_map
     elif "stabilityai/stable-diffusion-3" in name:
