@@ -452,7 +452,7 @@ class TurbinePipelineBase:
                         exit()
                 for submodel in self.map.keys():
                     if not self.map[submodel].get("vmfb"):
-                        self.printer.print("Fetching: ", submodel)
+                        self.printer.print(f"Fetching: {submodel}")
                         self.export_submodel(
                             submodel, input_mlir=self.map[submodel].get("mlir")
                         )
@@ -557,7 +557,7 @@ class TurbinePipelineBase:
         if not any(x for x in missing.values()):
             ready = True
         else:
-            self.printer.print("Missing files: ", missing)
+            self.printer.print(f"Missing files: {missing}")
             ready = False
         return ready
 
