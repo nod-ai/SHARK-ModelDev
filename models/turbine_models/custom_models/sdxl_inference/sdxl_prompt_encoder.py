@@ -220,7 +220,7 @@ def export_prompt_encoder(
 
     input_batchsize = 1
     if batch_input:
-        input_batchsize = batchsize
+        input_batchsize = batch_size
 
     if precision == "fp16":
         prompt_encoder_module = prompt_encoder_module.half()
