@@ -3,6 +3,7 @@ import sys
 import re
 import json
 from turbine_models.turbine_tank import turbine_tank
+from pathlib import Path
 
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -14,6 +15,7 @@ from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama i
     enable_llama_pos_shift_attention,
 )
 from turbine_models.custom_models.sd_inference.utils import compile_to_vmfb
+from turbine_models.model_runner import vmfbRunner
 
 from turbine_models.custom_models import remap_gguf
 import safetensors
@@ -31,7 +33,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name",
-    default="meta-llama/Llama-2-7b-chat-hf",
+    default="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
 )
 parser.add_argument("--quantization", type=str, default="unquantized")
 parser.add_argument("--external_weight_file", type=str, default="")
@@ -131,6 +133,7 @@ def export_transformer_model(
     tokenizer=None,
     decomp_attn=False,
     input_mlir=None,
+    iree_flags=[],
 ):
     safe_name = hf_model_name.replace("-", "_").replace("/", "_")
     if streaming_llm:
@@ -138,7 +141,6 @@ def export_transformer_model(
     if not vmfb_path:
         vmfb_path = safe_name + "_" + target_triple
 
-    iree_flags = []
     ukernel_supported_arch = {"gfx90a", "gfx940", "gfx1030", "gfx1100"}
     if target_triple in ukernel_supported_arch:
         iree_flags.extend(["--iree-rocm-enable-ukernels=argmax"])
@@ -489,26 +491,344 @@ def export_transformer_model(
         return blob_name, tokenizer
 
 
+llm_model_map = {
+    "meta-llama/Llama-2-7b-chat-hf": {
+        "initializer": export_transformer_model,
+        "hf_model_name": "meta-llama/Llama-2-7b-chat-hf",
+        "compile_flags": ["--iree-opt-const-expr-hoisting=False"],
+        "stop_token": 2,
+        "max_tokens": 4096,
+        "system_prompt": """<s>[INST] <<SYS>>Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>>""",
+    },
+    "Trelis/Llama-2-7b-chat-hf-function-calling-v2": {
+        "initializer": export_transformer_model,
+        "hf_model_name": "Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        "compile_flags": ["--iree-opt-const-expr-hoisting=False"],
+        "stop_token": 2,
+        "max_tokens": 4096,
+        "system_prompt": """<s>[INST] <<SYS>>Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>>""",
+    },
+    "TinyPixel/small-llama2": {
+        "initializer": export_transformer_model,
+        "hf_model_name": "TinyPixel/small-llama2",
+        "compile_flags": ["--iree-opt-const-expr-hoisting=True"],
+        "stop_token": 2,
+        "max_tokens": 1024,
+        "system_prompt": """<s>[INST] <<SYS>>Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>>""",
+    },
+}
+
+    # args.hf_model_name,
+    # args.scheduler_id,
+    # args.precision,
+    # args.device
+    # args.iree_target_triple,
+    # flags,
+    # args.pipeline_dir,
+    # args.external_weights_dir,
+    # args.external_weights,
+    # args.hf_auth_token,
+
+
+class StatelessLlama:
+    def __init__(
+        self,
+        hf_model_name: str,
+        scheduler_id: str,
+        precision: str,
+        device: str,
+        iree_target_triple: str,
+        ireec_flags: list = [],
+        pipeline_dir: str | Path = "./shark_vmfbs",
+        external_weights_dir: str | Path = "./shark_weights",
+        external_weights: str = "safetensors",
+        hf_auth_token: str = None,
+    ):
+        self.hf_model_name = hf_model_name
+        self.iree_dtype = "float32" if precision == "fp32" else "float16"
+        self.torch_dtype = torch.float32 if precision == "fp32" else torch.float16
+        self.precision = precision
+        self.device = device
+        self.iree_target_triple = iree_target_triple
+        self.ireec_flags = ireec_flags
+        self.pipeline_dir = pipeline_dir
+        self.external_weights_dir = external_weights_dir
+        self.external_weights = external_weights
+
+        self.first_input = True
+        self.max_tokens = llm_model_map[self.hf_model_name]["max_tokens"]
+        self.global_iter = 0
+        self.prev_token_len = 0
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.hf_model_name,
+            use_fast=False,
+            use_auth_token=hf_auth_token,
+        )
+        self.safe_name = "_".join(
+            [
+                self.hf_model_name.replace("/", "_").replace("-", "_"),
+                self.precision,
+            ]
+        )
+        self.model = None
+        self.hf_auth_token=hf_auth_token
+
+    # FILE MANAGEMENT AND PIPELINE SETUP
+
+    def check_prepared(
+        self,
+        mlir: str,
+        vmfb: str,
+        weight: str,
+        interactive: bool = False,
+        quantization: str = None,
+    ):
+        ready, vmfb, weight = self.is_prepared(vmfb, weight)
+        if not ready:
+            if interactive:
+                do_continue = input(
+                    f"\nIt seems you are missing some necessary files. Would you like to generate them now? (y/n)"
+                )
+                if do_continue.lower() != "y":
+                    exit()
+            else:
+                do_continue = "y"
+            if do_continue.lower() == "y":
+                if vmfb is None:
+                    v, w = self.export(input_mlir=mlir, quantization=quantization)
+                    vmfb = v
+                    if weight is None:
+                        weight = w
+                if weight is None:
+                    _, w = self.export(weights_only=True, quantization=quantization)
+                    weight = w
+                ready, vmfb, weight = self.is_prepared(vmfb, weight)
+                if ready:
+                    print("All necessary files found.")
+                    return vmfb, weight
+                else:
+                    print("There was an error generating the necessary files.")
+                    exit()
+        else:
+            print("All necessary files found. Loading pipeline.")
+        return vmfb, weight
+
+    def is_prepared(self, vmfb, weight):
+        missing = []
+        default_filepath = os.path.join(self.pipeline_dir, self.safe_name + ".vmfb")
+
+        # vmfb
+        if vmfb is None and os.path.exists(default_filepath):
+            vmfb = default_filepath
+        else:
+            missing.append(vmfb)
+
+        # External weight
+        if not (weight is not None and os.path.exists(weight)):            
+            if self.external_weights is None:
+                weight = None
+        else:
+            default_name = os.path.join(
+                self.external_weights_dir, self.safe_name + "." + self.external_weights
+            )
+            if weight is None and os.path.exists(default_name):
+                weight = os.path.join(default_name)
+            else:
+                missing.append(weight)
+        if len(missing) > 0:
+            # print(f"Missing files: " + ", ".join(missing))
+            return False, vmfb, weight
+        else:
+            return True, vmfb, weight
+
+    # IMPORT / COMPILE PHASE
+
+    def export(
+        self,
+        quantization: str = None,
+        input_mlir: str = None,
+        weights_only: bool = False,
+    ):
+        safe_name = self.hf_model_name.replace("-", "_").replace("/", "_")
+        # if self.streaming_llm:
+        safe_name += "_streaming"
+
+        if not os.path.exists(self.pipeline_dir):
+            os.makedirs(self.pipeline_dir)
+        if self.external_weights_dir:
+            if not os.path.exists(self.external_weights_dir):
+                os.makedirs(external_weights_dir, exist_ok=True)
+            external_weight_path = os.path.join(
+                self.external_weights_dir, safe_name + self.external_weights
+            )
+        elif self.external_weights is None:
+            print(
+                "No external weights type specified using --external_weights, weights for imported .mlir files will not be externalized."
+            )
+            external_weight_path = None
+        else:
+            print(
+                f"No external weights directory specified using --external_weights_dir, we assume you have your own weights in {self.pipeline_dir}."
+            )
+            external_weights_dir = self.pipeline_dir
+            external_weight_path = os.path.join(
+                self.pipeline_dir, safe_name + self.external_weights
+            )
+        if weights_only:
+            input_mlir = None
+
+        _, vmfb = export_transformer_model(
+            self.hf_model_name,
+            hf_auth_token=self.hf_auth_token,
+            compile_to="vmfb",
+            external_weights=self.external_weights,
+            external_weight_file=external_weight_path,
+            quantization=quantization,
+            precision=self.precision,
+            device=self.device,
+            target_triple=self.iree_target_triple,
+            vulkan_max_allocation=None,
+            streaming_llm=True,
+            vmfb_path=os.path.join(self.pipeline_dir, safe_name + ".vmfb"),
+            upload_ir=False,
+            mod=None,
+            tokenizer=None,
+            decomp_attn=False,
+            input_mlir=input_mlir,
+            iree_flags=self.ireec_flags,
+        )
+        return vmfb, external_weight_path
+
+    # LOAD
+
+    def load_pipeline(
+        self,
+        vmfb: str,
+        weight: str,
+        rt_device: str = "local-task",
+        compiled_pipeline: bool = False,
+    ):
+        self.model = vmfbRunner(rt_device, vmfb, weight)
+
+    # RUN
+
+    def chat(self, prompt):
+        prompt = self.sanitize_prompt(prompt)
+
+        input_tensor = self.tokenizer(prompt, return_tensors="pt").input_ids
+
+        def format_out(results):
+            return torch.tensor(results.to_host()[0][0])
+
+        history = []
+        for iter in range(self.max_tokens):
+            # if self.streaming_llm:
+            token_slice = max(self.prev_token_len - 1, 0)
+            input_tensor = input_tensor[:, token_slice:]
+            # if self.streaming_llm and self.model["get_seq_step"]() > 600:
+            if self.model["get_seq_step"]() > 600:
+                print("Evicting cache space!")
+                self.model["evict_kvcache_space"]()
+            token_len = input_tensor.shape[-1]
+            device_inputs = [
+                ireert.asdevicearray(self.device, input_tensor)
+            ]
+            if self.first_input: # or not self.streaming_llm:
+                st_time = time.time()
+                token = self.model["run_initialize"](*device_inputs)
+                total_time = time.time() - st_time
+                token_len += 1
+                self.first_input = False
+            else:
+                st_time = time.time()
+                token = self.model["run_cached_initialize"](*device_inputs)
+                total_time = time.time() - st_time
+                token_len += 1
+
+            history.append(format_out(token))
+            while (
+                format_out(token) != llm_model_map[self.hf_model_name]["stop_token"]
+                and len(history) < self.max_tokens
+            ):
+                dec_time = time.time()
+                if self.model["get_seq_step"]() > 600:
+                    print("Evicting cache space!")
+                    self.model["evict_kvcache_space"]()
+                token = self.model["run_forward"](token)
+                history.append(format_out(token))
+                total_time = time.time() - dec_time
+                yield self.tokenizer.decode(history), total_time
+
+            self.prev_token_len = token_len + len(history)
+
+            if format_out(token) == llm_model_map[self.hf_model_name]["stop_token"]:
+                break
+
+        for i in range(len(history)):
+            if type(history[i]) != int:
+                history[i] = int(history[i])
+        result_output = self.tokenizer.decode(history)
+        self.global_iter += 1
+        return result_output, total_time
+
 if __name__ == "__main__":
-    args = parser.parse_args()
-    mod_str, _ = export_transformer_model(
+    from turbine_models.custom_models.llm_cmd_opts import args
+    
+    mlir = None #args.input_mlir
+    vmfb = None
+    weight = None
+
+    flags = []
+    if "cpu" in args.device:
+        flags.extend(
+            [
+                "--iree-global-opt-enable-quantized-matmul-reassociation",
+            ]
+        )
+    elif args.device == "vulkan":
+        flags.extend(["--iree-stream-resource-max-allocation-size=4294967296"])
+    elif args.device == "rocm":
+        flags.extend(
+            [
+                "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
+                "--iree-llvmgpu-enable-prefetch=true",
+                "--iree-opt-outer-dim-concat=true",
+                "--iree-flow-enable-aggressive-fusion",
+            ]
+        )
+        if "gfx9" in args.iree_target_triple:
+            flags.extend(
+                [
+                    f"--iree-codegen-transform-dialect-library={get_mfma_spec_path(args.iree_target_triple, get_checkpoints_path())}",
+                    "--iree-codegen-llvmgpu-use-vector-distribution=true",
+                ]
+            )
+    flags.extend(llm_model_map[args.hf_model_name]["compile_flags"])
+
+    if not args.pipeline_dir:
+        args.pipeline_dir = "./shark_vmfbs"
+    if not args.external_weights_dir and args.external_weights:
+        args.external_weights_dir = args.pipeline_dir
+
+    llama = StatelessLlama(
         args.hf_model_name,
-        args.hf_auth_token,
-        args.compile_to,
-        args.external_weights,
-        args.external_weight_file,
-        args.quantization,
+        args.scheduler_id,
         args.precision,
         args.device,
         args.iree_target_triple,
-        args.vulkan_max_allocation,
-        args.streaming_llm,
-        args.vmfb_path,
-        upload_ir=False,
-        decomp_attn=args.decomp_attn,
+        flags,
+        args.pipeline_dir,
+        args.external_weights_dir,
+        args.external_weights,
+        args.hf_auth_token,
     )
-    safe_name = args.hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-    with open(f"{safe_name}.mlir", "w+") as f:
-        f.write(mod_str)
-    print("Saved to ", safe_name + ".mlir")
+    vmfb, weight = llama.check_prepared(mlir, vmfb, weight, interactive=False, quantization="int4")
+    llama.load_pipeline(vmfb, weight, args.rt_device, args.compiled_pipeline)
+    llama.generate_images(
+        args.prompt,
+        args.negative_prompt,
+        args.batch_count,
+        args.guidance_scale,
+        args.seed,
+        False,
+    )
