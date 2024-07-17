@@ -247,7 +247,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             "external_weights": None,
             "external_weight_path": None,
         }
-        sd_model_map = get_sd_model_map(hf_model_name)
+        sd_model_map = copy.deepcopy(get_sd_model_map(hf_model_name))
         for submodel in sd_model_map:
             if "load" not in sd_model_map[submodel]:
                 sd_model_map[submodel]["load"] = True
@@ -569,9 +569,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
         )
+        # Disable progress bar if we aren't in verbose mode or if we're printing
+        # benchmark latencies for unet.
         for i, t in tqdm(
             enumerate(timesteps),
-            disable=(self.map["unet"].get("benchmark") and self.verbose),
+            disable=(self.map["unet"].get("benchmark") or not self.verbose),
         ):
             if self.cpu_scheduling:
                 latent_model_input, t = self.scheduler.scale_model_input(
