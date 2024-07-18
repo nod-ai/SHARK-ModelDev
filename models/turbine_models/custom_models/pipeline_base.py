@@ -670,7 +670,8 @@ class TurbinePipelineBase:
                     self.map[submodel]["export_args"]["precision"],
                     self.map[submodel]["export_args"]["batch_size"],
                     self.map[submodel]["export_args"]["max_length"],
-                    "tokens_to_image",
+                    "produce_img_split",
+                    unet_module_name = self.map["unet"]["module_name"],
                 )
                 dims = [
                     self.map[submodel]["export_args"]["width"],
@@ -699,8 +700,8 @@ class TurbinePipelineBase:
                     return_path=True,
                     mlir_source="str",
                 )
-                self.map[submodel]["vmfb"] = vmfb_path
-                self.map[submodel]["weights"] = None
+                self.map[submodel]["vmfb"] = [vmfb_path]
+                self.map[submodel]["weights"] = []
             case _:
                 export_args = self.map[submodel].get("export_args", {})
                 if weights_only:
@@ -725,6 +726,11 @@ class TurbinePipelineBase:
             if not self.map[submodel]["load"]:
                 self.printer.print(f"Skipping load for {submodel}")
                 continue
+            elif self.map[submodel].get("wraps"):
+                for wrapped in self.map[submodel]["wraps"]:
+                    self.map[submodel]["vmfb"].append(self.map[wrapped]["vmfb"])
+                    self.map[submodel]["weights"].append(self.map[wrapped]["weights"])
+
             self.load_submodel(submodel)
 
     def load_submodel(self, submodel):
