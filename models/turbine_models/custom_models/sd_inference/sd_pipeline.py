@@ -244,7 +244,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             "exit_on_vmfb": False,
             "pipeline_dir": pipeline_dir,
             "input_mlir": None,
-            "attn_spec": None,
+            "attn_spec": attn_spec,
             "external_weights": None,
             "external_weight_path": None,
         }
