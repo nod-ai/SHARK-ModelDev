@@ -368,6 +368,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
             )
+            self.map["unet"]["export_args"]["quant_paths"] = self.punet_quant_paths
             for idx, word in enumerate(self.map["unet"]["keywords"]):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
