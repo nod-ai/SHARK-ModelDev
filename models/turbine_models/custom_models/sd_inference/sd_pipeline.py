@@ -381,10 +381,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str,
         steps: int = 30,
     ):
-        if self.is_sd3:
-            scheduler_device = self.mmdit.device
-        else:
-            scheduler_device = self.unet.device
         if not self.cpu_scheduling:
             self.map["scheduler"] = {
                 "module_name": "compiled_scheduler",
@@ -431,6 +427,10 @@ class SharkSDPipeline(TurbinePipelineBase):
                 print("JIT export of scheduler failed. Loading CPU scheduler.")
                 self.cpu_scheduling = True
         if self.cpu_scheduling:
+            if self.is_sd3:
+                scheduler_device = self.mmdit.device
+            else:
+                scheduler_device = self.unet.device
             scheduler = schedulers.get_scheduler(self.base_model_name, scheduler_id)
             self.scheduler = schedulers.SharkSchedulerCPUWrapper(
                 scheduler,
