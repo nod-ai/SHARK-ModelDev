@@ -223,7 +223,9 @@ def export_unet_model(
         )
         return vmfb_path
     elif use_punet:
-        unet_model = get_punet_model(hf_model_name, external_weight_path, quant_paths, precision)
+        unet_model = get_punet_model(
+            hf_model_name, external_weight_path, quant_paths, precision
+        )
     else:
         unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
 
