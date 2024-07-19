@@ -391,7 +391,8 @@ class TurbinePipelineBase:
                 )
         for submodel in self.map.keys():
             for key, value in map_arguments.items():
-                self.map = merge_export_arg(self.map, value, key)
+                if key != "benchmark":
+                    self.map = merge_export_arg(self.map, value, key)
             for key, value in self.map[submodel].get("export_args", {}).items():
                 if key == "hf_model_name":
                     self.map[submodel]["keywords"].append(
