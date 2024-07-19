@@ -540,7 +540,11 @@ class TurbinePipelineBase:
                 avail_files = os.listdir(self.external_weights_dir)
                 candidates = []
                 for filename in avail_files:
-                    if all(str(x) in filename for x in w_keywords):
+                    if all(
+                        str(x) in filename
+                        or str(x) == os.path.join(self.external_weights_dir, filename)
+                        for x in w_keywords
+                    ):
                         candidates.append(
                             os.path.join(self.external_weights_dir, filename)
                         )
