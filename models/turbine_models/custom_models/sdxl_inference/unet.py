@@ -82,7 +82,7 @@ class UnetModel(torch.nn.Module):
         return noise_pred
 
 
-def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
+def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision="i8"):
     from sharktank.models.punet.model import (
         Unet2DConditionModel as sharktank_unet2d,
         ClassifierFreeGuidanceUnetModel as sharktank_CFGPunetModel,
@@ -103,14 +103,23 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
             repo_id=repo_id, subfolder=subfolder, filename=filename, revision=revision
         )
 
-    results = {
-        "config.json": download("config.json"),
-        "params.safetensors": download("params.safetensors"),
-    }
+    if not quant_paths:
+        results = {
+            "config.json": download("config.json"),
+            "params.safetensors": download("params.safetensors"),
+        }
+    else:
+        results = {
+            "config.json": quant_paths["config"],
+            "params.safetensors": quant_paths["params"],
+        }
     output_dir = os.path.dirname(external_weight_path)
 
     if precision == "i8":
-        results["quant_params.json"] = download("quant_params.json")
+        if quant_paths:
+            results["quant_params.json"] = quant_paths["quant_params"]
+        else:
+            results["quant_params.json"] = download("quant_params.json")
         ds_filename = os.path.basename(external_weight_path)
         output_path = os.path.join(output_dir, ds_filename)
         ds = get_punet_dataset(
@@ -177,6 +186,7 @@ def export_unet_model(
     input_mlir=None,
     weights_only=False,
     use_punet=False,
+    quant_paths=None,
 ):
     if use_punet:
         submodel_name = "punet"
@@ -213,7 +223,7 @@ def export_unet_model(
         )
         return vmfb_path
     elif use_punet:
-        unet_model = get_punet_model(hf_model_name, external_weight_path, precision)
+        unet_model = get_punet_model(hf_model_name, external_weight_path, quant_paths, precision)
     else:
         unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
 

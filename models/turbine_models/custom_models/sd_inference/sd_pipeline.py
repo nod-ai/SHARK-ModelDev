@@ -234,6 +234,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
         batch_prompts: bool = False,
+        punet_quant_paths: dict[str] = None,
+        vae_weight_path: str = None,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -304,6 +306,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.cpu_scheduling = cpu_scheduling
         self.scheduler_id = scheduler_id
         self.num_inference_steps = num_inference_steps
+        self.punet_quant_paths = punet_quant_paths
 
         self.text_encoder = None
         self.unet = None
@@ -340,6 +343,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.scheduler_device = self.map["unet"]["device"]
             self.scheduler_driver = self.map["unet"]["driver"]
             self.scheduler_target = self.map["unet"]["target"]
+            self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
@@ -361,9 +365,7 @@ class SharkSDPipeline(TurbinePipelineBase):
     def setup_punet(self):
         if self.use_i8_punet:
             self.map["unet"]["export_args"]["precision"] = "i8"
-            self.map["unet"]["export_args"]["external_weight_path"] = (
-                utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
-            )
+            self.map["unet"]["export_args"]["external_weight_path"] = self.punet_weight_path
             for idx, word in enumerate(self.map["unet"]["keywords"]):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
