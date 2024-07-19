@@ -486,9 +486,12 @@ class SharkSDPipeline(TurbinePipelineBase):
         elif self.is_sdxl and self.cpu_scheduling:
             self.scheduler.do_guidance = False
             self.scheduler.repeat_sample = False
-            sample, add_time_ids, step_indexes, timesteps = (
-                self.scheduler.initialize_sdxl(noise, num_inference_steps)
-            )
+            (
+                sample,
+                add_time_ids,
+                step_indexes,
+                timesteps,
+            ) = self.scheduler.initialize_sdxl(noise, num_inference_steps)
             return sample, add_time_ids, step_indexes, timesteps
         elif self.is_sdxl:
             return self.scheduler("run_initialize", noise)
