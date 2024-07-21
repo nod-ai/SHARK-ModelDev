@@ -343,7 +343,8 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.scheduler_device = self.map["unet"]["device"]
             self.scheduler_driver = self.map["unet"]["driver"]
             self.scheduler_target = self.map["unet"]["target"]
-            self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
+            if vae_weight_path is not None:
+                self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
