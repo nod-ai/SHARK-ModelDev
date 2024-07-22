@@ -394,10 +394,13 @@ def save_external_weights(
             mod_params = dict(model.named_parameters())
             mod_buffers = dict(model.named_buffers())
             mod_params.update(mod_buffers)
+            vae_params = {}
             for name in mod_params:
                 if vae_harness:
-                    name = name.replace("vae.", "")
+                    vae_params[name.replace("vae.", "")] = mod_params[name]
                 mapper["params." + name] = name
+            if vae_harness:
+                mod_params = vae_params
             if external_weight_file and not os.path.isfile(external_weight_file):
                 if not force_format:
                     safetensors.torch.save_file(mod_params, external_weight_file)
