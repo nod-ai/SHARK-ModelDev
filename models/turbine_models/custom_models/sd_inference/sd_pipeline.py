@@ -236,6 +236,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         batch_prompts: bool = False,
         punet_quant_paths: dict[str] = None,
         vae_weight_path: str = None,
+        vae_harness: bool = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -345,6 +346,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.scheduler_target = self.map["unet"]["target"]
             if vae_weight_path is not None:
                 self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
+            self.map["vae"]["export_args"]["vae_harness"] = vae_harness
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
