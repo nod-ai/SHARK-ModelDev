@@ -22,21 +22,16 @@ MI_flags = {
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-rocm-waves-per-eu=2",
-        "--iree-flow-inline-constants-max-byte-length=1",
     ],
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
     ],
-    "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
-    ],
+    "punet": [],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
@@ -210,8 +205,6 @@ def compile_to_vmfb(
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
-        if target_triple == "gfx942":
-            flags.extend(["--iree-rocm-waves-per-eu=2"])
     elif device == "cuda":
         flags.extend(
             [
