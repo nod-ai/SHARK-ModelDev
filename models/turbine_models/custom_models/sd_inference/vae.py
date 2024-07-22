@@ -119,6 +119,7 @@ def export_vae_model(
     input_mlir=None,
     weights_only=False,
     upload_ir=False,
+    vae_harness=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     np_dtype = "float16" if precision == "fp16" else "float32"
@@ -162,9 +163,14 @@ def export_vae_model(
     if dtype == torch.float16:
         vae_model = vae_model.half()
     mapper = {}
-    utils.save_external_weights(
-        mapper, vae_model, external_weights, external_weight_path
-    )
+    if not os.path.exists(external_weight_path):
+        utils.save_external_weights(
+            mapper,
+            vae_model,
+            external_weights,
+            external_weight_path,
+            vae_harness=vae_harness,
+        )
     if weights_only:
         return external_weight_path
 
