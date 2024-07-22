@@ -86,7 +86,6 @@ def export_vae_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
-    vae_harness=False,
 ):
     safe_name = utils.create_safe_name(
         hf_model_name,
@@ -122,7 +121,7 @@ def export_vae_model(
 
     if not os.path.exists(external_weight_path):
         utils.save_external_weights(
-            mapper, vae_model, external_weights, external_weight_path, vae_harness
+            mapper, vae_model, external_weights, external_weight_path
         )
     if weights_only:
         return external_weight_path
