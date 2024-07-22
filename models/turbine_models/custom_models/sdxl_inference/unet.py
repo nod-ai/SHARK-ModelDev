@@ -102,7 +102,7 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
         return hf_hub_download(
             repo_id=repo_id, subfolder=subfolder, filename=filename, revision=revision
         )
-    
+
     if quant_paths and quant_paths["config"] and os.path.exists(quant_paths["config"]):
         results = {
             "config.json": quant_paths["config"],
@@ -120,7 +120,11 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
     output_dir = os.path.dirname(external_weight_path)
 
     if precision == "i8":
-        if quant_paths and quant_paths["quant_params"] and os.path.exists(quant_paths["quant_params"]):
+        if (
+            quant_paths
+            and quant_paths["quant_params"]
+            and os.path.exists(quant_paths["quant_params"])
+        ):
             results["quant_params.json"] = quant_paths["quant_params"]
         else:
             results["quant_params.json"] = download("quant_params.json")
