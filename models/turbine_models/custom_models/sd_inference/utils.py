@@ -387,6 +387,7 @@ def save_external_weights(
     external_weights=None,
     external_weight_file=None,
     force_format=False,
+    vae_harness=False,
 ):
     if external_weights is not None:
         if external_weights in ["safetensors", "irpa"]:
@@ -394,6 +395,8 @@ def save_external_weights(
             mod_buffers = dict(model.named_buffers())
             mod_params.update(mod_buffers)
             for name in mod_params:
+                if vae_harness:
+                    name = name.replace("vae.", "")
                 mapper["params." + name] = name
             if external_weight_file and not os.path.isfile(external_weight_file):
                 if not force_format:
