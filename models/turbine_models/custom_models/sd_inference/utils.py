@@ -17,10 +17,8 @@ MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
-        "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
-        "--iree-opt-data-tiling=false",
-        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-execution-model=async-external",
     ],
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
@@ -32,24 +30,33 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics{pad-target-type=conv}))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-vm-target-truncate-unsupported-floats",
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-flow-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-rocm-waves-per-eu=2",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
         "--iree-flow-enable-aggressive-fusion",
         "--iree-flow-enable-fuse-horizontal-contractions",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-vm-target-truncate-unsupported-floats",
     ],
     "winograd": [""],
 }
@@ -265,20 +272,22 @@ def compile_to_vmfb(
     # the TD spec is implemented in C++.
 
     if attn_spec in ["default", "mfma", "punet"]:
-        use_punet = True if attn_spec in ["punet", "i8"] else False
-        attn_spec = get_mfma_spec_path(
-            target_triple,
-            os.path.dirname(safe_name),
-            use_punet=use_punet,
-        )
-        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+            use_punet = True if attn_spec in ["punet", "i8"] else False
+            attn_spec = get_mfma_spec_path(
+                target_triple,
+                os.path.dirname(safe_name),
+                use_punet=use_punet,
+            )
+            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     elif attn_spec and attn_spec != "None":
-        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]
