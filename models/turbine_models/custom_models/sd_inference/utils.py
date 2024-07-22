@@ -17,7 +17,6 @@ MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
-        "--iree-opt-outer-dim-concat=true",
         "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-opt-data-tiling=false",
@@ -29,6 +28,9 @@ MI_flags = {
     "punet": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
+    "vae_preprocess": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+    ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
@@ -36,6 +38,7 @@ MI_flags = {
         "--iree-flow-enable-aggressive-fusion",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-opt-outer-dim-concat=true",
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
@@ -44,6 +47,8 @@ MI_flags = {
     ],
     "vae": [
         "--iree-flow-enable-aggressive-fusion",
+        "--iree-flow-enable-fuse-horizontal-contractions",
+        "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "winograd": [""],
@@ -240,6 +245,8 @@ def compile_to_vmfb(
             flags.extend(MI_flags["pad_attention"])
         elif "punet" in flagset_keywords:
             flags.extend(MI_flags["punet"])
+        elif "vae_preprocess" in flagset_keywords:
+            flags.extend(MI_flags["vae_preprocess"])
         else:
             flags.extend(MI_flags["preprocess_default"])
 
