@@ -396,6 +396,7 @@ def save_external_weights(
             mod_params.update(mod_buffers)
             for name in mod_params:
                 if vae_harness:
+                    print(name)
                     name = name.replace("vae.", "")
                 mapper["params." + name] = name
             if external_weight_file and not os.path.isfile(external_weight_file):
