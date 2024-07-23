@@ -371,8 +371,8 @@ p.add_argument(
 
 p.add_argument(
     "--add_tk_kernels",
-    type=bool,
     default=False,
+    action="store_true",
     help="Flag to add compiled tk kernels.",
 )
 
