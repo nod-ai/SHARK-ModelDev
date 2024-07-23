@@ -172,7 +172,7 @@ def replace_with_tk_kernels(
                 kernel_args = 3 + int(suffix[4:])
                 suffix = kernel.split(".")[0].split("_")[-2]
             B, M, N, K = suffix.split("x")
-            old_kernel = f"matmul_transpose_b_{B}x{M}x{N}x{K}"
+            old_kernel = f"matmul_like_{B}x{M}x{N}x{K}"
             if not old_kernel in line:
                 continue
             if old_kernel in line and "func.func" in line:
@@ -181,7 +181,7 @@ def replace_with_tk_kernels(
                     if num_args != kernel_args:
                         continue
                 kernel_map[kernel] = line.strip().split(" ")[1][1:-7]
-                prefix_map[kernel] = kernel_map[kernel].split(old_kernel)[0][:-7]
+                prefix_map[kernel] = kernel_map[kernel].split(old_kernel)[0][:-1]
             if (
                 old_kernel in line
                 and "flow.dispatch" in line
