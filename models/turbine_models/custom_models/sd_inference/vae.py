@@ -163,7 +163,9 @@ def export_vae_model(
     if dtype == torch.float16:
         vae_model = vae_model.half()
     mapper = {}
-    if not os.path.exists(external_weight_path):
+    if (external_weight_path is not None) and (
+        not os.path.exists(external_weight_path)
+    ):
         utils.save_external_weights(
             mapper,
             vae_model,
