@@ -195,6 +195,7 @@ def export_unet_model(
     weights_only=False,
     use_punet=False,
     quant_paths=None,
+    add_tk_kernels=False,
 ):
     if use_punet:
         submodel_name = "punet"
@@ -217,6 +218,10 @@ def export_unet_model(
     if decomp_attn == True:
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
+    # Currently, only int8 tk kernels are integrated
+    if add_tk_kernels and precision != "i8":
+        add_tk_kernels = False
+
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
@@ -228,6 +233,7 @@ def export_unet_model(
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
             flagset_keywords=["punet"] if use_punet else [],
+            add_tk_kernels=add_tk_kernels,
         )
         return vmfb_path
     elif use_punet:
@@ -363,6 +369,7 @@ def export_unet_model(
             return_path=True,
             attn_spec=attn_spec,
             flagset_keywords=["punet"] if use_punet else [],
+            add_tk_kernels=add_tk_kernels,
         )
         if exit_on_vmfb:
             exit()
@@ -401,6 +408,7 @@ if __name__ == "__main__":
         args.decomp_attn,
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
+        add_tk_kernels=args.add_tk_kernels,
     )
     if args.input_mlir:
         exit()
