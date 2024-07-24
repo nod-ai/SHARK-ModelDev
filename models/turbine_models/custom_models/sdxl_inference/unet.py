@@ -370,6 +370,7 @@ def export_unet_model(
             attn_spec=attn_spec,
             flagset_keywords=["punet"] if use_punet else [],
             add_tk_kernels=add_tk_kernels,
+            batch_size=batch_size,
         )
         if exit_on_vmfb:
             exit()
