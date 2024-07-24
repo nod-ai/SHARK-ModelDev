@@ -155,10 +155,7 @@ def iree_backend_map(device):
     return iree_device
 
 
-def replace_with_tk_kernels(
-    flow_dialect_ir,
-    batch_size
-):
+def replace_with_tk_kernels(flow_dialect_ir, batch_size):
     if batch_size == 8:
         kernels = [
             "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/tk_kernels/tk_gemm_fused_16x1024x10240x1280.mlir"
