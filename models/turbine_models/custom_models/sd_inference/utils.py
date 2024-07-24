@@ -159,7 +159,7 @@ def replace_with_tk_kernels(
     flow_dialect_ir,
 ):
     kernels = [
-        "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/tk_int8/int8-model/tk_kernels/tk_gemm_fused_2x1024x10240x1280.mlir"
+        "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/tk_kernels/tk_gemm_fused_16x1024x10240x1280.mlir"
     ]
 
     # Replace all calls to old kernel with new kernel
