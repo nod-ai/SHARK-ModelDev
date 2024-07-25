@@ -238,6 +238,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         vae_weight_path: str = None,
         vae_harness: bool = True,
         add_tk_kernels: bool = False,
+        tk_kernels_dir: str | dict[str] = None,
         save_outputs: bool | dict[bool] = False,
     ):
         common_export_args = {
@@ -320,6 +321,7 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         self.split_scheduler = True
         self.add_tk_kernels = add_tk_kernels
+        self.tk_kernels_dir = tk_kernels_dir
 
         self.base_model_name = (
             hf_model_name
@@ -373,6 +375,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         if self.use_i8_punet:
             if self.add_tk_kernels:
                 self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
+                self.map["unet"]["export_args"]["tk_kernels_dir"] = self.tk_kernels_dir
             self.map["unet"]["export_args"]["precision"] = "i8"
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
