@@ -224,7 +224,7 @@ class PipelineComponent:
                 return output.to_host().astype(np_dtypes[self.dest_dtype])
             case _:
                 return output
-    
+
     def save_output(self, function_name, output):
         if isinstance(output, tuple) or isinstance(output, list):
             for i in output:
@@ -257,7 +257,7 @@ class PipelineComponent:
         else:
             output = self._run(function_name, inputs)
         if self.save_outputs:
-            self.save_output(function_name, output) 
+            self.save_output(function_name, output)
         output = self._output_cast(output)
         return output
 
