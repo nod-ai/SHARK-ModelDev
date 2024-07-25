@@ -151,6 +151,12 @@ p.add_argument(
     help="A comma-separated list of submodel IDs for which to report benchmarks for, or 'all' for all components.",
 )
 
+p.add_argument(
+    "--save_outputs",
+    type=str,
+    default=None,
+    help="A comma-separated list of submodel IDs for which to save output .npys for, or 'all' for all components.",
+)
 ##############################################################################
 # SDXL Modelling Options
 #    These options are used to control model defining parameters for SDXL.
