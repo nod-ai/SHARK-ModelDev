@@ -92,7 +92,7 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
     if precision == "i8":
         repo_id = "amd-shark/sdxl-quant-int8"
         subfolder = "mi300_all_sym_8_step14_fp32"
-        revision = "2e416a4205c519f5e62ba707ddf4f5022b6276c8"
+        revision = "efda8afb35fd72c1769e02370b320b1011622958"
     elif precision in ["fp16", "fp32"]:
         repo_id = hf_model_name
         subfolder = "unet"
