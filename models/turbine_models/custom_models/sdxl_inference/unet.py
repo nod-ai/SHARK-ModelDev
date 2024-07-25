@@ -196,6 +196,7 @@ def export_unet_model(
     use_punet=False,
     quant_paths=None,
     add_tk_kernels=False,
+    tk_kernels_dir=None,
 ):
     if use_punet:
         submodel_name = "punet"
@@ -234,6 +235,7 @@ def export_unet_model(
             attn_spec=attn_spec,
             flagset_keywords=["punet"] if use_punet else [],
             add_tk_kernels=add_tk_kernels,
+            tk_kernels_dir=tk_kernels_dir,
         )
         return vmfb_path
     elif use_punet:
@@ -371,6 +373,7 @@ def export_unet_model(
             flagset_keywords=["punet"] if use_punet else [],
             add_tk_kernels=add_tk_kernels,
             batch_size=batch_size,
+            tk_kernels_dir=tk_kernels_dir,
         )
         if exit_on_vmfb:
             exit()
@@ -410,6 +413,7 @@ if __name__ == "__main__":
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
         add_tk_kernels=args.add_tk_kernels,
+        tk_kernels_dir=args.tk_kernels_dir
     )
     if args.input_mlir:
         exit()
