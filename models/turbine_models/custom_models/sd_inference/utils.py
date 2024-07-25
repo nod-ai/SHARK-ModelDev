@@ -5,6 +5,7 @@ import os
 import safetensors
 import safetensors.numpy as safe_numpy
 import re
+import glob
 from diffusers import (
     PNDMScheduler,
     EulerDiscreteScheduler,
@@ -155,16 +156,8 @@ def iree_backend_map(device):
     return iree_device
 
 
-def replace_with_tk_kernels(flow_dialect_ir, batch_size):
-    if batch_size == 8:
-        kernels = [
-            "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/tk_kernels/bs8/tk_gemm_fused_16x1024x10240x1280.mlir"
-        ]
-    if batch_size == 1:
-        kernels = [
-            "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/tk_kernels/bs1/tk_gemm_fused_2x1024x10240x1280.mlir",
-            "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/tk_kernels/bs1/tk_gemm_fused_2x1024x1280x5120.mlir",
-        ]
+def replace_with_tk_kernels(tk_kernels_dir, flow_dialect_ir, batch_size):
+    kernels = glob.glob(tk_kernels_dir + "/bs" + str(batch_size) + "/*")
 
     # Replace all calls to old kernel with new kernel
     print("Inserting kernels and updating calls to kernels...")
@@ -178,25 +171,21 @@ def replace_with_tk_kernels(flow_dialect_ir, batch_size):
     new_base = []
     for line in base:
         for kernel in kernels:
-            suffix = kernel.split("/")[-1].split(".")[0].split("_")[-1]
-            # Uncomment/rework when a kernel with bias comes in
-            # bias_explicit = False
-            # if "bias" in suffix:
-            #     bias_explicit = True
-            #     kernel_args = 3 + int(suffix[4:])
-            #     suffix = kernel.split(".")[0].split("_")[-2]
+            suffix = kernel.split(".")[0].split("_")[-1]
+            if "bias" in suffix:
+                suffix = kernel.split(".")[0].split("_")[-2]
             B, M, N, K = suffix.split("x")
             old_kernel = f"matmul_like_{B}x{M}x{N}x{K}"
             if not old_kernel in line:
                 continue
             if old_kernel in line and "func.func" in line:
-                data = urlopen(kernel).read().decode("utf-8")
-                data = data.split("\n")
+                num_args = line.count("arg")
+                with open(kernel, "r") as f:
+                    data = f.readlines()
                 idx_with_kernel_args = [
                     idx for idx, s in enumerate(data) if "func.func" in s
                 ][0]
                 kernel_args = data[idx_with_kernel_args].count("arg")
-                num_args = line.count("arg")
                 if num_args != kernel_args:
                     continue
                 kernel_map[kernel] = line.strip().split(" ")[1][1:-7]
@@ -218,11 +207,12 @@ def replace_with_tk_kernels(flow_dialect_ir, batch_size):
                 and "flow.executable" in line
                 and "private" in line
             ):
-                data = urlopen(kernel).read().decode("utf-8")
-                data = data.split("\n")
+                with open(kernel, "r") as f:
+                    data = f.readlines()
                 translation_info = data[0].split("#translation = ")[1].strip()
-                data[10] = data[10].replace("#translation", translation_info)
-                final_ir.append("\n".join(data[2:-3]))
+                extract = "".join(data[2:-2])
+                extract = extract.replace("#translation", translation_info)
+                final_ir += extract
         final_ir.append(line)
 
     print("tk kernels added")
@@ -245,6 +235,7 @@ def compile_to_vmfb(
     flagset_keywords=[],
     debug=False,
     add_tk_kernels=False,
+    tk_kernels_dir=None,
     batch_size=1,
 ):
     if batch_size != 1 and batch_size != 8:
@@ -406,7 +397,7 @@ def compile_to_vmfb(
 
         flow_ir = flatbuffer_blob.decode("utf-8")
 
-        flow_ir_tk = replace_with_tk_kernels(flow_ir, batch_size)
+        flow_ir_tk = replace_with_tk_kernels(tk_kernels_dir, flow_ir, batch_size)
         module_str = "\n".join(flow_ir_tk)
         flags.pop()
         flags.extend(["--compile-from=flow"])
@@ -554,11 +545,11 @@ def get_schedulers(model_id):
         model_id,
         subfolder="scheduler",
     )
-    schedulers[
-        "EulerAncestralDiscrete"
-    ] = EulerAncestralDiscreteScheduler.from_pretrained(
-        model_id,
-        subfolder="scheduler",
+    schedulers["EulerAncestralDiscrete"] = (
+        EulerAncestralDiscreteScheduler.from_pretrained(
+            model_id,
+            subfolder="scheduler",
+        )
     )
     # schedulers["DPMSolverSDE"] = DPMSolverSDEScheduler.from_pretrained(
     #     model_id,

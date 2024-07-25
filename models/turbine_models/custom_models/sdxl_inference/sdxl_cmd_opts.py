@@ -376,4 +376,11 @@ p.add_argument(
     help="Flag to add compiled tk kernels.",
 )
 
+p.add_argument(
+    "--tk_kernels_dir",
+    default=False,
+    action="store_true",
+    help="Path to directory containing tk kernels sorted by batch size.",
+)
+
 args, unknown = p.parse_known_args()
