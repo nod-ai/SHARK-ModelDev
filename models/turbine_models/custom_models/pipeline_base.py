@@ -84,7 +84,7 @@ class PipelineComponent:
     """
 
     def __init__(
-        self, printer, dest_type="devicearray", dest_dtype="float16", benchmark=False
+        self, printer, dest_type="devicearray", dest_dtype="float16", benchmark=False, save_outputs=False,
     ):
         self.runner = None
         self.module_name = None
@@ -92,6 +92,8 @@ class PipelineComponent:
         self.metadata = None
         self.printer = printer
         self.benchmark = benchmark
+        self.save_outputs = save_outputs
+        self.output_counter = 0
         self.dest_type = dest_type
         self.dest_dtype = dest_dtype
 
@@ -239,6 +241,9 @@ class PipelineComponent:
             output = self._run_and_benchmark(function_name, inputs)
         else:
             output = self._run(function_name, inputs)
+        if self.save_output:
+            np.save(f"{function_name}_output_{self.output_counter}.npy", output.to_host())
+            self.output_counter += 1
         output = self._output_cast(output)
         return output
 
