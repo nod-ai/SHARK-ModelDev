@@ -238,6 +238,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         vae_weight_path: str = None,
         vae_harness: bool = False,
         add_tk_kernels: bool = False,
+        save_outputs: bool | dict[bool] = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -286,6 +287,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             hf_model_name,
             benchmark,
             verbose,
+            save_outputs,
             common_export_args,
         )
         for submodel in sd_model_map:
@@ -742,6 +744,14 @@ if __name__ == "__main__":
                 benchmark[i] = True
     else:
         benchmark = False
+    if args.save_outputs:
+        if args.save_outputs.lower() == "all":
+            save_outputs = True
+        else:
+            for i in args.save_outputs.split(","):
+                save_outputs[i] = True
+    else:
+        save_outputs = False
     if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
         args.decomp_attn = {
             "text_encoder": args.decomp_attn,
@@ -772,6 +782,7 @@ if __name__ == "__main__":
         args.use_i8_punet,
         benchmark,
         args.verbose,
+        save_outputs=save_outputs,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()

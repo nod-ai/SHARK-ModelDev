@@ -84,7 +84,12 @@ class PipelineComponent:
     """
 
     def __init__(
-        self, printer, dest_type="devicearray", dest_dtype="float16", benchmark=False, save_outputs=False,
+        self,
+        printer,
+        dest_type="devicearray",
+        dest_dtype="float16",
+        benchmark=False,
+        save_outputs=False,
     ):
         self.runner = None
         self.module_name = None
@@ -241,8 +246,10 @@ class PipelineComponent:
             output = self._run_and_benchmark(function_name, inputs)
         else:
             output = self._run(function_name, inputs)
-        if self.save_output:
-            np.save(f"{function_name}_output_{self.output_counter}.npy", output.to_host())
+        if self.save_outputs:
+            np.save(
+                f"{function_name}_output_{self.output_counter}.npy", output.to_host()
+            )
             self.output_counter += 1
         output = self._output_cast(output)
         return output
@@ -345,6 +352,7 @@ class TurbinePipelineBase:
         hf_model_name: str | dict[str] = None,
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
+        save_outputs: bool | dict[bool] = False,
         common_export_args: dict = {},
     ):
         self.map = model_map
@@ -379,6 +387,7 @@ class TurbinePipelineBase:
             "external_weights": external_weights,
             "hf_model_name": hf_model_name,
             "benchmark": benchmark,
+            "save_outputs": save_outputs,
         }
         for arg in map_arguments.keys():
             self.map = merge_arg_into_map(self.map, map_arguments[arg], arg)
@@ -396,7 +405,7 @@ class TurbinePipelineBase:
                 )
         for submodel in self.map.keys():
             for key, value in map_arguments.items():
-                if key != "benchmark":
+                if key not in ["benchmark", "save_outputs"]:
                     self.map = merge_export_arg(self.map, value, key)
             for key, value in self.map[submodel].get("export_args", {}).items():
                 if key == "hf_model_name":
@@ -749,6 +758,7 @@ class TurbinePipelineBase:
             printer=self.printer,
             dest_type=dest_type,
             benchmark=self.map[submodel].get("benchmark", False),
+            save_outputs=self.map[submodel].get("save_outputs", False),
         )
         self.map[submodel]["runner"].load(
             self.map[submodel]["driver"],
