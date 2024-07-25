@@ -236,7 +236,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         batch_prompts: bool = False,
         punet_quant_paths: dict[str] = None,
         vae_weight_path: str = None,
-        vae_harness: bool = False,
+        vae_harness: bool = True,
         add_tk_kernels: bool = False,
         save_outputs: bool | dict[bool] = False,
     ):

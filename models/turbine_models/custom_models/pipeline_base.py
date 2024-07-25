@@ -224,6 +224,16 @@ class PipelineComponent:
                 return output.to_host().astype(np_dtypes[self.dest_dtype])
             case _:
                 return output
+    
+    def save_output(self, function_name, output):
+        if isinstance(output, tuple) or isinstance(output, list):
+            for i in output:
+                self.save_output(function_name, i)
+        else:
+            np.save(
+                f"{function_name}_output_{self.output_counter}.npy", output.to_host()
+            )
+            self.output_counter += 1
 
     def _run(self, function_name, inputs: list):
         return self.module[function_name](*inputs)
@@ -247,10 +257,7 @@ class PipelineComponent:
         else:
             output = self._run(function_name, inputs)
         if self.save_outputs:
-            np.save(
-                f"{function_name}_output_{self.output_counter}.npy", output.to_host()
-            )
-            self.output_counter += 1
+            self.save_output(function_name, output) 
         output = self._output_cast(output)
         return output
 
