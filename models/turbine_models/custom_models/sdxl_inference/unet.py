@@ -90,9 +90,9 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
     from sharktank.utils import cli
 
     if precision == "i8":
-        repo_id = "amd-shark/sdxl-quant-int8"
-        subfolder = "mi300_all_sym_8_step14_fp32"
-        revision = "efda8afb35fd72c1769e02370b320b1011622958"
+        repo_id = "amd-shark/sdxl-quant-models"
+        subfolder = "unet/int8"
+        revision = "a31d1b1cba96f0da388da348bcaee197a073d451"
     elif precision in ["fp16", "fp32"]:
         repo_id = hf_model_name
         subfolder = "unet"
