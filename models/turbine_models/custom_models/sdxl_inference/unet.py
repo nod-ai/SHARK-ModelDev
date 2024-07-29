@@ -413,7 +413,7 @@ if __name__ == "__main__":
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
         add_tk_kernels=args.add_tk_kernels,
-        tk_kernels_dir=args.tk_kernels_dir
+        tk_kernels_dir=args.tk_kernels_dir,
     )
     if args.input_mlir:
         exit()
