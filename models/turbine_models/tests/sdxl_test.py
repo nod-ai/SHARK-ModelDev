@@ -106,6 +106,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             scheduler_id=arguments["scheduler_id"],
             shift=None,
             use_i8_punet=False,
+            vae_harness=False,
         )
         self.pipe.prepare_all()
 
