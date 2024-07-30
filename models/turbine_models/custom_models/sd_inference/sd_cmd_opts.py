@@ -180,11 +180,11 @@ p.add_argument(
 p.add_argument(
     "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
 )
-p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
+
 p.add_argument(
-    "--return_index",
+    "--clip_decomp_attn",
     action="store_true",
-    help="Make scheduled unet compiled module return the step index.",
+    help="Decompose attention for text_encoder only at fx graph level",
 )
 
 p.add_argument(
@@ -197,6 +197,19 @@ p.add_argument(
     "--unet_decomp_attn",
     action="store_true",
     help="Decompose attention for unet only at fx graph level",
+)
+
+p.add_argument(
+    "--mmdit_decomp_attn",
+    action="store_true",
+    help="Decompose attention for unet only at fx graph level",
+)
+
+p.add_argument(
+    "--decomp_attn",
+    default=False,
+    action="store_true",
+    help="Decompose attention at fx graph level",
 )
 
 p.add_argument(
@@ -226,12 +239,6 @@ p.add_argument(
     "--compare_vs_torch",
     action="store_true",
     help="Runs both turbine vmfb and a torch model to compare results",
-)
-p.add_argument(
-    "--decomp_attn",
-    default=False,
-    action="store_true",
-    help="Decompose attention at fx graph level",
 )
 p.add_argument(
     "--exit_on_vmfb",
@@ -317,5 +324,11 @@ p.add_argument(
     help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
 )
 
+p.add_argument(
+    "--mmdit_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling mmdit. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
 
 args, unknown = p.parse_known_args()
