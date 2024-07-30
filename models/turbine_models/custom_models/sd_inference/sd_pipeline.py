@@ -376,7 +376,6 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
-        self.map["vae"]["export_args"]["vae_harness"] = True
         if self.use_punet:
             self.setup_punet()
         elif not self.is_sd3:
