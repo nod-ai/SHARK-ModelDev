@@ -152,7 +152,7 @@ def export_mmdit_model(
     external_weight_path=None,
     device=None,
     target=None,
-    ireec_flags="pad_attention",
+    ireec_flags="",
     decomp_attn=False,
     exit_on_vmfb=False,
     pipeline_dir=None,
