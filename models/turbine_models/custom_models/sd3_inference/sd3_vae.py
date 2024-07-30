@@ -98,7 +98,7 @@ def export_vae_model(
         vae_model = vae_model.half()
     mapper = {}
     utils.save_external_weights(
-        mapper, vae_model, external_weights, external_weight_path
+        mapper, vae_model, external_weights, external_weight_path, vae_harness=True
     )
     if weights_only:
         return external_weight_path

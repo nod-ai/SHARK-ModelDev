@@ -77,17 +77,14 @@ class FlowSchedulingModel(torch.nn.Module):
         )
 
     def prepare_model_input(self, sample, t, timesteps):
-        t = timesteps[t]
-
         if self.do_classifier_free_guidance:
             latent_model_input = torch.cat([sample] * 2)
         else:
             latent_model_input = sample
-        t = t.expand(latent_model_input.shape[0])
         return latent_model_input.type(self.dtype), t.type(self.dtype)
 
-    def step(self, noise_pred, t, sample, guidance_scale, i):
-        self.model._step_index = i
+    def step(self, noise_pred, t, sample, guidance_scale):
+        self.model._step_index = self.index_for_timestep(t)
 
         if self.do_classifier_free_guidance:
             noise_preds = noise_pred.chunk(2)
@@ -96,6 +93,30 @@ class FlowSchedulingModel(torch.nn.Module):
             )
         sample = self.model.step(noise_pred, t, sample, return_dict=False)[0]
         return sample.type(self.dtype)
+
+    def index_for_timestep(self, timestep, schedule_timesteps=None):
+        if schedule_timesteps is None:
+            schedule_timesteps = self.model.timesteps
+
+        indices = (schedule_timesteps == timestep).nonzero()
+
+        # The sigma index that is taken for the **very** first `step`
+        # is always the second index (or the last index if there is only 1)
+        # This way we can ensure we don't accidentally skip a sigma in
+        # case we start in the middle of the denoising schedule (e.g. for image-to-image)
+        eq = torch.eq(schedule_timesteps, timestep)
+        eq = eq.int()
+        index_candidates = torch.argmax(eq)
+        index_candidates = index_candidates.unsqueeze(0)
+
+        a = torch.numel(index_candidates)
+        cond = torch.scalar_tensor(a)
+        one = torch.scalar_tensor(1, dtype=torch.int64)
+        zero = torch.scalar_tensor(0, dtype=torch.int64)
+        index = torch.where(cond > 1, one, zero)
+        index = index.unsqueeze(0)
+        step_index = index_candidates.index_select(0, index)
+        return step_index
 
 
 # Wraps a diffusers scheduler running on native pytorch+cpu.
@@ -151,6 +172,9 @@ class TorchCPUFlowSchedulerCompat:
         )[0]
 
 
+# Copied from diffusers.schedulers.scheduling_flow_match_euler_discrete and adapted for dynamo compile.
+
+
 # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
 # Only used for cpu scheduling.
 def retrieve_timesteps(
@@ -198,6 +222,7 @@ def retrieve_timesteps(
 @torch.no_grad()
 def export_scheduler_model(
     hf_model_name: str,
+    scheduler_id: str = "FlowEulerDiscrete",
     batch_size: int = 1,
     height: int = 512,
     width: int = 512,
@@ -206,7 +231,7 @@ def export_scheduler_model(
     precision: str = "fp16",
     compile_to: str = "torch",
     device: str = None,
-    target_triple: str = None,
+    target: str = None,
     ireec_flags: str = None,
     exit_on_vmfb: bool = False,
     pipeline_dir: str = None,
@@ -221,7 +246,7 @@ def export_scheduler_model(
         f"bs{batch_size}_{height}x{width}",
         precision,
         str(num_inference_steps),
-        target_triple,
+        target,
     ]
     vmfb_name = "_".join(vmfb_names)
     safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)
@@ -231,9 +256,9 @@ def export_scheduler_model(
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             mlir_source="file",
             return_path=not exit_on_vmfb,
         )
@@ -260,7 +285,7 @@ def export_scheduler_model(
     example_init_args = [torch.empty(sample, dtype=dtype)]
     example_prep_args = (
         torch.empty(sample, dtype=dtype),
-        torch.empty(1, dtype=torch.int64),
+        torch.empty(1, dtype=torch.float32),
         torch.empty([19], dtype=torch.float32),
     )
     timesteps = torch.export.Dim("timesteps")
@@ -274,7 +299,6 @@ def export_scheduler_model(
         torch.empty(1, dtype=dtype),
         torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=dtype),
-        torch.empty(1, dtype=torch.int64),
     ]
 
     fxb = FxProgramsBuilder(scheduler_module)
@@ -312,8 +336,8 @@ def export_scheduler_model(
     ):
 
         class CompiledScheduler(CompiledModule):
-            run_init = _initialize
-            run_prep = _prep
+            run_initialize = _initialize
+            run_scale = _prep
             run_step = _step
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
@@ -330,20 +354,20 @@ def export_scheduler_model(
     }
     model_metadata_run_prep = {
         "model_name": "sd3_scheduler_FlowEulerDiscrete",
-        "input_shapes": [sample, 1, [19]],
+        "input_shapes": [sample, (1,), ("?",)],
         "input_dtypes": [np_dtype, "float32", "float32"],
-        "output_shapes": [noise_pred_shape, noise_pred_shape[0]],
+        "output_shapes": [noise_pred_shape, (1,)],
         "output_dtypes": [np_dtype, "float32"],
     }
     model_metadata_run_step = {
         "model_name": "sd3_scheduler_FlowEulerDiscrete",
-        "input_shapes": [noise_pred_shape, 1, sample, 1, 1],
-        "input_dtypes": [np_dtype, np_dtype, np_dtype, np_dtype, "int64"],
+        "input_shapes": [noise_pred_shape, (1,), sample, (1,)],
+        "input_dtypes": [np_dtype, np_dtype, np_dtype, np_dtype],
         "output_shapes": [sample],
         "output_dtypes": [np_dtype],
     }
-    module = AddMetadataPass(module, model_metadata_run_init, "run_init").run()
-    module = AddMetadataPass(module, model_metadata_run_prep, "run_prep").run()
+    module = AddMetadataPass(module, model_metadata_run_init, "run_initialize").run()
+    module = AddMetadataPass(module, model_metadata_run_prep, "run_scale").run()
     module = AddMetadataPass(module, model_metadata_run_step, "run_step").run()
 
     module_str = str(module)
@@ -353,9 +377,9 @@ def export_scheduler_model(
         vmfb = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
-            safe_name + "_" + target_triple,
+            safe_name,
             return_path=True,
         )
         if exit_on_vmfb:
