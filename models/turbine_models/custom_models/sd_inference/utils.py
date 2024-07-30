@@ -21,8 +21,8 @@ MI_flags = {
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-execution-model=async-external",
     ],
-    "pad_attention": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
+    "masked_attention": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
     "punet": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
@@ -44,16 +44,26 @@ MI_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
     ],
     "clip": [
+<<<<<<< HEAD
         "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
+=======
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-global-opt-enable-fuse-horizontal-contractions=true",
+>>>>>>> e276c78 (Add SD3 to sd_pipeline)
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
         "--iree-hip-waves-per-eu=2",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
+<<<<<<< HEAD
         "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
+=======
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-global-opt-enable-fuse-horizontal-contractions",
+>>>>>>> e276c78 (Add SD3 to sd_pipeline)
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
@@ -71,14 +81,24 @@ GFX11_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-opt-const-eval=false",
         "--iree-opt-aggressively-propagate-transposes=true",
+<<<<<<< HEAD
         "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
+=======
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-global-opt-enable-fuse-horizontal-contractions=true",
+>>>>>>> e276c78 (Add SD3 to sd_pipeline)
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
+<<<<<<< HEAD
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+=======
+    "masked_attention": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+>>>>>>> e276c78 (Add SD3 to sd_pipeline)
     ],
     "punet": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
@@ -239,6 +259,12 @@ def compile_to_vmfb(
     tk_kernels_dir=None,
     batch_size=1,
 ):
+    if ireec_flags is not None and "masked_attention" in ireec_flags:
+        flagset_keywords = ["masked_attention"]
+        ireec_flags = "".join(ireec_flags.split("masked_attention"))
+        masked_attention = True
+    else:
+        masked_attention = False
     if batch_size != 1 and batch_size != 8:
         add_tk_kernels = False
     flags = []
@@ -319,7 +345,7 @@ def compile_to_vmfb(
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
         if "masked_attention" in flagset_keywords:
-            flags.extend(MI_flags["pad_attention"])
+            flags.extend(MI_flags["masked_attention"])
         elif "punet" in flagset_keywords:
             flags.extend(MI_flags["punet"])
         elif "vae" in safe_name:
@@ -330,7 +356,7 @@ def compile_to_vmfb(
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
         if "masked_attention" in flagset_keywords:
-            flags.extend(GFX11_flags["pad_attention"])
+            flags.extend(GFX11_flags["masked_attention"])
         elif "punet" in flagset_keywords:
             flags.extend(GFX11_flags["punet"])
         else:
@@ -348,11 +374,14 @@ def compile_to_vmfb(
                 target_triple,
                 os.path.dirname(safe_name),
                 use_punet=use_punet,
+                masked_attention=masked_attention,
             )
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+        attn_spec = get_wmma_spec_path(
+            target_triple, os.path.dirname(safe_name), masked_attention=masked_attention
+        )
         if attn_spec:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
     elif attn_spec and attn_spec != "None":
