@@ -102,6 +102,7 @@ class PipelineComponent:
         self.output_counter = 0
         self.dest_type = dest_type
         self.dest_dtype = dest_dtype
+        self.validate = False
 
     def load(
         self,
@@ -253,6 +254,10 @@ class PipelineComponent:
         if not isinstance(inputs, list):
             inputs = [inputs]
         inputs = self._validate_or_convert_inputs(function_name, inputs)
+
+        if self.validate:
+            self.save_torch_inputs(inputs)
+
         if self.benchmark:
             output = self._run_and_benchmark(function_name, inputs)
         else:
@@ -261,6 +266,8 @@ class PipelineComponent:
             self.save_output(function_name, output)
         output = self._output_cast(output)
         return output
+
+    # def _run_and_validate(self, iree_fn, torch_fn, inputs: list)
 
 
 class Printer:

@@ -265,6 +265,9 @@ def compile_to_vmfb(
         masked_attention = True
     else:
         masked_attention = False
+    if ireec_flags is not None and "winograd" in ireec_flags:
+        winograd = True
+        ireec_flags = "".join(ireec_flags.split("winograd"))
     if batch_size != 1 and batch_size != 8:
         add_tk_kernels = False
     flags = []
