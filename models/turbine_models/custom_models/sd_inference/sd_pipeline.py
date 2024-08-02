@@ -150,6 +150,7 @@ sd3_model_map = {
         "module_name": "compiled_text_encoder",
         "keywords": ["text_encoder"],
         "export_fn": sd3_text_encoders.export_text_encoders,
+        "torch_module": sd3_text_encoders.TextEncoderModule,
         "export_args": {
             "batch_size": 1,
             "max_length": 64,
@@ -159,6 +160,7 @@ sd3_model_map = {
         "module_name": "compiled_mmdit",
         "keywords": ["mmdit"],
         "export_fn": sd3_mmdit.export_mmdit_model,
+        "torch_module": sd3_mmdit.MMDiTModel,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -172,6 +174,7 @@ sd3_model_map = {
         "keywords": ["vae"],
         "dest_type": "numpy",
         "export_fn": vae.export_vae_model,
+        "torch_module": vae.SD3VaeModel,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -353,6 +356,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             if vae_weight_path is not None:
                 self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
             self.map["vae"]["export_args"]["vae_harness"] = vae_harness
+
         elif self.is_sd3:
             self.tokenizer = SD3Tokenizer()
             self.scheduler_id = "EulerFlowDiscrete"
@@ -372,7 +376,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.scheduler_device = self.diffusion_model["device"]
         self.scheduler_driver = self.diffusion_model["driver"]
         self.scheduler_target = self.diffusion_model["target"]
-
+        self.cast_latents_to_vae = False
+        if self.diffusion_model["driver"] != self.map["vae"]["driver"]:
+            self.cast_latents_to_vae = True
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
         if self.use_punet:
@@ -675,7 +681,7 @@ class SharkSDPipeline(TurbinePipelineBase):
     ):
         image = None
         strength = 0
-        latents, steps, timesteps = self.scheduler(
+        latents, indexes, timesteps = self.scheduler(
             "run_initialize",
             sample,
         )
@@ -684,15 +690,26 @@ class SharkSDPipeline(TurbinePipelineBase):
             [guidance_scale],
             dtype=self.map["mmdit"]["np_dtype"],
         )
+        steps_list_gpu = [
+            ireert.asdevicearray(self.scheduler.device, [i], dtype="int64")
+            for i in range(steps)
+        ]
+        timesteps_cpu = timesteps
+        timesteps_list_gpu = [
+            ireert.asdevicearray(
+                self.scheduler.device, [timesteps_cpu[i]], dtype="float32"
+            )
+            for i in range(steps)
+        ]
+
         # Disable progress bar if we aren't in verbose mode or if we're printing
         # benchmark latencies for unet.
         for i, t in tqdm(
             enumerate(timesteps),
             disable=(self.map["mmdit"].get("benchmark") or not self.verbose),
         ):
-            step = torch.tensor([i], dtype=torch.float32)
             latent_model_input, t = self.scheduler(
-                "run_scale", [latents, step, timesteps]
+                "run_scale", [latents, timesteps_list_gpu[i], timesteps]
             )
             mmdit_inputs = [
                 latent_model_input,
@@ -705,7 +722,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                 mmdit_inputs,
             )
             latents = self.scheduler(
-                "run_step", [noise_pred, t, latents, guidance_scale]
+                "run_step", [noise_pred, t, latents, guidance_scale, steps_list_gpu[i]]
             )
         return latents
 
@@ -771,6 +788,13 @@ class SharkSDPipeline(TurbinePipelineBase):
                 latents = self._produce_latents_sd3(*produce_latents_input)
             else:
                 latents = self._produce_latents_sd(*produce_latents_input)
+
+            if self.cast_latents_to_vae:
+                latents = ireert.asdevicearray(
+                    self.vae.device,
+                    latents.to_host(),
+                    dtype=self.map["vae"]["np_dtype"],
+                )
             image = self.vae("decode", [latents])
             numpy_images.append(image)
             pipe_end = time.time()
@@ -825,7 +849,31 @@ if __name__ == "__main__":
         "scheduler": args.ireec_flags,
         "unet": args.ireec_flags + args.unet_flags,
         "mmdit": args.ireec_flags + args.mmdit_flags,
-        "vae_decode": args.ireec_flags + args.vae_flags,
+        "vae": args.ireec_flags + args.vae_flags,
+    }
+    devices = {
+        "text_encoder": args.clip_device if args.clip_device else args.device,
+        "scheduler": args.scheduler_device if args.scheduler_device else args.device,
+        "unet": args.unet_device if args.unet_device else args.device,
+        "mmdit": args.mmdit_device if args.mmdit_device else args.device,
+        "vae": args.vae_device if args.vae_device else args.device,
+    }
+    targets = {
+        "text_encoder": (
+            args.clip_target if args.clip_target else args.iree_target_triple
+        ),
+        "scheduler": (
+            args.scheduler_target if args.scheduler_target else args.iree_target_triple
+        ),
+        "unet": args.unet_target if args.unet_target else args.iree_target_triple,
+        "mmdit": args.mmdit_target if args.mmdit_target else args.iree_target_triple,
+        "vae": args.vae_target if args.vae_target else args.iree_target_triple,
+    }
+    precisions = {
+        "text_encoder": args.clip_precision if args.clip_precision else args.precision,
+        "unet": args.unet_precision if args.unet_precision else args.precision,
+        "mmdit": args.mmdit_precision if args.mmdit_precision else args.precision,
+        "vae": args.vae_precision if args.vae_precision else args.precision,
     }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
@@ -863,8 +911,8 @@ if __name__ == "__main__":
         args.batch_size,
         args.max_length,
         args.precision,
-        args.device,
-        args.iree_target_triple,
+        devices,
+        targets,
         ireec_flags,
         args.attn_spec,
         args.decomp_attn,

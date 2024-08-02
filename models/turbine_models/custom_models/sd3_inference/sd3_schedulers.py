@@ -83,8 +83,8 @@ class FlowSchedulingModel(torch.nn.Module):
             latent_model_input = sample
         return latent_model_input.type(self.dtype), t.type(self.dtype)
 
-    def step(self, noise_pred, t, sample, guidance_scale):
-        self.model._step_index = self.index_for_timestep(t)
+    def step(self, noise_pred, t, sample, guidance_scale, i):
+        self.model._step_index = i
 
         if self.do_classifier_free_guidance:
             noise_preds = noise_pred.chunk(2)
@@ -299,6 +299,7 @@ def export_scheduler_model(
         torch.empty(1, dtype=dtype),
         torch.empty(sample, dtype=dtype),
         torch.empty(1, dtype=dtype),
+        torch.empty([1], dtype=torch.int64),
     ]
 
     fxb = FxProgramsBuilder(scheduler_module)
@@ -361,8 +362,8 @@ def export_scheduler_model(
     }
     model_metadata_run_step = {
         "model_name": "sd3_scheduler_FlowEulerDiscrete",
-        "input_shapes": [noise_pred_shape, (1,), sample, (1,)],
-        "input_dtypes": [np_dtype, np_dtype, np_dtype, np_dtype],
+        "input_shapes": [noise_pred_shape, (1,), sample, (1,), (1,)],
+        "input_dtypes": [np_dtype, np_dtype, np_dtype, np_dtype, "int64"],
         "output_shapes": [sample],
         "output_dtypes": [np_dtype],
     }
