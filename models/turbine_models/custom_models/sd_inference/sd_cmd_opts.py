@@ -177,8 +177,41 @@ p.add_argument(
     default="fp16",
     help="Precision of Stable Diffusion weights and graph.",
 )
+
+p.add_argument(
+    "--clip_precision",
+    type=str,
+    default=None,
+    help="Precision of CLIP weights and graph.",
+)
+p.add_argument(
+    "--unet_precision",
+    type=str,
+    default=None,
+    help="Precision of CLIP weights and graph.",
+)
+p.add_argument(
+    "--mmdit_precision",
+    type=str,
+    default=None,
+    help="Precision of CLIP weights and graph.",
+)
+p.add_argument(
+    "--vae_precision",
+    type=str,
+    default=None,
+    help="Precision of CLIP weights and graph.",
+)
+
 p.add_argument(
     "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
+)
+
+p.add_argument(
+    "--decomp_attn",
+    default=False,
+    action="store_true",
+    help="Decompose attention at fx graph level",
 )
 
 p.add_argument(
@@ -205,12 +238,6 @@ p.add_argument(
     help="Decompose attention for unet only at fx graph level",
 )
 
-p.add_argument(
-    "--decomp_attn",
-    default=False,
-    action="store_true",
-    help="Decompose attention at fx graph level",
-)
 
 p.add_argument(
     "--use_i8_punet",
@@ -270,12 +297,41 @@ p.add_argument(
 # IREE Compiler Options
 ##############################################################################
 
-p.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-
 p.add_argument(
-    "--rt_device",
+    "--device",
     type=str,
     default="local-task",
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+
+p.add_argument(
+    "--clip_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--unet_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--mmdit_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--vae_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--scheduler_device",
+    type=str,
+    default=None,
     help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
 )
 
@@ -284,7 +340,38 @@ p.add_argument(
     "--iree_target_triple",
     type=str,
     default="x86_64-linux-gnu",
-    help="Specify vulkan target triple or rocm/cuda target device.",
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+
+p.add_argument(
+    "--clip_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--unet_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--mmdit_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--vae_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--scheduler_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
 )
 
 p.add_argument("--ireec_flags", type=str, default="", help="extra iree-compile options")
@@ -294,13 +381,6 @@ p.add_argument(
     type=str,
     default="",
     help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
-)
-
-p.add_argument(
-    "--attn_spec",
-    type=str,
-    default=None,
-    help="extra iree-compile options for models with iree_linalg_ext.attention ops. Set this to 'default' if you are using mfma-capable hardware with ROCM.",
 )
 
 p.add_argument(
@@ -330,5 +410,13 @@ p.add_argument(
     default="",
     help="extra iree-compile options to send for compiling mmdit. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
 )
+
+p.add_argument(
+    "--attn_spec",
+    type=str,
+    default=None,
+    help="extra iree-compile options for models with iree_linalg_ext.attention ops. Set this to 'default' if you are using mfma-capable hardware with ROCM.",
+)
+
 
 args, unknown = p.parse_known_args()

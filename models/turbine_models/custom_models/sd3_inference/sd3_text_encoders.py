@@ -54,7 +54,6 @@ class TextEncoderModule(torch.nn.Module):
     @torch.no_grad()
     def __init__(
         self,
-        batch_size=1,
     ):
         super().__init__()
         self.dtype = torch.float16
@@ -89,7 +88,6 @@ class TextEncoderModule(torch.nn.Module):
             load_into(f, self.t5xxl.transformer, "", "cpu", self.dtype)
 
         self.do_classifier_free_guidance = True
-        self.batch_size = batch_size
 
     def get_cond(self, tokens_l, tokens_g, tokens_t5xxl):
         l_out, l_pooled = self.clip_l.forward(tokens_l)
@@ -152,9 +150,7 @@ def export_text_encoders(
             attn_spec=attn_spec,
         )
         return vmfb_path
-    model = TextEncoderModule(
-        batch_size=batch_size,
-    )
+    model = TextEncoderModule(hf_model_name)
     mapper = {}
 
     assert (
