@@ -141,8 +141,7 @@ class TorchCPUFlowSchedulerCompat:
         if isinstance(sample, ireert.DeviceArray):
             sample = torch.tensor(sample.to_host(), dtype=torch.float32)
         step_indexes = torch.tensor(len(self.module.timesteps))
-        timesteps = self.timesteps
-        return sample, step_indexes, timesteps
+        return sample, step_indexes, self.module.timesteps
 
     def scale_model_input(self, sample, t, timesteps):
         if self.do_classifier_free_guidance:
@@ -246,7 +245,6 @@ def export_scheduler_model(
         f"bs{batch_size}_{height}x{width}",
         precision,
         str(num_inference_steps),
-        target,
     ]
     vmfb_name = "_".join(vmfb_names)
     safe_name = utils.create_safe_name(hf_model_name, "_" + vmfb_name)

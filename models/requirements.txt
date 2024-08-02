@@ -1,6 +1,10 @@
 protobuf
 gguf
+<<<<<<< HEAD
 transformers==4.48.0
+=======
+transformers==4.43.3
+>>>>>>> e554da8 (Tweaks to requirements, scheduler filenames)
 torchsde
 accelerate
 peft
@@ -14,6 +18,5 @@ cryptography
 einops
 pytest
 scipy
-iree-turbine @ git+https://github.com/iree-org/iree-turbine.git@harness
--e git+https://github.com/nod-ai/shark-ai.git@main#egg=sharktank&subdirectory=sharktank
-requests
+shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
+-e git+https://github.com/nod-ai/sharktank.git@main#egg=sharktank&subdirectory=sharktank
