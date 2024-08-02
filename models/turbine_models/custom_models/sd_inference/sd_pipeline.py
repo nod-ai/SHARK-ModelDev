@@ -679,8 +679,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         steps,
         guidance_scale,
     ):
-        image = None
-        strength = 0
         latents, indexes, timesteps = self.scheduler(
             "run_initialize",
             sample,
