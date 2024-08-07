@@ -349,11 +349,11 @@ def export_transformer_model(
                 #     ]
                 #     + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
                 # )
-                token0_dim = torch.export.Dim("token0_dim", max=MAX_STEP_SEQ - 1)
+                state_arg_dim0 = torch.export.Dim("state_arg_dim0", max=MAX_STEP_SEQ - 1)
                 x_dim = torch.export.Dim("x_dim", max=MAX_STEP_SEQ - 1)
-                dynamic_shapes_forw = {"x": {1: x_dim}, "token0": {1: token0_dim}}
+                dynamic_shapes_forw = {"arg0_1": {1: x_dim}, "arg1_1": {1: state_arg_dim0}}
                 for dim_number in range(1, len(state_arg)):
-                    current_dim_dict = {f"arg_{dim_number}": {1: token0_dim}}
+                    current_dim_dict = {f"arg{dim_number + 1}_1": {1: state_arg_dim0}}
                     dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
                 token, *state = self.cached_initialize(
                     x, *state_arg, dynamic_shapes=dynamic_shapes_forw
