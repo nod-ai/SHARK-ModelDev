@@ -273,8 +273,8 @@ def export_transformer_model(
                     "state_arg0_dim", max=MAX_STEP_SEQ - 1
                 )
                 dynamic_shapes_forw = {"arg0_1": None, "arg1_1": {1: state_arg0_dim}}
-                for dim_number in range(1, len(state_arg)):
-                    current_dim_dict = {f"arg{dim_number + 1}_1": {1: state_arg0_dim}}
+                for state_arg_idx in range(2, len(state_arg) + 1):
+                    current_dim_dict = {f"arg{state_arg_idx}_1": {1: state_arg0_dim}}
                     dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
                 token, *state_update = self.forward(
                     x, *state_arg, dynamic_shapes=dynamic_shapes_forw
@@ -352,8 +352,8 @@ def export_transformer_model(
                     "arg0_1": {1: x_dim},
                     "arg1_1": {1: state_arg0_dim1},
                 }
-                for dim_number in range(1, len(state_arg)):
-                    current_dim_dict = {f"arg{dim_number + 1}_1": {1: state_arg0_dim1}}
+                for state_arg_idx in range(2, len(state_arg) + 1):
+                    current_dim_dict = {f"arg{state_arg_idx}_1": {1: state_arg0_dim1}}
                     dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
                 token, *state = self.cached_initialize(
                     x, *state_arg, dynamic_shapes=dynamic_shapes_forw
