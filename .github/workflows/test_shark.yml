@@ -34,7 +34,7 @@ jobs:
         with:
           repository: "nod-ai/SHARK.git"
           path: SHARK
-          ref: "main"
+          ref: "debug"
 
       - name: "Checkout iree-turbine"
         uses: actions/checkout@v4
