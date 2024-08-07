@@ -56,7 +56,7 @@ def export_resnet_18_model(
         params = export_parameters(resnet_model.model)
 
         def main(self, x=AbstractTensor(None, 3, 224, 224, dtype=torch.float32)):
-            dynamic_shapes={"arg0_1": {0: torch.export.Dim("dim", max=15)}}
+            dynamic_shapes = {"arg0_1": {0: torch.export.Dim("dim", max=15)}}
             return jittable(resnet_model.forward)(x, dynamic_shapes=dynamic_shapes)
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"

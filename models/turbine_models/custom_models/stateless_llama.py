@@ -237,7 +237,9 @@ def export_transformer_model(
             def run_initialize(
                 self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
             ):
-                dynamic_shapes_init={"arg0_1": {1: torch.export.Dim("dim", max=MAX_STEP_SEQ - 1)}}
+                dynamic_shapes_init = {
+                    "arg0_1": {1: torch.export.Dim("dim", max=MAX_STEP_SEQ - 1)}
+                }
                 token, *state = self.initialize(x, dynamic_shapes=dynamic_shapes_init)
                 self.global_seq_step = IREE.tensor_dim(
                     state[0], 1
@@ -267,7 +269,9 @@ def export_transformer_model(
                     HIDDEN_DIM,
                     NUM_LAYERS,
                 )
-                state_arg0_dim = torch.export.Dim("state_arg0_dim", max=MAX_STEP_SEQ - 1)
+                state_arg0_dim = torch.export.Dim(
+                    "state_arg0_dim", max=MAX_STEP_SEQ - 1
+                )
                 dynamic_shapes_forw = {"arg0_1": None, "arg1_1": {1: state_arg0_dim}}
                 for dim_number in range(1, len(state_arg)):
                     current_dim_dict = {f"arg{dim_number + 1}_1": {1: state_arg0_dim}}
@@ -340,9 +344,14 @@ def export_transformer_model(
                     HIDDEN_DIM,
                     NUM_LAYERS,
                 )
-                state_arg0_dim1 = torch.export.Dim("state_arg0_dim1", max=MAX_STEP_SEQ - 1)
+                state_arg0_dim1 = torch.export.Dim(
+                    "state_arg0_dim1", max=MAX_STEP_SEQ - 1
+                )
                 x_dim = torch.export.Dim("x_dim", max=MAX_STEP_SEQ - 1)
-                dynamic_shapes_forw = {"arg0_1": {1: x_dim}, "arg1_1": {1: state_arg0_dim1}}
+                dynamic_shapes_forw = {
+                    "arg0_1": {1: x_dim},
+                    "arg1_1": {1: state_arg0_dim1},
+                }
                 for dim_number in range(1, len(state_arg)):
                     current_dim_dict = {f"arg{dim_number + 1}_1": {1: state_arg0_dim1}}
                     dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
