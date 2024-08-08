@@ -61,27 +61,25 @@ parser.add_argument(
 parser.add_argument(
     "--chat_sys_prompt",
     type=str,
-    default="""<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\n <</SYS>>\n\n
-""",
+    default="""[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\n<</SYS>>\n\n""",
     help="System prompt used for interactive chat mode.",
 )
 
 B_INST, E_INST = "[INST]", "[/INST]"
 B_SYS, E_SYS = "<s>", "</s>"
-DEFAULT_CHAT_SYS_PROMPT = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\n <</SYS>>\n\n
-"""
+DEFAULT_CHAT_SYS_PROMPT = """[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\n<</SYS>>\n\n"""
 
 
 def append_user_prompt(history, input_prompt):
-    user_prompt = f"{B_INST} {input_prompt} {E_INST}"
+    user_prompt = f"{input_prompt} {E_INST}"
     history += user_prompt
     return history
 
 
 def append_bot_prompt(history, input_prompt):
-    user_prompt = f"{B_SYS} {input_prompt}{E_SYS} {E_SYS}"
+    user_prompt = f"{input_prompt} {E_SYS}{B_SYS}{B_INST}"
     history += user_prompt
     return history
 
