@@ -358,7 +358,7 @@ class TurbinePipelineBase:
         target: str | dict[str],
         ireec_flags: str | dict[str] = None,
         precision: str | dict[str] = "fp16",
-        td_spec: str | dict[str] = None,
+        attn_spec: str | dict[str] = None,
         decomp_attn: bool | dict[bool] = False,
         external_weights: str | dict[str] = None,
         pipeline_dir: str = "./shark_vmfbs",
@@ -396,7 +396,7 @@ class TurbinePipelineBase:
         map_arguments = {
             "ireec_flags": ireec_flags,
             "precision": precision,
-            "td_spec": td_spec,
+            "attn_spec": attn_spec,
             "decomp_attn": decomp_attn,
             "external_weights": external_weights,
             "hf_model_name": hf_model_name,
