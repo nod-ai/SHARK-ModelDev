@@ -875,6 +875,12 @@ if __name__ == "__main__":
         "mmdit": args.mmdit_precision if args.mmdit_precision else args.precision,
         "vae": args.vae_precision if args.vae_precision else args.precision,
     }
+    specs = {
+        "text_encoder": args.clip_spec if args.clip_spec else args.attn_spec,
+        "unet": args.unet_spec if args.unet_spec else args.attn_spec,
+        "mmdit": args.mmdit_spec if args.mmdit_spec else args.attn_spec,
+        "vae": args.vae_spec if args.vae_spec else args.attn_spec,
+    }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
     benchmark = {}
@@ -910,11 +916,11 @@ if __name__ == "__main__":
         args.width,
         args.batch_size,
         args.max_length,
-        args.precision,
+        precisions,
         devices,
         targets,
         ireec_flags,
-        args.attn_spec,
+        specs,
         args.decomp_attn,
         args.pipeline_dir,
         args.external_weights_dir,

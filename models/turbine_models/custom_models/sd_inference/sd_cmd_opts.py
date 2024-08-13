@@ -188,20 +188,46 @@ p.add_argument(
     "--unet_precision",
     type=str,
     default=None,
-    help="Precision of CLIP weights and graph.",
+    help="Precision of UNet weights and graph.",
 )
 p.add_argument(
     "--mmdit_precision",
     type=str,
     default=None,
-    help="Precision of CLIP weights and graph.",
+    help="Precision of mmdit weights and graph.",
 )
 p.add_argument(
     "--vae_precision",
     type=str,
     default=None,
-    help="Precision of CLIP weights and graph.",
+    help="Precision of  vae weights and graph.",
 )
+
+p.add_argument(
+    "--clip_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--unet_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--mmdit_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--vae_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+
 
 p.add_argument(
     "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
