@@ -24,6 +24,7 @@ from PIL import Image
 import os
 import numpy as np
 import time
+import gc
 
 
 torch.random.manual_seed(0)
@@ -61,7 +62,11 @@ def command_line_args(request):
     arguments["compile_to"] = request.config.getoption("--compile_to")
     arguments["external_weights"] = request.config.getoption("--external_weights")
     arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
-    arguments["attn_spec"] = request.config.getoption("--attn_spec")
+    arguments["attn_spec"] = request.config.getoption("--attn_spec") if request.config.getoption("attn_spec") else {
+        "text_encoder": request.config.getoption("clip_spec"),
+        "unet": request.config.getoption("unet_spec"),
+        "vae": request.config.getoption("vae_spec"),
+    }
     arguments["device"] = request.config.getoption("--device")
     arguments["rt_device"] = request.config.getoption("--rt_device")
     arguments["iree_target_triple"] = request.config.getoption("--iree_target_triple")
@@ -111,9 +116,9 @@ class StableDiffusionXLTest(unittest.TestCase):
         self.pipe.prepare_all()
 
     def test01_PromptEncoder(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest(
-                "Compilation error on vulkan; recent numerics regression (nans) on hip driver, To be tested on cuda."
+                "Compilation error on vulkan; To be tested on cuda."
             )
         arguments["vmfb_path"] = self.pipe.map["text_encoder"]["vmfb"]
         arguments["external_weight_path"] = self.pipe.map["text_encoder"]["weights"]
@@ -235,7 +240,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-1
-
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     def test03_ExportVaeModelDecode(self):
@@ -279,7 +283,6 @@ class StableDiffusionXLTest(unittest.TestCase):
             )
         rtol = 4e-2
         atol = 4e-1
-
         np.testing.assert_allclose(torch_output, turbine, rtol, atol)
 
     @pytest.mark.xfail(reason="NaN output on rocm, needs triage and file")
@@ -345,13 +348,13 @@ class StableDiffusionXLTest(unittest.TestCase):
         )
         assert output is not None
 
-    @pytest.mark.xfail(reason="compilation issue on gfx90a")
     def test06_t2i_generate_images_punet(self):
-        if arguments["device"] in ["vulkan", "cuda", "rocm"]:
+        if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest(
-                "Have issues with submodels on vulkan, cuda; ROCM hangs on mi250 despite submodels working."
+                "Have issues with submodels on vulkan, cuda"
             )
-        self.pipe.unload_submodel("unet")
+        if getattr(self.pipe, "unet"):
+            self.pipe.unload_submodel("unet")
         self.pipe.use_punet = True
         self.pipe.use_i8_punet = True
         self.pipe.setup_punet()
@@ -369,6 +372,11 @@ class StableDiffusionXLTest(unittest.TestCase):
             True,  # return_img
         )
         assert output is not None
+    
+    def tearDown(self):
+        del self.pipe
+        gc.collect()
+
 
 
 if __name__ == "__main__":

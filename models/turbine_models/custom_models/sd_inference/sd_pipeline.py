@@ -389,6 +389,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.map["unet"]["function_name"] = "run_forward"
 
     def setup_punet(self):
+        self.map["unet"]["mlir"] = None
+        self.map["unet"]["vmfb"] = None
+        self.map["unet"]["weights"] = None
+        self.map["unet"]["keywords"] = [i for i in self.map["unet"]["keywords"] if i != "!punet"]
+        self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
             if self.add_tk_kernels:
                 self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
