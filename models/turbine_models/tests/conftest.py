@@ -39,6 +39,9 @@ def pytest_addoption(parser):
     parser.addoption("--decomp_attn", action="store", default=False)
     parser.addoption("--vae_decomp_attn", action="store", default=False)
     parser.addoption("--attn_spec", action="store", default="")
+    parser.addoption("--clip_spec", action="store", default="")
+    parser.addoption("--unet_spec", action="store", default="")
+    parser.addoption("--vae_spec", action="store", default="")
     # Compiler Options
     parser.addoption("--device", action="store", default="cpu")
     parser.addoption("--rt_device", action="store", default="local-task")

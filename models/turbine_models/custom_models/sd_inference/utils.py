@@ -22,16 +22,16 @@ MI_flags = {
         "--iree-execution-model=async-external",
     ],
     "masked_attention": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
     "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  util.func(iree-preprocessing-pad-to-intrinsics, iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "vae_preprocess": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  util.func(iree-preprocessing-pad-to-intrinsics, iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
@@ -52,7 +52,7 @@ MI_flags = {
     ],
     "vae": [
         "--iree-flow-enable-aggressive-fusion",
-        "--iree-global-opt-enable-fuse-horizontal-contractions",
+        "--iree-flow-enable-fuse-horizontal-contractions",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
@@ -350,15 +350,15 @@ def compile_to_vmfb(
     # the TD spec is implemented in C++.
 
     if attn_spec in ["default", "mfma", "punet"]:
-        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
-            use_punet = True if attn_spec in ["punet", "i8"] else False
-            attn_spec = get_mfma_spec_path(
-                target_triple,
-                os.path.dirname(safe_name),
-                use_punet=use_punet,
-                masked_attention=masked_attention,
-            )
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+#        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+        use_punet = True if attn_spec in ["punet", "i8"] else False
+        attn_spec = get_mfma_spec_path(
+            target_triple,
+            os.path.dirname(safe_name),
+            use_punet=use_punet,
+            masked_attention=masked_attention,
+        )
+        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(
