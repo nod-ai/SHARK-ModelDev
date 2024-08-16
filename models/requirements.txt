@@ -12,5 +12,5 @@ azure-storage-blob
 einops
 pytest
 scipy
-shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@sdxl-vae-fix
--e git+https://github.com/nod-ai/sharktank.git@main#egg=sharktank&subdirectory=sharktank
+shark-turbine @ git+https://github.com/iree-org/iree-turbine.git@main
+-e git+https://github.com/nod-ai/sharktank.git@mlperf_v4.1_20240726#egg=sharktank&subdirectory=sharktank
