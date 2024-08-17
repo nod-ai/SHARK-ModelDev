@@ -177,7 +177,7 @@ def export_prompt_encoder(
 
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{batch_size}_{str(max_length)}-{precision}-prompt-encoder-{device}",
+        f"_bs{batch_size}_{str(max_length)}-{precision}-text-encoder-{device}",
     )
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -275,7 +275,6 @@ def export_prompt_encoder(
     }
     module = AddMetadataPass(module, model_metadata_encode, "encode_prompts").run()
     module_str = str(module)
-
     if compile_to != "vmfb":
         return module_str
     else:
