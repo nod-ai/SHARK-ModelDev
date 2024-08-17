@@ -12,8 +12,9 @@ from iree import runtime as ireert
 import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
-from iree.turbine.aot import *
-from iree.turbine.transforms.general.add_metadata import AddMetadataPass
+from shark_turbine.aot import *
+from shark_turbine.ops.iree import trace_tensor
+from shark_turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from turbine_models.custom_models.sd3_inference.text_encoder_impls import (
@@ -54,10 +55,9 @@ class TextEncoderModule(torch.nn.Module):
     @torch.no_grad()
     def __init__(
         self,
-        precision,
     ):
         super().__init__()
-        self.dtype = torch.float16 if precision == "fp16" else torch.float32
+        self.dtype = torch.float16
         self.clip_l = SDClipModel(
             layer="hidden",
             layer_idx=-2,
@@ -66,25 +66,21 @@ class TextEncoderModule(torch.nn.Module):
             layer_norm_hidden_state=False,
             return_projected_pooled=False,
             textmodel_json_config=CLIPL_CONFIG,
-        )
-        if precision == "fp16":
-            self.clip_l = self.clip_l.half()
+        ).half()
         clip_l_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
             filename="text_encoders/clip_l.safetensors",
         )
         with safe_open(clip_l_weights, framework="pt", device="cpu") as f:
             load_into(f, self.clip_l.transformer, "", "cpu", self.dtype)
-        self.clip_g = SDXLClipG(CLIPG_CONFIG, device="cpu", dtype=self.dtype)
-        if precision == "fp16":
-            self.clip_l = self.clip_g.half()
+        self.clip_g = SDXLClipG(CLIPG_CONFIG, device="cpu", dtype=self.dtype).half()
         clip_g_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
             filename="text_encoders/clip_g.safetensors",
         )
         with safe_open(clip_g_weights, framework="pt", device="cpu") as f:
             load_into(f, self.clip_g.transformer, "", "cpu", self.dtype)
-        self.t5xxl = T5XXLModel(T5_CONFIG, device="cpu", dtype=torch.float16)
+        self.t5xxl = T5XXLModel(T5_CONFIG, device="cpu", dtype=self.dtype).half()
         t5_weights = hf_hub_download(
             repo_id="stabilityai/stable-diffusion-3-medium",
             filename="text_encoders/t5xxl_fp16.safetensors",
@@ -155,8 +151,7 @@ def export_text_encoders(
             attn_spec=attn_spec,
         )
         return vmfb_path
-    model = TextEncoderModule(precision)
-    mapper = {}
+    model = TextEncoderModule()
 
     assert (
         ".safetensors" not in external_weight_path
