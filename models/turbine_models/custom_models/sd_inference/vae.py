@@ -265,16 +265,7 @@ def export_vae_model(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
-
-    if args.input_mlir:
-        vae_model = None
-    else:
-        vae_model = VaeModel(
-            args.hf_model_name,
-            custom_vae=None,
-        )
     mod_str = export_vae_model(
-        vae_model,
         args.hf_model_name,
         args.batch_size,
         height=args.height,
@@ -286,7 +277,6 @@ if __name__ == "__main__":
         device=args.device,
         target=args.iree_target_triple,
         ireec_flags=args.ireec_flags + args.attn_flags + args.vae_flags,
-        variant=args.vae_variant,
         decomp_attn=args.decomp_attn,
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
