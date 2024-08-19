@@ -31,7 +31,7 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  util.func(iree-preprocessing-pad-to-intrinsics, iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
         "--iree-flow-enable-aggressive-fusion",
@@ -41,6 +41,7 @@ MI_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false"
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
@@ -319,7 +320,7 @@ def compile_to_vmfb(
         )
 
     if target_triple in ["gfx940", "gfx941", "gfx942", "gfx90a"]:
-        if "unet" in safe_name:
+        if any(x in safe_name for x in ["unet", "mmdit", "sampler"]):
             flags.extend(MI_flags["unet"])
         elif any(x in safe_name for x in ["clip", "prompt_encoder"]):
             flags.extend(MI_flags["clip"])

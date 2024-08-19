@@ -26,6 +26,7 @@ from safetensors.torch import load_file as load_sft
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
 from flux.model import Flux, FluxParams
 from flux.util import configs, print_load_warning
+from flux.modules.layers import DoubleStreamBlock
 
 # The following model loader is derived from https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py#L105
 def load_flux_model(name: str, device = "cpu", hf_download:bool = True):
@@ -41,7 +42,7 @@ def load_flux_model(name: str, device = "cpu", hf_download:bool = True):
         ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
 
     with torch.device("meta" if ckpt_path is not None else device):
-        model = Flux(configs[name].params).to(torch.bfloat16)
+        model = Flux(configs[name].params).to(torch.float16)
 
     if ckpt_path is not None:
         print("Loading checkpoint")
@@ -108,11 +109,11 @@ def export_flux_model(
     input_mlir=None,
     weights_only=False,
 ):
-    dtype = torch.bfloat16
-    np_dtype = "bfloat16"
+    dtype = torch.float16
+    np_dtype = "float16"
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_sampler",
+        f"_bs{batch_size}_{height}x{width}_{precision}_sampler",
     )
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -135,8 +136,7 @@ def export_flux_model(
 
     flux_model = FluxModel(
         hf_model_name, dtype=dtype,
-    )
-
+    ).half()
     mapper = {}
 
     utils.save_external_weights(
@@ -146,6 +146,7 @@ def export_flux_model(
     if weights_only:
         return external_weight_path
     model_max_len = 256 if "schnell" in hf_model_name else 512
+
     img_shape = (
         batch_size,
         int(height * width / 256),
@@ -176,9 +177,9 @@ def export_flux_model(
         torch.empty(txt_shape, dtype=dtype),
         torch.empty(txt_ids_shape, dtype=dtype),
         torch.empty(y_shape, dtype=dtype),
-        torch.empty(batch_size, dtype=dtype),
-        torch.empty(batch_size, dtype=dtype),
-        torch.empty(batch_size, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+        torch.empty(1, dtype=dtype),
+        torch.empty(1, dtype=dtype),
     ]
 
     decomp_list = []
@@ -243,6 +244,92 @@ def export_flux_model(
             exit()
     return vmfb_path
 
+class FluxAttention(torch.nn.Module):
+    def __init__(
+        self,
+    ):
+        super().__init__()
+        self.attn = DoubleStreamBlock(
+            3072,
+            24,
+            mlp_ratio=4.0,
+            qkv_bias=True,
+        )
+
+    def forward(self, img, txt, vec, pe):
+        return self.attn.forward(img=img, txt=txt, vec=vec, pe=pe)
+
+
+@torch.no_grad()
+def export_attn(
+    precision="fp16",
+    device="cpu",
+    target="x86_64-unknown-linux-gnu",
+    ireec_flags="",
+    compile_to="torch",
+    decomp_attn=False,
+    attn_spec=None,
+):
+    dtype = torch.float16 if precision == "fp16" else torch.float32
+    attn_module = FluxAttention()
+    safe_name = "flux_sampler_attn_repro_" + precision
+    if decomp_attn == True:
+        safe_name += "_decomp"
+
+    if dtype == torch.float16:
+        attn_module = attn_module.half()
+
+    example_args = [
+        torch.empty((1, 4096, 3072), dtype=dtype),
+        torch.empty((1, 512, 3072), dtype=dtype),
+        torch.empty((1, 3072), dtype=dtype),
+        torch.empty((1, 1, 4608, 64, 2, 2), dtype=torch.float32),
+    ]
+
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        fxb = FxProgramsBuilder(attn_module)
+
+        @fxb.export_program(
+            args=(example_args,),
+        )
+        def _forward(
+            module,
+            inputs,
+        ):
+            return module.forward(*inputs)
+
+        class CompiledAttn(CompiledModule):
+            main = _forward
+
+        externalize_module_parameters(attn_module)
+
+        inst = CompiledAttn(context=Context(), import_to="IMPORT")
+
+        module_str = str(CompiledModule.get_mlir_module(inst))
+
+    if compile_to != "vmfb":
+        return module_str
+    else:
+        vmfb_path = utils.compile_to_vmfb(
+            module_str,
+            device,
+            target,
+            ireec_flags,
+            safe_name,
+            return_path=True,
+            attn_spec=attn_spec,
+        )
+    return vmfb_path
 
 if __name__ == "__main__":
     import logging
@@ -250,6 +337,23 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
+    if args.attn_repro:
+        mod_str = export_attn(
+            args.precision,
+            args.device,
+            args.iree_target_triple,
+            args.ireec_flags,
+            args.compile_to,
+            args.decomp_attn,
+            attn_spec=args.attn_spec,
+        )
+        if args.compile_to != "vmfb":
+            safe_name = "flux_attn_repro_" + args.precision
+            with open(f"{safe_name}.mlir", "w+") as f:
+                f.write(mod_str)
+            print("Saved to", safe_name + ".mlir")
+        exit()
+    
     mod_str = export_flux_model(
         args.hf_model_name,
         args.batch_size,

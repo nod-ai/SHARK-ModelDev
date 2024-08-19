@@ -163,13 +163,13 @@ def export_ae_model(
         ):
             return module.decode(*inputs)
 
-        class CompiledFluxSampler(CompiledModule):
+        class CompiledFluxAE(CompiledModule):
             decode = _decode
 
         if external_weights:
             externalize_module_parameters(ae_model)
 
-        inst = CompiledFluxSampler(context=Context(), import_to="IMPORT")
+        inst = CompiledFluxAE(context=Context(), import_to="IMPORT")
 
         module = CompiledModule.get_mlir_module(inst)
 
