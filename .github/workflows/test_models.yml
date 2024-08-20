@@ -23,6 +23,14 @@ jobs:
         os: [nodai-amdgpu-mi250-x86-64]
 
     runs-on: ${{matrix.os}}
+    env:
+      E2E_VENV_DIR: ${{ github.workspace }}/test-suite_venv
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      AZ_PRIVATE_CONNECTION: ${{ secrets.ONNXPRIVATESTORAGE_AZ_PRIVATE_CONNECTION }}
+      ROCR_VISIBLE_DEVICES: ${{ matrix.visible-device }}
+      TORCH_HOME: /groups/aig_sharks/test-suite-ci-cache
+      HF_HOME: /groups/aig_sharks/test-suite-ci-cache
+      TURBINE_TANK_CACHE_DIR: /groups/aig_sharks/test-suite-ci-cache
     steps:
       # We are using a persistent Gentoo runner here, and this python action is not supported for the arch
       # - name: "Setting up Python"
