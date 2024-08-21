@@ -26,7 +26,8 @@ from safetensors.torch import load_file as load_sft
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
 from flux.model import Flux, FluxParams
 from flux.util import configs, print_load_warning
-from flux.modules.layers import DoubleStreamBlock
+from flux.math import attention, apply_rope
+from flux.modules.layers import EmbedND, DoubleStreamBlock
 
 # The following model loader is derived from https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py#L105
 def load_flux_model(name: str, device = "cpu", hf_download:bool = True):
@@ -179,7 +180,7 @@ def export_flux_model(
         torch.empty(y_shape, dtype=dtype),
         torch.empty(1, dtype=dtype),
         torch.empty(1, dtype=dtype),
-        torch.empty(1, dtype=dtype),
+        torch.empty(batch_size, dtype=dtype),
     ]
 
     decomp_list = []
@@ -249,15 +250,26 @@ class FluxAttention(torch.nn.Module):
         self,
     ):
         super().__init__()
-        self.attn = DoubleStreamBlock(
-            3072,
-            24,
-            mlp_ratio=4.0,
-            qkv_bias=True,
+        self.txt_in = torch.nn.Linear(4096, 3072)
+        self.double_blocks = torch.nn.ModuleList(
+            [
+                DoubleStreamBlock(
+                    3072,
+                    24,
+                    mlp_ratio=4.0,
+                    qkv_bias=True,
+                )
+            ]
         )
+        self.pe_embedder = EmbedND(dim=128, theta=10000, axes_dim=[16, 56, 56])
 
-    def forward(self, img, txt, vec, pe):
-        return self.attn.forward(img=img, txt=txt, vec=vec, pe=pe)
+    def forward(self, img, txt, vec, ids): #txt_ids, img_ids):
+        #txt = self.txt_in(txt)
+        #ids = torch.cat((txt_ids, img_ids), dim=1)
+        pe = self.pe_embedder(ids)
+        for block in self.double_blocks:
+            img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
+        return img, txt
 
 
 @torch.no_grad()
@@ -269,6 +281,7 @@ def export_attn(
     compile_to="torch",
     decomp_attn=False,
     attn_spec=None,
+    batch_size=1,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     attn_module = FluxAttention()
@@ -279,12 +292,21 @@ def export_attn(
     if dtype == torch.float16:
         attn_module = attn_module.half()
 
+    # example_args = [
+    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+    #     torch.empty((batch_size, 1, 4608, 64, 2, 2), dtype=torch.float32),
+    # ]
     example_args = [
-        torch.empty((1, 4096, 3072), dtype=dtype),
-        torch.empty((1, 512, 3072), dtype=dtype),
-        torch.empty((1, 3072), dtype=dtype),
-        torch.empty((1, 1, 4608, 64, 2, 2), dtype=torch.float32),
+        torch.empty((batch_size, 4096, 3072), dtype=dtype),
+        torch.empty((batch_size, 512, 3072), dtype=dtype),
+        torch.empty((batch_size, 3072), dtype=dtype),
+        torch.empty((batch_size, 4608, 3), dtype=dtype),
     ]
+    #     torch.empty((batch_size, 512, 3), dtype=dtype),
+    #     torch.empty((batch_size, 4096, 3), dtype=dtype),
+    # ]
 
     decomp_list = []
     if decomp_attn == True:
@@ -346,6 +368,7 @@ if __name__ == "__main__":
             args.compile_to,
             args.decomp_attn,
             attn_spec=args.attn_spec,
+            batch_size=args.batch_size,
         )
         if args.compile_to != "vmfb":
             safe_name = "flux_attn_repro_" + args.precision
