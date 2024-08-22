@@ -29,8 +29,9 @@ from flux.util import configs, print_load_warning
 from flux.math import attention, apply_rope
 from flux.modules.layers import EmbedND, DoubleStreamBlock
 
+
 # The following model loader is derived from https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py#L105
-def load_flux_model(name: str, device = "cpu", hf_download:bool = True):
+def load_flux_model(name: str, device="cpu", hf_download: bool = True):
     # Loading Flux
     print("Init Flux sampling model")
     ckpt_path = configs[name].ckpt_path
@@ -88,6 +89,7 @@ class FluxModel(torch.nn.Module):
         img = img + (t_prev - t_curr) * noise_pred
         return img
 
+
 @torch.no_grad()
 def export_flux_model(
     hf_model_name,
@@ -95,7 +97,7 @@ def export_flux_model(
     height,
     width,
     precision="fp16",
-    max_length=256,
+    max_length=64,
     hf_auth_token=None,
     compile_to="torch",
     external_weights=None,
@@ -114,7 +116,7 @@ def export_flux_model(
     np_dtype = "float16"
     safe_name = utils.create_safe_name(
         hf_model_name,
-        f"_bs{batch_size}_{height}x{width}_{precision}_sampler",
+        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_sampler",
     )
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -136,7 +138,8 @@ def export_flux_model(
         return vmfb_path
 
     flux_model = FluxModel(
-        hf_model_name, dtype=dtype,
+        hf_model_name,
+        dtype=dtype,
     ).half()
     mapper = {}
 
@@ -146,8 +149,7 @@ def export_flux_model(
 
     if weights_only:
         return external_weight_path
-    model_max_len = 256 if "schnell" in hf_model_name else 512
-
+    model_max_len = max_length
     img_shape = (
         batch_size,
         int(height * width / 256),
@@ -245,6 +247,7 @@ def export_flux_model(
             exit()
     return vmfb_path
 
+
 class FluxAttention(torch.nn.Module):
     def __init__(
         self,
@@ -263,9 +266,9 @@ class FluxAttention(torch.nn.Module):
         )
         self.pe_embedder = EmbedND(dim=128, theta=10000, axes_dim=[16, 56, 56])
 
-    def forward(self, img, txt, vec, ids): #txt_ids, img_ids):
-        #txt = self.txt_in(txt)
-        #ids = torch.cat((txt_ids, img_ids), dim=1)
+    def forward(self, img, txt, vec, ids):  # txt_ids, img_ids):
+        # txt = self.txt_in(txt)
+        # ids = torch.cat((txt_ids, img_ids), dim=1)
         pe = self.pe_embedder(ids)
         for block in self.double_blocks:
             img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
@@ -353,6 +356,7 @@ def export_attn(
         )
     return vmfb_path
 
+
 if __name__ == "__main__":
     import logging
 
@@ -376,7 +380,7 @@ if __name__ == "__main__":
                 f.write(mod_str)
             print("Saved to", safe_name + ".mlir")
         exit()
-    
+
     mod_str = export_flux_model(
         args.hf_model_name,
         args.batch_size,

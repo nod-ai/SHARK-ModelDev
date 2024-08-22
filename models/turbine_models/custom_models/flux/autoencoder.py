@@ -28,8 +28,11 @@ from flux.modules.autoencoder import AutoEncoder, AutoEncoderParams
 from flux.util import configs, print_load_warning
 from einops import rearrange
 
+
 # The following model loader is derived from https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py#L138
-def load_ae(name: str, device: str | torch.device = "cpu", hf_download: bool = True) -> AutoEncoder:
+def load_ae(
+    name: str, device: str | torch.device = "cpu", hf_download: bool = True
+) -> AutoEncoder:
     ckpt_path = configs[name].ae_path
     if (
         ckpt_path is None
@@ -49,6 +52,7 @@ def load_ae(name: str, device: str | torch.device = "cpu", hf_download: bool = T
         missing, unexpected = ae.load_state_dict(sd, strict=False, assign=True)
         print_load_warning(missing, unexpected)
     return ae
+
 
 class AEModel(torch.nn.Module):
     def __init__(
@@ -74,12 +78,14 @@ class AEModel(torch.nn.Module):
         image = rearrange(image[0], "c h w -> h w c")
         return 127.5 * (image + 1.0)
 
+
 @torch.no_grad()
 def export_ae_model(
     hf_model_name,
     batch_size,
     height,
     width,
+    num_channels=16,
     precision="fp16",
     hf_auth_token=None,
     compile_to="torch",
@@ -130,7 +136,7 @@ def export_ae_model(
 
     if weights_only:
         return external_weight_path
-    
+
     img_shape = (
         batch_size,
         int(height * width / 256),
@@ -173,19 +179,19 @@ def export_ae_model(
 
         module = CompiledModule.get_mlir_module(inst)
 
-    model_metadata_decode = {
-        "model_name": "flux_ae",
-        # "input_shapes": [
-        #     hidden_states_shape,
-        #     encoder_hidden_states_shape,
-        #     pooled_projections_shape,
-        #     (1,),
-        # ],
-        # "input_dtypes": [np_dtype for x in range(4)],
-        # "output_shapes": [hidden_states_shape],
-        # "output_dtypes": [np_dtype],
-    }
-    module = AddMetadataPass(module, model_metadata_decode, "decode").run()
+    # model_metadata_decode = {
+    #     "model_name": "flux_ae",
+    #     # "input_shapes": [
+    #     #     hidden_states_shape,
+    #     #     encoder_hidden_states_shape,
+    #     #     pooled_projections_shape,
+    #     #     (1,),
+    #     # ],
+    #     # "input_dtypes": [np_dtype for x in range(4)],
+    #     # "output_shapes": [hidden_states_shape],
+    #     # "output_dtypes": [np_dtype],
+    # }
+    # module = AddMetadataPass(module, model_metadata_decode, "decode").run()
     module_str = str(module)
     if compile_to != "vmfb":
         return module_str

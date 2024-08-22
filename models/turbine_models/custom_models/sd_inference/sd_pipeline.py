@@ -391,7 +391,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.map["unet"]["mlir"] = None
         self.map["unet"]["vmfb"] = None
         self.map["unet"]["weights"] = None
-        self.map["unet"]["keywords"] = [i for i in self.map["unet"]["keywords"] if i != "!punet"]
+        self.map["unet"]["keywords"] = [
+            i for i in self.map["unet"]["keywords"] if i != "!punet"
+        ]
         self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
             if self.add_tk_kernels:

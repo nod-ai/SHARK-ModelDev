@@ -197,6 +197,12 @@ p.add_argument(
     help="Precision of mmdit weights and graph.",
 )
 p.add_argument(
+    "--sampler_precision",
+    type=str,
+    default=None,
+    help="Precision of sampler weights and graph.",
+)
+p.add_argument(
     "--vae_precision",
     type=str,
     default=None,
@@ -217,6 +223,12 @@ p.add_argument(
 )
 p.add_argument(
     "--mmdit_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--sampler_spec",
     type=str,
     default=None,
     help="transform dialect spec for the given submodel.",
@@ -259,9 +271,9 @@ p.add_argument(
 )
 
 p.add_argument(
-    "--mmdit_decomp_attn",
+    "--sampler_decomp_attn",
     action="store_true",
-    help="Decompose attention for unet only at fx graph level",
+    help="Decompose attention for sampler only at fx graph level",
 )
 
 
@@ -349,6 +361,12 @@ p.add_argument(
     help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
 )
 p.add_argument(
+    "--sampler_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
     "--vae_device",
     type=str,
     default=None,
@@ -383,6 +401,12 @@ p.add_argument(
 )
 p.add_argument(
     "--mmdit_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--sampler_target",
     type=str,
     default=None,
     help="Specify vulkan target triple or rocm/cuda target chip.",
@@ -432,6 +456,13 @@ p.add_argument(
 
 p.add_argument(
     "--mmdit_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling mmdit. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
+p.add_argument(
+    "--sampler_flags",
     type=str,
     default="",
     help="extra iree-compile options to send for compiling mmdit. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",

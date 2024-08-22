@@ -110,6 +110,7 @@ class PipelineComponent:
         module_name: str,
         external_weight_path: str = None,
         extra_plugin=None,
+        use_metadata=True,
     ):
         self.module_name = module_name
         self.printer.print(
@@ -120,7 +121,12 @@ class PipelineComponent:
         )
         self.device = self.runner.config.device
         self.module = getattr(self.runner.ctx.modules, module_name)
-        self.get_metadata()
+        if use_metadata:
+            self.get_metadata()
+            self.use_metadata = True
+        else:
+            self.use_metadata = False
+            self.metadata = {}
 
     def unload(self):
         self.device = None
@@ -144,7 +150,7 @@ class PipelineComponent:
 
     def _validate_or_convert_inputs(self, function_name, inputs):
         val_inputs = [None for i in inputs]
-        if self.metadata.get(function_name):
+        if self.metadata.get(function_name) and self.use_metadata:
             expected_input_shapes = self.metadata.get(function_name, {}).get(
                 "input_shapes"
             )
@@ -530,6 +536,7 @@ class TurbinePipelineBase:
                     mlir_keywords.remove(kw)
             avail_files = os.listdir(pipeline_dir)
             candidates = []
+            self.printer.print(keywords)
             for filename in avail_files:
                 if all(str(x) in filename for x in keywords) and not any(
                     x in filename for x in neg_keywords
@@ -773,6 +780,7 @@ class TurbinePipelineBase:
             dest_type=dest_type,
             benchmark=self.map[submodel].get("benchmark", False),
             save_outputs=self.map[submodel].get("save_outputs", False),
+            use_metadata=self.map[submodel].get("use_metadata", True),
         )
         self.map[submodel]["runner"].load(
             self.map[submodel]["driver"],
