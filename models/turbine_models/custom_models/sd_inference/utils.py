@@ -47,7 +47,7 @@ MI_flags = {
         "--iree-flow-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-rocm-waves-per-eu=2",
+        "--iree-hip-waves-per-eu=2",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
@@ -284,7 +284,7 @@ def compile_to_vmfb(
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
-                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-hip-target=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
