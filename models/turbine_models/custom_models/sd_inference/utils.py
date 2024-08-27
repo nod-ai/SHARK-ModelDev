@@ -79,16 +79,18 @@ GFX11_flags = {
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
-        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
     "punet": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "unet": [""],
     "clip": [""],
