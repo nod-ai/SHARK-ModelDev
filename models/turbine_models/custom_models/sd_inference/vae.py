@@ -183,12 +183,6 @@ def export_vae_model(
         input_image_shape = (batch_size, 3, height, width)
         input_latents_shape = (batch_size, num_channels, height // 8, width // 8)
 
-    # encode_args = [
-    #     torch.empty(
-    #         input_image_shape,
-    #         dtype=dtype,
-    #     )
-    # ]
     decode_args = [
         torch.empty(
             input_latents_shape,
@@ -209,12 +203,6 @@ def export_vae_model(
         fxb = FxProgramsBuilder(vae_model)
 
         # TODO: fix issues with exporting the encode function.
-        # @fxb.export_program(args=(encode_args,))
-        # def _encode(
-        #     module,
-        #     inputs,
-        # ):
-        #     return module.encode(*inputs)
 
         @fxb.export_program(args=(decode_args,))
         def _decode(module, inputs):
@@ -238,13 +226,6 @@ def export_vae_model(
         "output_shapes": [(3, width, height) * batch_size],
         "output_dtypes": ["float32"],
     }
-    # model_metadata_encode = {
-    #     "model_name": "vae_encode",
-    #     "input_shapes": [input_image_shape],
-    #     "input_dtypes": [np_dtype],
-    #     "output_shapes": [input_latents_shape],
-    #     "output_dtypes": [np_dtype],
-    # }
     module = AddMetadataPass(module, model_metadata_decode, "decode").run()
     # module = AddMetadataPass(module, model_metadata_decode, "encode").run()
 
