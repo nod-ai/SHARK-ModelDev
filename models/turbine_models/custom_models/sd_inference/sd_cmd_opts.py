@@ -44,6 +44,12 @@ p.add_argument(
     default="stabilityai/stable-diffusion-2-1",
 )
 p.add_argument(
+    "--model_arch",
+    type=str,
+    help="SD pipeline/model architecture. Choices are [sd, sdxl, sd3]."
+    default=None,
+)
+p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",

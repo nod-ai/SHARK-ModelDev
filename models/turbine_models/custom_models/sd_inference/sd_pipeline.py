@@ -186,9 +186,16 @@ sd3_model_map = {
     },
 }
 
+arch_mappings = {
+    "sd": sd1_sd2_model_map,
+    "sdxl": sdxl_model_map,
+    "sd3": sd3_model_map,
+}
 
-def get_sd_model_map(hf_model_name):
-    if isinstance(hf_model_name, dict):
+def get_sd_model_map(hf_model_name, model_arch=None):
+    if model_arch:
+        return arch_mappings[model_arch]
+    elif isinstance(hf_model_name, dict):
         name = hf_model_name["text_encoder"]
     else:
         name = hf_model_name
@@ -246,6 +253,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         add_tk_kernels: bool = False,
         tk_kernels_dir: str | dict[str] = None,
         save_outputs: bool | dict[bool] = False,
+        model_arch: str = None,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -261,7 +269,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             "external_weights": None,
             "external_weight_path": None,
         }
-        sd_model_map = copy.deepcopy(get_sd_model_map(hf_model_name))
+        sd_model_map = copy.deepcopy(get_sd_model_map(hf_model_name, model_arch))
         for submodel in sd_model_map:
             if "load" not in sd_model_map[submodel]:
                 sd_model_map[submodel]["load"] = True
@@ -938,6 +946,7 @@ if __name__ == "__main__":
         benchmark,
         args.verbose,
         save_outputs=save_outputs,
+        model_arch=args.model_arch,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()

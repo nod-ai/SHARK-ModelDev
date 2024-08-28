@@ -69,13 +69,6 @@ def merge_export_arg(model_map, arg, arg_name):
     return model_map
 
 
-# def str_to_list(string):
-#     out = string.strip("[]").replace(" ", "").split(";")
-#     for item in out:
-#         item = ast.literal_eval(item)
-#     return out
-
-
 class PipelineComponent:
     """
     Wraps a VMFB runner with attributes for embedded metadata, device info, utilities and
@@ -266,8 +259,6 @@ class PipelineComponent:
             self.save_output(function_name, output)
         output = self._output_cast(output)
         return output
-
-    # def _run_and_validate(self, iree_fn, torch_fn, inputs: list)
 
 
 class Printer:
