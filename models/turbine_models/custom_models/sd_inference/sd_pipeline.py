@@ -192,6 +192,7 @@ arch_mappings = {
     "sd3": sd3_model_map,
 }
 
+
 def get_sd_model_map(hf_model_name, model_arch=None):
     if model_arch:
         return arch_mappings[model_arch]
@@ -400,7 +401,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.map["unet"]["mlir"] = None
         self.map["unet"]["vmfb"] = None
         self.map["unet"]["weights"] = None
-        self.map["unet"]["keywords"] = [i for i in self.map["unet"]["keywords"] if i != "!punet"]
+        self.map["unet"]["keywords"] = [
+            i for i in self.map["unet"]["keywords"] if i != "!punet"
+        ]
         self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
             if self.add_tk_kernels:
