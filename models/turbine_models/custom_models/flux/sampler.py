@@ -28,32 +28,14 @@ from flux.model import Flux, FluxParams
 from flux.util import configs, print_load_warning
 from flux.math import attention, apply_rope
 from flux.modules.layers import EmbedND, DoubleStreamBlock
+from einops import rearrange
+from diffusers.models.transformers import FluxTransformer2DModel
 
-
-# The following model loader is derived from https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py#L105
-def load_flux_model(name: str, device="cpu", hf_download: bool = True):
-    # Loading Flux
-    print("Init Flux sampling model")
-    ckpt_path = configs[name].ckpt_path
-    if (
-        ckpt_path is None
-        and configs[name].repo_id is not None
-        and configs[name].repo_flow is not None
-        and hf_download
-    ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
-
-    with torch.device("meta" if ckpt_path is not None else device):
-        model = Flux(configs[name].params).to(torch.float16)
-
-    if ckpt_path is not None:
-        print("Loading checkpoint")
-        # load_sft doesn't support torch.device
-        sd = load_sft(ckpt_path, device=str(device))
-        missing, unexpected = model.load_state_dict(sd, strict=False, assign=True)
-        print_load_warning(missing, unexpected)
-    return model
-
+model_repo_map = {
+    "flux-dev": "black-forest-labs/FLUX.1-dev",
+    "flux-schnell": "black-forest-labs/FLUX.1-schnell",
+    "flux-pro": "black-forest-labs/FLUX.1-pro",
+}
 
 class FluxModel(torch.nn.Module):
     def __init__(
@@ -62,8 +44,14 @@ class FluxModel(torch.nn.Module):
         dtype=torch.bfloat16,
     ):
         super().__init__()
-        self.sampler = load_flux_model(hf_model_name)
+        self.sampler = FluxTransformer2DModel.from_pretrained(
+            model_repo_map[hf_model_name],
+            subfolder="transformer",
+        )
         self.dtype = dtype
+        self.bf16_cast = False
+        if self.dtype == torch.bfloat16:
+            self.bf16_cast = True
 
     def forward(
         self,
@@ -76,18 +64,36 @@ class FluxModel(torch.nn.Module):
         t_prev,
         guidance_vec,
     ):
+        if self.bf16_cast:
+            for i in [
+                img,
+                img_ids,
+                txt,
+                txt_ids,
+                vec,
+                t_curr,
+                t_prev,
+                guidance_vec,
+            ]:
+                i = i.type(torch.bfloat16)
+
         t_vec = t_curr.expand(img.shape[0])
+
         noise_pred = self.sampler(
-            img=img,
-            img_ids=img_ids,
-            txt=txt,
+            hidden_states=img,
+            timestep = t_vec,
+            pooled_projections=vec,
+            encoder_hidden_states=txt,
             txt_ids=txt_ids,
-            y=vec,
-            timesteps=t_vec,
+            img_ids=img_ids,
             guidance=guidance_vec,
-        )
-        img = img + (t_prev - t_curr) * noise_pred
-        return img
+            return_dict=False,
+        )[0]
+
+        if self.bf16_cast:
+            noise_pred = noise_pred.type(torch.float32)
+
+        return noise_pred
 
 
 @torch.no_grad()
@@ -112,8 +118,8 @@ def export_flux_model(
     input_mlir=None,
     weights_only=False,
 ):
-    dtype = torch.float16
-    np_dtype = "float16"
+    dtype = utils.torch_dtypes[precision]
+    np_dtype = utils.np_dtypes[precision]
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_sampler",
@@ -140,7 +146,12 @@ def export_flux_model(
     flux_model = FluxModel(
         hf_model_name,
         dtype=dtype,
-    ).half()
+    ).float()
+    if precision == "bf16":
+        flux_model.bfloat16()
+        dtype = torch.float32
+    if precision == "fp16":
+        flux_model.half()
     mapper = {}
 
     utils.save_external_weights(
@@ -184,6 +195,8 @@ def export_flux_model(
         torch.empty(1, dtype=dtype),
         torch.empty(batch_size, dtype=dtype),
     ]
+    
+    breakpoint()
 
     decomp_list = []
     if decomp_attn == True:
@@ -219,15 +232,12 @@ def export_flux_model(
 
     model_metadata_run_forward = {
         "model_name": "flux_sampler",
-        # "input_shapes": [
-        #     hidden_states_shape,
-        #     encoder_hidden_states_shape,
-        #     pooled_projections_shape,
-        #     (1,),
-        # ],
-        # "input_dtypes": [np_dtype for x in range(4)],
-        # "output_shapes": [hidden_states_shape],
-        # "output_dtypes": [np_dtype],
+        "input_shapes": [
+            tuple(x.shape) for x in example_forward_args
+        ],
+        "input_dtypes": [np_dtype for x in range(8)],
+        "output_shapes": [tuple(example_forward_args[0].shape)],
+        "output_dtypes": [np_dtype],
     }
     module = AddMetadataPass(module, model_metadata_run_forward, "run_forward").run()
     module_str = str(module)
@@ -248,32 +258,60 @@ def export_flux_model(
     return vmfb_path
 
 
+# class FluxAttention(torch.nn.Module):
+#     def __init__(
+#         self,
+#     ):
+#         super().__init__()
+        # self.txt_in = torch.nn.Linear(4096, 3072)
+        # self.double_blocks = torch.nn.ModuleList(
+        #     [
+        #         DoubleStreamBlock(
+        #             3072,
+        #             24,
+        #             mlp_ratio=4.0,
+        #             qkv_bias=True,
+        #         )
+        #     ]
+        # )
+        # self.pe_embedder = EmbedND(dim=128, theta=10000, axes_dim=[16, 56, 56])
+
+    # def forward(self, img, txt, vec, ids):  # txt_ids, img_ids):
+    #     txt = self.txt_in(txt)
+    #     ids = torch.cat((txt_ids, img_ids), dim=1)
+    #     pe = self.pe_embedder(ids)
+    #     for block in self.double_blocks:
+    #         img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
+    #     return img, txt
+
+# class FluxAttention(torch.nn.Module):
+#     def __init__(
+#         self,
+#     ):
+#         super().__init__()
+        # self.txt_in = torch.nn.Linear(4096, 3072)
+        # self.double_blocks = torch.nn.ModuleList(
+        #     [
+        #         DoubleStreamBlock(
+        #             3072,
+        #             24,
+        #             mlp_ratio=4.0,
+        #             qkv_bias=True,
+        #         )
+        #     ]
+        # )
+        # self.pe_embedder = EmbedND(dim=128, theta=10000, axes_dim=[16, 56, 56])
+
 class FluxAttention(torch.nn.Module):
     def __init__(
         self,
     ):
         super().__init__()
-        self.txt_in = torch.nn.Linear(4096, 3072)
-        self.double_blocks = torch.nn.ModuleList(
-            [
-                DoubleStreamBlock(
-                    3072,
-                    24,
-                    mlp_ratio=4.0,
-                    qkv_bias=True,
-                )
-            ]
-        )
-        self.pe_embedder = EmbedND(dim=128, theta=10000, axes_dim=[16, 56, 56])
 
-    def forward(self, img, txt, vec, ids):  # txt_ids, img_ids):
-        # txt = self.txt_in(txt)
-        # ids = torch.cat((txt_ids, img_ids), dim=1)
-        pe = self.pe_embedder(ids)
-        for block in self.double_blocks:
-            img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
-        return img, txt
-
+    def forward(self, q, k, v):
+        x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+        x = rearrange(x, "B H L D -> B L (H D)")
+        return x
 
 @torch.no_grad()
 def export_attn(
@@ -295,20 +333,17 @@ def export_attn(
     if dtype == torch.float16:
         attn_module = attn_module.half()
 
-    # example_args = [
-    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
-    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
-    #     torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
-    #     torch.empty((batch_size, 1, 4608, 64, 2, 2), dtype=torch.float32),
-    # ]
     example_args = [
-        torch.empty((batch_size, 4096, 3072), dtype=dtype),
-        torch.empty((batch_size, 512, 3072), dtype=dtype),
-        torch.empty((batch_size, 3072), dtype=dtype),
-        torch.empty((batch_size, 4608, 3), dtype=dtype),
+        torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+        torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+        torch.empty((batch_size, 24, 4608, 128), dtype=dtype),
+        #torch.empty((batch_size, 1, 4608, 64, 2, 2), dtype=torch.float32),
     ]
-    #     torch.empty((batch_size, 512, 3), dtype=dtype),
-    #     torch.empty((batch_size, 4096, 3), dtype=dtype),
+    # example_args = [
+    #     torch.empty((batch_size, 4096, 3072), dtype=dtype),
+    #     torch.empty((batch_size, 512, 3072), dtype=dtype),
+    #     torch.empty((batch_size, 3072), dtype=dtype),
+    #     torch.empty((batch_size, 4608, 3), dtype=dtype),
     # ]
 
     decomp_list = []

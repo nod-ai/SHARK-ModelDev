@@ -179,19 +179,15 @@ def export_ae_model(
 
         module = CompiledModule.get_mlir_module(inst)
 
-    # model_metadata_decode = {
-    #     "model_name": "flux_ae",
-    #     # "input_shapes": [
-    #     #     hidden_states_shape,
-    #     #     encoder_hidden_states_shape,
-    #     #     pooled_projections_shape,
-    #     #     (1,),
-    #     # ],
-    #     # "input_dtypes": [np_dtype for x in range(4)],
-    #     # "output_shapes": [hidden_states_shape],
-    #     # "output_dtypes": [np_dtype],
-    # }
-    # module = AddMetadataPass(module, model_metadata_decode, "decode").run()
+    model_metadata_decode = {
+        "model_name": "flux_ae",
+        "input_shapes": [
+            img_shape,
+        ],
+        "input_dtypes": [np_dtype],
+        "output_dtypes": [np_dtype],
+    }
+    module = AddMetadataPass(module, model_metadata_decode, "decode").run()
     module_str = str(module)
     if compile_to != "vmfb":
         return module_str

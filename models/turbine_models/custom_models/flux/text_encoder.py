@@ -58,7 +58,7 @@ class TextEncoderModule(torch.nn.Module):
             device="cpu",
             dtype=self.dtype,
             layer_norm_hidden_state=False,
-            return_projected_pooled=False,
+            return_projected_pooled=True,
             textmodel_json_config=CLIP_CONFIG,
         )
         if precision == "fp16":
@@ -81,7 +81,7 @@ class TextEncoderModule(torch.nn.Module):
 
     def forward(self, t5_ids, clip_ids):
         txt = self.t5(t5_ids)
-        clip_out, vec = self.clip(clip_ids)
+        vec = self.clip(clip_ids)[1]
 
         return txt, vec
 

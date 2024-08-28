@@ -4,6 +4,7 @@ import numpy as np
 import os
 import safetensors
 import safetensors.numpy as safe_numpy
+import torch
 import re
 import glob
 from diffusers import (
@@ -12,6 +13,21 @@ from diffusers import (
     EulerAncestralDiscreteScheduler,
     # DPMSolverSDEScheduler,
 )
+
+np_dtypes = {
+    "fp16": "float16",
+    "fp32": "float32",
+    "bf16": "float32",
+    "float16": "float16",
+    "float32": "float32",
+}
+torch_dtypes = {
+    "fp16": torch.float16,
+    "fp32": torch.float32,
+    "bf16": torch.bfloat16,
+    "float16": torch.float16,
+    "float32": torch.float32,
+}
 
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 MI_flags = {
@@ -474,7 +490,7 @@ def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=
         url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
     elif not masked_attention:
         suffix = ""
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_mfma.mlir"
+        url = "https://github.com/iree-org/iree/blob/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
     else:
         suffix = "_pad"
         url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"

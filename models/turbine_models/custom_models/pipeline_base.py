@@ -26,14 +26,16 @@ import copy
 from datetime import datetime as dt
 
 np_dtypes = {
-    "fp16": np.float16,
-    "fp32": np.float32,
-    "float16": np.float16,
-    "float32": np.float32,
+    "fp16": "float16",
+    "fp32": "float32",
+    "bf16": "float32",
+    "float16": "float16",
+    "float32": "float32",
 }
 torch_dtypes = {
     "fp16": torch.float16,
     "fp32": torch.float32,
+    "bf16": torch.bfloat16,
     "float16": torch.float16,
     "float32": torch.float32,
 }
@@ -87,7 +89,7 @@ class PipelineComponent:
         self,
         printer,
         dest_type="devicearray",
-        dest_dtype="float16",
+        dest_dtype=None,
         benchmark=False,
         save_outputs=False,
     ):
@@ -202,9 +204,15 @@ class PipelineComponent:
         else:
             for idx, i in enumerate(inputs):
                 if not isinstance(i, ireert.DeviceArray):
+                    if i.dtype == torch.bfloat16:
+                        i = i.float()
                     val_inputs[idx] = ireert.asdevicearray(self.device, i)
                 else:
-                    val_inputs[idx] = inputs[idx]
+                    val_inputs[idx] = i
+        for idx, i in enumerate(val_inputs):
+            if isinstance(i, ireert.DeviceArray):
+                if val_inputs[idx]._device != self.device:
+                    val_inputs[idx] = ireert.asdevicearray(self.device, i.to_host())
         return val_inputs
 
     def _output_cast(self, output):
@@ -218,17 +226,17 @@ class PipelineComponent:
             case "devicearray":
                 output = (
                     output.astype(self.dest_dtype)
-                    if output.dtype != self.dest_dtype
+                    if self.dest_dtype
                     else output
                 )
                 return output
             case "torch":
                 output = torch.tensor(
-                    output.to_host(), dtype=torch_dtypes[self.dest_dtype]
+                    output.to_host()
                 )
                 return output
             case "numpy":
-                return output.to_host().astype(np_dtypes[self.dest_dtype])
+                return output.to_host()
             case _:
                 return output
 
@@ -762,7 +770,7 @@ class TurbinePipelineBase:
     # LOAD
     def load_map(self):
         for submodel in self.map.keys():
-            if not self.map[submodel]["load"]:
+            if not self.map[submodel].get("load"):
                 self.printer.print(f"Skipping load for {submodel}")
                 continue
             self.load_submodel(submodel)
@@ -778,9 +786,9 @@ class TurbinePipelineBase:
         self.map[submodel]["runner"] = PipelineComponent(
             printer=self.printer,
             dest_type=dest_type,
+            dest_dtype=self.map[submodel].get("dest_dtype"),
             benchmark=self.map[submodel].get("benchmark", False),
             save_outputs=self.map[submodel].get("save_outputs", False),
-            use_metadata=self.map[submodel].get("use_metadata", True),
         )
         self.map[submodel]["runner"].load(
             self.map[submodel]["driver"],
@@ -788,6 +796,7 @@ class TurbinePipelineBase:
             self.map[submodel]["module_name"],
             self.map[submodel].get("weights"),
             self.map[submodel].get("extra_plugin"),
+            use_metadata=self.map[submodel].get("use_metadata", True),
         )
         setattr(self, submodel, self.map[submodel]["runner"])
 

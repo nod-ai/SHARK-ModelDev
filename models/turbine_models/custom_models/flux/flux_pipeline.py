@@ -59,7 +59,7 @@ flux_model_map = {
         "keywords": ["sampler"],
         "export_fn": sampler.export_flux_model,
         "torch_module": sampler.FluxModel,
-        "use_metadata": False,
+        "use_metadata": True,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -74,7 +74,7 @@ flux_model_map = {
         "dest_type": "numpy",
         "export_fn": autoencoder.export_ae_model,
         "torch_module": autoencoder.AEModel,
-        "use_metadata": False,
+        "use_metadata": True,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -93,6 +93,7 @@ def get_sd_model_map(hf_model_name):
 torch_dtypes = {
     "fp32": torch.float32,
     "fp16": torch.float16,
+    "bf16": torch.bfloat16,
     "float32": torch.float32,
     "float16": torch.float16,
     "int8": torch.int8,
@@ -197,7 +198,7 @@ class SharkFluxPipeline(TurbinePipelineBase):
                 ] = weights_filename
 
         self.batch_size = batch_size
-        self.model_max_length = self.max_length = 64
+        self.model_max_length = self.max_length = max_length
         self.height = height
         self.width = width
         self.num_inference_steps = num_inference_steps
@@ -236,6 +237,8 @@ class SharkFluxPipeline(TurbinePipelineBase):
         self.diffusion_model = self.map["sampler"]
 
         self.latents_precision = self.diffusion_model["precision"]
+        if self.latents_precision == "bf16":
+            self.latents_precision = "fp32"
         self.latents_channels = self.map["ae"]["export_args"]["num_channels"]
         self.scheduler_device = self.diffusion_model["device"]
         self.scheduler_driver = self.diffusion_model["driver"]
@@ -267,6 +270,7 @@ class SharkFluxPipeline(TurbinePipelineBase):
                 "compile_to": "vmfb",
                 "device": self.scheduler_device,
                 "target": self.scheduler_target,
+                "ireec_flags": self.diffusion_model["export_args"]["ireec_flags"],
                 "pipeline_dir": self.pipeline_dir,
             },
         }
@@ -309,7 +313,7 @@ class SharkFluxPipeline(TurbinePipelineBase):
             2 * math.ceil(self.height / 16),
             2 * math.ceil(self.width / 16),
             dtype=self.latents_dtype,
-            generator=torch.Generator().manual_seed(seed),
+            generator=torch.Generator().manual_seed(int(seed)),
         )
 
     def prepare_latents(
@@ -352,17 +356,13 @@ class SharkFluxPipeline(TurbinePipelineBase):
         steps,
         guidance_scale,
     ):
-        latents, indexes, timesteps, img_ids = self.prepare_latents(sample, steps)
+        img, indexes, timesteps, img_ids = self.prepare_latents(sample, steps)
         guidance_vec = torch.full((sample.shape[0],), guidance_scale)
         guidance_scale = ireert.asdevicearray(
             self.sampler.device,
-            [guidance_scale],
+            guidance_vec,
             dtype=self.diffusion_model["np_dtype"],
         )
-        steps_list_gpu = [
-            ireert.asdevicearray(self.scheduler.device, [i], dtype="int64")
-            for i in range(steps)
-        ]
         timesteps_cpu = timesteps
         timesteps_list_gpu = [
             ireert.asdevicearray(
@@ -372,9 +372,7 @@ class SharkFluxPipeline(TurbinePipelineBase):
             )
             for i in range(steps)
         ]
-
         for t_curr, t_prev in zip(timesteps_list_gpu[:-1], timesteps_list_gpu[1:]):
-            img = latents
             sampler_inputs = [
                 img,
                 img_ids,
@@ -385,12 +383,12 @@ class SharkFluxPipeline(TurbinePipelineBase):
                 t_prev,
                 guidance_scale,
             ]
-            breakpoint()
-            latents = self.sampler(
+            pred = self.sampler(
                 "run_forward",
                 sampler_inputs,
             )
-        return latents
+            sampler_inputs[0] = sampler_inputs[0] + (t_prev.to_host() - t_curr.to_host()) * pred
+        return sampler_inputs[0]
 
     def generate_images(
         self,
@@ -405,10 +403,6 @@ class SharkFluxPipeline(TurbinePipelineBase):
         return_imgs: bool = False,
         seed_increment: int = 1,
     ):
-        t_ids = torch.zeros(self.batch_size, self.max_length, 3)
-        txt_ids = ireert.asdevicearray(
-            self.sampler.device, t_ids, dtype=self.diffusion_model["np_dtype"]
-        )
         needs_new_scheduler = (
             (steps and steps != self.num_inference_steps)
             or (cpu_scheduling != self.cpu_scheduling)
@@ -433,7 +427,10 @@ class SharkFluxPipeline(TurbinePipelineBase):
             samples.extend([self.get_rand_latents(seed, self.batch_size)])
             seed += seed_increment
         txt, vec = self.encode_prompt(prompt)
-
+        t_ids = torch.zeros(self.batch_size, self.max_length, 3)
+        txt_ids = ireert.asdevicearray(
+            self.sampler.device, t_ids, dtype=self.diffusion_model["np_dtype"]
+        )
         for i in range(batch_count):
             produce_latents_input = [
                 samples[i],
@@ -444,7 +441,6 @@ class SharkFluxPipeline(TurbinePipelineBase):
                 guidance_scale,
             ]
             latents = self.produce_latents(*produce_latents_input)
-            latents = unpack(latents.float(), self.height, self.width)
 
             if self.cast_latents_to_vae:
                 latents = ireert.asdevicearray(
@@ -452,6 +448,7 @@ class SharkFluxPipeline(TurbinePipelineBase):
                     latents.to_host(),
                     dtype=self.map["ae"]["np_dtype"],
                 )
+            breakpoint()
             image = self.ae("decode", [latents])
             numpy_images.append(image)
             pipe_end = time.time()
@@ -460,25 +457,14 @@ class SharkFluxPipeline(TurbinePipelineBase):
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
         images = []
         for idx, image in enumerate(numpy_images):
-            images.append(Image.fromarray(image.to_host()))
+            images.append(Image.fromarray(image.astype("uint8")))
         if return_imgs:
             return images
         for idx, image in enumerate(images):
-            img_path = "sd_output_" + timestamp + "_" + str(idx) + ".png"
+            img_path = "flux_output_" + timestamp + "_" + str(idx) + ".png"
             image.save(img_path)
             print(img_path, "saved")
         return
-
-
-def unpack(x, height: int, width: int) -> torch.Tensor:
-    return rearrange(
-        x,
-        "b (h w) (c ph pw) -> b c (h ph) (w pw)",
-        h=math.ceil(height / 16),
-        w=math.ceil(width / 16),
-        ph=2,
-        pw=2,
-    )
 
 
 def numpy_to_pil_image(images):
@@ -587,6 +573,7 @@ if __name__ == "__main__":
         save_outputs=save_outputs,
     )
     flux_pipe.prepare_all()
+    flux_pipe.load_scheduler("FlowMatchEulerDiscrete", args.num_inference_steps)
     flux_pipe.load_map()
     flux_pipe.generate_images(
         args.prompt,
