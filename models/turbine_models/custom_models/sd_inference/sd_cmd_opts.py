@@ -46,7 +46,7 @@ p.add_argument(
 p.add_argument(
     "--model_arch",
     type=str,
-    help="SD pipeline/model architecture. Choices are [sd, sdxl, sd3]."
+    help="SD pipeline/model architecture. Choices are [sd, sdxl, sd3].",
     default=None,
 )
 p.add_argument(
