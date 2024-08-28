@@ -237,8 +237,10 @@ def export_transformer_model(
             def run_initialize(
                 self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)
             ):
-                init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
-                token, *state = self.initialize(x, constraints=init_const)
+                dynamic_shapes_init = {
+                    "arg0_1": {1: torch.export.Dim("dim", max=MAX_STEP_SEQ - 1)}
+                }
+                token, *state = self.initialize(x, dynamic_shapes=dynamic_shapes_init)
                 self.global_seq_step = IREE.tensor_dim(
                     state[0], 1
                 )  # ? dimension of arbitrarily 0th kv tensor
@@ -267,16 +269,15 @@ def export_transformer_model(
                     HIDDEN_DIM,
                     NUM_LAYERS,
                 )
-                forw_const = (
-                    [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                    + [
-                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                        for x in state_arg[1:]
-                    ]
-                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                state_arg0_dim = torch.export.Dim(
+                    "state_arg0_dim", max=MAX_STEP_SEQ - 1
                 )
+                dynamic_shapes_forw = {"arg0_1": None, "arg1_1": {1: state_arg0_dim}}
+                for state_arg_idx in range(2, len(state_arg) + 1):
+                    current_dim_dict = {f"arg{state_arg_idx}_1": {1: state_arg0_dim}}
+                    dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
                 token, *state_update = self.forward(
-                    x, *state_arg, constraints=forw_const
+                    x, *state_arg, dynamic_shapes=dynamic_shapes_forw
                 )
                 for i in range(NUM_LAYERS):
                     update = IREE.tensor_reshape(
@@ -343,17 +344,19 @@ def export_transformer_model(
                     HIDDEN_DIM,
                     NUM_LAYERS,
                 )
-                forw_const = (
-                    [x.dynamic_dim(1) < MAX_STEP_SEQ]
-                    + [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                    + [
-                        x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                        for x in state_arg[1:]
-                    ]
-                    + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
+                state_arg0_dim1 = torch.export.Dim(
+                    "state_arg0_dim1", max=MAX_STEP_SEQ - 1
                 )
+                x_dim = torch.export.Dim("x_dim", max=MAX_STEP_SEQ - 1)
+                dynamic_shapes_forw = {
+                    "arg0_1": {1: x_dim},
+                    "arg1_1": {1: state_arg0_dim1},
+                }
+                for state_arg_idx in range(2, len(state_arg) + 1):
+                    current_dim_dict = {f"arg{state_arg_idx}_1": {1: state_arg0_dim1}}
+                    dynamic_shapes_forw = {**dynamic_shapes_forw, **current_dim_dict}
                 token, *state = self.cached_initialize(
-                    x, *state_arg, constraints=forw_const
+                    x, *state_arg, dynamic_shapes=dynamic_shapes_forw
                 )
                 len_of_new_tokens = IREE.tensor_dim(
                     state[0], 1

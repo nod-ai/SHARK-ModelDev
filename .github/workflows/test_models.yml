@@ -23,6 +23,14 @@ jobs:
         os: [nodai-amdgpu-mi250-x86-64]
 
     runs-on: ${{matrix.os}}
+    env:
+      E2E_VENV_DIR: ${{ github.workspace }}/test-suite_venv
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      AZ_PRIVATE_CONNECTION: ${{ secrets.ONNXPRIVATESTORAGE_AZ_PRIVATE_CONNECTION }}
+      ROCR_VISIBLE_DEVICES: ${{ matrix.visible-device }}
+      TORCH_HOME: /groups/aig_sharks/test-suite-ci-cache
+      HF_HOME: /groups/aig_sharks/test-suite-ci-cache
+      TURBINE_TANK_CACHE_DIR: /groups/aig_sharks/test-suite-ci-cache
     steps:
       # We are using a persistent Gentoo runner here, and this python action is not supported for the arch
       # - name: "Setting up Python"
@@ -73,3 +81,4 @@ jobs:
           pytest -v models/turbine_models/tests/sdxl_test.py --device rocm --rt_device hip --iree_target_triple gfx90a --precision fp16 --attn_spec default
           pytest -v models/turbine_models/tests/sdxl_test.py --device rocm --rt_device hip --iree_target_triple gfx90a --precision fp16 --attn_spec default --batch_size 2
           pytest -v models/turbine_models/tests/sd3_test.py --device cpu --rt_device local-task --iree_target_triple x86_64-linux-gnu --num_inference_steps 2
+
