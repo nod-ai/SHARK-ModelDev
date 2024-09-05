@@ -34,7 +34,7 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics{pad-target-type=conv})",
     ],
     "unet": [
-        "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-flow-enable-aggressive-fusion",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
@@ -43,16 +43,16 @@ MI_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
     ],
     "clip": [
-        "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-flow-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-hip-waves-per-eu=2",
+        "--iree-rocm-waves-per-eu=2",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
-        "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions",
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-flow-enable-fuse-horizontal-contractions",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
@@ -70,8 +70,8 @@ GFX11_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-opt-const-eval=false",
         "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-flow-enable-aggressive-fusion",
+        "--iree-flow-enable-fuse-horizontal-contractions=true",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
@@ -284,7 +284,7 @@ def compile_to_vmfb(
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
-                "--iree-hip-target=" + target_triple,
+                "--iree-rocm-target-chip=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
