@@ -52,7 +52,7 @@ MI_flags = {
     ],
     "vae": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
