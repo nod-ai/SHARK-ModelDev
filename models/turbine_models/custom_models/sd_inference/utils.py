@@ -41,6 +41,7 @@ MI_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-flow-enable-fuse-horizontal-contractions=true",
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
