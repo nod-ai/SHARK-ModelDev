@@ -44,7 +44,7 @@ MI_flags = {
     ],
     "clip": [
         "--iree-flow-enable-aggressive-fusion",
-        "--iree-gloabl-opt-enable-fuse-horizontal-contractions=true",
+        "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
         "--iree-rocm-waves-per-eu=2",
