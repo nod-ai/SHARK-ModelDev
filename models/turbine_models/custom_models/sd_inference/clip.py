@@ -34,7 +34,7 @@ def export_clip_model(
     attn_spec: str = None,
     weights_only: bool = False,
     upload_ir: bool = False,
-    decomp_attn: bool = False,
+    decomp_attn: bool = True,
 ):
     input_len = max_length
     safe_name = utils.create_safe_name(

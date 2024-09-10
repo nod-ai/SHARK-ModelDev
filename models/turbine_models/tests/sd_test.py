@@ -78,6 +78,7 @@ class StableDiffusionTest(unittest.TestCase):
             target=current_args["iree_target_triple"],
             exit_on_vmfb=False,
             upload_ir=UPLOAD_IR,
+            decomp_attn=True,
         )
         current_args["external_weight_path"] = safe_prefix + ".safetensors"
         current_args["vmfb_path"] = blob_name
