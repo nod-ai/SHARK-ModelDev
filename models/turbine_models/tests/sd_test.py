@@ -233,7 +233,7 @@ class StableDiffusionTest(unittest.TestCase):
 
         current_args = copy.deepcopy(default_arguments)
         decomp_attn = {
-            "text_encoder": False,
+            "text_encoder": True,
             "unet": False,
             "vae": current_args["vae_decomp_attn"],
         }
