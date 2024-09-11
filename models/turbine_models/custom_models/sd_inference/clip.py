@@ -55,95 +55,109 @@ def export_clip_model(
             attn_spec=attn_spec,
         )
         return vmfb_path
-    if "google/t5" in hf_model_name:
-        from transformers import T5Tokenizer, T5Model
 
-        tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
-        text_encoder_model = T5Model.from_pretrained(hf_model_name)
-        input_len = 512
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
+        if "google/t5" in hf_model_name:
+            from transformers import T5Tokenizer, T5Model
 
-    else:
-        # TODO: Add better filtering mechanism for things that require CLIPProcessor
-        if "openai" in hf_model_name:
-            tokenizer = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
-            hf_subfolder = ""  # CLIPProcessor does not have a subfolder
-            input_len = 10
+            tokenizer = T5Tokenizer.from_pretrained(hf_model_name)
+            text_encoder_model = T5Model.from_pretrained(hf_model_name)
+            input_len = 512
+
         else:
-            # Load the tokenizer and text encoder to tokenize and encode the text.
-            tokenizer = CLIPTokenizer.from_pretrained(
+            # TODO: Add better filtering mechanism for things that require CLIPProcessor
+            if "openai" in hf_model_name:
+                tokenizer = CLIPProcessor.from_pretrained(
+                    "openai/clip-vit-large-patch14"
+                )
+                hf_subfolder = ""  # CLIPProcessor does not have a subfolder
+                input_len = 10
+            else:
+                # Load the tokenizer and text encoder to tokenize and encode the text.
+                tokenizer = CLIPTokenizer.from_pretrained(
+                    hf_model_name,
+                    subfolder="tokenizer",
+                )
+                hf_subfolder = "text_encoder"
+
+            text_encoder_model = CLIPTextModel.from_pretrained(
                 hf_model_name,
-                subfolder="tokenizer",
+                subfolder=hf_subfolder,
             )
-            hf_subfolder = "text_encoder"
-
-        text_encoder_model = CLIPTextModel.from_pretrained(
-            hf_model_name,
-            subfolder=hf_subfolder,
+        if precision == "fp16":
+            text_encoder_model = text_encoder_model.half()
+        mapper = {}
+        utils.save_external_weights(
+            mapper, text_encoder_model, external_weights, external_weight_path
         )
-    if precision == "fp16":
-        text_encoder_model = text_encoder_model.half()
-    mapper = {}
-    utils.save_external_weights(
-        mapper, text_encoder_model, external_weights, external_weight_path
-    )
-    if weights_only:
-        return external_weight_path
+        if weights_only:
+            return external_weight_path
 
-    if "google/t5" in hf_model_name:
-        input_shapes = [(batch_size, input_len), (batch_size, input_len)]
+        if "google/t5" in hf_model_name:
+            input_shapes = [(batch_size, input_len), (batch_size, input_len)]
 
-        class CompiledTextEncoder(CompiledModule):
-            if external_weights:
-                params = export_parameters(
-                    text_encoder_model,
-                    external=True,
-                    external_scope="",
-                    name_mapper=mapper.get,
-                )
-            else:
-                params = export_parameters(text_encoder_model)
+            class CompiledTextEncoder(CompiledModule):
+                if external_weights:
+                    params = export_parameters(
+                        text_encoder_model,
+                        external=True,
+                        external_scope="",
+                        name_mapper=mapper.get,
+                    )
+                else:
+                    params = export_parameters(text_encoder_model)
 
-            def encode_tokens(
-                self,
-                inp=AbstractTensor(1, input_len, dtype=torch.int64),
-                decoder_input_ids=AbstractTensor(1, input_len, dtype=torch.int64),
-            ):
-                return jittable(text_encoder_model.forward)(
-                    input_ids=inp, decoder_input_ids=decoder_input_ids
-                )
+                def encode_tokens(
+                    self,
+                    inp=AbstractTensor(1, input_len, dtype=torch.int64),
+                    decoder_input_ids=AbstractTensor(1, input_len, dtype=torch.int64),
+                ):
+                    return jittable(text_encoder_model.forward)(
+                        input_ids=inp, decoder_input_ids=decoder_input_ids
+                    )
 
-    else:
-        input_shapes = [str((batch_size, input_len)), str((batch_size, input_len))]
+        else:
+            input_shapes = [str((batch_size, input_len)), str((batch_size, input_len))]
 
-        class CompiledTextEncoder(CompiledModule):
-            if external_weights:
-                params = export_parameters(
-                    text_encoder_model,
-                    external=True,
-                    external_scope="",
-                    name_mapper=mapper.get,
-                )
-            else:
-                params = export_parameters(text_encoder_model)
+            class CompiledTextEncoder(CompiledModule):
+                if external_weights:
+                    params = export_parameters(
+                        text_encoder_model,
+                        external=True,
+                        external_scope="",
+                        name_mapper=mapper.get,
+                    )
+                else:
+                    params = export_parameters(text_encoder_model)
 
-            def encode_tokens_attn_mask(
-                self,
-                inp=AbstractTensor(1, input_len, dtype=torch.int64),
-                attn_mask=AbstractTensor(1, input_len, dtype=torch.int64),
-            ):
-                return jittable(text_encoder_model.forward)(
-                    input_ids=inp, attention_mask=attn_mask
-                )
+                def encode_tokens_attn_mask(
+                    self,
+                    inp=AbstractTensor(1, input_len, dtype=torch.int64),
+                    attn_mask=AbstractTensor(1, input_len, dtype=torch.int64),
+                ):
+                    return jittable(text_encoder_model.forward)(
+                        input_ids=inp, attention_mask=attn_mask
+                    )
 
-            def encode_tokens(
-                self,
-                inp=AbstractTensor(1, input_len, dtype=torch.int64),
-            ):
-                return jittable(text_encoder_model.forward)(input_ids=inp)
+                def encode_tokens(
+                    self,
+                    inp=AbstractTensor(1, input_len, dtype=torch.int64),
+                ):
+                    return jittable(text_encoder_model.forward)(input_ids=inp)
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledTextEncoder(context=Context(), import_to=import_to)
-    module = CompiledModule.get_mlir_module(inst)
+        import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+        inst = CompiledTextEncoder(context=Context(), import_to=import_to)
+        module = CompiledModule.get_mlir_module(inst)
 
     model_metadata_attn_mask = {
         "model_name": hf_model_name + "_text_encoder",
