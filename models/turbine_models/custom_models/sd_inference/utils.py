@@ -25,10 +25,10 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
     ],
     "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  util.func(iree-preprocessing-pad-to-intrinsics, iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "vae_preprocess": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  util.func(iree-preprocessing-pad-to-intrinsics, iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics{pad-target-type=conv})",
@@ -84,12 +84,12 @@ GFX11_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
     "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "unet": [""],
@@ -102,9 +102,9 @@ znver4_flags = {
         "--iree-llvmcpu-target-cpu=znver4",
         "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
-        "--iree-flow-collapse-reduction-dims",
+        "--iree-dispatch-creation-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
-        "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
+        "--iree-dispatch-creation-enable-fuse-padding-into-linalg-consumer-ops",
     ],
     "bf16": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
@@ -283,7 +283,7 @@ def compile_to_vmfb(
                 "--iree-stream-resource-max-allocation-size=" + max_alloc,
                 "--iree-stream-resource-index-bits=64",
                 "--iree-vm-target-index-bits=64",
-                "--iree-flow-inline-constants-max-byte-length=1",
+                "--iree-dispatch-creation-inline-constants-max-byte-length=1",
             ]
         )
         device = "vulkan-spirv"
