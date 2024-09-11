@@ -171,7 +171,7 @@ def export_prompt_encoder(
     attn_spec=None,
     weights_only=False,
     batch_input=False,
-    decomp_attn=False,  # Compatibility
+    decomp_attn=True,
 ):
     do_classifier_free_guidance = True
 
@@ -233,39 +233,51 @@ def export_prompt_encoder(
     if weights_only:
         return None, external_weight_path
 
-    class CompiledClip(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                prompt_encoder_module,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(prompt_encoder_module)
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
 
-        def encode_prompts(
-            self,
-            t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-            t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-            uc_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-            uc_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-        ):
-            return jittable(prompt_encoder_module.forward)(
-                t_ids_1, t_ids_2, uc_ids_1, uc_ids_2
-            )
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    prompt_encoder_module,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(prompt_encoder_module)
 
-        def encode_prompts_turbo(
-            self,
-            t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-            t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
-        ):
-            return jittable(prompt_encoder_module.forward_turbo)(t_ids_1, t_ids_2)
+            def encode_prompts(
+                self,
+                t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+                t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+                uc_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+                uc_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            ):
+                return jittable(prompt_encoder_module.forward)(
+                    t_ids_1, t_ids_2, uc_ids_1, uc_ids_2
+                )
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledClip(context=Context(), import_to=import_to)
+            def encode_prompts_turbo(
+                self,
+                t_ids_1=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+                t_ids_2=AbstractTensor(input_batchsize, max_length, dtype=torch.int64),
+            ):
+                return jittable(prompt_encoder_module.forward_turbo)(t_ids_1, t_ids_2)
 
-    module = CompiledModule.get_mlir_module(inst)
+        import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+        inst = CompiledClip(context=Context(), import_to=import_to)
+
+        module = CompiledModule.get_mlir_module(inst)
 
     model_metadata_encode = {
         "model_name": hf_model_name + "_text_encoder",
