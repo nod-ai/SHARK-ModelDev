@@ -62,6 +62,7 @@ def export_clip_model(
     input_mlir=None,
     attn_spec=None,
     weights_only=False,
+    decomp_attn=True,
 ):
     if pipeline_dir not in [None, ""]:
         safe_name = os.path.join(pipeline_dir, "clip_" + str(index))
@@ -118,25 +119,36 @@ def export_clip_model(
 
     if weights_only:
         return weights_path
+    decomp_list = []
+    if decomp_attn == True:
+        decomp_list = [
+            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+            torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten.scaled_dot_product_attention,
+        ]
+    with decompositions.extend_aot_decompositions(
+        from_current=True,
+        add_ops=decomp_list,
+    ):
 
-    class CompiledClip(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                text_encoder_model,
-                external=True,
-                external_scope="",
-                name_mapper=mapper.get,
-            )
-        else:
-            params = export_parameters(text_encoder_model)
+        class CompiledClip(CompiledModule):
+            if external_weights:
+                params = export_parameters(
+                    text_encoder_model,
+                    external=True,
+                    external_scope="",
+                    name_mapper=mapper.get,
+                )
+            else:
+                params = export_parameters(text_encoder_model)
 
-        def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
-            return jittable(text_encoder_model.forward)(inp)
+            def main(self, inp=AbstractTensor(1, max_length, dtype=torch.int64)):
+                return jittable(text_encoder_model.forward)(inp)
 
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    inst = CompiledClip(context=Context(), import_to=import_to)
+        import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
+        inst = CompiledClip(context=Context(), import_to=import_to)
 
-    module_str = str(CompiledModule.get_mlir_module(inst))
+        module_str = str(CompiledModule.get_mlir_module(inst))
 
     if compile_to != "vmfb":
         return module_str, tokenizer
