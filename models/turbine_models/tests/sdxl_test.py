@@ -93,7 +93,11 @@ class StableDiffusionXLTest(unittest.TestCase):
         decomp_attn = {
             "text_encoder": True,
             "unet": False,
-            "vae": False,
+            "vae": (
+                False
+                if any(x in arguments["device"] for x in ["hip", "rocm"])
+                else True
+            ),
         }
         self.pipe = SharkSDPipeline(
             arguments["hf_model_name"],
