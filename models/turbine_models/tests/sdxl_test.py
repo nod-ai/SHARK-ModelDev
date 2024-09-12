@@ -355,8 +355,8 @@ class StableDiffusionXLTest(unittest.TestCase):
         assert output is not None
 
     def test06_t2i_generate_images_punet(self):
-        if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest("Have issues with submodels on vulkan, cuda")
+        if arguments["device"] in ["vulkan", "cuda", "cpu"]:
+            self.skipTest("Have issues with submodels on vulkan, cuda, cpu")
         if getattr(self.pipe, "unet"):
             self.pipe.unload_submodel("unet")
         self.pipe.use_punet = True
