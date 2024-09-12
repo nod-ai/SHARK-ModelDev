@@ -99,6 +99,11 @@ class StableDiffusionXLTest(unittest.TestCase):
                 else True
             ),
         }
+        attn_spec = {
+            "text_encoder": None,
+            "unet": arguments["attn_spec"],
+            "vae": arguments["attn_spec"],
+        }
         self.pipe = SharkSDPipeline(
             arguments["hf_model_name"],
             arguments["height"],
@@ -109,7 +114,7 @@ class StableDiffusionXLTest(unittest.TestCase):
             arguments["device"],
             arguments["iree_target_triple"],
             ireec_flags=None,
-            attn_spec=arguments["attn_spec"],
+            attn_spec=attn_spec,
             decomp_attn=decomp_attn,
             pipeline_dir="test_vmfbs",
             external_weights_dir="test_weights",
