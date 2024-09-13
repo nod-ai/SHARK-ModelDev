@@ -41,6 +41,7 @@ import os
 import numpy as np
 import time
 from datetime import datetime as dt
+import pdb
 
 # These are arguments common among submodel exports.
 # They are expected to be populated in two steps:
@@ -227,6 +228,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         target: str | dict[str],
         ireec_flags: str | dict[str] = None,
         attn_spec: str | dict[str] = None,
+        onnx_model_path: str | dict[str] = None,
+        run_onnx_mmdit: bool = False,
         decomp_attn: bool | dict[bool] = False,
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
@@ -287,6 +290,8 @@ class SharkSDPipeline(TurbinePipelineBase):
             ireec_flags,
             precision,
             attn_spec,
+            onnx_model_path,
+            run_onnx_mmdit,
             decomp_attn,
             external_weights,
             pipeline_dir,
@@ -419,6 +424,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str = None,
         steps: int = 30,
     ):
+        # pdb.set_trace()
         if not self.cpu_scheduling:
             if self.is_sd3:
                 export_fn = sd3_schedulers.export_scheduler_model
@@ -460,6 +466,7 @@ class SharkSDPipeline(TurbinePipelineBase):
                 self.pipeline_dir,
                 utils.create_safe_name(self.base_model_name, scheduler_uid) + ".vmfb",
             )
+            # pdb.set_trace()
             if not os.path.exists(scheduler_path):
                 self.export_submodel("scheduler")
             else:
@@ -720,10 +727,26 @@ class SharkSDPipeline(TurbinePipelineBase):
                 pooled_prompt_embeds,
                 t,
             ]
-            noise_pred = self.mmdit(
-                "run_forward",
-                mmdit_inputs,
-            )
+            # pdb.set_trace()
+            if hasattr(self, 'mmdit_onnx'):
+                # pdb.set_trace()
+                latent_model_input = latent_model_input.to_host()
+                batch = latent_model_input.shape[0]
+                batched_t = np.repeat(t.to_host(), batch)
+                noise_pred = self.mmdit_onnx(
+                    {
+                        "hidden_states": latent_model_input, 
+                        "encoder_hidden_states": prompt_embeds,
+                        "pooled_projections" : pooled_prompt_embeds,
+                        "timestep": batched_t,
+                        
+                    }
+                )
+            else:
+                noise_pred = self.mmdit(
+                    "run_forward",
+                    mmdit_inputs,
+                )
             latents = self.scheduler(
                 "run_step", [noise_pred, t, latents, guidance_scale, steps_list_gpu[i]]
             )
@@ -754,6 +777,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             prompt = ""
 
         self.cpu_scheduling = cpu_scheduling
+        # pdb.set_trace()
         if steps and needs_new_scheduler:
             self.num_inference_steps = steps
             self.load_scheduler(scheduler_id, steps)
@@ -884,6 +908,9 @@ if __name__ == "__main__":
         "mmdit": args.mmdit_spec if args.mmdit_spec else args.attn_spec,
         "vae": args.vae_spec if args.vae_spec else args.attn_spec,
     }
+    onnx_model_paths = {
+        "mmdit": args.mmdit_onnx_model_path
+    }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
     benchmark = {}
@@ -913,6 +940,7 @@ if __name__ == "__main__":
         ),
         "vae": args.vae_decomp_attn if args.vae_decomp_attn else args.decomp_attn,
     }
+    # pdb.set_trace()
     sd_pipe = SharkSDPipeline(
         args.hf_model_name,
         args.height,
@@ -924,6 +952,8 @@ if __name__ == "__main__":
         targets,
         ireec_flags,
         specs,
+        onnx_model_paths,
+        args.run_onnx_mmdit,
         args.decomp_attn,
         args.pipeline_dir,
         args.external_weights_dir,
@@ -937,8 +967,10 @@ if __name__ == "__main__":
         args.verbose,
         save_outputs=save_outputs,
     )
+    # pdb.set_trace()
     sd_pipe.prepare_all()
     sd_pipe.load_map()
+    # pdb.set_trace()
     sd_pipe.generate_images(
         args.prompt,
         args.negative_prompt,

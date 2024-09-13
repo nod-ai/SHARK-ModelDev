@@ -159,6 +159,7 @@ def export_mmdit_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
+    onnx_model_path=None,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     mmdit_model = MMDiTModel(

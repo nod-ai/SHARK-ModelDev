@@ -445,4 +445,20 @@ p.add_argument(
 )
 
 
+##############################################################################
+# ONNX Options
+##############################################################################
+p.add_argument(
+    "--mmdit_onnx_model_path",
+    type=str,
+    default="C:/Users/chiz/work/sd3/mmdit/fp32/mmdit_optimized.onnx",
+    help="Path to mmdit onnx model",
+)
+
+p.add_argument(
+    "--run_onnx_mmdit",
+    action="store_true",
+    help="Run MMDiT in onnx",
+)
+
 args, unknown = p.parse_known_args()
