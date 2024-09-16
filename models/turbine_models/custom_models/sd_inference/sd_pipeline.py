@@ -396,7 +396,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.map["unet"]["mlir"] = None
         self.map["unet"]["vmfb"] = None
         self.map["unet"]["weights"] = None
-        self.map["unet"]["keywords"] = [i for i in self.map["unet"]["keywords"] if i != "!punet"]
+        self.map["unet"]["keywords"] = [
+            i for i in self.map["unet"]["keywords"] if i != "!punet"
+        ]
         self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
             if self.add_tk_kernels:
@@ -424,7 +426,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str = None,
         steps: int = 30,
     ):
-        # pdb.set_trace()
         if not self.cpu_scheduling:
             if self.is_sd3:
                 export_fn = sd3_schedulers.export_scheduler_model
@@ -466,7 +467,6 @@ class SharkSDPipeline(TurbinePipelineBase):
                 self.pipeline_dir,
                 utils.create_safe_name(self.base_model_name, scheduler_uid) + ".vmfb",
             )
-            # pdb.set_trace()
             if not os.path.exists(scheduler_path):
                 self.export_submodel("scheduler")
             else:
@@ -727,19 +727,16 @@ class SharkSDPipeline(TurbinePipelineBase):
                 pooled_prompt_embeds,
                 t,
             ]
-            # pdb.set_trace()
-            if hasattr(self, 'mmdit_onnx'):
-                # pdb.set_trace()
+            if hasattr(self, "mmdit_onnx"):
                 latent_model_input = latent_model_input.to_host()
                 batch = latent_model_input.shape[0]
                 batched_t = np.repeat(t.to_host(), batch)
                 noise_pred = self.mmdit_onnx(
                     {
-                        "hidden_states": latent_model_input, 
+                        "hidden_states": latent_model_input,
                         "encoder_hidden_states": prompt_embeds,
-                        "pooled_projections" : pooled_prompt_embeds,
+                        "pooled_projections": pooled_prompt_embeds,
                         "timestep": batched_t,
-                        
                     }
                 )
             else:
@@ -777,7 +774,6 @@ class SharkSDPipeline(TurbinePipelineBase):
             prompt = ""
 
         self.cpu_scheduling = cpu_scheduling
-        # pdb.set_trace()
         if steps and needs_new_scheduler:
             self.num_inference_steps = steps
             self.load_scheduler(scheduler_id, steps)
@@ -908,9 +904,7 @@ if __name__ == "__main__":
         "mmdit": args.mmdit_spec if args.mmdit_spec else args.attn_spec,
         "vae": args.vae_spec if args.vae_spec else args.attn_spec,
     }
-    onnx_model_paths = {
-        "mmdit": args.mmdit_onnx_model_path
-    }
+    onnx_model_paths = {"mmdit": args.mmdit_onnx_model_path}
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
     benchmark = {}
@@ -940,7 +934,6 @@ if __name__ == "__main__":
         ),
         "vae": args.vae_decomp_attn if args.vae_decomp_attn else args.decomp_attn,
     }
-    # pdb.set_trace()
     sd_pipe = SharkSDPipeline(
         args.hf_model_name,
         args.height,
@@ -967,10 +960,8 @@ if __name__ == "__main__":
         args.verbose,
         save_outputs=save_outputs,
     )
-    # pdb.set_trace()
     sd_pipe.prepare_all()
     sd_pipe.load_map()
-    # pdb.set_trace()
     sd_pipe.generate_images(
         args.prompt,
         args.negative_prompt,

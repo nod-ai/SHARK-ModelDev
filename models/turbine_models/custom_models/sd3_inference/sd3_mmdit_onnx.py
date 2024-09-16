@@ -49,6 +49,7 @@ class MMDiTModel(torch.nn.Module):
         )[0]
         return noise_pred
 
+
 @torch.no_grad()
 def export_mmdit_model(
     hf_model_name="stabilityai/stable-diffusion-3-medium-diffusers",
@@ -56,17 +57,21 @@ def export_mmdit_model(
     height=512,
     width=512,
     precision="fp16",
-    max_length=77
+    max_length=77,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     mmdit_model = MMDiTModel(
         dtype=dtype,
     )
     file_prefix = "C:/Users/chiz/work/sd3/mmdit/exported/"
-    safe_name = file_prefix + utils.create_safe_name(
-        hf_model_name,
-        f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_mmdit",
-    ) + ".onnx"
+    safe_name = (
+        file_prefix
+        + utils.create_safe_name(
+            hf_model_name,
+            f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_mmdit",
+        )
+        + ".onnx"
+    )
     print(safe_name)
 
     do_classifier_free_guidance = True
@@ -87,29 +92,28 @@ def export_mmdit_model(
     # mmdit_model(hidden_states, encoder_hidden_states, pooled_projections, timestep)
 
     torch.onnx.export(
-                    mmdit_model,  # model being run
-                    (
-                        hidden_states,
-                        encoder_hidden_states,
-                        pooled_projections,
-                        timestep
-                    ),  # model input (or a tuple for multiple inputs)
-                    safe_name,  # where to save the model (can be a file or file-like object)
-                    export_params=True,  # store the trained parameter weights inside the model file
-                    opset_version=17,  # the ONNX version to export the model to
-                    do_constant_folding=True,  # whether to execute constant folding for optimization
-                    input_names=[
-                        "hidden_states",
-                        "encoder_hidden_states",
-                        "pooled_projections",
-                        "timestep"
-                    ],  # the model's input names
-                    output_names=[
-                        "sample_out",
-                    ],  # the model's output names
-                )
+        mmdit_model,  # model being run
+        (
+            hidden_states,
+            encoder_hidden_states,
+            pooled_projections,
+            timestep,
+        ),  # model input (or a tuple for multiple inputs)
+        safe_name,  # where to save the model (can be a file or file-like object)
+        export_params=True,  # store the trained parameter weights inside the model file
+        opset_version=17,  # the ONNX version to export the model to
+        do_constant_folding=True,  # whether to execute constant folding for optimization
+        input_names=[
+            "hidden_states",
+            "encoder_hidden_states",
+            "pooled_projections",
+            "timestep",
+        ],  # the model's input names
+        output_names=[
+            "sample_out",
+        ],  # the model's output names
+    )
     return safe_name
-
 
 
 if __name__ == "__main__":
@@ -120,11 +124,11 @@ if __name__ == "__main__":
 
     onnx_model_name = export_mmdit_model(
         args.hf_model_name,
-        1, # args.batch_size,
-        512, # args.height,
-        512, # args.width,
-        "fp16", # args.precision,
-        77, # args.max_length,
+        1,  # args.batch_size,
+        512,  # args.height,
+        512,  # args.width,
+        "fp16",  # args.precision,
+        77,  # args.max_length,
     )
 
     print("Saved to", onnx_model_name)

@@ -265,6 +265,7 @@ def export_vae_model(
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
+
     mod_str = export_vae_model(
         args.hf_model_name,
         args.batch_size,

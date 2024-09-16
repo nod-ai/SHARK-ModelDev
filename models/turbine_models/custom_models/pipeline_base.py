@@ -76,6 +76,7 @@ def merge_export_arg(model_map, arg, arg_name):
 #         item = ast.literal_eval(item)
 #     return out
 
+
 class OnnxPipelineComponent:
     def __init__(
         self,
@@ -91,19 +92,17 @@ class OnnxPipelineComponent:
         self.printer = printer
         self.supported_dtypes = ["fp32"]
         self.default_dtype = "fp32"
-        self.used_dtype = dest_dtype if dest_dtype in self.supported_dtypes else self.default_dtype
-    def load(
-        self,
-        onnx_file_path: str,
-        ep="CPUExecutionProvider"
-    ):
+        self.used_dtype = (
+            dest_dtype if dest_dtype in self.supported_dtypes else self.default_dtype
+        )
+
+    def load(self, onnx_file_path: str, ep="CPUExecutionProvider"):
         self.onnx_file_path = onnx_file_path
         self.ep = ep
-        
+
         self.ort_session = onnxruntime.InferenceSession(onnx_file_path, providers=[ep])
-        self.printer.print(
-            f"Loading {onnx_file_path} into onnxruntime with {ep}."
-        )
+        self.printer.print(f"Loading {onnx_file_path} into onnxruntime with {ep}.")
+
     def unload(self):
         self.ort_session = None
         gc.collect()
@@ -116,18 +115,17 @@ class OnnxPipelineComponent:
                 inputs[iname] = inp.to_host()
             inputs[iname] = inputs[iname].astype(np_dtypes[self.used_dtype])
         return inputs
+
     def _convert_output(self, output):
         return output.astype(np_dtypes[self.dest_dtype])
-    
+
     def __call__(self, inputs: dict):
         converted_inputs = self._convert_inputs(inputs)
-        # pdb.set_trace()
         out = self.ort_session.run(
             None,
             converted_inputs,
         )[0]
         return self._convert_output(out)
-    
 
 
 class PipelineComponent:
@@ -323,16 +321,18 @@ class PipelineComponent:
 
     # def _run_and_validate(self, iree_fn, torch_fn, inputs: list)
 
+
 class Bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
 
 class Printer:
     def __init__(self, verbose, start_time, print_time):
@@ -356,7 +356,7 @@ class Printer:
             self.start_time = time.time()
             if self.verbose:
                 self.print("Clock for printer reset to t = 0.0 [s].")
-            print(Bcolors.ENDC, end='')
+            print(Bcolors.ENDC, end="")
 
     def print(self, message):
         if self.verbose:
@@ -364,16 +364,14 @@ class Printer:
             print(Bcolors.BOLD + Bcolors.OKCYAN)
             if self.print_time:
                 time_now = time.time()
-                print(
-                    f"[ts={time_now - self.start_time:.3f}s] {message}"
-                )
+                print(f"[ts={time_now - self.start_time:.3f}s] {message}")
                 # print(
                 #     f"[t={time_now - self.start_time:.3f} dt={time_now - self.last_print:.3f}] {message}"
                 # )
                 self.last_print = time_now
             else:
                 print(f"{message}")
-            print(Bcolors.ENDC, end='')
+            print(Bcolors.ENDC, end="")
 
 
 class TurbinePipelineBase:
@@ -446,7 +444,7 @@ class TurbinePipelineBase:
         self.map = model_map
         self.verbose = verbose
         self.printer = Printer(self.verbose, time.time(), True)
-        self.run_onnx_mmdit=run_onnx_mmdit
+        self.run_onnx_mmdit = run_onnx_mmdit
         if isinstance(device, dict):
             assert isinstance(
                 target, dict
@@ -488,7 +486,6 @@ class TurbinePipelineBase:
         self.map = merge_arg_into_map(
             self.map, torch_dtypes[self.map[submodel]["precision"]], "torch_dtype"
         )
-        # pdb.set_trace()
         for arg in common_export_args.keys():
             for submodel in self.map.keys():
                 self.map[submodel].get("export_args", {})[arg] = self.map[submodel].get(
@@ -838,7 +835,6 @@ class TurbinePipelineBase:
             self.load_submodel(submodel)
 
     def load_submodel(self, submodel):
-        
 
         if not self.map[submodel].get("vmfb"):
             raise ValueError(f"VMFB not found for {submodel}.")
@@ -862,21 +858,18 @@ class TurbinePipelineBase:
         )
         setattr(self, submodel, self.map[submodel]["runner"])
 
-        # add an onnx runners 
+        # add an onnx runners
         if self.run_onnx_mmdit and submodel == "mmdit":
             dest_type = "numpy"
             dest_dtype = self.map[submodel]["precision"]
             onnx_runner = OnnxPipelineComponent(
-                printer=self.printer,
-                dest_type=dest_type,
-                dest_dtype=dest_dtype
+                printer=self.printer, dest_type=dest_type, dest_dtype=dest_dtype
             )
             ep = "CPUExecutionProvider"
             onnx_runner.load(
-                onnx_file_path=self.map[submodel]["onnx_model_path"],
-                ep=ep
+                onnx_file_path=self.map[submodel]["onnx_model_path"], ep=ep
             )
-            setattr(self, submodel+"_onnx", onnx_runner)
+            setattr(self, submodel + "_onnx", onnx_runner)
 
     def unload_submodel(self, submodel):
         self.map[submodel]["runner"].unload()

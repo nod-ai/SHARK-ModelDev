@@ -63,19 +63,22 @@ def export_vae_model(
     batch_size=1,
     height=512,
     width=512,
-    precision="fp32"
+    precision="fp32",
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     file_prefix = "C:/Users/chiz/work/sd3/vae_decoder/exported/"
-    safe_name = file_prefix + utils.create_safe_name(
-        hf_model_name,
-        f"_bs{batch_size}_{height}x{width}_{precision}_vae",
-    ) + ".onnx"
+    safe_name = (
+        file_prefix
+        + utils.create_safe_name(
+            hf_model_name,
+            f"_bs{batch_size}_{height}x{width}_{precision}_vae",
+        )
+        + ".onnx"
+    )
     print(safe_name)
 
     if dtype == torch.float16:
         vae_model = vae_model.half()
-
 
     # input_image_shape = (height, width, 3)
     input_latents_shape = (batch_size, 16, height // 8, width // 8)
@@ -94,37 +97,34 @@ def export_vae_model(
     # ]
 
     torch.onnx.export(
-                    vae_model,  # model being run
-                    (
-                        input_latents
-                    ),  # model input (or a tuple for multiple inputs)
-                    safe_name,  # where to save the model (can be a file or file-like object)
-                    export_params=True,  # store the trained parameter weights inside the model file
-                    opset_version=17,  # the ONNX version to export the model to
-                    do_constant_folding=True,  # whether to execute constant folding for optimization
-                    input_names=[
-                        "input_latents",
-                    ],  # the model's input names
-                    output_names=[
-                        "sample_out",
-                    ],  # the model's output names
-                )
+        vae_model,  # model being run
+        (input_latents),  # model input (or a tuple for multiple inputs)
+        safe_name,  # where to save the model (can be a file or file-like object)
+        export_params=True,  # store the trained parameter weights inside the model file
+        opset_version=17,  # the ONNX version to export the model to
+        do_constant_folding=True,  # whether to execute constant folding for optimization
+        input_names=[
+            "input_latents",
+        ],  # the model's input names
+        output_names=[
+            "sample_out",
+        ],  # the model's output names
+    )
     return safe_name
-
 
 
 if __name__ == "__main__":
     from turbine_models.custom_models.sd3_inference.sd3_cmd_opts import args
 
     vae_model = VaeModel(
-            args.hf_model_name,
+        args.hf_model_name,
     )
     onnx_model_name = export_vae_model(
         vae_model,
         args.hf_model_name,
-        1, # args.batch_size,
-        512, # height=args.height,
-        512, # width=args.width,
-        "fp32" # precision=args.precision
+        1,  # args.batch_size,
+        512,  # height=args.height,
+        512,  # width=args.width,
+        "fp32",  # precision=args.precision
     )
     print("Saved to", onnx_model_name)

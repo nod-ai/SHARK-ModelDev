@@ -62,11 +62,15 @@ def command_line_args(request):
     arguments["compile_to"] = request.config.getoption("--compile_to")
     arguments["external_weights"] = request.config.getoption("--external_weights")
     arguments["decomp_attn"] = request.config.getoption("--decomp_attn")
-    arguments["attn_spec"] = request.config.getoption("--attn_spec") if request.config.getoption("attn_spec") else {
-        "text_encoder": request.config.getoption("clip_spec"),
-        "unet": request.config.getoption("unet_spec"),
-        "vae": request.config.getoption("vae_spec"),
-    }
+    arguments["attn_spec"] = (
+        request.config.getoption("--attn_spec")
+        if request.config.getoption("attn_spec")
+        else {
+            "text_encoder": request.config.getoption("clip_spec"),
+            "unet": request.config.getoption("unet_spec"),
+            "vae": request.config.getoption("vae_spec"),
+        }
+    )
     arguments["device"] = request.config.getoption("--device")
     arguments["rt_device"] = request.config.getoption("--rt_device")
     arguments["iree_target_triple"] = request.config.getoption("--iree_target_triple")
@@ -117,9 +121,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
     def test01_PromptEncoder(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Compilation error on vulkan; To be tested on cuda."
-            )
+            self.skipTest("Compilation error on vulkan; To be tested on cuda.")
         arguments["vmfb_path"] = self.pipe.map["text_encoder"]["vmfb"]
         arguments["external_weight_path"] = self.pipe.map["text_encoder"]["weights"]
         tokenizer_1 = CLIPTokenizer.from_pretrained(
@@ -350,9 +352,7 @@ class StableDiffusionXLTest(unittest.TestCase):
 
     def test06_t2i_generate_images_punet(self):
         if arguments["device"] in ["vulkan", "cuda"]:
-            self.skipTest(
-                "Have issues with submodels on vulkan, cuda"
-            )
+            self.skipTest("Have issues with submodels on vulkan, cuda")
         if getattr(self.pipe, "unet"):
             self.pipe.unload_submodel("unet")
         self.pipe.use_punet = True
@@ -372,11 +372,10 @@ class StableDiffusionXLTest(unittest.TestCase):
             True,  # return_img
         )
         assert output is not None
-    
+
     def tearDown(self):
         del self.pipe
         gc.collect()
-
 
 
 if __name__ == "__main__":
