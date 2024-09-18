@@ -32,5 +32,5 @@ cd ..
 ### Export and compile
 
 ```shell
-python ./export.py --model_id=All --target=gfx942 --device=hip --compile_to=vmfb --accuracy --inference
+python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/
 ```

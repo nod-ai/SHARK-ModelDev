@@ -4,6 +4,7 @@ import numpy as np
 import os
 import safetensors
 import safetensors.numpy as safe_numpy
+import safetensors.torch as safe_torch
 import re
 import glob
 
@@ -461,7 +462,7 @@ def save_external_weights(
                 mod_params = vae_params
             if external_weight_file and not os.path.isfile(external_weight_file):
                 if not force_format:
-                    safetensors.torch.save_file(mod_params, external_weight_file)
+                    safe_torch.save_file(mod_params, external_weight_file)
                 else:
                     for x in mod_params.keys():
                         mod_params[x] = mod_params[x].numpy()
