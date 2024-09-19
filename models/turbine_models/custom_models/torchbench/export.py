@@ -181,14 +181,18 @@ def export_torchbench_model(
 
     _, model_name, model, forward_args, _ = get_model_and_inputs(model_id, batch_size, tb_dir, tb_args)
     
-    for idx, i in enumerate(forward_args.values()):
-        np.save(f"input{idx}", i.clone().detach().cpu())
     if dtype == torch.float16:
         model = model.half()
         model.to("cuda:0")
 
     if not isinstance(forward_args, dict):
         forward_args = [i.type(dtype) for i in forward_args]
+        for idx, i in enumerate(forward_args):
+            np.save(f"{model_id}_input{idx}", i.clone().detach().cpu())
+    else:
+        for idx, i in enumerate(forward_args.values()):
+            np.save(f"{model_id}_input{idx}", i.clone().detach().cpu())
+
     
     mapper = {}
     if (external_weights_dir is not None):
