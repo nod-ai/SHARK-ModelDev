@@ -72,9 +72,9 @@ torchbench_models_dict = {
     "mobilenet_v3_large": {
         "dim": 256,
     },
-    "nvidia_deeprecommender": {
-        "dim": 1024,
-    },
+    # "nvidia_deeprecommender": {
+    #     "dim": 1024,
+    # },
     "pytorch_unet": {
         "dim": 8,
     },
@@ -232,7 +232,6 @@ def export_torchbench_model(
                     getattr(model, prefix).embeddings.position_ids,
                     persistent=True,
                 )
-            breakpoint()
             fxb = FxProgramsBuilder(HF_M(model))
             @fxb.export_program(args=(forward_args,))
             def _forward(module: HF_M(model), inputs):
