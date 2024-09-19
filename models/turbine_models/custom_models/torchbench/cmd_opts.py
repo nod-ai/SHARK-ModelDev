@@ -68,7 +68,7 @@ p.add_argument("--compile_to", type=str, default="mlir", help="torch, linalg, vm
 p.add_argument(
     "--external_weights",
     type=str,
-    default=None,
+    default="irpa",
     choices=["safetensors", "irpa", "gguf", None],
     help="Externalizes model weights from the torch dialect IR and its successors",
 )

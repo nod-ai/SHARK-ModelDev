@@ -48,22 +48,21 @@ torchbench_models_dict = {
         "dim": 32,
         "buffer_prefix": "albert"
     },
-    "hf_Bart": {
-        "dim": 16,
-        "buffer_prefix": "bart"
-    },
-    "hf_Bert": {
-        "dim": 16,
-        "buffer_prefix": "bert"
-    },
-    "hf_GPT2": {
-        "dim": 16,
-        "buffer_prefix": "gpt2"
-    },
-    "hf_T5": {
-        "dim": 4,
-        "buffer_prefix": "t5"
-    },
+    # "hf_Bart": {
+    #     "dim": 16,
+    # },
+    # "hf_Bert": {
+    #     "dim": 16,
+    #     "buffer_prefix": "bert"
+    # },
+    # "hf_GPT2": {
+    #     "dim": 16,
+    #     "buffer_prefix": "gpt2"
+    # },
+    # "hf_T5": {
+    #     "dim": 4,
+    #     "buffer_prefix": "t5"
+    # },
     "mnasnet1_0": {
         "dim": 256,
     },
@@ -182,30 +181,21 @@ def export_torchbench_model(
 
     _, model_name, model, forward_args, _ = get_model_and_inputs(model_id, batch_size, tb_dir, tb_args)
     
+    for idx, i in enumerate(forward_args.values()):
+        np.save(f"input{idx}", i.clone().detach().cpu())
     if dtype == torch.float16:
         model = model.half()
         model.to("cuda:0")
 
     if not isinstance(forward_args, dict):
         forward_args = [i.type(dtype) for i in forward_args]
-    elif "hf" in model_id:
-        forward_args["head_mask"] = torch.zeros(model.config.num_hidden_layers, device="cuda:0")
     
     mapper = {}
     if (external_weights_dir is not None):
         if not os.path.exists(external_weights_dir):
             os.mkdir(external_weights_dir)
-        external_weight_path = os.path.join(external_weights_dir, f"{model_id}_{precision}.{external_weights}")
-        if os.path.exists(external_weight_path):
-            print("External weights for this module already exist at {external_weight_path}. Will not overwrite.")
-        utils.save_external_weights(
-            mapper,
-            model,
-            external_weights,
-            external_weight_path,
-        )
-    if weights_only:
-        return external_weight_path
+        external_weight_path = os.path.join(external_weights_dir, f"{model_id}_{precision}.irpa")
+
 
     decomp_list = [torch.ops.aten.reflection_pad2d]
     if decomp_attn == True:
@@ -225,18 +215,20 @@ def export_torchbench_model(
                     self.mod = model
                 
                 def forward(self, inp):
-                    return self.mod(**inp, return_dict=False)
-            # In transformers, the position ids buffer is registered as non-persistent,
-            # which makes it fail to globalize in the FX import.
-            # Add them manually to the state dict here.
+                    return self.mod(**inp)
+            
+            if "Bart" not in model_id:
+                # In some transformers models, the position ids buffer is registered as non-persistent,
+                # which makes it fail to globalize in the FX import.
+                # Add them manually to the state dict here.
 
-            prefix = torchbench_models_dict[model_id]["buffer_prefix"]
-            getattr(model, prefix).embeddings.register_buffer(
-                "position_ids",
-                getattr(model, prefix).embeddings.position_ids,
-                persistent=True,
-            )
-
+                prefix = torchbench_models_dict[model_id]["buffer_prefix"]
+                getattr(model, prefix).embeddings.register_buffer(
+                    "position_ids",
+                    getattr(model, prefix).embeddings.position_ids,
+                    persistent=True,
+                )
+            breakpoint()
             fxb = FxProgramsBuilder(HF_M(model))
             @fxb.export_program(args=(forward_args,))
             def _forward(module: HF_M(model), inputs):
@@ -252,6 +244,7 @@ def export_torchbench_model(
 
         if external_weights:
             externalize_module_parameters(model)
+            save_module_parameters(external_weight_path, model)
 
         inst = CompiledTorchbenchModel(context=Context(), import_to="IMPORT")
 

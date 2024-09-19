@@ -4,7 +4,7 @@
 
  - pip install torch+rocm packages:
 ```shell
-pip install --pre torch==2.5.0.dev20240801+rocm6.1 torchvision==0.20.0.dev20240801+rocm6.1 torchaudio==2.4.0.dev20240801%2Brocm6.1 --index-url https://download.pytorch.org/whl/nightly/rocm6.1
+pip install torch==2.5.0.dev20240801+rocm6.1 torchvision==0.20.0.dev20240801+rocm6.1 torchaudio==2.4.0.dev20240801+rocm6.1 --index-url https://download.pytorch.org/whl/nightly/rocm6.1
 
 ```
  - Workaround amdsmi error in pre-release pytorch+rocm:
@@ -33,4 +33,12 @@ cd ..
 
 ```shell
 python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/
+```
+
+### Example (hf_Albert)
+
+```shell
+ python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --model_id=hf_Albert
+
+iree-benchmark-module --module=hf_Albert_32_fp16_gfx942.vmfb --input=@input0.npy --parameters=model=./torchbench_weights/hf_Albert_fp16.irpa --device=hip://0 --device_allocator=caching --function=main --benchmark_repetitions=10
 ```
