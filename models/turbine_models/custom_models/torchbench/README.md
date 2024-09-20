@@ -6,7 +6,27 @@ This directory serves as a place for scripts and utilities to run a suite of ben
 
 Eventually, we want this process to be a plug-in to the upstream torchbench process, and this will be accomplished by exposing the IREE methodology shown here as a compile/runtime backend for the torch benchmark classes. For now, it is set up for developers as a way to get preliminary results and achieve blanket functionality for the models listed in export.py.
 
-### Setup
+The setup instructions provided here, in a few cases, use "gfx942" as the IREE/LLVM hip target. This is for MI300x accelerators -- you can find a mapping of AMD targets to their LLVM target architecture [here](https://llvm.org/docs/AMDGPUUsage.html#amdgpu-architecture-table), and replace "gfx942" in the following documentation with your desired target.
+
+## Setup (docker)
+
+Use the dockerfile provided with the following build/run commands to execute in docker.
+These commands assume a few things about your machine/distro, so please read them and make sure they do what you want.
+
+```shell
+docker build --platform linux/amd64 --tag shark_torchbench --file shark_torchbench.dockerfile .
+```
+```shell
+docker run -it --network=host --device=/dev/kfd --device=/dev/dri --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v shark_torchbench:/SHARK-Turbine/models/turbine_models/custom_models/torchbench/outputs -w /SHARK-Turbine/models/turbine_models/custom_models/torchbench shark_torchbench:latest
+```
+```shell
+python3 ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --output_csv=./outputs/torchbench_results_SHARK.csv
+```
+
+
+## Setup (source)
+
+### Setup source code and prerequisites
 
  - pip install torch+rocm packages:
 ```shell
@@ -41,10 +61,10 @@ cd ..
 python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/
 ```
 
-### Example (hf_Albert)
+### Example of manual benchmark using export and IREE runtime CLI (hf_Albert)
 
 ```shell
  python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --model_id=hf_Albert
 
-iree-benchmark-module --module=hf_Albert_32_fp16_gfx942.vmfb --input=@input0.npy --parameters=model=./torchbench_weights/hf_Albert_fp16.irpa --device=hip://0 --device_allocator=caching --function=main --benchmark_repetitions=10
+iree-benchmark-module --module=generated/hf_Albert_32_fp16_gfx942.vmfb --input=@generated/hf_Albert_input0.npy --parameters=model=./torchbench_weights/hf_Albert_fp16.irpa --device=hip://0 --device_allocator=caching --function=main --benchmark_repetitions=10
 ```
