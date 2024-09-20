@@ -294,12 +294,19 @@ def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_p
         results, iter_latency = _run_iter(mod_runner, inputs)
         iter_latencies.append(iter_latency)
     avg_latency = sum(iter_latencies) / len(iter_latencies)
-    with open(csv_path, "w") as csvfile:
-        fieldnames = ["model", "avg_latency"]
-        data = [{"model": model_id, "avg_latency": avg_latency}]
+    it_per_sec = 1 / avg_latency
+
+    needs_header = True
+    if os.path.exists(csv_path):
+        needs_header = False
+    with open(csv_path, "a") as csvfile:
+        fieldnames = ["model", "avg_latency", "avg_iter_per_sec"]
+        data = [{"model": model_id, "avg_latency": avg_latency, "avg_iter_per_sec": it_per_sec}]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
+        if needs_header:
+            writer.writeheader()
         writer.writerows(data)
+    print(data)
 
 
 def torch_to_iree(iree_runner, example_args):
