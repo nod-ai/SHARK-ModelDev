@@ -695,7 +695,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             numpy_images.append(image)
             pipe_end = time.time()
 
-        logging.info(f"Total inference time: {pipe_end - pipe_start:.2f}s")
+        self.printer.print(f"Total inference time ({self.batch_size} samples): {pipe_end - pipe_start:.2f}s")
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
         images = []
         for idx, image in enumerate(numpy_images):
