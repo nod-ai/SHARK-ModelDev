@@ -49,7 +49,7 @@ torchbench_models_dict = {
     # "densenet121": {
     #     "dim": 64,
     # },
-    "hf_Albert": {"dim": 32, "buffer_prefix": "albert"},
+    # "hf_Albert": {"dim": 32, "buffer_prefix": "albert"},
     # "hf_Bart": {
     #     "dim": 16,
     # },
