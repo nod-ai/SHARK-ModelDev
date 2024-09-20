@@ -9,6 +9,7 @@ import sys
 import gc
 
 from iree.compiler.ir import Context
+from iree import runtime as ireert
 import numpy as np
 from shark_turbine.aot import *
 from shark_turbine.dynamo.passes import (
@@ -21,10 +22,12 @@ from huggingface_hub import hf_hub_download
 from safetensors import safe_open
 import argparse
 from turbine_models.turbine_tank import turbine_tank
+from turbine_models.model_runner import vmfbRunner
 
 from pytorch.benchmarks.dynamo.common import parse_args
 from pytorch.benchmarks.dynamo.torchbench import TorchBenchmarkRunner, setup_torchbench_cwd
 
+import csv
 torchbench_models_dict = {
     # "BERT_pytorch": {
     #     "dim": 128,
@@ -84,7 +87,7 @@ torchbench_models_dict = {
     "resnet50": {
         "dim": 128,
     },
-    "resnet50_32x4d": {
+    "resnext50_32x4d": {
         "dim": 128,
     },
     "shufflenet_v2_x1_0": {
@@ -93,9 +96,9 @@ torchbench_models_dict = {
     "squeezenet1_1": {
         "dim": 512,
     },
-    "timm_nfnet": {
-        "dim": 256,
-    },
+    # "timm_nfnet": {
+    #     "dim": 256,
+    # },
     "timm_efficientnet": {
         "dim": 128,
     },
@@ -163,8 +166,12 @@ def export_torchbench_model(
         model_id,
         f"_{static_dim}_{precision}",
     )
+    safe_name = os.path.join("generated", safe_name)
     if decomp_attn:
         safe_name += "_decomp_attn"
+
+    if not os.path.exists("generated"):
+        os.mkdir("generated")
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -179,6 +186,7 @@ def export_torchbench_model(
         )
         return vmfb_path
 
+
     _, model_name, model, forward_args, _ = get_model_and_inputs(model_id, batch_size, tb_dir, tb_args)
     
     if dtype == torch.float16:
@@ -188,7 +196,8 @@ def export_torchbench_model(
     if not isinstance(forward_args, dict):
         forward_args = [i.type(dtype) for i in forward_args]
         for idx, i in enumerate(forward_args):
-            np.save(f"{model_id}_input{idx}", i.clone().detach().cpu())
+            np.save(
+                os.path.join("generated", f"{model_id}_input{idx}"), i.clone().detach().cpu())
     else:
         for idx, i in enumerate(forward_args.values()):
             np.save(f"{model_id}_input{idx}", i.clone().detach().cpu())
@@ -199,7 +208,8 @@ def export_torchbench_model(
         if not os.path.exists(external_weights_dir):
             os.mkdir(external_weights_dir)
         external_weight_path = os.path.join(external_weights_dir, f"{model_id}_{precision}.irpa")
-
+    else:
+        external_weight_path = None
 
     decomp_list = [torch.ops.aten.reflection_pad2d]
     if decomp_attn == True:
@@ -265,11 +275,26 @@ def export_torchbench_model(
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
         )
-        return vmfb_path
+        return vmfb_path, external_weight_path, forward_args
+
+def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_path):
+    if "rocm" in device:
+        device = "hip" + device.split("rocm")[-1]
+    mod_runner = vmfbRunner(device, vmfb_path, weights_path)
+    inputs = [ireert.asdevicearray(mod_runner.config.device, i) for i in example_args]
+    start = time.time()
+    results = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
+    latency = time.time() - start
+    with open(csv_path, "a") as csvfile:
+        fieldnames = ["model", "latency"]
+        data = [{"model": model_id, "latency": latency}]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerows(data)
+
 
 def run_main(model_id, args, tb_dir, tb_args):
     print(f"exporting {model_id}")
-    mod_str = export_torchbench_model(
+    mod_str, weights_path, example_args = export_torchbench_model(
         model_id,
         tb_dir,
         tb_args,
@@ -293,6 +318,9 @@ def run_main(model_id, args, tb_dir, tb_args):
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")
+    elif args.run_benchmark:
+        run_benchmark(args.device, mod_str, weights_path, example_args, model_id, args.output_csv)
+
     gc.collect()
 
 if __name__ == "__main__":

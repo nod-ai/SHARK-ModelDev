@@ -72,6 +72,16 @@ p.add_argument(
     choices=["safetensors", "irpa", "gguf", None],
     help="Externalizes model weights from the torch dialect IR and its successors",
 )
+p.add_argument(
+    "--run_benchmark",
+    type=bool,
+    default=True,
+)
+p.add_argument(
+    "--output_csv",
+    type=str,
+    default="./benchmark_results.csv",
+)
 
 ##############################################################################
 # Modeling and Export Options

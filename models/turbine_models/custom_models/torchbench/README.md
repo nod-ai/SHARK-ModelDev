@@ -1,5 +1,11 @@
 # SHARK torchbench exports and benchmarks
 
+## Overview
+
+This directory serves as a place for scripts and utilities to run a suite of benchmarked inference tasks, showing functionality and performance parity between SHARK/IREE and native torch.compile workflows. It is currently under development and benchmark numbers should not be treated as the best possible result with the current state of IREE compiler optimizations.
+
+Eventually, we want this process to be a plug-in to the upstream torchbench process, and this will be accomplished by exposing the IREE methodology shown here as a compile/runtime backend for the torch benchmark classes. For now, it is set up for developers as a way to get preliminary results and achieve blanket functionality for the models listed in export.py.
+
 ### Setup
 
  - pip install torch+rocm packages:
