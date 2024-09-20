@@ -7,6 +7,7 @@
 import os
 import sys
 import gc
+import time
 
 from iree.compiler.ir import Context
 from iree import runtime as ireert
@@ -281,7 +282,7 @@ def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_p
     if "rocm" in device:
         device = "hip" + device.split("rocm")[-1]
     mod_runner = vmfbRunner(device, vmfb_path, weights_path)
-    inputs = [ireert.asdevicearray(mod_runner.config.device, i) for i in example_args]
+    inputs = [ireert.asdevicearray(mod_runner.config.device, i.clone().detach().cpu()) for i in example_args]
     start = time.time()
     results = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
     latency = time.time() - start
