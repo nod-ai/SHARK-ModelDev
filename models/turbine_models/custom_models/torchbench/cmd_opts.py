@@ -78,6 +78,11 @@ p.add_argument(
     default=True,
 )
 p.add_argument(
+    "--num_iters",
+    type=int,
+    default=10,
+)
+p.add_argument(
     "--output_csv",
     type=str,
     default="./benchmark_results.csv",

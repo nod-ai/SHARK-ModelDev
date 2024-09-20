@@ -36,18 +36,15 @@ torchbench_models_dict = {
     # "Background_Matting": {
     #     "dim": 16,
     # },
-    "LearningToPaint": {
-        "dim": 1024,
-    },
+    # "LearningToPaint": {
+    #     "dim": 1024,
+    # },
     "alexnet": {
         "dim": 1024,
     },
-    "dcgan": {
-        "dim": 1024,
-    },
-    "densenet121": {
-        "dim": 64,
-    },
+    # "densenet121": {
+    #     "dim": 64,
+    # },
     "hf_Albert": {
         "dim": 32,
         "buffer_prefix": "albert"
@@ -109,15 +106,16 @@ torchbench_models_dict = {
     "timm_resnest": {
         "dim": 256,
     },
-    "timm_vision_transformer": {
-        "dim": 256,
-    },
+    # "timm_vision_transformer": {
+    #     "dim": 256,
+    #     "decomp_attn": True,
+    # },
     "timm_vovnet": {
         "dim": 128,
     },
-    "vgg16": {
-        "dim": 128,
-    },
+    # "vgg16": {
+    #     "dim": 128,
+    # },
 }
 
 # Adapted from pytorch.benchmarks.dynamo.common.main()
@@ -213,10 +211,12 @@ def export_torchbench_model(
         external_weight_path = None
 
     decomp_list = [torch.ops.aten.reflection_pad2d]
-    if decomp_attn == True:
+    if decomp_attn == True or torchbench_models_dict[model_id].get("decomp_attn"):
+        print("decomposing attention for: " + model_id)
         decomp_list.extend([
             torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
             torch.ops.aten._scaled_dot_product_flash_attention.default,
+            torch.ops.aten._scaled_dot_product_flash_attention,
             torch.ops.aten.scaled_dot_product_attention,
         ])
     with decompositions.extend_aot_decompositions(
@@ -278,20 +278,36 @@ def export_torchbench_model(
         )
         return vmfb_path, external_weight_path, forward_args
 
-def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_path):
+
+def _run_iter(runner, inputs):
+    start = time.time()
+    res = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
+    return res, time.time() - start
+
+def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_path, iters):
     if "rocm" in device:
         device = "hip" + device.split("rocm")[-1]
     mod_runner = vmfbRunner(device, vmfb_path, weights_path)
-    inputs = [ireert.asdevicearray(mod_runner.config.device, i.clone().detach().cpu()) for i in example_args]
-    start = time.time()
-    results = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
-    latency = time.time() - start
-    with open(csv_path, "a") as csvfile:
-        fieldnames = ["model", "latency"]
-        data = [{"model": model_id, "latency": latency}]
+    inputs = torch_to_iree(mod_runner, example_args)
+    iter_latencies = []
+    for i in range(iters):
+        results, iter_latency = _run_iter(mod_runner, inputs)
+        iter_latencies.append(iter_latency)
+    avg_latency = sum(iter_latencies) / len(iter_latencies)
+    with open(csv_path, "w") as csvfile:
+        fieldnames = ["model", "avg_latency"]
+        data = [{"model": model_id, "avg_latency": avg_latency}]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
         writer.writerows(data)
 
+
+def torch_to_iree(iree_runner, example_args):
+    if isinstance(example_args, dict):
+        iree_args = [ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu()) for i in example_args.values()]
+    else:
+        iree_args = [ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu()) for i in example_args]
+    return iree_args
 
 def run_main(model_id, args, tb_dir, tb_args):
     print(f"exporting {model_id}")
@@ -320,7 +336,7 @@ def run_main(model_id, args, tb_dir, tb_args):
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")
     elif args.run_benchmark:
-        run_benchmark(args.device, mod_str, weights_path, example_args, model_id, args.output_csv)
+        run_benchmark(args.device, mod_str, weights_path, example_args, model_id, args.output_csv, args.num_iters)
 
     gc.collect()
 
