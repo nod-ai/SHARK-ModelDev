@@ -27,7 +27,7 @@ MI_flags = {
     "preprocess_transpose": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
-    ]
+    ],
 }
 GFX11_flags = {
     "all": [
