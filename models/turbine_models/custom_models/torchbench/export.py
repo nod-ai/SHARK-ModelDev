@@ -26,9 +26,13 @@ from turbine_models.turbine_tank import turbine_tank
 from turbine_models.model_runner import vmfbRunner
 
 from pytorch.benchmarks.dynamo.common import parse_args
-from pytorch.benchmarks.dynamo.torchbench import TorchBenchmarkRunner, setup_torchbench_cwd
+from pytorch.benchmarks.dynamo.torchbench import (
+    TorchBenchmarkRunner,
+    setup_torchbench_cwd,
+)
 
 import csv
+
 torchbench_models_dict = {
     # "BERT_pytorch": {
     #     "dim": 128,
@@ -45,10 +49,7 @@ torchbench_models_dict = {
     # "densenet121": {
     #     "dim": 64,
     # },
-    "hf_Albert": {
-        "dim": 32,
-        "buffer_prefix": "albert"
-    },
+    "hf_Albert": {"dim": 32, "buffer_prefix": "albert"},
     # "hf_Bart": {
     #     "dim": 16,
     # },
@@ -118,6 +119,7 @@ torchbench_models_dict = {
     # },
 }
 
+
 # Adapted from pytorch.benchmarks.dynamo.common.main()
 def get_runner(tb_dir, tb_args):
     if tb_dir:
@@ -134,7 +136,7 @@ def get_model_and_inputs(model_id, batch_size, tb_dir, tb_args):
     return runner.load_model(
         "cuda:0",
         model_id,
-        batch_size = batch_size,
+        batch_size=batch_size,
     )
 
 
@@ -185,9 +187,10 @@ def export_torchbench_model(
         )
         return vmfb_path
 
+    _, model_name, model, forward_args, _ = get_model_and_inputs(
+        model_id, batch_size, tb_dir, tb_args
+    )
 
-    _, model_name, model, forward_args, _ = get_model_and_inputs(model_id, batch_size, tb_dir, tb_args)
-    
     if dtype == torch.float16:
         model = model.half()
         model.to("cuda:0")
@@ -196,42 +199,48 @@ def export_torchbench_model(
         forward_args = [i.type(dtype) for i in forward_args]
         for idx, i in enumerate(forward_args):
             np.save(
-                os.path.join("generated", f"{model_id}_input{idx}"), i.clone().detach().cpu())
+                os.path.join("generated", f"{model_id}_input{idx}"),
+                i.clone().detach().cpu(),
+            )
     else:
         for idx, i in enumerate(forward_args.values()):
             np.save(f"{model_id}_input{idx}", i.clone().detach().cpu())
 
-    
     mapper = {}
-    if (external_weights_dir is not None):
+    if external_weights_dir is not None:
         if not os.path.exists(external_weights_dir):
             os.mkdir(external_weights_dir)
-        external_weight_path = os.path.join(external_weights_dir, f"{model_id}_{precision}.irpa")
+        external_weight_path = os.path.join(
+            external_weights_dir, f"{model_id}_{precision}.irpa"
+        )
     else:
         external_weight_path = None
 
     decomp_list = [torch.ops.aten.reflection_pad2d]
     if decomp_attn == True or torchbench_models_dict[model_id].get("decomp_attn"):
         print("decomposing attention for: " + model_id)
-        decomp_list.extend([
-            torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
-            torch.ops.aten._scaled_dot_product_flash_attention.default,
-            torch.ops.aten._scaled_dot_product_flash_attention,
-            torch.ops.aten.scaled_dot_product_attention,
-        ])
+        decomp_list.extend(
+            [
+                torch.ops.aten._scaled_dot_product_flash_attention_for_cpu,
+                torch.ops.aten._scaled_dot_product_flash_attention.default,
+                torch.ops.aten._scaled_dot_product_flash_attention,
+                torch.ops.aten.scaled_dot_product_attention,
+            ]
+        )
     with decompositions.extend_aot_decompositions(
         from_current=True,
         add_ops=decomp_list,
     ):
         if "hf" in model_id:
+
             class HF_M(torch.nn.Module):
                 def __init__(self, model):
                     super().__init__()
                     self.mod = model
-                
+
                 def forward(self, inp):
                     return self.mod(**inp)
-            
+
             if "Bart" not in model_id:
                 # In some transformers models, the position ids buffer is registered as non-persistent,
                 # which makes it fail to globalize in the FX import.
@@ -244,15 +253,18 @@ def export_torchbench_model(
                     persistent=True,
                 )
             fxb = FxProgramsBuilder(HF_M(model))
+
             @fxb.export_program(args=(forward_args,))
             def _forward(module: HF_M(model), inputs):
                 return module(inputs)
+
         else:
             fxb = FxProgramsBuilder(model)
+
             @fxb.export_program(args=(forward_args,))
             def _forward(module, inputs):
                 return module(*inputs)
-        
+
         class CompiledTorchbenchModel(CompiledModule):
             main = _forward
 
@@ -284,7 +296,10 @@ def _run_iter(runner, inputs):
     res = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
     return res, time.time() - start
 
-def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_path, iters):
+
+def run_benchmark(
+    device, vmfb_path, weights_path, example_args, model_id, csv_path, iters
+):
     if "rocm" in device:
         device = "hip" + device.split("rocm")[-1]
     mod_runner = vmfbRunner(device, vmfb_path, weights_path)
@@ -301,7 +316,13 @@ def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_p
         needs_header = False
     with open(csv_path, "a") as csvfile:
         fieldnames = ["model", "avg_latency", "avg_iter_per_sec"]
-        data = [{"model": model_id, "avg_latency": avg_latency, "avg_iter_per_sec": it_per_sec}]
+        data = [
+            {
+                "model": model_id,
+                "avg_latency": avg_latency,
+                "avg_iter_per_sec": it_per_sec,
+            }
+        ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if needs_header:
             writer.writeheader()
@@ -311,10 +332,17 @@ def run_benchmark(device, vmfb_path, weights_path, example_args, model_id, csv_p
 
 def torch_to_iree(iree_runner, example_args):
     if isinstance(example_args, dict):
-        iree_args = [ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu()) for i in example_args.values()]
+        iree_args = [
+            ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu())
+            for i in example_args.values()
+        ]
     else:
-        iree_args = [ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu()) for i in example_args]
+        iree_args = [
+            ireert.asdevicearray(iree_runner.config.device, i.clone().detach().cpu())
+            for i in example_args
+        ]
     return iree_args
+
 
 def run_main(model_id, args, tb_dir, tb_args):
     print(f"exporting {model_id}")
@@ -343,16 +371,25 @@ def run_main(model_id, args, tb_dir, tb_args):
             f.write(mod_str)
         print("Saved to", safe_name + ".mlir")
     elif args.run_benchmark:
-        run_benchmark(args.device, mod_str, weights_path, example_args, model_id, args.output_csv, args.num_iters)
+        run_benchmark(
+            args.device,
+            mod_str,
+            weights_path,
+            example_args,
+            model_id,
+            args.output_csv,
+            args.num_iters,
+        )
 
     gc.collect()
 
+
 if __name__ == "__main__":
     from turbine_models.custom_models.torchbench.cmd_opts import args, unknown
+
     tb_dir = setup_torchbench_cwd()
     if args.model_id.lower() == "all":
         for name in torchbench_models_dict.keys():
             run_main(name, args, tb_dir, unknown)
     else:
         run_main(args.model_id, args, tb_dir, unknown)
-
