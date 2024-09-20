@@ -61,10 +61,10 @@ cd ..
 python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/
 ```
 
-### Example of manual benchmark using export and IREE runtime CLI (hf_Albert)
+### Example of manual benchmark using export and IREE runtime CLI (mobilenet_v3_large)
 
 ```shell
- python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --model_id=hf_Albert
+ python ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --model_id=mobilenet_v3_large
 
-iree-benchmark-module --module=generated/hf_Albert_32_fp16_gfx942.vmfb --input=@generated/hf_Albert_input0.npy --parameters=model=./torchbench_weights/hf_Albert_fp16.irpa --device=hip://0 --device_allocator=caching --function=main --benchmark_repetitions=10
+iree-benchmark-module --module=generated/mobilenet_v3_large_256_fp16_gfx942.vmfb --input=@generated/mobilenet_v3_large_input0.npy --parameters=model=./torchbench_weights/mobilenet_v3_large_fp16.irpa --device=hip://0 --device_allocator=caching --function=main --benchmark_repetitions=10
 ```
