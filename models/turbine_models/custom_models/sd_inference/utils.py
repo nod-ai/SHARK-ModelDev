@@ -28,13 +28,13 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "vae_preprocess": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics), util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, util.func(iree-preprocessing-pad-to-intrinsics{pad-target-type=conv}))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics{pad-target-type=conv})",
     ],
     "unet": [
-        "--iree-flow-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
@@ -43,16 +43,16 @@ MI_flags = {
         "--iree-vm-target-truncate-unsupported-floats",
     ],
     "clip": [
-        "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-rocm-waves-per-eu=2",
+        "--iree-hip-waves-per-eu=2",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
-        "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
@@ -284,7 +284,7 @@ def compile_to_vmfb(
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
-                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-hip-target=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
