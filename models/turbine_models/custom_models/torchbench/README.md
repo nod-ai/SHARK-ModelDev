@@ -17,7 +17,7 @@ These commands assume a few things about your machine/distro, so please read the
 docker build --platform linux/amd64 --tag shark_torchbench --file shark_torchbench.dockerfile .
 ```
 ```shell
-docker run -it --network=host --device=/dev/kfd --device=/dev/dri --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v shark_torchbench:/SHARK-Turbine/models/turbine_models/custom_models/torchbench/outputs -w /SHARK-Turbine/models/turbine_models/custom_models/torchbench shark_torchbench:latest
+docker run -it --network=host --device=/dev/kfd --device=/dev/dri --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v ./shark_torchbench_outputs:/SHARK-Turbine/models/turbine_models/custom_models/torchbench/outputs -w /SHARK-Turbine/models/turbine_models/custom_models/torchbench shark_torchbench:latest
 ```
 ```shell
 python3 ./export.py --target=gfx942 --device=rocm --compile_to=vmfb --performance --inference --precision=fp16 --float16 --external_weights=safetensors --external_weights_dir=./torchbench_weights/ --output_csv=./outputs/torchbench_results_SHARK.csv
