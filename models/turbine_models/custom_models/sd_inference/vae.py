@@ -171,7 +171,6 @@ def export_vae_model(
             vae_model,
             external_weights,
             external_weight_path,
-            vae_harness=vae_harness,
         )
     if weights_only:
         return external_weight_path
