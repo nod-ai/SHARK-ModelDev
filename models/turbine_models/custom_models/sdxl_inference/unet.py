@@ -205,10 +205,6 @@ def export_unet_model(
     if not attn_spec:
         if (not decomp_attn) and use_punet:
             attn_spec = "punet"
-        elif (not decomp_attn) and "gfx9" in target:
-            attn_spec = "mfma"
-        elif (not decomp_attn) and "gfx11" in target:
-            attn_spec = "wmma"
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_{submodel_name}",

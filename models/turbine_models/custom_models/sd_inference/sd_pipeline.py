@@ -121,6 +121,8 @@ sdxl_model_map = {
             "decomp_attn": None,
         },
     },
+}
+sdxl_compiled_pipeline_map = {
     "unetloop": {
         "module_name": "sdxl_compiled_pipeline",
         "load": False,
@@ -435,7 +437,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             if self.is_sd3:
                 export_fn = sd3_schedulers.export_scheduler_model
             else:
-                export_fn = scheduler.export_scheduler_model
+                export_fn = schedulers.export_scheduler_model
             self.map["scheduler"] = {
                 "module_name": "compiled_scheduler",
                 "export_fn": export_fn,

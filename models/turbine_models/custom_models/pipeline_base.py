@@ -369,6 +369,8 @@ class TurbinePipelineBase:
                 target, dict
             ), "Device and target triple must be both dicts or both strings."
             for submodel in self.map.keys():
+                if self.map[submodel].get("load") == False:
+                    continue
                 assert submodel in device.keys(), f"Device for {submodel} not found."
                 assert (
                     submodel in target.keys()
