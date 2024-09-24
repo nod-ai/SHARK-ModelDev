@@ -20,7 +20,7 @@ As these have all found upstream homes, this repo is now responsible for:
 The `turbine-models` project (under models/) contains ports and adaptations
 of various (mostly HF) models that we use in various ways.
 
-The only implementation in turbine-models that is currently canonical is stable diffusion, which is slated for migration to https://github.com/nod-ai/SHARK-Platform for productionization -- it is to be temporarily preserved here for proof of concept, functionality, and performance.
+The only implementation in turbine-models that is currently in use is its stable diffusion exports and pipeline, which are slated for migration to https://github.com/nod-ai/SHARK-Platform for productionization -- it is to be temporarily preserved here for proof of concept, functionality, and performance.
 
 In the near future, the remaining purpose of turbine-models is to maintain and validate the " library import -> nn.module -> iree-turbine (dynamo) -> iree-compile " export and compilation stack, for a few different key model classes or suites.
 The model validation and benchmarking of compiled artifacts is under migration to [SHARK-TestSuite](https://github.com/nod-ai/SHARK-TestSuite)
