@@ -27,4 +27,4 @@ The model validation and benchmarking of compiled artifacts is under migration t
 
 ### CI / Tracking
 
-A number of model support tasks are tracked in this repo's issues, and its CI is designed to be the origin point for any MLIR/VMFB artifacts used further downstream in test/benchmark/regression suites.
+A number of model support tasks are tracked in this repo's issues, and its CI is designed to be the origin point for relevant MLIR/VMFB artifacts used further downstream in test/benchmark/regression suites.
