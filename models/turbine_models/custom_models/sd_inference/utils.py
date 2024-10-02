@@ -404,6 +404,13 @@ def compile_to_vmfb(
         mlir_source = "str"
         input_ir_type = "auto"
 
+    if "punet" in flagset_keywords:
+        flags = [
+                        "--iree-hal-target-backends=rocm",
+                        "--iree-hip-target=" + target_triple,
+                        "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+                    ]
+
     print("Compiling to", device, "with flags:", flags)
 
     # Forces a standard for naming files:

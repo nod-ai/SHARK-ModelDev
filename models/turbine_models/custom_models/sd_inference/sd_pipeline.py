@@ -231,6 +231,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str = None,  # compatibility only
         shift: float = 1.0,  # compatibility only
         use_i8_punet: bool = False,
+        use_fp8_punet: bool = False,
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
         batch_prompts: bool = False,
@@ -365,6 +366,7 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
+        self.use_fp8_punet = self.use_punet = use_fp8_punet
         if self.use_punet:
             self.setup_punet()
         else:
@@ -384,6 +386,19 @@ class SharkSDPipeline(TurbinePipelineBase):
             for idx, word in enumerate(self.map["unet"]["keywords"]):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
+                    break
+        elif self.use_fp8_punet:
+            if self.add_tk_kernels:
+                self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
+                self.map["unet"]["export_args"]["tk_kernels_dir"] = self.tk_kernels_dir
+            self.map["unet"]["export_args"]["precision"] = "fp8"
+            self.map["unet"]["export_args"]["external_weight_path"] = (
+                utils.create_safe_name(self.base_model_name) + "_punet_dataset_fp8.irpa"
+            )
+            self.map["unet"]["export_args"]["quant_paths"] = self.punet_quant_paths
+            for idx, word in enumerate(self.map["unet"]["keywords"]):
+                if word in ["fp32", "fp16"]:
+                    self.map["unet"]["keywords"][idx] = "fp8"
                     break
         self.map["unet"]["export_args"]["use_punet"] = True
         self.map["unet"]["use_weights_for_export"] = True
@@ -783,6 +798,7 @@ if __name__ == "__main__":
         args.scheduler_id,
         None,
         args.use_i8_punet,
+        args.use_fp8_punet,
         benchmark,
         args.verbose,
         save_outputs=save_outputs,

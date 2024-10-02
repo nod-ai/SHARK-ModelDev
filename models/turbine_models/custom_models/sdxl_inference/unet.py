@@ -82,7 +82,7 @@ class UnetModel(torch.nn.Module):
         return noise_pred
 
 
-def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision="i8"):
+def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision="fp8"):
     from sharktank.models.punet.model import (
         Unet2DConditionModel as sharktank_unet2d,
         ClassifierFreeGuidanceUnetModel as sharktank_CFGPunetModel,
@@ -97,6 +97,10 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
         repo_id = hf_model_name
         subfolder = "unet"
         revision = "defeb489fe2bb17b77d587924db9e58048a8c140"
+    elif precision == "fp8":
+        repo_id = "amd-shark/sdxl-quant-fp8"
+        subfolder = "linear_conv_fp8_sdpa_fp8_eq_bl"
+        revision = "b0f96249fc6a96070c4ae07e6a758e28f4143e35"
 
     def download(filename):
         return hf_hub_download(
@@ -119,7 +123,7 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
 
     output_dir = os.path.dirname(external_weight_path)
 
-    if precision == "i8":
+    if precision in ["i8", "fp8"]:
         if (
             quant_paths
             and quant_paths["quant_params"]
@@ -128,8 +132,9 @@ def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision=
             results["quant_params.json"] = quant_paths["quant_params"]
         else:
             results["quant_params.json"] = download("quant_params.json")
-        ds_filename = os.path.basename(external_weight_path)
-        output_path = os.path.join(output_dir, ds_filename)
+        ds_filename = f"punet_dataset_{precision}.irpa"
+        # output_path = os.path.join(output_dir, ds_filename)
+        output_path = external_weight_path
         ds = get_punet_dataset(
             results["config.json"],
             results["params.safetensors"],
@@ -193,7 +198,7 @@ def export_unet_model(
     attn_spec=None,
     input_mlir=None,
     weights_only=False,
-    use_punet=False,
+    use_punet=True,
     quant_paths=None,
     add_tk_kernels=False,
     tk_kernels_dir=None,
@@ -247,11 +252,13 @@ def export_unet_model(
 
     mapper = {}
     np_dtypes = {
+        "fp8": "float16", # no fp8 numpy datatype
         "fp16": "float16",
         "fp32": "float32",
         "i8": "int8",
     }
     torch_dtypes = {
+        "fp8": torch.float8_e4m3fnuz,
         "fp16": torch.float16,
         "fp32": torch.float32,
         "i8": torch.int8,
@@ -395,7 +402,6 @@ if __name__ == "__main__":
             args.precision,
         )
     mod_str = export_unet_model(
-        unet_model,
         args.hf_model_name,
         args.batch_size,
         args.height,
@@ -419,7 +425,7 @@ if __name__ == "__main__":
         exit()
     safe_name = utils.create_safe_name(
         args.hf_model_name,
-        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_{'p' if args.use_i8_punet else ''}unet",
+        f"_bs{args.batch_size}_{args.max_length}_{args.height}x{args.width}_{args.precision}_punet",
     )
     if args.compile_to != "vmfb":
         with open(f"{safe_name}.mlir", "w+") as f:

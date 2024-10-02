@@ -201,8 +201,14 @@ p.add_argument(
 
 p.add_argument(
     "--use_i8_punet",
-    action="store_true",
+    action="store_false",
     help="Use i8 quantized Partitioned UNet for inference",
+)
+
+p.add_argument(
+    "--use_fp8_punet",
+    action="store_true",
+    help="Use fp8 quantized Partitioned UNet for inference",
 )
 
 ##############################################################################
