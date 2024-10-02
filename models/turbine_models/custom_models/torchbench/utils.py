@@ -12,22 +12,20 @@ import glob
 MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
-        "--iree-llvmgpu-enable-prefetch=true",
-        "--iree-execution-model=async-external",
-        "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-aggressive-fusion=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-llvmgpu-enable-prefetch=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-codegen-llvmgpu-use-vector-distribution",
+        "--iree-hip-waves-per-eu=2",
+        "--iree-execution-model=async-external",
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-pad-to-intrinsics)",
-    ],
-    "preprocess_transpose": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
-        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
-    ],
+    ]
 }
 GFX11_flags = {
     "all": [
