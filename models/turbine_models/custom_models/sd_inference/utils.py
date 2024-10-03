@@ -361,7 +361,8 @@ def compile_to_vmfb(
             use_punet=use_punet,
             masked_attention=masked_attention,
         )
-        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+        if attn_spec:
+            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
         attn_spec = get_wmma_spec_path(
@@ -474,12 +475,8 @@ def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=
     if use_punet:
         suffix = "_punet"
         url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
-    elif not masked_attention:
-        suffix = ""
-        url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
     else:
-        suffix = "_pad"
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
+        return None
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_mfma{suffix}.mlir")
     with open(spec_path, "w") as f:
