@@ -342,6 +342,7 @@ def compile_to_vmfb(
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
 
+<<<<<<< HEAD
     if attn_spec in ["default", "mfma", "punet"]:
         if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
             use_punet = True if attn_spec in ["punet", "i8"] else False
@@ -359,6 +360,10 @@ def compile_to_vmfb(
     elif attn_spec and attn_spec != "None":
         if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+=======
+    if os.path.exists(attn_spec):
+        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+>>>>>>> dfb9474 (Remove default/mfma/wmma specs from sd compile utils.)
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]
@@ -460,14 +465,10 @@ def create_safe_name(hf_model_name, model_name_str=""):
 def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
     if use_punet:
         suffix = "_punet"
-<<<<<<< HEAD
         url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec_punet_mi300.mlir"
     elif not masked_attention:
         suffix = ""
         url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
-=======
-        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
->>>>>>> 0fd8ad0 (Largely disables attn spec usage.)
     else:
         return None
     attn_spec = urlopen(url).read().decode("utf-8")
