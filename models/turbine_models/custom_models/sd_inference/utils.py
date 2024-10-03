@@ -238,7 +238,7 @@ def compile_to_vmfb(
     attn_spec=None,
     winograd=False,
     flagset_keywords=[],
-    debug=False,
+    debug=True,
     add_tk_kernels=False,
     tk_kernels_dir=None,
     batch_size=1,
@@ -345,23 +345,23 @@ def compile_to_vmfb(
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
 
-    if attn_spec in ["default", "mfma", "punet"]:
-        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
-            use_punet = True if attn_spec in ["punet", "i8"] else False
-            attn_spec = get_mfma_spec_path(
-                target_triple,
-                os.path.dirname(safe_name),
-                use_punet=use_punet,
-            )
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    # if attn_spec in ["default", "mfma", "punet"]:
+    #     if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+    #         use_punet = True if attn_spec in ["punet", "i8"] else False
+    #         attn_spec = get_mfma_spec_path(
+    #             target_triple,
+    #             os.path.dirname(safe_name),
+    #             use_punet=use_punet,
+    #         )
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
-    elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
-        if attn_spec:
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    elif attn_spec and attn_spec != "None":
-        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    # elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
+    #     attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+    #     if attn_spec:
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    # elif attn_spec and attn_spec != "None":
+    #     if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]
