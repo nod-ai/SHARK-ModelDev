@@ -141,8 +141,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         self.pipe.use_punet = True
         self.pipe.use_i8_punet = True
         self.pipe.setup_punet()
-        if arguments["iree_target_triple"] != "gfx942":
-            self.pipe.map["unet"]["export_args"]["attn_spec"] = None
+        self.pipe.map["unet"]["export_args"]["attn_spec"] = None
         self.pipe.prepare_all()
         self.pipe.load_map()
         output = self.pipe.generate_images(
