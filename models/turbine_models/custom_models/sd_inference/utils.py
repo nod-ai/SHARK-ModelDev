@@ -465,13 +465,16 @@ def create_safe_name(hf_model_name, model_name_str=""):
 def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
     if use_punet:
         suffix = "_punet"
+<<<<<<< HEAD
         url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec_punet_mi300.mlir"
     elif not masked_attention:
         suffix = ""
         url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
+=======
+        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
+>>>>>>> 0fd8ad0 (Largely disables attn spec usage.)
     else:
-        suffix = "_pad"
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
+        return None
     attn_spec = urlopen(url).read().decode("utf-8")
     spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_mfma{suffix}.mlir")
     with open(spec_path, "w") as f:
