@@ -25,10 +25,7 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
     ],
     "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
-    ],
-    "vae_preprocess": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
@@ -80,7 +77,7 @@ GFX11_flags = {
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "punet": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-dispatch-creation-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
@@ -333,8 +330,6 @@ def compile_to_vmfb(
             flags.extend(MI_flags["masked_attention"])
         elif "punet" in flagset_keywords:
             flags.extend(MI_flags["punet"])
-        elif "vae" in safe_name:
-            flags.extend(MI_flags["vae_preprocess"])
         else:
             flags.extend(MI_flags["preprocess_default"])
 
