@@ -192,24 +192,27 @@ class StableDiffusionXLTest(unittest.TestCase):
         if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest("Compilation error on vulkan; To be tested on cuda.")
         clip_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "bs" + str(arguments["batch_size"]),
-                str(arguments["max_length"]),
-                arguments["precision"],
-                "text_encoder",
-                arguments["device"],
-                arguments["iree_target_triple"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "bs" + str(arguments["batch_size"]),
+                    str(arguments["max_length"]),
+                    arguments["precision"],
+                    "text_encoder",
+                    arguments["iree_target_triple"],
+                ]
+            )
             + ".vmfb"
         )
         arguments["vmfb_path"] = os.path.join("test_vmfbs", clip_filename)
         clip_w_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "text_encoder",
-                arguments["precision"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "text_encoder",
+                    arguments["precision"],
+                ]
+            )
             + ".safetensors"
         )
         arguments["external_weight_path"] = os.path.join(
@@ -272,25 +275,28 @@ class StableDiffusionXLTest(unittest.TestCase):
         if arguments["device"] in ["vulkan", "cuda"]:
             self.skipTest("Unknown error on vulkan; To be tested on cuda.")
         unet_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "bs" + str(arguments["batch_size"]),
-                str(arguments["max_length"]),
-                str(arguments["height"]) + "x" + str(arguments["width"]),
-                arguments["precision"],
-                "unet",
-                arguments["device"],
-                arguments["iree_target_triple"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "bs" + str(arguments["batch_size"]),
+                    str(arguments["max_length"]),
+                    str(arguments["height"]) + "x" + str(arguments["width"]),
+                    arguments["precision"],
+                    "unet",
+                    arguments["iree_target_triple"],
+                ]
+            )
             + ".vmfb"
         )
         arguments["vmfb_path"] = os.path.join("test_vmfbs", unet_filename)
         unet_w_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "unet",
-                arguments["precision"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "unet",
+                    arguments["precision"],
+                ]
+            )
             + ".safetensors"
         )
         arguments["external_weight_path"] = os.path.join(
@@ -363,24 +369,27 @@ class StableDiffusionXLTest(unittest.TestCase):
             self.skipTest("Compilation error on vulkan; To be tested on cuda.")
 
         vae_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "bs" + str(arguments["batch_size"]),
-                str(arguments["height"]) + "x" + str(arguments["width"]),
-                arguments["precision"],
-                "vae",
-                arguments["device"],
-                arguments["iree_target_triple"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "bs" + str(arguments["batch_size"]),
+                    str(arguments["height"]) + "x" + str(arguments["width"]),
+                    arguments["precision"],
+                    "vae",
+                    arguments["iree_target_triple"],
+                ]
+            )
             + ".vmfb"
         )
         arguments["vmfb_path"] = os.path.join("test_vmfbs", vae_filename)
         vae_w_filename = (
-            "_".join([
-                create_safe_name(arguments["hf_model_name"], ""),
-                "vae",
-                arguments["precision"],
-            ])
+            "_".join(
+                [
+                    create_safe_name(arguments["hf_model_name"], ""),
+                    "vae",
+                    arguments["precision"],
+                ]
+            )
             + ".safetensors"
         )
         arguments["external_weight_path"] = os.path.join(
