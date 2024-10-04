@@ -93,7 +93,11 @@ class StableDiffusionXLTest(unittest.TestCase):
         decomp_attn = {
             "text_encoder": True,
             "unet": False,
-            "vae": False,
+            "vae": (
+                False
+                if any(x in arguments["device"] for x in ["hip", "rocm"])
+                else True
+            ),
         }
         self.pipe = SharkSDPipeline(
             arguments["hf_model_name"],
@@ -377,7 +381,7 @@ class StableDiffusionXLTest(unittest.TestCase):
                     "bs" + str(arguments["batch_size"]),
                     str(arguments["height"]) + "x" + str(arguments["width"]),
                     arguments["precision"],
-                    "vae",
+                    "vae" if arguments["device"] != "cpu" else "vae_decomp_attn",
                     arguments["iree_target_triple"],
                 ]
             )
