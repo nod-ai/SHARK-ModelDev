@@ -396,7 +396,6 @@ def compile_to_vmfb(
         mlir_source = "str"
         input_ir_type = "auto"
 
-
     # Forces a standard for naming files:
     # If safe_name has target triple in it, get rid of target triple in mlir name
     #
