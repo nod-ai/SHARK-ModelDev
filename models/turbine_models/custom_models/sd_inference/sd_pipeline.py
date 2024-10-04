@@ -407,6 +407,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         ]
         self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
+            self.map["unet"]["np_dtype"] = "int8"
+            self.map["unet"]["torch_dtype"] = torch.int8
             if self.add_tk_kernels:
                 self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
                 self.map["unet"]["export_args"]["tk_kernels_dir"] = self.tk_kernels_dir
