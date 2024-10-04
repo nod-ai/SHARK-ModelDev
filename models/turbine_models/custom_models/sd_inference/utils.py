@@ -343,6 +343,7 @@ def compile_to_vmfb(
     # the TD spec is implemented in C++.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     if attn_spec in ["default", "mfma", "punet"]:
         if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
             use_punet = True if attn_spec in ["punet", "i8"] else False
@@ -362,6 +363,9 @@ def compile_to_vmfb(
             flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 =======
     if os.path.exists(attn_spec):
+=======
+    if attn_spec and os.path.exists(attn_spec):
+>>>>>>> 9fe20a6 (Guard path check for attn spec)
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 >>>>>>> dfb9474 (Remove default/mfma/wmma specs from sd compile utils.)
 
@@ -462,6 +466,7 @@ def create_safe_name(hf_model_name, model_name_str=""):
     return safe_name
 
 
+<<<<<<< HEAD
 def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
     if use_punet:
         suffix = "_punet"
@@ -495,6 +500,8 @@ def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
     return spec_path
 
 
+=======
+>>>>>>> 9fe20a6 (Guard path check for attn spec)
 def save_external_weights(
     mapper,
     model,
