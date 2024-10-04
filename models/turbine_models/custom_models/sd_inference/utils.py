@@ -415,7 +415,6 @@ def compile_to_vmfb(
         mlir_source = "str"
         input_ir_type = "auto"
 
-    print("Compiling to", device, "with flags:", flags)
 
     # Forces a standard for naming files:
     # If safe_name has target triple in it, get rid of target triple in mlir name
@@ -426,6 +425,24 @@ def compile_to_vmfb(
     else:
         safe_vmfb_name = safe_name
         safe_mlir_name = "".join(safe_name.split(target_triple))
+
+    if os.path.exists(module_str):
+        in_file = module_str
+    else:
+        in_file = "<input.mlir>"
+
+    out_file = f"{safe_vmfb_name}.vmfb"
+    iree_repro_cli_list = [
+        "iree_compile",
+        f"--iree-hal-target-backends={device}",
+        f"--iree-input-type={input_ir_type}",
+        in_file,
+        out_file,
+    ]
+    iree_repro_cli_list.extend(flags)
+    iree_repro_cli = " ".join(iree_repro_cli_list)
+
+    print("Compiling to target:", device, " \nCLI equivalent:", iree_repro_cli)
 
     if mlir_source == "file":
         flatbuffer_blob = ireec.compile_file(
