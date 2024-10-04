@@ -93,11 +93,7 @@ class StableDiffusionXLTest(unittest.TestCase):
         decomp_attn = {
             "text_encoder": True,
             "unet": False,
-            "vae": (
-                False
-                if any(x in arguments["device"] for x in ["hip", "rocm"])
-                else True
-            ),
+            "vae": False,
         }
         self.pipe = SharkSDPipeline(
             arguments["hf_model_name"],
@@ -135,8 +131,12 @@ class StableDiffusionXLTest(unittest.TestCase):
             True,  # return_img
         )
         assert output is not None
+        del output
+        del self.pipe
 
     def test01_sdxl_pipe_i8_punet(self):
+        if arguments["device"] not in ["rocm", "hip"]:
+            self.skipTest("Currently unimplemented/pending validation")
         from turbine_models.custom_models.sd_inference.sd_pipeline import (
             SharkSDPipeline,
         )
@@ -187,6 +187,8 @@ class StableDiffusionXLTest(unittest.TestCase):
             True,  # return_img
         )
         assert output is not None
+        del output
+        del self.pipe
 
     def test02_PromptEncoder(self):
         if arguments["device"] in ["vulkan", "cuda"]:
