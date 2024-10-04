@@ -347,7 +347,7 @@ def compile_to_vmfb(
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
 
-    if os.path.exists(attn_spec):
+    if attn_spec and os.path.exists(attn_spec):
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
@@ -445,36 +445,6 @@ def create_safe_name(hf_model_name, model_name_str=""):
     safe_name = re.sub("-", "_", safe_name)
     safe_name = re.sub("\.", "_", safe_name)
     return safe_name
-
-
-def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
-    if use_punet:
-        suffix = "_punet"
-        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
-    else:
-        return None
-    attn_spec = urlopen(url).read().decode("utf-8")
-    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_mfma{suffix}.mlir")
-    with open(spec_path, "w") as f:
-        f.write(attn_spec)
-    return spec_path
-
-
-def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
-    if not masked_attention:
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_wmma.mlir"
-    elif target_chip == "gfx1100":
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1100.mlir"
-    elif target_chip in ["gfx1103", "gfx1150"]:
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1150.mlir"
-    else:
-        return None
-    attn_spec = urlopen(url).read().decode("utf-8")
-    suffix = "masked" if masked_attention else ""
-    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_wmma{suffix}.mlir")
-    with open(spec_path, "w") as f:
-        f.write(attn_spec)
-    return spec_path
 
 
 def save_external_weights(
