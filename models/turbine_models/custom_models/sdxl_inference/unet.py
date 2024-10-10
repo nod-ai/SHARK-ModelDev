@@ -12,8 +12,8 @@ import safetensors
 from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
-from shark_turbine.aot import *
-from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+from iree.turbine.aot import *
+from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 
 
 from turbine_models.custom_models.sd_inference import utils

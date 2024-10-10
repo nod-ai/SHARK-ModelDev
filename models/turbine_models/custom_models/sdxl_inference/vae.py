@@ -11,8 +11,8 @@ import sys
 from iree import runtime as ireert
 from iree.compiler.ir import Context
 import numpy as np
-from shark_turbine.aot import *
-from shark_turbine.dynamo.passes import (
+from iree.turbine.aot import *
+from iree.turbine.dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
 )
 from turbine_models.custom_models.sd_inference import utils

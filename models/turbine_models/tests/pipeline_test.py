@@ -11,13 +11,13 @@ import torch
 import os
 import numpy as np
 from iree.compiler.ir import Context
-from shark_turbine.aot import *
+from iree.turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.custom_models.pipeline_base import (
     PipelineComponent,
     TurbinePipelineBase,
 )
-from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 
 model_metadata_forward = {
     "model_name": "TestModel2xLinear",
