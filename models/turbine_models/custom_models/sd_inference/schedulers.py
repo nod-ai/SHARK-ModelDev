@@ -8,9 +8,9 @@ import os
 from typing import List
 
 import torch
-from shark_turbine.aot import *
-import shark_turbine.ops.iree as ops
-from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+from iree.turbine.aot import *
+import iree.turbine.ops.iree as ops
+from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 from iree.compiler.ir import Context
 import iree.runtime as ireert
 import numpy as np

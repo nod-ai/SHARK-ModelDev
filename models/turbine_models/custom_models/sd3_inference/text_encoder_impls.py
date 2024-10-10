@@ -3,7 +3,7 @@
 import torch, math
 from torch import nn
 from transformers import CLIPTokenizer, T5TokenizerFast
-from shark_turbine import ops
+from iree.turbine import ops
 
 #################################################################################################
 ### Core/Utility

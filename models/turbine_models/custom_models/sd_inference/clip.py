@@ -8,8 +8,8 @@ import os
 import re
 
 from iree.compiler.ir import Context
-from shark_turbine.aot import *
-from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+from iree.turbine.aot import *
+from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
