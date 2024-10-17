@@ -420,7 +420,7 @@ def run_main(model_id, args, tb_dir, tb_args):
     if args.compile_to in ["torch", "mlir"]:
         safe_name = utils.create_safe_name(
             model_id,
-            f"_{static_dim}_{precision}",
+            f"_{static_dim}_{args.precision}",
         )
         with open(f"{safe_name}.mlir", "w+") as f:
             f.write(mod_str)
@@ -445,11 +445,9 @@ if __name__ == "__main__":
     from turbine_models.custom_models.torchbench.cmd_opts import args, unknown
     import json
 
-    torchbench_models_dict = json.load(args.model_list_json)
     for list in args.model_lists:
-        torchbench_models_dict = json.load(list)
-        with open(args.models_json, "r") as f:
-            torchbench_models_dict = json.load(file)
+        with open(list, "r") as f:
+            torchbench_models_dict = json.load(f)
 
         tb_dir = setup_torchbench_cwd()
         if args.model_id.lower() == "all":
