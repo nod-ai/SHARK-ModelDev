@@ -1,0 +1,14 @@
+{
+    "timm_efficientnet": {
+        "dim": 128
+    },
+    "timm_regnet": {
+        "dim": 128
+    },
+    "timm_resnest": {
+        "dim": 256
+    },
+    "timm_vovnet": {
+        "dim": 128
+    }
+}

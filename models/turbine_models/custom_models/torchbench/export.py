@@ -33,7 +33,7 @@ from pytorch.benchmarks.dynamo.torchbench import (
 
 import csv
 
-torchbench_models_dict = {
+torchbench_models_all = {
     # "BERT_pytorch": {
     #     "dim": 128,
     # }, # Dynamo Export Issue
@@ -420,10 +420,17 @@ def run_main(model_id, args, tb_dir, tb_args):
 
 if __name__ == "__main__":
     from turbine_models.custom_models.torchbench.cmd_opts import args, unknown
+    import json
 
-    tb_dir = setup_torchbench_cwd()
-    if args.model_id.lower() == "all":
-        for name in torchbench_models_dict.keys():
-            run_main(name, args, tb_dir, unknown)
-    else:
-        run_main(args.model_id, args, tb_dir, unknown)
+    torchbench_models_dict = json.load(args.model_list_json
+    for list in args.model_lists:
+        torchbench_models_dict = json.load(list)
+        with open(args.models_json, "r") as f:
+            torchbench_models_dict = json.load(file)
+
+        tb_dir = setup_torchbench_cwd()
+        if args.model_id.lower() == "all":
+            for name in torchbench_models_dict.keys():
+                run_main(name, args, tb_dir, unknown)
+        else:
+            run_main(args.model_id, args, tb_dir, unknown)

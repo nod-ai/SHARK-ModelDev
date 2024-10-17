@@ -44,6 +44,13 @@ p.add_argument(
     default="all",
 )
 p.add_argument(
+    "--model_lists",
+    type=Path,
+    nargs="*"
+    help="path to a JSON list of models to benchmark. One or more paths.",
+    default=["torchbench_models.json", "timm_models.json", "torchvision_models.json"],
+)
+p.add_argument(
     "--external_weights_dir",
     type=str,
     default="",
