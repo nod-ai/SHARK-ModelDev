@@ -24,8 +24,7 @@ MI_flags = {
         "--iree-hip-waves-per-eu=2",
         "--iree-execution-model=async-external",
     ],
-    "preprocess_default": [
-    ]
+    "preprocess_default": [],
 }
 GFX11_flags = {
     "all": [

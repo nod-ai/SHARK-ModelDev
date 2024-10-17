@@ -148,9 +148,11 @@ def get_model_and_inputs(model_id, batch_size, tb_dir, tb_args, get_baseline=Fal
             return model_name, model, forward_args
 
 
-'''
+"""
 Imports models from torchbench model tooling, exports them with turbine AOT, and does simple benchmarking.
-'''
+"""
+
+
 @torch.no_grad()
 def benchmark_torchbench_model(
     model_id,
@@ -199,7 +201,7 @@ def benchmark_torchbench_model(
         )
         return vmfb_path
 
-    if compare_vs_eager:   
+    if compare_vs_eager:
         model_name, model, forward_args, golden, baseline = get_model_and_inputs(
             model_id, batch_size, tb_dir, tb_args, get_baseline=True
         )
@@ -316,13 +318,28 @@ def _run_iter(runner, inputs):
     res = runner.ctx.modules.compiled_torchbench_model["main"](*inputs)
     return res, time.time() - start
 
+
 def do_compare(shark_results, shark_latency, golden_results, golden_latency):
-    numerics_pass_fail = np.allclose(shark_results.to_host(), golden_results.clone().cpu().numpy(), rtol=1e-4, atol=1e-4)
+    numerics_pass_fail = np.allclose(
+        shark_results.to_host(),
+        golden_results.clone().cpu().numpy(),
+        rtol=1e-4,
+        atol=1e-4,
+    )
     speedup = golden_latency / shark_latency
     return speedup, numerics_pass_fail
 
+
 def run_benchmark(
-    device, vmfb_path, weights_path, example_args, model_id, csv_path, iters, golden=None, baseline=None,
+    device,
+    vmfb_path,
+    weights_path,
+    example_args,
+    model_id,
+    csv_path,
+    iters,
+    golden=None,
+    baseline=None,
 ):
     if "rocm" in device:
         device = "hip" + device.split("rocm")[-1]
@@ -344,7 +361,13 @@ def run_benchmark(
     if os.path.exists(csv_path):
         needs_header = False
     with open(csv_path, "a") as csvfile:
-        fieldnames = ["model", "avg_latency", "avg_iter_per_sec", "speedup_over_eager", "numerics"]
+        fieldnames = [
+            "model",
+            "avg_latency",
+            "avg_iter_per_sec",
+            "speedup_over_eager",
+            "numerics",
+        ]
         data = [
             {
                 "model": model_id,
@@ -422,7 +445,7 @@ if __name__ == "__main__":
     from turbine_models.custom_models.torchbench.cmd_opts import args, unknown
     import json
 
-    torchbench_models_dict = json.load(args.model_list_json
+    torchbench_models_dict = json.load(args.model_list_json)
     for list in args.model_lists:
         torchbench_models_dict = json.load(list)
         with open(args.models_json, "r") as f:

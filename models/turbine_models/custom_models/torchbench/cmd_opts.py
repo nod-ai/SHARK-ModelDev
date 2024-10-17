@@ -46,7 +46,7 @@ p.add_argument(
 p.add_argument(
     "--model_lists",
     type=Path,
-    nargs="*"
+    nargs="*",
     help="path to a JSON list of models to benchmark. One or more paths.",
     default=["torchbench_models.json", "timm_models.json", "torchvision_models.json"],
 )
