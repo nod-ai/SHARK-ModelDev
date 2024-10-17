@@ -1,0 +1,5 @@
+{
+    "pytorch_unet": {
+        "dim": 8
+    }
+}
