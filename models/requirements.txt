@@ -4,7 +4,7 @@ transformers==4.37.1
 torchsde
 accelerate
 peft
-diffusers @ git+https://github.com/nod-ai/diffusers@9f4a175e9d387cf6cb42ee8507c9f661f3d55e38
+diffusers @ git+https://github.com/nod-ai/diffusers@bfce212c913ff8ba7dacb4e2d394573a22f70696
 brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b
 # turbine tank downloading/uploading
 azure-storage-blob

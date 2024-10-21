@@ -388,7 +388,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.map["unet"]["export_args"]["use_punet"] = True
         self.map["unet"]["use_weights_for_export"] = True
         self.map["unet"]["keywords"].append("punet")
-        self.map["unet"]["module_name"] = "module"
+        self.map["unet"]["module_name"] = "compiled_punet"
         self.map["unet"]["function_name"] = "main"
 
     # LOAD
