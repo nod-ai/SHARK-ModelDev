@@ -317,7 +317,7 @@ def export_unet_model(
             output = export(
                 unet_model,
                 kwargs=example_forward_args_dict,
-                module_name="compiled_punet",
+                module_name="module",
             )
             module = output.mlir_module
         else:
