@@ -45,6 +45,7 @@ class MMDiTModel(torch.nn.Module):
         pooled_projections,
         timestep,
     ):
+        timestep.expand(hidden_states.shape[0])
         noise_pred = self.mmdit(
             hidden_states,
             encoder_hidden_states,
@@ -71,7 +72,7 @@ class MMDiTAttention(torch.nn.Module):
 def export_attn(
     precision="fp16",
     device="cpu",
-    target_triple="x86_64-unknown-linux-gnu",
+    target="x86_64-unknown-linux-gnu",
     ireec_flags="",
     compile_to="torch",
     decomp_attn=False,
@@ -128,7 +129,7 @@ def export_attn(
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             return_path=True,
@@ -139,7 +140,6 @@ def export_attn(
 
 @torch.no_grad()
 def export_mmdit_model(
-    mmdit_model,
     hf_model_name,
     batch_size,
     height,
@@ -151,8 +151,8 @@ def export_mmdit_model(
     external_weights=None,
     external_weight_path=None,
     device=None,
-    target_triple=None,
-    ireec_flags=None,
+    target=None,
+    ireec_flags="",
     decomp_attn=False,
     exit_on_vmfb=False,
     pipeline_dir=None,
@@ -161,6 +161,9 @@ def export_mmdit_model(
     weights_only=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    mmdit_model = MMDiTModel(
+        dtype=dtype,
+    )
     np_dtype = "float16" if precision == "fp16" else "float32"
     safe_name = utils.create_safe_name(
         hf_model_name,
@@ -169,13 +172,14 @@ def export_mmdit_model(
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
     if decomp_attn == True:
+        safe_name += "_decomp_attn"
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
             input_mlir,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             mlir_source="file",
@@ -208,7 +212,7 @@ def export_mmdit_model(
         torch.empty(hidden_states_shape, dtype=dtype),
         torch.empty(encoder_hidden_states_shape, dtype=dtype),
         torch.empty(pooled_projections_shape, dtype=dtype),
-        torch.empty(init_batch_dim, dtype=dtype),
+        torch.empty(1, dtype=dtype),
     ]
 
     decomp_list = []
@@ -249,7 +253,7 @@ def export_mmdit_model(
             hidden_states_shape,
             encoder_hidden_states_shape,
             pooled_projections_shape,
-            init_batch_dim,
+            (1,),
         ],
         "input_dtypes": [np_dtype for x in range(4)],
         "output_shapes": [hidden_states_shape],
@@ -263,7 +267,7 @@ def export_mmdit_model(
         vmfb_path = utils.compile_to_vmfb(
             module_str,
             device,
-            target_triple,
+            target,
             ireec_flags,
             safe_name,
             return_path=True,

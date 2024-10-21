@@ -82,7 +82,7 @@ class UnetModel(torch.nn.Module):
         return noise_pred
 
 
-def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
+def get_punet_model(hf_model_name, external_weight_path, quant_paths, precision="i8"):
     from sharktank.models.punet.model import (
         Unet2DConditionModel as sharktank_unet2d,
         ClassifierFreeGuidanceUnetModel as sharktank_CFGPunetModel,
@@ -90,27 +90,44 @@ def get_punet_model(hf_model_name, external_weight_path, precision="i8"):
     from sharktank.utils import cli
 
     if precision == "i8":
-        repo_id = "amd-shark/sdxl-quant-models"
-        subfolder = "unet/int8"
-        revision = "942e771bf0c2657a8b33380103d04747a75dfa4a"
+        repo_id = "amd-shark/sdxl-quant-int8"
+        subfolder = "mi300_all_sym_8_step14_fp32"
+        revision = "efda8afb35fd72c1769e02370b320b1011622958"
     elif precision in ["fp16", "fp32"]:
         repo_id = hf_model_name
         subfolder = "unet"
-        revision = "76d28af79639c28a79fa5c6c6468febd3490a37e"
+        revision = "defeb489fe2bb17b77d587924db9e58048a8c140"
 
     def download(filename):
         return hf_hub_download(
             repo_id=repo_id, subfolder=subfolder, filename=filename, revision=revision
         )
 
-    results = {
-        "config.json": download("config.json"),
-        "params.safetensors": download("params.safetensors"),
-    }
+    if quant_paths and quant_paths["config"] and os.path.exists(quant_paths["config"]):
+        results = {
+            "config.json": quant_paths["config"],
+        }
+    else:
+        results = {
+            "config.json": download("config.json"),
+        }
+
+    if quant_paths and quant_paths["params"] and os.path.exists(quant_paths["params"]):
+        results["params.safetensors"] = quant_paths["params"]
+    else:
+        results["params.safetensors"] = download("params.safetensors")
+
     output_dir = os.path.dirname(external_weight_path)
 
     if precision == "i8":
-        results["quant_params.json"] = download("quant_params.json")
+        if (
+            quant_paths
+            and quant_paths["quant_params"]
+            and os.path.exists(quant_paths["quant_params"])
+        ):
+            results["quant_params.json"] = quant_paths["quant_params"]
+        else:
+            results["quant_params.json"] = download("quant_params.json")
         ds_filename = os.path.basename(external_weight_path)
         output_path = os.path.join(output_dir, ds_filename)
         ds = get_punet_dataset(
@@ -177,17 +194,17 @@ def export_unet_model(
     input_mlir=None,
     weights_only=False,
     use_punet=False,
+    quant_paths=None,
+    add_tk_kernels=False,
+    tk_kernels_dir=None,
 ):
     if use_punet:
         submodel_name = "punet"
     else:
         submodel_name = "unet"
-    if (not decomp_attn) and use_punet:
-        attn_spec = "punet"
-    elif (not decomp_attn) and "gfx9" in target:
-        attn_spec = "mfma"
-    elif (not decomp_attn) and "gfx11" in target:
-        attn_spec = "wmma"
+    if not attn_spec:
+        if (not decomp_attn) and use_punet:
+            attn_spec = "punet"
     safe_name = utils.create_safe_name(
         hf_model_name,
         f"_bs{batch_size}_{max_length}_{height}x{width}_{precision}_{submodel_name}",
@@ -197,6 +214,10 @@ def export_unet_model(
 
     if decomp_attn == True:
         ireec_flags += ",--iree-opt-aggressively-propagate-transposes=False"
+
+    # Currently, only int8 tk kernels are integrated
+    if add_tk_kernels and precision != "i8":
+        add_tk_kernels = False
 
     if input_mlir:
         vmfb_path = utils.compile_to_vmfb(
@@ -208,10 +229,15 @@ def export_unet_model(
             mlir_source="file",
             return_path=not exit_on_vmfb,
             attn_spec=attn_spec,
+            flagset_keywords=["punet"] if use_punet else [],
+            add_tk_kernels=add_tk_kernels,
+            tk_kernels_dir=tk_kernels_dir,
         )
         return vmfb_path
     elif use_punet:
-        unet_model = get_punet_model(hf_model_name, external_weight_path, precision)
+        unet_model = get_punet_model(
+            hf_model_name, external_weight_path, quant_paths, precision
+        )
     else:
         unet_model = UnetModel(hf_model_name, hf_auth_token, precision)
 
@@ -340,6 +366,10 @@ def export_unet_model(
             safe_name,
             return_path=True,
             attn_spec=attn_spec,
+            flagset_keywords=["punet"] if use_punet else [],
+            add_tk_kernels=add_tk_kernels,
+            batch_size=batch_size,
+            tk_kernels_dir=tk_kernels_dir,
         )
         if exit_on_vmfb:
             exit()
@@ -378,6 +408,8 @@ if __name__ == "__main__":
         args.decomp_attn,
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
+        add_tk_kernels=args.add_tk_kernels,
+        tk_kernels_dir=args.tk_kernels_dir,
     )
     if args.input_mlir:
         exit()

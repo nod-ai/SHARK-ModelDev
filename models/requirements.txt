@@ -1,14 +1,14 @@
 protobuf
 gguf
-transformers==4.37.1
+transformers==4.43.3
 torchsde
 accelerate
 peft
+safetensors>=0.4.0
 diffusers @ git+https://github.com/nod-ai/diffusers@0.29.0.dev0-shark
 brevitas @ git+https://github.com/Xilinx/brevitas.git@6695e8df7f6a2c7715b9ed69c4b78157376bb60b
 # turbine tank downloading/uploading
 azure-storage-blob
-# microsoft/phi model
 einops
 pytest
 scipy

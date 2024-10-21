@@ -5,6 +5,7 @@ import os
 import safetensors
 import safetensors.numpy as safe_numpy
 import re
+import glob
 from diffusers import (
     PNDMScheduler,
     EulerDiscreteScheduler,
@@ -17,34 +18,43 @@ MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
         "--iree-opt-const-eval=false",
-        "--iree-opt-outer-dim-concat=true",
-        "--iree-vm-target-truncate-unsupported-floats",
         "--iree-llvmgpu-enable-prefetch=true",
-        "--iree-opt-data-tiling=false",
-        "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-rocm-waves-per-eu=2",
-        "--iree-flow-inline-constants-max-byte-length=1",
+        "--iree-execution-model=async-external",
     ],
-    "pad_attention": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
+    "masked_attention": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+    ],
+    "punet": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline,  iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
     ],
     "unet": [
-        "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-vm-target-truncate-unsupported-floats",
     ],
     "clip": [
-        "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
+        "--iree-opt-outer-dim-concat=true",
+        "--iree-rocm-waves-per-eu=2",
+        "--iree-codegen-llvmgpu-use-vector-distribution=true",
     ],
     "vae": [
-        "--iree-flow-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions",
+        "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-opt-data-tiling=false",
+        "--iree-codegen-gpu-native-math-precision=true",
+        "--iree-vm-target-truncate-unsupported-floats",
     ],
     "winograd": [""],
 }
@@ -57,17 +67,23 @@ GFX11_flags = {
         "--iree-opt-data-tiling=false",
         "--iree-opt-const-eval=false",
         "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-flow-enable-aggressive-fusion",
-        "--iree-flow-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
+    ],
+    "masked_attention": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+        "--iree-global-opt-enable-fuse-horizontal-contractions=true",
         "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
-    "pad_attention": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics, iree-linalg-ext-pad-attention{pad-to-multiple-of=0,64,0,32,0}))",
+    "punet": [
+        "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "preprocess_default": [
-        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, util.func(iree-preprocessing-pad-to-intrinsics))",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
+        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "unet": [""],
     "clip": [""],
@@ -79,9 +95,9 @@ znver4_flags = {
         "--iree-llvmcpu-target-cpu=znver4",
         "--iree-opt-const-eval=false",
         "--iree-llvmcpu-enable-ukernels=mmt4d,pack,unpack",
-        "--iree-flow-collapse-reduction-dims",
+        "--iree-dispatch-creation-collapse-reduction-dims",
         "--iree-opt-const-expr-max-size-increase-threshold=1000000000000000",
-        "--iree-flow-enable-fuse-padding-into-linalg-consumer-ops",
+        "--iree-dispatch-creation-enable-fuse-padding-into-linalg-consumer-ops",
     ],
     "bf16": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-demote-contraction-inputs-to-bf16))",
@@ -140,6 +156,69 @@ def iree_backend_map(device):
     return iree_device
 
 
+def replace_with_tk_kernels(tk_kernels_dir, flow_dialect_ir, batch_size):
+    kernels = glob.glob(tk_kernels_dir + "/bs" + str(batch_size) + "/*")
+
+    # Replace all calls to old kernel with new kernel
+    print("Inserting kernels and updating calls to kernels...")
+    kernel_name = {}
+    for kernel in kernels:
+        kernel_name[kernel] = kernel.split("/")[-1].split(".")[0]
+    kernel_map = {}
+    prefix_map = {}
+
+    base = flow_dialect_ir.split("\n")
+    new_base = []
+    for line in base:
+        for kernel in kernels:
+            suffix = kernel.split(".")[0].split("_")[-1]
+            if "bias" in suffix:
+                suffix = kernel.split(".")[0].split("_")[-2]
+            B, M, N, K = suffix.split("x")
+            old_kernel = f"matmul_like_{B}x{M}x{N}x{K}"
+            if not old_kernel in line:
+                continue
+            if old_kernel in line and "func.func" in line:
+                num_args = line.count("arg")
+                with open(kernel, "r") as f:
+                    data = f.readlines()
+                idx_with_kernel_args = [
+                    idx for idx, s in enumerate(data) if "func.func" in s
+                ][0]
+                kernel_args = data[idx_with_kernel_args].count("arg")
+                if num_args != kernel_args:
+                    continue
+                kernel_map[kernel] = line.strip().split(" ")[1][1:-7]
+                prefix_map[kernel] = kernel_map[kernel].split(old_kernel)[0][:-1]
+            if (
+                old_kernel in line
+                and "flow.dispatch" in line
+                and not "func.func" in line
+            ):
+                line = line.replace(kernel_map[kernel], kernel_name[kernel])
+                line = line.replace(prefix_map[kernel], kernel_name[kernel])
+        new_base.append(line)
+    # Insert kernels in appropriate locations
+    final_ir = []
+    for line in new_base:
+        for kernel in kernels:
+            if (
+                prefix_map[kernel] + " {" in line
+                and "flow.executable" in line
+                and "private" in line
+            ):
+                with open(kernel, "r") as f:
+                    data = f.readlines()
+                translation_info = data[0].split("#translation = ")[1].strip()
+                extract = "".join(data[2:-2])
+                extract = extract.replace("#translation", translation_info)
+                final_ir += extract
+        final_ir.append(line)
+
+    print("tk kernels added")
+    return final_ir
+
+
 def compile_to_vmfb(
     module_str,
     device,
@@ -153,9 +232,23 @@ def compile_to_vmfb(
     save_mlir=True,
     attn_spec=None,
     winograd=False,
-    masked_attention=False,
+    flagset_keywords=[],
     debug=False,
+    add_tk_kernels=False,
+    tk_kernels_dir=None,
+    batch_size=1,
 ):
+    if ireec_flags is not None and "masked_attention" in ireec_flags:
+        flagset_keywords = ["masked_attention"]
+        ireec_flags = "".join(ireec_flags.split("masked_attention"))
+        masked_attention = True
+    else:
+        masked_attention = False
+    if ireec_flags is not None and "winograd" in ireec_flags:
+        winograd = True
+        ireec_flags = "".join(ireec_flags.split("winograd"))
+    if batch_size != 1 and batch_size != 8:
+        add_tk_kernels = False
     flags = []
     if mlir_source == "file" and not isinstance(module_str, str):
         module_str = str(module_str)
@@ -192,7 +285,7 @@ def compile_to_vmfb(
                 "--iree-stream-resource-max-allocation-size=" + max_alloc,
                 "--iree-stream-resource-index-bits=64",
                 "--iree-vm-target-index-bits=64",
-                "--iree-flow-inline-constants-max-byte-length=1",
+                "--iree-dispatch-creation-inline-constants-max-byte-length=1",
             ]
         )
         device = "vulkan-spirv"
@@ -200,12 +293,10 @@ def compile_to_vmfb(
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
-                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-hip-target=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
-        if target_triple == "gfx942":
-            flags.extend(["--iree-rocm-waves-per-eu=2"])
     elif device == "cuda":
         flags.extend(
             [
@@ -235,15 +326,19 @@ def compile_to_vmfb(
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
         flags.extend(MI_flags["all"])
-        if masked_attention:
-            flags.extend(GFX11_flags["pad_attention"])
+        if "masked_attention" in flagset_keywords:
+            flags.extend(MI_flags["masked_attention"])
+        elif "punet" in flagset_keywords:
+            flags.extend(MI_flags["punet"])
         else:
-            flags.extend(GFX11_flags["preprocess_default"])
+            flags.extend(MI_flags["preprocess_default"])
 
     if "gfx11" in target_triple:
         flags.extend(GFX11_flags["all"])
-        if masked_attention:
-            flags.extend(GFX11_flags["pad_attention"])
+        if "masked_attention" in flagset_keywords:
+            flags.extend(GFX11_flags["masked_attention"])
+        elif "punet" in flagset_keywords:
+            flags.extend(GFX11_flags["punet"])
         else:
             flags.extend(GFX11_flags["preprocess_default"])
 
@@ -252,23 +347,7 @@ def compile_to_vmfb(
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
 
-    if attn_spec in ["default", "mfma", "punet"]:
-        use_punet = True if attn_spec in ["punet", "i8"] else False
-        attn_spec = get_mfma_spec_path(
-            target_triple,
-            os.path.dirname(safe_name),
-            masked_attention,
-            use_punet=use_punet,
-        )
-        flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-
-    elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(
-            target_triple, os.path.dirname(safe_name), masked_attention
-        )
-        if attn_spec:
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    elif attn_spec and attn_spec != "None":
+    if attn_spec and os.path.exists(attn_spec):
         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
@@ -289,7 +368,33 @@ def compile_to_vmfb(
     for idx, flag in enumerate(flags):
         if flag is None:
             flags.pop(idx)
-    print("Compiling to", device, "with flags:", flags)
+    input_ir_type = "torch"
+    if add_tk_kernels:
+        print("Adding tk kernels")
+        flags.extend(["--compile-to=flow"])
+        if mlir_source == "file":
+            flatbuffer_blob = ireec.compile_file(
+                module_str,
+                target_backends=[device],
+                input_type=input_ir_type,
+                extra_args=flags,
+            )
+        elif mlir_source == "str":
+            flatbuffer_blob = ireec.compile_str(
+                module_str,
+                target_backends=[device],
+                input_type=input_ir_type,
+                extra_args=flags,
+            )
+
+        flow_ir = flatbuffer_blob.decode("utf-8")
+
+        flow_ir_tk = replace_with_tk_kernels(tk_kernels_dir, flow_ir, batch_size)
+        module_str = "\n".join(flow_ir_tk)
+        flags.pop()
+        flags.extend(["--compile-from=flow"])
+        mlir_source = "str"
+        input_ir_type = "auto"
 
     # Forces a standard for naming files:
     # If safe_name has target triple in it, get rid of target triple in mlir name
@@ -301,11 +406,29 @@ def compile_to_vmfb(
         safe_vmfb_name = safe_name
         safe_mlir_name = "".join(safe_name.split(target_triple))
 
+    if os.path.exists(module_str):
+        in_file = module_str
+    else:
+        in_file = "<input.mlir>"
+
+    out_file = f"{safe_vmfb_name}.vmfb"
+    iree_repro_cli_list = [
+        "iree_compile",
+        f"--iree-hal-target-backends={device}",
+        f"--iree-input-type={input_ir_type}",
+        in_file,
+        out_file,
+    ]
+    iree_repro_cli_list.extend(flags)
+    iree_repro_cli = " ".join(iree_repro_cli_list)
+
+    print("Compiling to target:", device, " \nCLI equivalent:", iree_repro_cli)
+
     if mlir_source == "file":
         flatbuffer_blob = ireec.compile_file(
             module_str,
             target_backends=[device],
-            input_type="torch",
+            input_type=input_ir_type,
             extra_args=flags,
         )
     elif mlir_source == "str":
@@ -316,7 +439,7 @@ def compile_to_vmfb(
         flatbuffer_blob = ireec.compile_str(
             module_str,
             target_backends=[device],
-            input_type="torch",
+            input_type=input_ir_type,
             extra_args=flags,
         )
     else:
@@ -340,54 +463,26 @@ def create_safe_name(hf_model_name, model_name_str=""):
     return safe_name
 
 
-def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
-    if use_punet:
-        suffix = "_punet"
-        url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/main/int8-model/specs/attention_and_matmul_spec.mlir"
-    elif not masked_attention:
-        suffix = ""
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_mfma.mlir"
-    else:
-        suffix = "_pad"
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx942.mlir"
-    attn_spec = urlopen(url).read().decode("utf-8")
-    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_mfma{suffix}.mlir")
-    with open(spec_path, "w") as f:
-        f.write(attn_spec)
-    return spec_path
-
-
-def get_wmma_spec_path(target_chip, save_dir, masked_attention=False):
-    if not masked_attention:
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/no_pad/attention_and_matmul_spec_wmma.mlir"
-    elif target_chip == "gfx1100":
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1100.mlir"
-    elif target_chip in ["gfx1103", "gfx1150"]:
-        url = "https://sharkpublic.blob.core.windows.net/sharkpublic/specs/latest/attention_and_matmul_spec_gfx1150.mlir"
-    else:
-        return None
-    attn_spec = urlopen(url).read().decode("utf-8")
-    suffix = "masked" if masked_attention else ""
-    spec_path = os.path.join(save_dir, f"attention_and_matmul_spec_wmma{suffix}.mlir")
-    with open(spec_path, "w") as f:
-        f.write(attn_spec)
-    return spec_path
-
-
 def save_external_weights(
     mapper,
     model,
     external_weights=None,
     external_weight_file=None,
     force_format=False,
+    vae_harness=False,
 ):
     if external_weights is not None:
         if external_weights in ["safetensors", "irpa"]:
             mod_params = dict(model.named_parameters())
             mod_buffers = dict(model.named_buffers())
             mod_params.update(mod_buffers)
+            vae_params = {}
             for name in mod_params:
+                if vae_harness:
+                    vae_params[name.replace("vae.", "")] = mod_params[name]
                 mapper["params." + name] = name
+            if vae_harness:
+                mod_params = vae_params
             if external_weight_file and not os.path.isfile(external_weight_file):
                 if not force_format:
                     safetensors.torch.save_file(mod_params, external_weight_file)

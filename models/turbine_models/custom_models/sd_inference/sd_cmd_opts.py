@@ -44,6 +44,12 @@ p.add_argument(
     default="stabilityai/stable-diffusion-2-1",
 )
 p.add_argument(
+    "--model_arch",
+    type=str,
+    help="SD pipeline/model architecture. Choices are [sd, sdxl, sd3].",
+    default=None,
+)
+p.add_argument(
     "--scheduler_id",
     type=str,
     help="Scheduler ID",
@@ -151,6 +157,12 @@ p.add_argument(
     help="A comma-separated list of submodel IDs for which to report benchmarks for, or 'all' for all components.",
 )
 
+p.add_argument(
+    "--save_outputs",
+    type=str,
+    default=None,
+    help="A comma-separated list of submodel IDs for which to save output .npys for, or 'all' for all components.",
+)
 ##############################################################################
 # SDXL Modelling Options
 #    These options are used to control model defining parameters for SDXL.
@@ -171,14 +183,73 @@ p.add_argument(
     default="fp16",
     help="Precision of Stable Diffusion weights and graph.",
 )
+
+p.add_argument(
+    "--clip_precision",
+    type=str,
+    default=None,
+    help="Precision of CLIP weights and graph.",
+)
+p.add_argument(
+    "--unet_precision",
+    type=str,
+    default=None,
+    help="Precision of UNet weights and graph.",
+)
+p.add_argument(
+    "--mmdit_precision",
+    type=str,
+    default=None,
+    help="Precision of mmdit weights and graph.",
+)
+p.add_argument(
+    "--vae_precision",
+    type=str,
+    default=None,
+    help="Precision of  vae weights and graph.",
+)
+
+p.add_argument(
+    "--clip_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--unet_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--mmdit_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+p.add_argument(
+    "--vae_spec",
+    type=str,
+    default=None,
+    help="transform dialect spec for the given submodel.",
+)
+
+
 p.add_argument(
     "--max_length", type=int, default=64, help="Sequence Length of Stable Diffusion"
 )
-p.add_argument("--vae_variant", type=str, default="decode", help="encode, decode")
+
 p.add_argument(
-    "--return_index",
+    "--decomp_attn",
+    default=False,
     action="store_true",
-    help="Make scheduled unet compiled module return the step index.",
+    help="Decompose attention at fx graph level",
+)
+
+p.add_argument(
+    "--clip_decomp_attn",
+    action="store_true",
+    help="Decompose attention for text_encoder only at fx graph level",
 )
 
 p.add_argument(
@@ -192,6 +263,13 @@ p.add_argument(
     action="store_true",
     help="Decompose attention for unet only at fx graph level",
 )
+
+p.add_argument(
+    "--mmdit_decomp_attn",
+    action="store_true",
+    help="Decompose attention for unet only at fx graph level",
+)
+
 
 p.add_argument(
     "--use_i8_punet",
@@ -220,12 +298,6 @@ p.add_argument(
     "--compare_vs_torch",
     action="store_true",
     help="Runs both turbine vmfb and a torch model to compare results",
-)
-p.add_argument(
-    "--decomp_attn",
-    default=False,
-    action="store_true",
-    help="Decompose attention at fx graph level",
 )
 p.add_argument(
     "--exit_on_vmfb",
@@ -257,12 +329,41 @@ p.add_argument(
 # IREE Compiler Options
 ##############################################################################
 
-p.add_argument("--device", type=str, default="cpu", help="cpu, cuda, vulkan, rocm")
-
 p.add_argument(
-    "--rt_device",
+    "--device",
     type=str,
     default="local-task",
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+
+p.add_argument(
+    "--clip_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--unet_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--mmdit_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--vae_device",
+    type=str,
+    default=None,
+    help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
+)
+p.add_argument(
+    "--scheduler_device",
+    type=str,
+    default=None,
     help="local-task, local-sync, vulkan://0, rocm://0, cuda://0, etc.",
 )
 
@@ -271,7 +372,38 @@ p.add_argument(
     "--iree_target_triple",
     type=str,
     default="x86_64-linux-gnu",
-    help="Specify vulkan target triple or rocm/cuda target device.",
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+
+p.add_argument(
+    "--clip_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--unet_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--mmdit_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--vae_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
+)
+p.add_argument(
+    "--scheduler_target",
+    type=str,
+    default=None,
+    help="Specify vulkan target triple or rocm/cuda target chip.",
 )
 
 p.add_argument("--ireec_flags", type=str, default="", help="extra iree-compile options")
@@ -281,13 +413,6 @@ p.add_argument(
     type=str,
     default="",
     help="extra iree-compile options for models with iree_linalg_ext.attention ops.",
-)
-
-p.add_argument(
-    "--attn_spec",
-    type=str,
-    default=None,
-    help="extra iree-compile options for models with iree_linalg_ext.attention ops. Set this to 'default' if you are using mfma-capable hardware with ROCM.",
 )
 
 p.add_argument(
@@ -309,6 +434,20 @@ p.add_argument(
     type=str,
     default="",
     help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
+p.add_argument(
+    "--mmdit_flags",
+    type=str,
+    default="",
+    help="extra iree-compile options to send for compiling mmdit. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
+)
+
+p.add_argument(
+    "--attn_spec",
+    type=str,
+    default=None,
+    help="extra iree-compile options for models with iree_linalg_ext.attention ops. Set this to 'default' if you are using mfma-capable hardware with ROCM.",
 )
 
 

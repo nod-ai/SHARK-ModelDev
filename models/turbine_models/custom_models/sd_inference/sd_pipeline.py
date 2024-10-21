@@ -24,7 +24,9 @@ from turbine_models.custom_models.sdxl_inference import (
 from turbine_models.custom_models.sd3_inference import (
     sd3_text_encoders,
     sd3_mmdit,
+    sd3_schedulers,
 )
+from turbine_models.custom_models.sd3_inference.text_encoder_impls import SD3Tokenizer
 from turbine_models.custom_models.pipeline_base import (
     TurbinePipelineBase,
     merge_arg_into_map,
@@ -118,6 +120,8 @@ sdxl_model_map = {
             "decomp_attn": None,
         },
     },
+}
+sdxl_compiled_pipeline_map = {
     "unetloop": {
         "module_name": "sdxl_compiled_pipeline",
         "load": False,
@@ -148,6 +152,7 @@ sd3_model_map = {
         "module_name": "compiled_text_encoder",
         "keywords": ["text_encoder"],
         "export_fn": sd3_text_encoders.export_text_encoders,
+        "torch_module": sd3_text_encoders.TextEncoderModule,
         "export_args": {
             "batch_size": 1,
             "max_length": 64,
@@ -157,6 +162,7 @@ sd3_model_map = {
         "module_name": "compiled_mmdit",
         "keywords": ["mmdit"],
         "export_fn": sd3_mmdit.export_mmdit_model,
+        "torch_module": sd3_mmdit.MMDiTModel,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -170,6 +176,7 @@ sd3_model_map = {
         "keywords": ["vae"],
         "dest_type": "numpy",
         "export_fn": vae.export_vae_model,
+        "torch_module": vae.SD3VaeModel,
         "export_args": {
             "batch_size": 1,
             "height": 1024,
@@ -180,9 +187,17 @@ sd3_model_map = {
     },
 }
 
+arch_mappings = {
+    "sd": sd1_sd2_model_map,
+    "sdxl": sdxl_model_map,
+    "sd3": sd3_model_map,
+}
 
-def get_sd_model_map(hf_model_name):
-    if isinstance(hf_model_name, dict):
+
+def get_sd_model_map(hf_model_name, model_arch=None):
+    if model_arch:
+        return arch_mappings[model_arch]
+    elif isinstance(hf_model_name, dict):
         name = hf_model_name["text_encoder"]
     else:
         name = hf_model_name
@@ -190,6 +205,7 @@ def get_sd_model_map(hf_model_name):
         "stabilityai/sdxl-turbo",
         "stabilityai/stable-diffusion-xl-base-1.0",
         "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16/checkpoint_pipe",
+        "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16//checkpoint_pipe",
     ]:
         return sdxl_model_map
     elif "stabilityai/stable-diffusion-3" in name:
@@ -233,6 +249,13 @@ class SharkSDPipeline(TurbinePipelineBase):
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
         batch_prompts: bool = False,
+        punet_quant_paths: dict[str] = None,
+        vae_weight_path: str = None,
+        vae_harness: bool = True,
+        add_tk_kernels: bool = False,
+        tk_kernels_dir: str | dict[str] = None,
+        save_outputs: bool | dict[bool] = False,
+        model_arch: str = None,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -243,11 +266,12 @@ class SharkSDPipeline(TurbinePipelineBase):
             "exit_on_vmfb": False,
             "pipeline_dir": pipeline_dir,
             "input_mlir": None,
-            "attn_spec": None,
+            "ireec_flags": None,
+            "attn_spec": attn_spec,
             "external_weights": None,
             "external_weight_path": None,
         }
-        sd_model_map = get_sd_model_map(hf_model_name)
+        sd_model_map = copy.deepcopy(get_sd_model_map(hf_model_name, model_arch))
         for submodel in sd_model_map:
             if "load" not in sd_model_map[submodel]:
                 sd_model_map[submodel]["load"] = True
@@ -281,6 +305,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             hf_model_name,
             benchmark,
             verbose,
+            save_outputs,
             common_export_args,
         )
         for submodel in sd_model_map:
@@ -303,6 +328,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.cpu_scheduling = cpu_scheduling
         self.scheduler_id = scheduler_id
         self.num_inference_steps = num_inference_steps
+        self.punet_quant_paths = punet_quant_paths
 
         self.text_encoder = None
         self.unet = None
@@ -311,6 +337,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.scheduler = None
 
         self.split_scheduler = True
+        self.add_tk_kernels = add_tk_kernels
+        self.tk_kernels_dir = tk_kernels_dir
 
         self.base_model_name = (
             hf_model_name
@@ -335,55 +363,85 @@ class SharkSDPipeline(TurbinePipelineBase):
                 ),
             ]
             self.map["text_encoder"]["export_args"]["batch_input"] = batch_prompts
-            self.latents_precision = self.map["unet"]["precision"]
-            self.scheduler_device = self.map["unet"]["device"]
-            self.scheduler_driver = self.map["unet"]["driver"]
-            self.scheduler_target = self.map["unet"]["target"]
-        elif not self.is_sd3:
+            self.diffusion_model = self.map["unet"]
+            if vae_weight_path is not None:
+                self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
+            self.map["vae"]["export_args"]["vae_harness"] = vae_harness
+
+        elif self.is_sd3:
+            self.tokenizer = SD3Tokenizer()
+            self.scheduler_id = "EulerFlowDiscrete"
+            self.map["text_encoder"]["export_args"]["external_weights"] = "irpa"
+            self.map["text_encoder"]["export_args"][
+                "external_weight_path"
+            ] = "stable_diffusion_3_medium_text_encoder_fp16.irpa"
+            self.diffusion_model = self.map["mmdit"]
+        else:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
             )
-            self.latents_precision = self.map["unet"]["precision"]
-            self.scheduler_device = self.map["unet"]["device"]
-            self.scheduler_driver = self.map["unet"]["driver"]
-            self.scheduler_target = self.map["unet"]["target"]
-        # TODO: Add SD3 init
+            self.diffusion_model = self.map["unet"]
 
+        self.latents_precision = self.diffusion_model["precision"]
+        self.latents_channels = self.map["vae"]["export_args"]["num_channels"]
+        self.scheduler_device = self.diffusion_model["device"]
+        self.scheduler_driver = self.diffusion_model["driver"]
+        self.scheduler_target = self.diffusion_model["target"]
+        self.cast_latents_to_vae = False
+        if self.diffusion_model["driver"] != self.map["vae"]["driver"]:
+            self.cast_latents_to_vae = True
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
+        if self.use_punet:
+            self.setup_punet()
+        elif not self.is_sd3:
+            self.map["unet"]["keywords"].append("!punet")
+            self.map["unet"]["function_name"] = "run_forward"
+
+    def setup_punet(self):
+        self.map["unet"]["mlir"] = None
+        self.map["unet"]["vmfb"] = None
+        self.map["unet"]["weights"] = None
+        self.map["unet"]["keywords"] = [
+            i for i in self.map["unet"]["keywords"] if i != "!punet"
+        ]
+        self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
+            self.map["unet"]["np_dtype"] = "int8"
+            self.map["unet"]["torch_dtype"] = torch.int8
+            if self.add_tk_kernels:
+                self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
+                self.map["unet"]["export_args"]["tk_kernels_dir"] = self.tk_kernels_dir
             self.map["unet"]["export_args"]["precision"] = "i8"
-            self.map["unet"]["export_args"]["use_punet"] = True
-            self.map["unet"]["use_weights_for_export"] = True
-            self.map["unet"]["keywords"].append("punet")
-            self.map["unet"]["module_name"] = "compiled_punet"
-            self.map["unet"]["function_name"] = "main"
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
             )
+            self.map["unet"]["export_args"]["quant_paths"] = self.punet_quant_paths
             for idx, word in enumerate(self.map["unet"]["keywords"]):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
                     break
-        else:
-            self.map["unet"]["keywords"].append("!punet")
-            self.map["unet"]["function_name"] = "run_forward"
+        self.map["unet"]["export_args"]["use_punet"] = True
+        self.map["unet"]["use_weights_for_export"] = True
+        self.map["unet"]["keywords"].append("punet")
+        self.map["unet"]["module_name"] = "compiled_punet"
+        self.map["unet"]["function_name"] = "main"
 
     # LOAD
 
     def load_scheduler(
         self,
-        scheduler_id: str,
+        scheduler_id: str = None,
         steps: int = 30,
     ):
-        if self.is_sd3:
-            scheduler_device = self.mmdit.device
-        else:
-            scheduler_device = self.unet.device
         if not self.cpu_scheduling:
+            if self.is_sd3:
+                export_fn = sd3_schedulers.export_scheduler_model
+            else:
+                export_fn = schedulers.export_scheduler_model
             self.map["scheduler"] = {
                 "module_name": "compiled_scheduler",
-                "export_fn": schedulers.export_scheduler_model,
+                "export_fn": export_fn,
                 "driver": self.scheduler_driver,
                 "export_args": {
                     "hf_model_name": self.base_model_name,
@@ -401,10 +459,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             }
             self.scheduler = None
             self.num_inference_steps = steps
-            self.scheduler_id = scheduler_id
+            if scheduler_id:
+                self.scheduler_id = scheduler_id
             scheduler_uid = "_".join(
                 [
-                    f"{scheduler_id}Scheduler",
+                    f"{self.scheduler_id}Scheduler",
                     f"bs{self.batch_size}",
                     "x".join([str(self.width), str(self.height)]),
                     self.latents_precision,
@@ -426,7 +485,13 @@ class SharkSDPipeline(TurbinePipelineBase):
                 print("JIT export of scheduler failed. Loading CPU scheduler.")
                 self.cpu_scheduling = True
         if self.cpu_scheduling:
-            scheduler = schedulers.get_scheduler(self.base_model_name, scheduler_id)
+            if self.is_sd3:
+                raise AssertionError("CPU scheduling not yet supported for SD3")
+            else:
+                scheduler_device = self.unet.device
+            scheduler = schedulers.get_scheduler(
+                self.base_model_name, self.scheduler_id
+            )
             self.scheduler = schedulers.SharkSchedulerCPUWrapper(
                 scheduler,
                 self.batch_size,
@@ -469,6 +534,21 @@ class SharkSDPipeline(TurbinePipelineBase):
             )
             return prompt_embeds, add_text_embeds
 
+    def encode_prompts_sd3(self, prompt, negative_prompt):
+        text_input_ids_dict = self.tokenizer.tokenize_with_weights(prompt)
+        uncond_input_ids_dict = self.tokenizer.tokenize_with_weights(negative_prompt)
+        text_input_ids_list = list(text_input_ids_dict.values())
+        uncond_input_ids_list = list(uncond_input_ids_dict.values())
+        text_encoders_inputs = [
+            text_input_ids_list[0],
+            text_input_ids_list[1],
+            text_input_ids_list[2],
+            uncond_input_ids_list[0],
+            uncond_input_ids_list[1],
+            uncond_input_ids_list[2],
+        ]
+        return self.text_encoder("encode_tokens", text_encoders_inputs)
+
     def prepare_latents(
         self,
         noise,
@@ -481,14 +561,15 @@ class SharkSDPipeline(TurbinePipelineBase):
         elif self.is_sdxl and self.cpu_scheduling:
             self.scheduler.do_guidance = False
             self.scheduler.repeat_sample = False
-            sample, add_time_ids, step_indexes, timesteps = (
-                self.scheduler.initialize_sdxl(noise, num_inference_steps)
-            )
+            (
+                sample,
+                add_time_ids,
+                step_indexes,
+                timesteps,
+            ) = self.scheduler.initialize_sdxl(noise, num_inference_steps)
             return sample, add_time_ids, step_indexes, timesteps
-        elif self.is_sdxl:
+        elif self.is_sdxl or self.is_sd3:
             return self.scheduler("run_initialize", noise)
-        elif self.is_sd3:
-            raise NotImplementedError("Stable Diffusion 3 not supported yet.")
         else:
             sample, timesteps = self.scheduler.initialize_sd(noise, num_inference_steps)
             return sample, timesteps
@@ -504,7 +585,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             rand_sample = torch.randn(
                 (
                     self.batch_size,
-                    4,
+                    self.latents_channels,
                     self.height // 8,
                     self.width // 8,
                 ),
@@ -565,9 +646,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
         )
+        # Disable progress bar if we aren't in verbose mode or if we're printing
+        # benchmark latencies for unet.
         for i, t in tqdm(
             enumerate(timesteps),
-            disable=(self.map["unet"].get("benchmark") and self.verbose),
+            disable=(self.map["unet"].get("benchmark") or not self.verbose),
         ):
             if self.cpu_scheduling:
                 latent_model_input, t = self.scheduler.scale_model_input(
@@ -606,6 +689,59 @@ class SharkSDPipeline(TurbinePipelineBase):
                 )
             else:
                 latents = self.scheduler("run_step", [noise_pred, t, latents])
+        return latents
+
+    def _produce_latents_sd3(
+        self,
+        sample,
+        prompt_embeds,
+        pooled_prompt_embeds,
+        steps,
+        guidance_scale,
+    ):
+        latents, indexes, timesteps = self.scheduler(
+            "run_initialize",
+            sample,
+        )
+        guidance_scale = ireert.asdevicearray(
+            self.mmdit.device,
+            [guidance_scale],
+            dtype=self.map["mmdit"]["np_dtype"],
+        )
+        steps_list_gpu = [
+            ireert.asdevicearray(self.scheduler.device, [i], dtype="int64")
+            for i in range(steps)
+        ]
+        timesteps_cpu = timesteps
+        timesteps_list_gpu = [
+            ireert.asdevicearray(
+                self.scheduler.device, [timesteps_cpu[i]], dtype="float32"
+            )
+            for i in range(steps)
+        ]
+
+        # Disable progress bar if we aren't in verbose mode or if we're printing
+        # benchmark latencies for unet.
+        for i, t in tqdm(
+            enumerate(timesteps),
+            disable=(self.map["mmdit"].get("benchmark") or not self.verbose),
+        ):
+            latent_model_input, t = self.scheduler(
+                "run_scale", [latents, timesteps_list_gpu[i], timesteps]
+            )
+            mmdit_inputs = [
+                latent_model_input,
+                prompt_embeds,
+                pooled_prompt_embeds,
+                t,
+            ]
+            noise_pred = self.mmdit(
+                "run_forward",
+                mmdit_inputs,
+            )
+            latents = self.scheduler(
+                "run_step", [noise_pred, t, latents, guidance_scale, steps_list_gpu[i]]
+            )
         return latents
 
     def generate_images(
@@ -647,6 +783,10 @@ class SharkSDPipeline(TurbinePipelineBase):
             prompt_embeds, negative_embeds = self.encode_prompts_sdxl(
                 prompt, negative_prompt
             )
+        elif self.is_sd3:
+            prompt_embeds, negative_embeds = self.encode_prompts_sd3(
+                prompt, negative_prompt
+            )
         else:
             prompt_embeds, negative_embeds = encode_prompt(
                 self, prompt, negative_prompt
@@ -662,8 +802,17 @@ class SharkSDPipeline(TurbinePipelineBase):
             ]
             if self.is_sdxl:
                 latents = self._produce_latents_sdxl(*produce_latents_input)
+            elif self.is_sd3:
+                latents = self._produce_latents_sd3(*produce_latents_input)
             else:
                 latents = self._produce_latents_sd(*produce_latents_input)
+
+            if self.cast_latents_to_vae:
+                latents = ireert.asdevicearray(
+                    self.vae.device,
+                    latents.to_host(),
+                    dtype=self.map["vae"]["np_dtype"],
+                )
             image = self.vae("decode", [latents])
             numpy_images.append(image)
             pipe_end = time.time()
@@ -672,13 +821,23 @@ class SharkSDPipeline(TurbinePipelineBase):
         timestamp = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
         images = []
         for idx, image in enumerate(numpy_images):
-            image = torch.from_numpy(image).cpu().permute(0, 2, 3, 1).float().numpy()
-            image = numpy_to_pil_image(image)
-            images.append(image[0])
+            if self.is_sd3:
+                if image.ndim == 4:
+                    image = image[0]
+                image = torch.from_numpy(image).cpu().permute(1, 2, 0).float().numpy()
+                image = (image * 255).round().astype("uint8")
+                out_image = Image.fromarray(image)
+                images.extend([out_image])
+            else:
+                image = (
+                    torch.from_numpy(image).cpu().permute(0, 2, 3, 1).float().numpy()
+                )
+                image = numpy_to_pil_image(image)
+                images.append(image[0])
         if return_imgs:
             return images
         for idx, image in enumerate(images):
-            img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
+            img_path = "sd_output_" + timestamp + "_" + str(idx) + ".png"
             image.save(img_path)
             print(img_path, "saved")
         return
@@ -704,10 +863,41 @@ if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
     ireec_flags = {
-        "clip": args.ireec_flags + args.clip_flags,
+        "text_encoder": args.ireec_flags + args.clip_flags,
         "scheduler": args.ireec_flags,
         "unet": args.ireec_flags + args.unet_flags,
-        "vae_decode": args.ireec_flags + args.vae_flags,
+        "mmdit": args.ireec_flags + args.mmdit_flags,
+        "vae": args.ireec_flags + args.vae_flags,
+    }
+    devices = {
+        "text_encoder": args.clip_device if args.clip_device else args.device,
+        "scheduler": args.scheduler_device if args.scheduler_device else args.device,
+        "unet": args.unet_device if args.unet_device else args.device,
+        "mmdit": args.mmdit_device if args.mmdit_device else args.device,
+        "vae": args.vae_device if args.vae_device else args.device,
+    }
+    targets = {
+        "text_encoder": (
+            args.clip_target if args.clip_target else args.iree_target_triple
+        ),
+        "scheduler": (
+            args.scheduler_target if args.scheduler_target else args.iree_target_triple
+        ),
+        "unet": args.unet_target if args.unet_target else args.iree_target_triple,
+        "mmdit": args.mmdit_target if args.mmdit_target else args.iree_target_triple,
+        "vae": args.vae_target if args.vae_target else args.iree_target_triple,
+    }
+    precisions = {
+        "text_encoder": args.clip_precision if args.clip_precision else args.precision,
+        "unet": args.unet_precision if args.unet_precision else args.precision,
+        "mmdit": args.mmdit_precision if args.mmdit_precision else args.precision,
+        "vae": args.vae_precision if args.vae_precision else args.precision,
+    }
+    specs = {
+        "text_encoder": args.clip_spec if args.clip_spec else args.attn_spec,
+        "unet": args.unet_spec if args.unet_spec else args.attn_spec,
+        "mmdit": args.mmdit_spec if args.mmdit_spec else args.attn_spec,
+        "vae": args.vae_spec if args.vae_spec else args.attn_spec,
     }
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
@@ -720,25 +910,35 @@ if __name__ == "__main__":
                 benchmark[i] = True
     else:
         benchmark = False
-    if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
-        args.decomp_attn = {
-            "text_encoder": args.decomp_attn,
-            "unet": (
-                args.unet_decomp_attn if args.unet_decomp_attn else args.decomp_attn
-            ),
-            "vae": args.vae_decomp_attn if args.vae_decomp_attn else args.decomp_attn,
-        }
+    if args.save_outputs:
+        if args.save_outputs.lower() == "all":
+            save_outputs = True
+        else:
+            for i in args.save_outputs.split(","):
+                save_outputs[i] = True
+    else:
+        save_outputs = False
+    args.decomp_attn = {
+        "text_encoder": (
+            args.clip_decomp_attn if args.clip_decomp_attn else args.decomp_attn
+        ),
+        "unet": (args.unet_decomp_attn if args.unet_decomp_attn else args.decomp_attn),
+        "mmdit": (
+            args.mmdit_decomp_attn if args.mmdit_decomp_attn else args.decomp_attn
+        ),
+        "vae": args.vae_decomp_attn if args.vae_decomp_attn else args.decomp_attn,
+    }
     sd_pipe = SharkSDPipeline(
         args.hf_model_name,
         args.height,
         args.width,
         args.batch_size,
         args.max_length,
-        args.precision,
-        args.device,
-        args.iree_target_triple,
+        precisions,
+        devices,
+        targets,
         ireec_flags,
-        args.attn_spec,
+        specs,
         args.decomp_attn,
         args.pipeline_dir,
         args.external_weights_dir,
@@ -750,6 +950,8 @@ if __name__ == "__main__":
         args.use_i8_punet,
         benchmark,
         args.verbose,
+        save_outputs=save_outputs,
+        model_arch=args.model_arch,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()

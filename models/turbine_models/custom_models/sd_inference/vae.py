@@ -98,6 +98,7 @@ class SD3VaeModel(torch.nn.Module):
         return latent
 
 
+@torch.no_grad()
 def export_vae_model(
     hf_model_name,
     batch_size,
@@ -118,6 +119,7 @@ def export_vae_model(
     input_mlir=None,
     weights_only=False,
     upload_ir=False,
+    vae_harness=False,
 ):
     dtype = torch.float16 if precision == "fp16" else torch.float32
     np_dtype = "float16" if precision == "fp16" else "float32"
@@ -127,11 +129,6 @@ def export_vae_model(
     )
     if decomp_attn:
         safe_name += "_decomp_attn"
-    elif not attn_spec:
-        if "gfx9" in target:
-            attn_spec = "mfma"
-        elif "gfx11" in target:
-            attn_spec = "wmma"
 
     if pipeline_dir:
         safe_name = os.path.join(pipeline_dir, safe_name)
@@ -161,20 +158,25 @@ def export_vae_model(
     if dtype == torch.float16:
         vae_model = vae_model.half()
     mapper = {}
-    utils.save_external_weights(
-        mapper, vae_model, external_weights, external_weight_path
-    )
+    if (external_weight_path is not None) and (
+        not os.path.exists(external_weight_path)
+    ):
+        utils.save_external_weights(
+            mapper,
+            vae_model,
+            external_weights,
+            external_weight_path,
+        )
     if weights_only:
         return external_weight_path
 
-    input_image_shape = (height, width, 3)
-    input_latents_shape = (batch_size, num_channels, height // 8, width // 8)
-    encode_args = [
-        torch.empty(
-            input_image_shape,
-            dtype=torch.float32,
-        )
-    ]
+    if "stable-diffusion-3" in hf_model_name:
+        input_image_shape = (height, width, 3)
+        input_latents_shape = (batch_size, 16, height // 8, width // 8)
+    else:
+        input_image_shape = (batch_size, 3, height, width)
+        input_latents_shape = (batch_size, num_channels, height // 8, width // 8)
+
     decode_args = [
         torch.empty(
             input_latents_shape,
@@ -195,9 +197,6 @@ def export_vae_model(
         fxb = FxProgramsBuilder(vae_model)
 
         # TODO: fix issues with exporting the encode function.
-        # @fxb.export_program(args=(encode_args,))
-        # def _encode(module, inputs,):
-        #     return module.encode(*inputs)
 
         @fxb.export_program(args=(decode_args,))
         def _decode(module, inputs):
@@ -205,6 +204,7 @@ def export_vae_model(
 
         class CompiledVae(CompiledModule):
             decode = _decode
+            # encode = _encode
 
         if external_weights:
             externalize_module_parameters(vae_model)
@@ -220,14 +220,8 @@ def export_vae_model(
         "output_shapes": [(3, width, height) * batch_size],
         "output_dtypes": ["float32"],
     }
-    model_metadata_encode = {
-        "model_name": "vae_encode",
-        "input_shapes": [input_image_shape],
-        "input_dtypes": [np_dtype],
-        "output_shapes": [input_latents_shape],
-        "output_dtypes": [np_dtype],
-    }
     module = AddMetadataPass(module, model_metadata_decode, "decode").run()
+    # module = AddMetadataPass(module, model_metadata_decode, "encode").run()
 
     if compile_to != "vmfb":
         return str(module)
@@ -247,15 +241,7 @@ def export_vae_model(
 if __name__ == "__main__":
     from turbine_models.custom_models.sd_inference.sd_cmd_opts import args
 
-    if args.input_mlir:
-        vae_model = None
-    else:
-        vae_model = VaeModel(
-            args.hf_model_name,
-            custom_vae=None,
-        )
     mod_str = export_vae_model(
-        vae_model,
         args.hf_model_name,
         args.batch_size,
         height=args.height,
@@ -267,7 +253,6 @@ if __name__ == "__main__":
         device=args.device,
         target=args.iree_target_triple,
         ireec_flags=args.ireec_flags + args.attn_flags + args.vae_flags,
-        variant=args.vae_variant,
         decomp_attn=args.decomp_attn,
         attn_spec=args.attn_spec,
         input_mlir=args.input_mlir,
