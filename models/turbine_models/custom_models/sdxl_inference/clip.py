@@ -11,7 +11,7 @@ from iree import runtime as ireert
 import iree.compiler as ireec
 from iree.compiler.ir import Context
 import numpy as np
-from shark_turbine.aot import *
+from iree.turbine.aot import *
 from turbine_models.custom_models.sd_inference import utils
 import torch
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer

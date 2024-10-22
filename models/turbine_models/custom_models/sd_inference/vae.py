@@ -9,11 +9,11 @@ import sys
 
 from iree.compiler.ir import Context
 import numpy as np
-from shark_turbine.aot import *
-from shark_turbine.dynamo.passes import (
+from iree.turbine.aot import *
+from iree.turbine.dynamo.passes import (
     DEFAULT_DECOMPOSITIONS,
 )
-from shark_turbine.transforms.general.add_metadata import AddMetadataPass
+from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 from turbine_models.custom_models.sd_inference import utils
 import torch
 import torch._dynamo as dynamo

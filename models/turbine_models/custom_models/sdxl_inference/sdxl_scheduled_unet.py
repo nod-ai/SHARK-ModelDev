@@ -19,8 +19,8 @@ import torch._dynamo as dynamo
 from iree import runtime as ireert
 from iree.compiler.ir import Context
 
-from shark_turbine.aot import *
-import shark_turbine.ops as ops
+from iree.turbine.aot import *
+import iree.turbine.ops as ops
 
 from turbine_models.custom_models.sd_inference import utils
 from turbine_models.custom_models.sd_inference.schedulers import get_scheduler

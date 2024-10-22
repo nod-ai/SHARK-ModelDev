@@ -16,7 +16,7 @@ from transformers.modeling_utils import load_sharded_checkpoint
 import tempfile
 
 os.environ["TORCH_LOGS"] = "dynamic"
-from shark_turbine.aot import *
+from iree.turbine.aot import *
 from turbine_models.custom_models import llm_runner
 
 from turbine_models.gen_external_params.gen_external_params import (

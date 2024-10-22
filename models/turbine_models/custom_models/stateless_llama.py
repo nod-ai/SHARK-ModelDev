@@ -8,7 +8,7 @@ os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from torch.utils import _pytree as pytree
-from shark_turbine.aot import *
+from iree.turbine.aot import *
 from iree.compiler.ir import Context
 from turbine_models.custom_models.llm_optimizations.streaming_llm.modify_llama import (
     enable_llama_pos_shift_attention,
@@ -458,7 +458,7 @@ def export_transformer_model(
         # TODO: Integrate with external parameters to actually be able to run
         # TODO: Make more generalizable to be able to quantize with all  compile_to options
         if quantization == "int4" and not compile_to == "linalg":
-            from shark_turbine.transforms.quantization import mm_group_quant
+            from iree.turbine.transforms.quantization import mm_group_quant
 
             mm_group_quant.MMGroupQuantRewriterPass(
                 CompiledModule.get_mlir_module(inst).operation
