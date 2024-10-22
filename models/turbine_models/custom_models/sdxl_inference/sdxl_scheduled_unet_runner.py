@@ -5,7 +5,7 @@ from iree import runtime as ireert
 import torch
 import numpy as np
 from tqdm.auto import tqdm
-from shark_turbine.ops.iree import trace_tensor
+from iree.turbine.ops.iree import trace_tensor
 
 torch.random.manual_seed(0)
 

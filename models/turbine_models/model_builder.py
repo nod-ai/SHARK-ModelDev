@@ -1,6 +1,6 @@
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 import torch
-import shark_turbine.aot as aot
+import iree.turbine.aot as aot
 from turbine_models.turbine_tank import turbine_tank
 import os
 import re

@@ -4,11 +4,11 @@ import re
 
 from transformers import AutoFeatureExtractor, AutoModelForImageClassification
 import torch
-from shark_turbine.aot import *
+from iree.turbine.aot import *
 from iree.compiler.ir import Context
 import iree.runtime as rt
 from turbine_models.custom_models.sd_inference import utils
-import shark_turbine.ops.iree as ops
+import iree.turbine.ops.iree as ops
 import argparse
 
 parser = argparse.ArgumentParser()
