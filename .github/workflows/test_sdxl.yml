@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-amdgpu-w7900-x86-64]
+        os: [nodai-amdgpu-mi250-x86-64]
 
     runs-on: ${{matrix.os}}
     steps:
