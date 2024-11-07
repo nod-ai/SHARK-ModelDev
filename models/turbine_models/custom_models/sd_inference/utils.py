@@ -74,16 +74,13 @@ GFX11_flags = {
     "masked_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
-        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "punet": [
         "--iree-preprocessing-pass-pipeline=builtin.module(util.func(iree-global-opt-raise-special-ops, iree-flow-canonicalize), iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics, util.func(iree-preprocessing-generalize-linalg-matmul-experimental))"
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
-        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics)",
-        "--iree-codegen-llvmgpu-enable-transform-dialect-jit=false",
     ],
     "unet": [""],
     "clip": [""],
