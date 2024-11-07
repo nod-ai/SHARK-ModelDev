@@ -293,7 +293,7 @@ def compile_to_vmfb(
         flags.extend(
             [
                 "--iree-hal-target-backends=rocm",
-                "--iree-rocm-target-chip=" + target_triple,
+                "--iree-hip-target=" + target_triple,
                 "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
             ]
         )
