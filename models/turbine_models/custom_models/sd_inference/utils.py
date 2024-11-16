@@ -353,7 +353,7 @@ def compile_to_vmfb(
     # the TD spec is implemented in C++.
 
     if attn_spec in ["default", "mfma", "punet"]:
-#        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+        #        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
         use_punet = True if attn_spec in ["punet", "i8"] else False
         attn_spec = get_mfma_spec_path(
             target_triple,

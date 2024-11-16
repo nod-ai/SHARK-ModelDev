@@ -41,6 +41,7 @@ import os
 import numpy as np
 import time
 from datetime import datetime as dt
+import pdb
 
 # These are arguments common among submodel exports.
 # They are expected to be populated in two steps:
@@ -227,6 +228,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         target: str | dict[str],
         ireec_flags: str | dict[str] = None,
         attn_spec: str | dict[str] = None,
+        onnx_model_path: str | dict[str] = None,
+        run_onnx_mmdit: bool = False,
         decomp_attn: bool | dict[bool] = False,
         pipeline_dir: str = "./shark_vmfbs",
         external_weights_dir: str = "./shark_weights",
@@ -287,6 +290,8 @@ class SharkSDPipeline(TurbinePipelineBase):
             ireec_flags,
             precision,
             attn_spec,
+            onnx_model_path,
+            run_onnx_mmdit,
             decomp_attn,
             external_weights,
             pipeline_dir,
@@ -391,7 +396,9 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.map["unet"]["mlir"] = None
         self.map["unet"]["vmfb"] = None
         self.map["unet"]["weights"] = None
-        self.map["unet"]["keywords"] = [i for i in self.map["unet"]["keywords"] if i != "!punet"]
+        self.map["unet"]["keywords"] = [
+            i for i in self.map["unet"]["keywords"] if i != "!punet"
+        ]
         self.map["unet"]["keywords"] += "punet"
         if self.use_i8_punet:
             if self.add_tk_kernels:
@@ -720,10 +727,23 @@ class SharkSDPipeline(TurbinePipelineBase):
                 pooled_prompt_embeds,
                 t,
             ]
-            noise_pred = self.mmdit(
-                "run_forward",
-                mmdit_inputs,
-            )
+            if hasattr(self, "mmdit_onnx"):
+                latent_model_input = latent_model_input.to_host()
+                batch = latent_model_input.shape[0]
+                batched_t = np.repeat(t.to_host(), batch)
+                noise_pred = self.mmdit_onnx(
+                    {
+                        "hidden_states": latent_model_input,
+                        "encoder_hidden_states": prompt_embeds,
+                        "pooled_projections": pooled_prompt_embeds,
+                        "timestep": batched_t,
+                    }
+                )
+            else:
+                noise_pred = self.mmdit(
+                    "run_forward",
+                    mmdit_inputs,
+                )
             latents = self.scheduler(
                 "run_step", [noise_pred, t, latents, guidance_scale, steps_list_gpu[i]]
             )
@@ -884,6 +904,7 @@ if __name__ == "__main__":
         "mmdit": args.mmdit_spec if args.mmdit_spec else args.attn_spec,
         "vae": args.vae_spec if args.vae_spec else args.attn_spec,
     }
+    onnx_model_paths = {"mmdit": args.mmdit_onnx_model_path}
     if not args.pipeline_dir:
         args.pipeline_dir = utils.create_safe_name(args.hf_model_name, "")
     benchmark = {}
@@ -924,6 +945,8 @@ if __name__ == "__main__":
         targets,
         ireec_flags,
         specs,
+        onnx_model_paths,
+        args.run_onnx_mmdit,
         args.decomp_attn,
         args.pipeline_dir,
         args.external_weights_dir,
