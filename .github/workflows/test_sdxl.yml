@@ -1,15 +1,17 @@
-name: SDXL Models Nightly
+name: SDXL Hourly
 
 on:
+  workflow_dispatch:
+  pull_request:
   schedule:
-    - cron:  '30 6 * * *'
+    - cron: "*/50 * * * *"
 
 jobs:
   test-sdxl-models:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-amdgpu-w7900-x86-64]
+        os: [nodai-amdgpu-mi300-x86-64]
 
     runs-on: ${{matrix.os}}
     steps:
@@ -21,28 +23,64 @@ jobs:
       - name: "Checkout Code"
         uses: actions/checkout@v4
         with:
-          ref: ean-sd-fp16
+          ref: bump-punet-tom
+      
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v1
+
+      - name: Set up Ninja
+        uses: ashutoshvarma/setup-ninja@v1
+        env:
+          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
 
       - name: "Checkout iree-turbine"
         uses: actions/checkout@v4
         with:
           repository: iree-org/iree-turbine
-          # TODO: Let the ref be passed as a parameter to run integration tests.
           path: iree-turbine
+      
+      - name: "Checkout iree"
+        uses: actions/checkout@v4
+        with:
+          repository: iree-org/iree
+          path: iree
 
-      - name: Sync source deps
-        # build IREE from source with -DIREE_BUILD_TRACY=ON if getting tracy profile
+      - name: Python deps
         run: |
+          python3.11 -m venv sdxl_venv
+          source sdxl_venv/bin/activate
           python -m pip install --upgrade pip
-          # Note: We install in three steps in order to satisfy requirements
-          # from non default locations first. Installing the PyTorch CPU
-          # wheels saves multiple minutes and a lot of bandwidth on runner setup.
-          pip install --no-compile --index-url https://download.pytorch.org/whl/cpu \
-            -r ${{ github.workspace }}/iree-turbine//pytorch-cpu-requirements.txt
-          pip install --no-compile --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
-          pip install --no-compile -e ${{ github.workspace }}/iree-turbine/[testing,torch-cpu-nightly]
-          pip install --no-compile --upgrade -r models/requirements.txt
-          pip install --no-compile -e models
+          pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
+          pip install --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
+          pip install --no-compile --pre -e ${{ github.workspace }}/iree-turbine[testing]
+          pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
+          pip uninstall torch torchvision torchaudio -y
+          pip install https://download.pytorch.org/whl/nightly/pytorch_triton_rocm-3.0.0%2B21eae954ef-cp311-cp311-linux_x86_64.whl
+          pip install https://download.pytorch.org/whl/nightly/rocm6.1/torch-2.5.0.dev20240710%2Brocm6.1-cp311-cp311-linux_x86_64.whl
+          pip install https://download.pytorch.org/whl/nightly/rocm6.1/torchvision-0.20.0.dev20240711%2Brocm6.1-cp311-cp311-linux_x86_64.whl
+          pip install https://download.pytorch.org/whl/nightly/rocm6.1/torchaudio-2.4.0.dev20240711%2Brocm6.1-cp311-cp311-linux_x86_64.whl
+          pip uninstall iree-compiler iree-runtime iree-base-compiler iree-base-runtime -y
+      
+      - name: Build IREE
+        run: |
+          python3.11 -m venv iree_venv
+          source iree_venv/bin/activate
+          pip install --upgrade pip
+          pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
+          cd $GITHUB_WORKSPACE/iree
+          git submodule update --init
+          cmake -S . -B build-release \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=`which clang` -DCMAKE_CXX_COMPILER=`which clang++` \
+            -DIREE_HAL_DRIVER_CUDA=OFF \
+            -DIREE_EXTERNAL_HAL_DRIVERS="rocm" \
+            -DIREE_BUILD_PYTHON_BINDINGS=ON \
+            -DPython3_EXECUTABLE="$(which python3)"
+          export PATH="$GITHUB_WORKSPACE/iree/build-release/tools:$PATH"
+          export PYTHONPATH="$GITHUB_WORKSPACE/iree/build-release/runtime/bindings/python:$GITHUB_WORKSPACE/iree/build-release/compiler/bindings/python"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "PYTHONPATH=$PYTHONPATH" >> $GITHUB_ENV
+
       
       - name: Show current free memory
         run: |
@@ -50,7 +88,5 @@ jobs:
 
       - name: Run sdxl tests
         run: |
-          pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu
-          pytest models/turbine_models/tests/sdxl_test.py --device cpu --rt_device local-task --iree_target_triple x86_64-linux-gnu
-          pytest models/turbine_models/tests/sdxl_test.py --device vulkan --rt_device vulkan --iree_target_triple rdna3-unknown-linux
-          pytest models/turbine_models/tests/sdxl_test.py --device rocm --rt_device rocm --iree_target_triple gfx90a
+          source sdxl_venv/bin/activate
+          python3 models/turbine_models/custom_models/sd_inference/sd_pipeline.py --device=hip --precision=fp16 --iree_target_triple=gfx942 --external_weights=safetensors --hf_model_name=stabilityai/stable-diffusion-xl-base-1.0 --width=1024 --height=1024 --batch_size=1 --use_i8_punet --attn_spec=punet --vae_decomp_attn --external_weights=safetensors --num_inference_steps=20 --benchmark=all --verbose
