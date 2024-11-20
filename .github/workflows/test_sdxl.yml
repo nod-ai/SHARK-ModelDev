@@ -73,9 +73,10 @@ jobs:
             -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=`which clang` -DCMAKE_CXX_COMPILER=`which clang++` \
             -DIREE_HAL_DRIVER_CUDA=OFF \
-            -DIREE_HAL_DRIVER_HIP=ON \
             -DIREE_BUILD_PYTHON_BINDINGS=ON \
-            -DPython3_EXECUTABLE="$(which python3)"
+            -DPython3_EXECUTABLE="$(which python3.11)" \
+            -DIREE_TARGET_BACKEND_ROCM=ON \
+            -DIREE_HAL_DRIVER_HIP=ON
           cmake --build build-release/
           export PATH="$GITHUB_WORKSPACE/iree/build-release/tools:$PATH"
           export PYTHONPATH="$GITHUB_WORKSPACE/iree/build-release/runtime/bindings/python:$GITHUB_WORKSPACE/iree/build-release/compiler/bindings/python"
