@@ -76,6 +76,11 @@ jobs:
             -DIREE_HAL_DRIVER_HIP=ON \
             -DIREE_BUILD_PYTHON_BINDINGS=ON \
             -DPython3_EXECUTABLE="$(which python3)"
+          cmake --build build-release/
+          export PATH="$GITHUB_WORKSPACE/iree/build-release/tools:$PATH"
+          export PYTHONPATH="$GITHUB_WORKSPACE/iree/build-release/runtime/bindings/python:$GITHUB_WORKSPACE/iree/build-release/compiler/bindings/python"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "PYTHONPATH=$PYTHONPATH" >> $GITHUB_ENV
 
       
       - name: Show current free memory
@@ -84,11 +89,5 @@ jobs:
 
       - name: Run sdxl tests
         run: |
-          export PATH="$GITHUB_WORKSPACE/iree/build-release/tools:$PATH"
-          export PYTHONPATH="$GITHUB_WORKSPACE/iree/build-release/runtime/bindings/python:$GITHUB_WORKSPACE/iree/build-release/compiler/bindings/python"
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          echo "PYTHONPATH=$PYTHONPATH" >> $GITHUB_ENV
-          echo $PATH
-          echo $PYTHONPATH
           source sdxl_venv/bin/activate
           python3 models/turbine_models/custom_models/sd_inference/sd_pipeline.py --device=hip --precision=fp16 --iree_target_triple=gfx942 --external_weights=safetensors --hf_model_name=stabilityai/stable-diffusion-xl-base-1.0 --width=1024 --height=1024 --batch_size=1 --use_i8_punet --attn_spec=punet --vae_decomp_attn --external_weights=safetensors --num_inference_steps=20 --benchmark=all --verbose
