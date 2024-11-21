@@ -9,7 +9,7 @@ REPO = "iree"
 
 API_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/pkgci.yml/runs"
 
-# Function to get the latest workflow run ID for pkgci.yml
+# Get the latest workflow run ID for pkgci.yml
 def get_latest_pkgci_workflow_run():
     headers = {
         "Accept": "application/vnd.github+json",
@@ -31,7 +31,7 @@ def get_latest_pkgci_workflow_run():
         print(f"Error fetching workflow runs: {response.status_code}")
         return None
 
-# Function to get the artifacts of a specific workflow run
+# Get the artifacts of a specific workflow run
 def get_artifacts(workflow_run_id, artifacts_url):
     headers = {
         "Accept": "application/vnd.github+json",
@@ -52,7 +52,7 @@ def get_artifacts(workflow_run_id, artifacts_url):
     else:
         print(f"Error fetching artifacts: {response.status_code}")
 
-# Function to download an artifact
+# Download an artifact
 def download_artifact(download_url, artifact_name):
     headers = {
         "Accept": "application/vnd.github+json",
@@ -62,7 +62,8 @@ def download_artifact(download_url, artifact_name):
     response = requests.get(download_url, headers=headers, stream=True)
 
     if response.status_code == 200:
-        file_name = f"{artifact_name}.zip"
+        file_name = f"wheels/{artifact_name}.zip"
+        os.mkdir("wheels")
         with open(file_name, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
