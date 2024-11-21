@@ -50,6 +50,7 @@ jobs:
           python3.11 -m venv sdxl_venv
           source sdxl_venv/bin/activate
           python -m pip install --upgrade pip
+          python ci-tools/latest-pkgci.py
           pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
           pip install --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
           pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
