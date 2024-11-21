@@ -7,7 +7,10 @@ GITHUB_TOKEN = os.getenv("IREE_TOKEN")
 OWNER = "iree-org"
 REPO = "iree"
 
-API_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/pkgci.yml/runs"
+API_URL = (
+    f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/pkgci.yml/runs"
+)
+
 
 # Get the latest workflow run ID for pkgci.yml
 def get_latest_pkgci_workflow_run():
@@ -35,6 +38,7 @@ def get_latest_pkgci_workflow_run():
         print(f"Error fetching workflow runs: {response.status_code}")
         return None
 
+
 # Get the artifacts of a specific workflow run
 def get_artifacts(workflow_run_id, artifacts_url):
     headers = {
@@ -50,11 +54,12 @@ def get_artifacts(workflow_run_id, artifacts_url):
             print(f"Artifacts for pkgci.yml workflow run {workflow_run_id}:")
             for artifact in artifacts:
                 print(f"- {artifact['name']} (Size: {artifact['size_in_bytes']} bytes)")
-                download_artifact(artifact['archive_download_url'], artifact['name'])
+                download_artifact(artifact["archive_download_url"], artifact["name"])
         else:
             print("No artifacts found for the pkgci.yml workflow run.")
     else:
         print(f"Error fetching artifacts: {response.status_code}")
+
 
 # Download an artifact
 def download_artifact(download_url, artifact_name):
@@ -75,6 +80,7 @@ def download_artifact(download_url, artifact_name):
         print(f"Artifact '{artifact_name}' downloaded successfully as '{file_name}'.")
     else:
         print(f"Error downloading artifact '{artifact_name}': {response.status_code}")
+
 
 if __name__ == "__main__":
     workflow_run_id, artifact_url = get_latest_pkgci_workflow_run()
