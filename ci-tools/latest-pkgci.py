@@ -11,7 +11,11 @@ API_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/pkgci.
 
 # Function to get the latest workflow run ID for pkgci.yml
 def get_latest_pkgci_workflow_run():
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     params = {"per_page": 1}
     response = requests.get(API_URL, headers=headers, params=params)
 
@@ -19,7 +23,7 @@ def get_latest_pkgci_workflow_run():
         data = response.json()
         if data["total_count"] > 0:
             latest_run = data["workflow_runs"][0]
-            return latest_run["id"]
+            return latest_run["id"], latest_run["artifacts_url"]
         else:
             print("No workflow runs found for pkgci.yml.")
             return None
@@ -28,9 +32,12 @@ def get_latest_pkgci_workflow_run():
         return None
 
 # Function to get the artifacts of a specific workflow run
-def get_artifacts(workflow_run_id):
-    artifacts_url = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/runs/{workflow_run_id}/artifacts"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+def get_artifacts(workflow_run_id, artifacts_url):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     response = requests.get(artifacts_url, headers=headers)
 
     if response.status_code == 200:
@@ -47,11 +54,15 @@ def get_artifacts(workflow_run_id):
 
 # Function to download an artifact
 def download_artifact(download_url, artifact_name):
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     response = requests.get(download_url, headers=headers, stream=True)
 
     if response.status_code == 200:
-        file_name = f"{artifact_name}.tar.gz"
+        file_name = f"{artifact_name}.zip"
         with open(file_name, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -61,6 +72,6 @@ def download_artifact(download_url, artifact_name):
         print(f"Error downloading artifact '{artifact_name}': {response.status_code}")
 
 if __name__ == "__main__":
-    workflow_run_id = get_latest_pkgci_workflow_run()
+    workflow_run_id, artifact_url = get_latest_pkgci_workflow_run()
     if workflow_run_id:
-        get_artifacts(workflow_run_id)
+        get_artifacts(workflow_run_id, artifact_url)
