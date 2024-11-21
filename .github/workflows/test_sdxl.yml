@@ -52,7 +52,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install --no-compile -r ${{ github.workspace }}/iree-turbine/pytorch-cpu-requirements.txt
           pip install --pre --upgrade -r ${{ github.workspace }}/iree-turbine/requirements.txt
-          pip install --no-compile --pre -e ${{ github.workspace }}/iree-turbine[testing]
           pip install --no-compile --pre --upgrade -e models -r models/requirements.txt
           pip uninstall torch torchvision torchaudio -y
           pip install https://download.pytorch.org/whl/nightly/pytorch_triton_rocm-3.0.0%2B21eae954ef-cp311-cp311-linux_x86_64.whl
