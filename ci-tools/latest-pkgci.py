@@ -16,7 +16,11 @@ def get_latest_pkgci_workflow_run():
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    params = {"per_page": 1}
+    params = {
+        "per_page": 1,
+        "event": "push",
+        "branch": "main",
+    }
     response = requests.get(API_URL, headers=headers, params=params)
 
     if response.status_code == 200:
