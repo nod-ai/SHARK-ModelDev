@@ -22,6 +22,8 @@ jobs:
         os: [nodai-amdgpu-mi300-x86-64]
 
     runs-on: ${{matrix.os}}
+    env:
+      IREE_TOKEN: ${{ secrets.IREE_TOKEN }}
     steps:
       - name: "Setting up Python"
         uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
