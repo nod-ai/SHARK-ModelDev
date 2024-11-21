@@ -28,18 +28,10 @@ jobs:
         with:
           python-version: ${{matrix.version}}
 
-      - name: "Checkout Code"
+      - name: "Checkout SHARK-ModelDev"
         uses: actions/checkout@v4
         with:
           ref: bump-punet-tom
-      
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-
-      - name: Set up Ninja
-        uses: ashutoshvarma/setup-ninja@v1
-        env:
-          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
 
       - name: "Checkout iree-turbine"
         uses: actions/checkout@v4
@@ -68,30 +60,12 @@ jobs:
           pip install https://download.pytorch.org/whl/nightly/rocm6.1/torchaudio-2.4.0.dev20240711%2Brocm6.1-cp311-cp311-linux_x86_64.whl
           pip uninstall iree-compiler iree-runtime iree-base-compiler iree-base-runtime -y
           python ci-tools/latest-pkgci.py
-      
-      - name: Build IREE
-        run: |
-          cd $GITHUB_WORKSPACE/iree
-          python3.11 -m venv iree_venv
-          source iree_venv/bin/activate
-          pip install --upgrade pip
-          pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
-          git submodule update --init
-          cmake -S . -B build-release \
-            -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=`which clang` -DCMAKE_CXX_COMPILER=`which clang++` \
-            -DIREE_HAL_DRIVER_CUDA=OFF \
-            -DIREE_BUILD_PYTHON_BINDINGS=ON \
-            -DPython3_EXECUTABLE="$(which python3.11)" \
-            -DIREE_TARGET_BACKEND_ROCM=ON \
-            -DIREE_HAL_DRIVER_HIP=ON
-          cmake --build build-release/
-          export PATH="$GITHUB_WORKSPACE/iree/build-release/tools:$PATH"
-          export PYTHONPATH="$GITHUB_WORKSPACE/iree/build-release/runtime/bindings/python:$GITHUB_WORKSPACE/iree/build-release/compiler/bindings/python"
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          echo "PYTHONPATH=$PYTHONPATH" >> $GITHUB_ENV
+          cd wheels
+          unzip *.zip
+          pip install *.whl
+          cd ..
+          rm -rf wheels
 
-      
       - name: Show current free memory
         run: |
           free -mh
