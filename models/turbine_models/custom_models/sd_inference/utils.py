@@ -59,6 +59,9 @@ MI_flags = {
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-vm-target-truncate-unsupported-floats",
     ],
+    "Scheduler": [
+        "--iree-codegen-block-dynamic-dimensions-of-contractions",
+    ],
     "winograd": [""],
 }
 GFX11_flags = {
@@ -316,6 +319,8 @@ def compile_to_vmfb(
             flags.extend(MI_flags["clip"])
         elif "vae" in safe_name:
             flags.extend(MI_flags["vae"])
+        elif "Scheduler" in safe_name:
+            flags.extend(MI_flags["Scheduler"])
         flags.extend(MI_flags["all"])
         if "masked_attention" in flagset_keywords:
             flags.extend(MI_flags["pad_attention"])
