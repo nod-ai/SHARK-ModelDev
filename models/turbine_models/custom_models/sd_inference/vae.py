@@ -217,7 +217,7 @@ def export_vae_model(
 
         class CompiledVae(CompiledModule):
             decode = _decode
-            encode = _encode
+            # encode = _encode
 
         if external_weights:
             externalize_module_parameters(vae_model)
