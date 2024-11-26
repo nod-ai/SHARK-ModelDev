@@ -217,7 +217,7 @@ def export_vae_model(
 
         class CompiledVae(CompiledModule):
             decode = _decode
-            encode = _encode
+            # encode = _encode
 
         if external_weights:
             externalize_module_parameters(vae_model)
@@ -233,15 +233,15 @@ def export_vae_model(
         "output_shapes": [(3, width, height) * batch_size],
         "output_dtypes": ["float32"],
     }
-    model_metadata_encode = {
-        "model_name": "vae_encode",
-        "input_shapes": [input_image_shape],
-        "input_dtypes": [np_dtype],
-        "output_shapes": [input_latents_shape],
-        "output_dtypes": [np_dtype],
-    }
+    # model_metadata_encode = {
+    #     "model_name": "vae_encode",
+    #     "input_shapes": [input_image_shape],
+    #     "input_dtypes": [np_dtype],
+    #     "output_shapes": [input_latents_shape],
+    #     "output_dtypes": [np_dtype],
+    # }
     module = AddMetadataPass(module, model_metadata_decode, "decode").run()
-    module = AddMetadataPass(module, model_metadata_decode, "encode").run()
+    # module = AddMetadataPass(module, model_metadata_decode, "encode").run()
 
     if compile_to != "vmfb":
         return str(module)
