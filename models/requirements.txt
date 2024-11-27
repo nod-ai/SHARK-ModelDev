@@ -14,5 +14,5 @@ cryptography
 einops
 pytest
 scipy
-iree-turbine @ git+https://github.com/iree-org/iree-turbine.git@harness_tom
+iree-turbine @ git+https://github.com/iree-org/iree-turbine.git@harness
 -e git+https://github.com/nod-ai/shark-ai.git@main#egg=sharktank&subdirectory=sharktank
