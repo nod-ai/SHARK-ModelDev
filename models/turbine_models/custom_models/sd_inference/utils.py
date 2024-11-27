@@ -35,6 +35,7 @@ MI_flags = {
     ],
     "unet": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
