@@ -705,7 +705,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         if return_imgs:
             return images
         for idx, image in enumerate(images):
-            img_path = "sdxl_output_" + timestamp + "_" + str(idx) + ".png"
+            img_path = "sdxl_output.png"
             image.save(img_path)
             print(img_path, "saved")
         return
