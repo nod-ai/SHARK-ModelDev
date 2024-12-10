@@ -54,7 +54,6 @@ setup(
         ],
     ),
     install_requires=[
-        "Shark-Turbine",
         "protobuf",
         "sentencepiece",
         "transformers>=4.37.1",
