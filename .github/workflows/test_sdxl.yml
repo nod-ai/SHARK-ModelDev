@@ -33,7 +33,7 @@ jobs:
       - name: "Checkout SHARK-ModelDev"
         uses: actions/checkout@v4
         with:
-          ref: bump-punet-tom
+          ref: demo
 
       - name: "Checkout iree-turbine"
         uses: actions/checkout@v4
