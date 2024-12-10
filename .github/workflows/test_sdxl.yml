@@ -40,6 +40,7 @@ jobs:
         with:
           repository: iree-org/iree-turbine
           path: iree-turbine
+          ref: demo
       
       - name: "Checkout iree"
         uses: actions/checkout@v4
