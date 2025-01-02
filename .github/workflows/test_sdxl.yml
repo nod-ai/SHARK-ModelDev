@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         version: [3.11]
-        os: [nodai-amdgpu-mi300-x86-64]
+        os: [mi308]
 
     runs-on: ${{matrix.os}}
     env:
