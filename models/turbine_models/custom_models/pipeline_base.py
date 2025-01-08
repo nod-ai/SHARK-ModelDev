@@ -252,6 +252,7 @@ class Printer:
         print_time: 1 to print with time prefix, 0 to not
         """
         self.verbose = verbose
+        self.verbose = True
         self.start_time = start_time
         self.last_print = start_time
         self.print_time = print_time

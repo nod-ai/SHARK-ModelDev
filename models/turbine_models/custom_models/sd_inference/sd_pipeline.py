@@ -231,7 +231,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         shift: float = 1.0,  # compatibility only
         use_i8_punet: bool = False,
         benchmark: bool | dict[bool] = False,
-        verbose: bool = False,
+        verbose: bool = True,
         batch_prompts: bool = False,
     ):
         common_export_args = {
