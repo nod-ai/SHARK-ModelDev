@@ -16,10 +16,10 @@ from diffusers import (
 # If flags are verified to work on a specific model and improve performance without regressing numerics, add them to this dictionary. If you are working with bleeding edge flags, please add them manually with the --ireec_flags argument.
 MI_flags = {
     "all": [
-        "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
+        # "--iree-global-opt-propagate-transposes=true",
+        # "--iree-opt-const-eval=false",
         "--iree-llvmgpu-enable-prefetch=true",
-        "--iree-execution-model=async-external",
+        # "--iree-execution-model=async-external",
     ],
     "pad_attention": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-global-opt-raise-special-ops, iree-preprocessing-pad-to-intrinsics, util.func(iree-linalg-ext-pad-attention{pad-to-multiple-of=0,128,0,32,0}))",
@@ -34,14 +34,20 @@ MI_flags = {
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics{pad-target-type=conv})",
     ],
     "unet": [
-        "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
-        "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
+        "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics)",
+        "--iree-dispatch-creation-enable-aggressive-fusion=true",
+        # "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
+        # "--iree-opt-aggressively-propagate-transposes=true",
+        # "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-opt-data-tiling=false",
+        # "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-vm-target-truncate-unsupported-floats",
+        # "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-hal-indirect-command-buffers=true",
+        "--iree-stream-resource-memory-model=discrete",
+        "--iree-hip-legacy-sync=false",
+        "--iree-hal-memoization=true",
+        "--iree-opt-strip-assertions",
     ],
     "clip": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
@@ -341,24 +347,29 @@ def compile_to_vmfb(
     # This 'attn_spec' handles a linalg_ext.attention op lowering to mfma instructions for capable targets.
     # This is a temporary solution, and should be removed or largely disabled once the functionality of
     # the TD spec is implemented in C++.
+    url = "https://raw.githubusercontent.com/nod-ai/sdxl-scripts/refs/heads/alibaba_fp16/fp16-model/specs/attention_and_matmul_spec.mlir"
+    attn_spec = urlopen(url).read().decode("utf-8")
+    spec_path = os.path.join(os.path.dirname(safe_name), f"attention_and_matmul_spec_mfma.mlir")
+    with open(spec_path, "w") as f:
+        f.write(attn_spec)
+    flags.extend(["--iree-codegen-transform-dialect-library=" + spec_path])
+    # if attn_spec in ["default", "mfma", "punet"]:
+    #     if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+    #         use_punet = True if attn_spec in ["punet", "i8"] else False
+    #         attn_spec = get_mfma_spec_path(
+    #             target_triple,
+    #             os.path.dirname(safe_name),
+    #             use_punet=use_punet,
+    #         )
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
-    if attn_spec in ["default", "mfma", "punet"]:
-        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
-            use_punet = True if attn_spec in ["punet", "i8"] else False
-            attn_spec = get_mfma_spec_path(
-                target_triple,
-                os.path.dirname(safe_name),
-                use_punet=use_punet,
-            )
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-
-    elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
-        attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
-        if attn_spec:
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
-    elif attn_spec and attn_spec != "None":
-        if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
-            flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    # elif attn_spec in ["wmma"] or ("gfx11" in target_triple and not attn_spec):
+    #     attn_spec = get_wmma_spec_path(target_triple, os.path.dirname(safe_name))
+    #     if attn_spec:
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
+    # elif attn_spec and attn_spec != "None":
+    #     if any(x in safe_name for x in ["clip", "prompt_encoder"]) == False:
+    #         flags.extend(["--iree-codegen-transform-dialect-library=" + attn_spec])
 
     for i, flag in enumerate(ireec_flags):
         k = flag.strip().split("=")[0]

@@ -132,7 +132,7 @@ p.add_argument(
 
 p.add_argument(
     "--compiled_pipeline",
-    default=False,
+    default=True,
     action="store_true",
     help="Do one-shot inference from tokens to image in a shrink-wrapped pipeline binary.",
 )
