@@ -24,6 +24,7 @@ import numpy as np
 import time
 import copy
 from datetime import datetime as dt
+from iree.runtime import BufferUsage
 
 np_dtypes = {
     "fp16": np.float16,
@@ -155,14 +156,14 @@ class PipelineComponent:
                 )
                 for idx, i in enumerate(inputs):
                     if not isinstance(i, ireert.DeviceArray):
-                        val_inputs[idx] = ireert.asdevicearray(self.device, i)
+                        val_inputs[idx] = ireert.asdevicearray(self.device, i, allowed_usage=BufferUsage.DEFAULT)
                 pass
             if not isinstance(expected_input_shapes, list):
                 expected_input_shapes = [expected_input_shapes]
             for i, input_dtype in enumerate(expected_input_dtypes):
                 if not isinstance(inputs[i], ireert.DeviceArray):
                     val_inputs[i] = ireert.asdevicearray(
-                        self.device, inputs[i], input_dtype
+                        self.device, inputs[i], input_dtype, allowed_usage=BufferUsage.DEFAULT
                     )
                 elif str(inputs[i].dtype).split(".")[-1] != input_dtype:
                     logging.warning(
@@ -188,11 +189,10 @@ class PipelineComponent:
         else:
             for idx, i in enumerate(inputs):
                 if not isinstance(i, ireert.DeviceArray):
-                    val_inputs[idx] = ireert.asdevicearray(self.device, i)
+                    val_inputs[idx] = ireert.asdevicearray(self.device, i, allowed_usage=BufferUsage.DEFAULT)
                 else:
                     val_inputs[idx] = inputs[idx]
         return val_inputs
-
     def _output_cast(self, output):
         if isinstance(output, tuple):
             out_tuple = ()

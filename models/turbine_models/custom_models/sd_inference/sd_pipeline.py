@@ -39,6 +39,7 @@ import os
 import numpy as np
 import time
 from datetime import datetime as dt
+from iree.runtime import BufferUsage
 
 # These are arguments common among submodel exports.
 # They are expected to be populated in two steps:
@@ -564,6 +565,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.unet.device,
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
+            allowed_usage=BufferUsage.DEFAULT
         )
         for i, t in tqdm(
             enumerate(timesteps),
