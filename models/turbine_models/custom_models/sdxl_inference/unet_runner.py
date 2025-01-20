@@ -4,6 +4,7 @@ from iree import runtime as ireert
 import torch
 import numpy as np
 from tqdm.auto import tqdm
+from iree.runtime import BufferUsage
 
 torch.random.manual_seed(0)
 
@@ -26,12 +27,12 @@ def run_unet(
         runner = vmfbRunner(device, vmfb_path, external_weight_path)
 
     inputs = [
-        ireert.asdevicearray(runner.config.device, sample),
-        ireert.asdevicearray(runner.config.device, timestep),
-        ireert.asdevicearray(runner.config.device, prompt_embeds),
-        ireert.asdevicearray(runner.config.device, text_embeds),
-        ireert.asdevicearray(runner.config.device, time_ids),
-        ireert.asdevicearray(runner.config.device, guidance_scale),
+        ireert.asdevicearray(runner.config.device, sample, allowed_usage=BufferUsage.DEFAULT),
+        ireert.asdevicearray(runner.config.device, timestep, allowed_usage=BufferUsage.DEFAULT),
+        ireert.asdevicearray(runner.config.device, prompt_embeds, allowed_usage=BufferUsage.DEFAULT),
+        ireert.asdevicearray(runner.config.device, text_embeds, allowed_usage=BufferUsage.DEFAULT),
+        ireert.asdevicearray(runner.config.device, time_ids, allowed_usage=BufferUsage.DEFAULT),
+        ireert.asdevicearray(runner.config.device, guidance_scale, allowed_usage=BufferUsage.DEFAULT),
     ]
     results = runner.ctx.modules.compiled_unet["run_forward"](*inputs)
 

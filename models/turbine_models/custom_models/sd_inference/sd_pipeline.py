@@ -39,6 +39,7 @@ import os
 import numpy as np
 import time
 from datetime import datetime as dt
+from iree.runtime import BufferUsage
 
 # These are arguments common among submodel exports.
 # They are expected to be populated in two steps:
@@ -589,6 +590,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.unet.device,
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
+            allowed_usage=BufferUsage.DEFAULT
         )
         # Disable progress bar if we aren't in verbose mode or if we're printing
         # benchmark latencies for unet.
