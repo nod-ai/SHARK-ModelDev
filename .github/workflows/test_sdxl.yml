@@ -26,7 +26,7 @@ jobs:
       IREE_TOKEN: ${{ secrets.IREE_TOKEN }}
     steps:
       - name: "Setting up Python"
-        uses: actions/setup-python@75f3110429a8c05be0e1bf360334e4cced2b63fa # v2.3.3
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: ${{matrix.version}}
 
