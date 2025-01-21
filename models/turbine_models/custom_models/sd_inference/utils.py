@@ -17,7 +17,6 @@ from diffusers import (
 MI_flags = {
     "all": [
         "--iree-global-opt-propagate-transposes=true",
-        "--iree-opt-const-eval=false",
         "--iree-llvmgpu-enable-prefetch=true",
         "--iree-execution-model=async-external",
     ],
@@ -36,12 +35,13 @@ MI_flags = {
     "unet": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
         "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
-        "--iree-opt-aggressively-propagate-transposes=true",
-        "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-outer-dim-concat=true",
-        "--iree-opt-data-tiling=false",
         "--iree-codegen-gpu-native-math-precision=true",
-        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-hal-indirect-command-buffers=true",
+        "--iree-stream-resource-memory-model=discrete",
+        "--iree-hip-legacy-sync=false",
+        "--iree-hal-memoization=true",
+        "--iree-opt-strip-assertions",
     ],
     "clip": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
