@@ -31,18 +31,18 @@ jobs:
           python-version: ${{matrix.version}}
 
       - name: "Checkout SHARK-ModelDev"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: bump-punet-tom
 
       - name: "Checkout iree-turbine"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: iree-org/iree-turbine
           path: iree-turbine
       
       - name: "Checkout iree"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: iree-org/iree
           path: iree
