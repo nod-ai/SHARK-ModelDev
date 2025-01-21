@@ -39,7 +39,6 @@ MI_flags = {
         "--iree-codegen-gpu-native-math-precision=true",
         "--iree-hal-indirect-command-buffers=true",
         "--iree-stream-resource-memory-model=discrete",
-        "--iree-hip-legacy-sync=false",
         "--iree-hal-memoization=true",
         "--iree-opt-strip-assertions",
     ],
