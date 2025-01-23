@@ -35,7 +35,7 @@ MI_flags = {
     ],
     "unet": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
@@ -49,7 +49,7 @@ MI_flags = {
     ],
     "clip": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-opt-outer-dim-concat=true",
         "--iree-hip-waves-per-eu=2",
@@ -57,7 +57,7 @@ MI_flags = {
     ],
     "vae": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
-        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=true",
+        "--iree-dispatch-creation-enable-fuse-horizontal-contractions=false",
         "--iree-opt-aggressively-propagate-transposes=true",
         "--iree-codegen-llvmgpu-use-vector-distribution=true",
         "--iree-opt-data-tiling=false",
