@@ -459,7 +459,7 @@ def create_safe_name(hf_model_name, model_name_str=""):
 def get_mfma_spec_path(target_chip, save_dir, masked_attention=False, use_punet=False):
     if use_punet:
         suffix = "_punet"
-        url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec_punet.mlir"
+        url = "https://raw.githubusercontent.com/iree-org/iree/refs/heads/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec_punet_mi300.mlir"
     elif not masked_attention:
         suffix = ""
         url = "https://raw.githubusercontent.com/iree-org/iree/main/build_tools/pkgci/external_test_suite/attention_and_matmul_spec.mlir"
