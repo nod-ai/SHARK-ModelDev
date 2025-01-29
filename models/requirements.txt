@@ -1,6 +1,6 @@
 protobuf
 gguf
-transformers==4.40.0
+transformers==4.48.0
 torchsde
 accelerate
 peft
