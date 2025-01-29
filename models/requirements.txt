@@ -15,4 +15,4 @@ einops
 pytest
 scipy
 iree-turbine @ git+https://github.com/iree-org/iree-turbine.git@harness
--e git+https://github.com/nod-ai/shark-ai.git@05a94f93a2111c1164d1216b917d04d3e67bbfe3#egg=sharktank&subdirectory=sharktank
+-e git+https://github.com/nod-ai/shark-ai.git@main#egg=sharktank&subdirectory=sharktank
