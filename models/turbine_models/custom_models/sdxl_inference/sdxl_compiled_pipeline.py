@@ -480,6 +480,7 @@ class SharkSDXLPipeline:
                     self.hf_model_name,
                     None,
                     self.max_length,
+                    self.batch_size,
                     self.precision,
                     "vmfb",
                     self.external_weights,
@@ -494,7 +495,6 @@ class SharkSDXLPipeline:
                     input_mlir=input_mlir["prompt_encoder"],
                     attn_spec=self.attn_spec,
                     weights_only=weights_only,
-                    batchsize=self.batch_size,
                     batch_input=self.batch_prompt_input,
                 )
                 return prompt_encoder_vmfb, prompt_encoder_external_weight_path

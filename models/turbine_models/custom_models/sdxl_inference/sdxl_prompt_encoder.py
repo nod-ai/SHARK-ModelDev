@@ -231,7 +231,7 @@ def export_prompt_encoder(
     )
 
     if weights_only:
-        return None, external_weight_path
+        return external_weight_path
 
     class CompiledClip(CompiledModule):
         if external_weights:
@@ -277,7 +277,7 @@ def export_prompt_encoder(
     module_str = str(module)
 
     if compile_to != "vmfb":
-        return module_str
+        return module_str, None
     else:
         vmfb_path = utils.compile_to_vmfb(
             module_str,

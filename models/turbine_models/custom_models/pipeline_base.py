@@ -437,6 +437,7 @@ class TurbinePipelineBase:
         vmfbs: dict = {},
         weights: dict = {},
         interactive: bool = False,
+        num_steps: int = 20,
     ):
         ready = self.is_prepared(vmfbs, weights)
         match ready:
@@ -463,7 +464,9 @@ class TurbinePipelineBase:
                     if not self.map[submodel].get("weights") and self.map[submodel][
                         "export_args"
                     ].get("external_weights"):
-                        self.export_submodel(submodel, weights_only=True)
+                        self.export_submodel(
+                            submodel, weights_only=True, num_steps=num_steps
+                        )
                 return self.prepare_all(mlirs, vmfbs, weights, interactive)
 
     def is_prepared(self, vmfbs, weights):
@@ -581,6 +584,7 @@ class TurbinePipelineBase:
         submodel: str,
         input_mlir: str = None,
         weights_only: bool = False,
+        num_steps: int = 20,
     ):
         if not os.path.exists(self.pipeline_dir):
             os.makedirs(self.pipeline_dir)
@@ -670,7 +674,9 @@ class TurbinePipelineBase:
                     self.map[submodel]["export_args"]["precision"],
                     self.map[submodel]["export_args"]["batch_size"],
                     self.map[submodel]["export_args"]["max_length"],
-                    "tokens_to_image",
+                    "produce_img_split",
+                    unet_module_name=self.map["unet"]["module_name"],
+                    num_steps=num_steps,
                 )
                 dims = [
                     self.map[submodel]["export_args"]["width"],
@@ -699,8 +705,8 @@ class TurbinePipelineBase:
                     return_path=True,
                     mlir_source="str",
                 )
-                self.map[submodel]["vmfb"] = vmfb_path
-                self.map[submodel]["weights"] = None
+                self.map[submodel]["vmfb"] = [vmfb_path]
+                self.map[submodel]["weights"] = []
             case _:
                 export_args = self.map[submodel].get("export_args", {})
                 if weights_only:
@@ -721,10 +727,24 @@ class TurbinePipelineBase:
 
     # LOAD
     def load_map(self):
-        for submodel in self.map.keys():
+        # Make sure fullpipeline is imported last
+        submodels = list(self.map.keys() - {"fullpipeline"})
+        submodels += ["fullpipeline"] if "fullpipeline" in self.map.keys() else []
+        for submodel in submodels:
             if not self.map[submodel]["load"]:
-                self.printer.print("Skipping load for ", submodel)
+                self.printer.print(f"Skipping load for {submodel}")
                 continue
+            elif self.map[submodel].get("wraps"):
+                vmfbs = []
+                weights = []
+                for wrapped in self.map[submodel]["wraps"]:
+                    vmfbs.append(self.map[wrapped]["vmfb"])
+                    if "weights" in self.map[wrapped]:
+                        weights.append(self.map[wrapped]["weights"])
+                self.map[submodel]["vmfb"] = vmfbs + self.map[submodel]["vmfb"]
+                self.map[submodel]["weights"] = weights + self.map[submodel]["weights"]
+
+            print(f"Loading {submodel}")
             self.load_submodel(submodel)
 
     def load_submodel(self, submodel):
@@ -751,6 +771,10 @@ class TurbinePipelineBase:
 
     def unload_submodel(self, submodel):
         self.map[submodel]["runner"].unload()
+        self.map[submodel]["vmfb"] = None
+        self.map[submodel]["mlir"] = None
+        self.map[submodel]["weights"] = None
+        self.map[submodel]["export_args"]["input_mlir"] = None
         setattr(self, submodel, None)
 
 
