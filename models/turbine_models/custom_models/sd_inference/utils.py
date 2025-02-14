@@ -299,7 +299,8 @@ def compile_to_vmfb(
         safe_mlir_name = safe_name
     else:
         safe_vmfb_name = safe_name
-        safe_mlir_name = "".join(safe_name.split(target_triple))
+        (dir, file) = os.path.split(safe_name)
+        safe_mlir_name = os.path.join(dir, "".join(file.split(target_triple)))
 
     if mlir_source == "file":
         flatbuffer_blob = ireec.compile_file(
