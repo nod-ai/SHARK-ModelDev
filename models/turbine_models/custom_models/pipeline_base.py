@@ -84,7 +84,12 @@ class PipelineComponent:
     """
 
     def __init__(
-        self, printer, dest_type="devicearray", dest_dtype="float16", benchmark=False
+        self,
+        printer,
+        dest_type="devicearray",
+        dest_dtype="float16",
+        benchmark=False,
+        save_outputs=False,
     ):
         self.runner = None
         self.module_name = None
@@ -92,6 +97,8 @@ class PipelineComponent:
         self.metadata = None
         self.printer = printer
         self.benchmark = benchmark
+        self.save_outputs = save_outputs
+        self.output_counter = 0
         self.dest_type = dest_type
         self.dest_dtype = dest_dtype
 
@@ -218,6 +225,16 @@ class PipelineComponent:
             case _:
                 return output
 
+    def save_output(self, function_name, output):
+        if isinstance(output, tuple) or isinstance(output, list):
+            for i in output:
+                self.save_output(function_name, i)
+        else:
+            np.save(
+                f"{function_name}_output_{self.output_counter}.npy", output.to_host()
+            )
+            self.output_counter += 1
+
     def _run(self, function_name, inputs: list):
         return self.module[function_name](*inputs)
 
@@ -239,6 +256,8 @@ class PipelineComponent:
             output = self._run_and_benchmark(function_name, inputs)
         else:
             output = self._run(function_name, inputs)
+        if self.save_outputs:
+            self.save_output(function_name, output)
         output = self._output_cast(output)
         return output
 
@@ -340,6 +359,7 @@ class TurbinePipelineBase:
         hf_model_name: str | dict[str] = None,
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
+        save_outputs: bool | dict[bool] = False,
         common_export_args: dict = {},
     ):
         self.map = model_map
@@ -374,6 +394,7 @@ class TurbinePipelineBase:
             "external_weights": external_weights,
             "hf_model_name": hf_model_name,
             "benchmark": benchmark,
+            "save_outputs": save_outputs,
         }
         for arg in map_arguments.keys():
             self.map = merge_arg_into_map(self.map, map_arguments[arg], arg)
@@ -391,7 +412,8 @@ class TurbinePipelineBase:
                 )
         for submodel in self.map.keys():
             for key, value in map_arguments.items():
-                self.map = merge_export_arg(self.map, value, key)
+                if key not in ["benchmark", "save_outputs"]:
+                    self.map = merge_export_arg(self.map, value, key)
             for key, value in self.map[submodel].get("export_args", {}).items():
                 if key == "hf_model_name":
                     self.map[submodel]["keywords"].append(
@@ -539,7 +561,11 @@ class TurbinePipelineBase:
                 avail_files = os.listdir(self.external_weights_dir)
                 candidates = []
                 for filename in avail_files:
-                    if all(str(x) in filename for x in w_keywords):
+                    if all(
+                        str(x) in filename
+                        or str(x) == os.path.join(self.external_weights_dir, filename)
+                        for x in w_keywords
+                    ):
                         candidates.append(
                             os.path.join(self.external_weights_dir, filename)
                         )
@@ -723,7 +749,7 @@ class TurbinePipelineBase:
     def load_map(self):
         for submodel in self.map.keys():
             if not self.map[submodel]["load"]:
-                self.printer.print("Skipping load for ", submodel)
+                self.printer.print(f"Skipping load for {submodel}")
                 continue
             self.load_submodel(submodel)
 
@@ -739,6 +765,7 @@ class TurbinePipelineBase:
             printer=self.printer,
             dest_type=dest_type,
             benchmark=self.map[submodel].get("benchmark", False),
+            save_outputs=self.map[submodel].get("save_outputs", False),
         )
         self.map[submodel]["runner"].load(
             self.map[submodel]["driver"],
@@ -751,6 +778,10 @@ class TurbinePipelineBase:
 
     def unload_submodel(self, submodel):
         self.map[submodel]["runner"].unload()
+        self.map[submodel]["vmfb"] = None
+        self.map[submodel]["mlir"] = None
+        self.map[submodel]["weights"] = None
+        self.map[submodel]["export_args"]["input_mlir"] = None
         setattr(self, submodel, None)
 
 

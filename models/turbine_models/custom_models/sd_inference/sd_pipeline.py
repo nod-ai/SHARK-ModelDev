@@ -190,6 +190,7 @@ def get_sd_model_map(hf_model_name):
         "stabilityai/sdxl-turbo",
         "stabilityai/stable-diffusion-xl-base-1.0",
         "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16/checkpoint_pipe",
+        "/models/SDXL/official_pytorch/fp16/stable_diffusion_fp16//checkpoint_pipe",
     ]:
         return sdxl_model_map
     elif "stabilityai/stable-diffusion-3" in name:
@@ -233,6 +234,12 @@ class SharkSDPipeline(TurbinePipelineBase):
         benchmark: bool | dict[bool] = False,
         verbose: bool = False,
         batch_prompts: bool = False,
+        punet_quant_paths: dict[str] = None,
+        vae_weight_path: str = None,
+        vae_harness: bool = True,
+        add_tk_kernels: bool = False,
+        tk_kernels_dir: str | dict[str] = None,
+        save_outputs: bool | dict[bool] = False,
     ):
         common_export_args = {
             "hf_model_name": None,
@@ -243,11 +250,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             "exit_on_vmfb": False,
             "pipeline_dir": pipeline_dir,
             "input_mlir": None,
-            "attn_spec": None,
+            "attn_spec": attn_spec,
             "external_weights": None,
             "external_weight_path": None,
         }
-        sd_model_map = get_sd_model_map(hf_model_name)
+        sd_model_map = copy.deepcopy(get_sd_model_map(hf_model_name))
         for submodel in sd_model_map:
             if "load" not in sd_model_map[submodel]:
                 sd_model_map[submodel]["load"] = True
@@ -281,6 +288,7 @@ class SharkSDPipeline(TurbinePipelineBase):
             hf_model_name,
             benchmark,
             verbose,
+            save_outputs,
             common_export_args,
         )
         for submodel in sd_model_map:
@@ -303,6 +311,7 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.cpu_scheduling = cpu_scheduling
         self.scheduler_id = scheduler_id
         self.num_inference_steps = num_inference_steps
+        self.punet_quant_paths = punet_quant_paths
 
         self.text_encoder = None
         self.unet = None
@@ -311,6 +320,8 @@ class SharkSDPipeline(TurbinePipelineBase):
         self.scheduler = None
 
         self.split_scheduler = True
+        self.add_tk_kernels = add_tk_kernels
+        self.tk_kernels_dir = tk_kernels_dir
 
         self.base_model_name = (
             hf_model_name
@@ -339,6 +350,9 @@ class SharkSDPipeline(TurbinePipelineBase):
             self.scheduler_device = self.map["unet"]["device"]
             self.scheduler_driver = self.map["unet"]["driver"]
             self.scheduler_target = self.map["unet"]["target"]
+            if vae_weight_path is not None:
+                self.map["vae"]["export_args"]["external_weight_path"] = vae_weight_path
+            self.map["vae"]["export_args"]["vae_harness"] = vae_harness
         elif not self.is_sd3:
             self.tokenizer = CLIPTokenizer.from_pretrained(
                 self.base_model_name, subfolder="tokenizer"
@@ -351,23 +365,31 @@ class SharkSDPipeline(TurbinePipelineBase):
 
         self.latents_dtype = torch_dtypes[self.latents_precision]
         self.use_i8_punet = self.use_punet = use_i8_punet
+        if self.use_punet:
+            self.setup_punet()
+        else:
+            self.map["unet"]["keywords"].append("!punet")
+            self.map["unet"]["function_name"] = "run_forward"
+
+    def setup_punet(self):
         if self.use_i8_punet:
+            if self.add_tk_kernels:
+                self.map["unet"]["export_args"]["add_tk_kernels"] = self.add_tk_kernels
+                self.map["unet"]["export_args"]["tk_kernels_dir"] = self.tk_kernels_dir
             self.map["unet"]["export_args"]["precision"] = "i8"
-            self.map["unet"]["export_args"]["use_punet"] = True
-            self.map["unet"]["use_weights_for_export"] = True
-            self.map["unet"]["keywords"].append("punet")
-            self.map["unet"]["module_name"] = "compiled_punet"
-            self.map["unet"]["function_name"] = "main"
             self.map["unet"]["export_args"]["external_weight_path"] = (
                 utils.create_safe_name(self.base_model_name) + "_punet_dataset_i8.irpa"
             )
+            self.map["unet"]["export_args"]["quant_paths"] = self.punet_quant_paths
             for idx, word in enumerate(self.map["unet"]["keywords"]):
                 if word in ["fp32", "fp16"]:
                     self.map["unet"]["keywords"][idx] = "i8"
                     break
-        else:
-            self.map["unet"]["keywords"].append("!punet")
-            self.map["unet"]["function_name"] = "run_forward"
+        self.map["unet"]["export_args"]["use_punet"] = True
+        self.map["unet"]["use_weights_for_export"] = True
+        self.map["unet"]["keywords"].append("punet")
+        self.map["unet"]["module_name"] = "compiled_punet"
+        self.map["unet"]["function_name"] = "main"
 
     # LOAD
 
@@ -376,10 +398,6 @@ class SharkSDPipeline(TurbinePipelineBase):
         scheduler_id: str,
         steps: int = 30,
     ):
-        if self.is_sd3:
-            scheduler_device = self.mmdit.device
-        else:
-            scheduler_device = self.unet.device
         if not self.cpu_scheduling:
             self.map["scheduler"] = {
                 "module_name": "compiled_scheduler",
@@ -426,6 +444,10 @@ class SharkSDPipeline(TurbinePipelineBase):
                 print("JIT export of scheduler failed. Loading CPU scheduler.")
                 self.cpu_scheduling = True
         if self.cpu_scheduling:
+            if self.is_sd3:
+                scheduler_device = self.mmdit.device
+            else:
+                scheduler_device = self.unet.device
             scheduler = schedulers.get_scheduler(self.base_model_name, scheduler_id)
             self.scheduler = schedulers.SharkSchedulerCPUWrapper(
                 scheduler,
@@ -481,9 +503,12 @@ class SharkSDPipeline(TurbinePipelineBase):
         elif self.is_sdxl and self.cpu_scheduling:
             self.scheduler.do_guidance = False
             self.scheduler.repeat_sample = False
-            sample, add_time_ids, step_indexes, timesteps = (
-                self.scheduler.initialize_sdxl(noise, num_inference_steps)
-            )
+            (
+                sample,
+                add_time_ids,
+                step_indexes,
+                timesteps,
+            ) = self.scheduler.initialize_sdxl(noise, num_inference_steps)
             return sample, add_time_ids, step_indexes, timesteps
         elif self.is_sdxl:
             return self.scheduler("run_initialize", noise)
@@ -565,9 +590,11 @@ class SharkSDPipeline(TurbinePipelineBase):
             [guidance_scale],
             dtype=self.map["unet"]["np_dtype"],
         )
+        # Disable progress bar if we aren't in verbose mode or if we're printing
+        # benchmark latencies for unet.
         for i, t in tqdm(
             enumerate(timesteps),
-            disable=(self.map["unet"].get("benchmark") and self.verbose),
+            disable=(self.map["unet"].get("benchmark") or not self.verbose),
         ):
             if self.cpu_scheduling:
                 latent_model_input, t = self.scheduler.scale_model_input(
@@ -720,6 +747,14 @@ if __name__ == "__main__":
                 benchmark[i] = True
     else:
         benchmark = False
+    if args.save_outputs:
+        if args.save_outputs.lower() == "all":
+            save_outputs = True
+        else:
+            for i in args.save_outputs.split(","):
+                save_outputs[i] = True
+    else:
+        save_outputs = False
     if any(x for x in [args.vae_decomp_attn, args.unet_decomp_attn]):
         args.decomp_attn = {
             "text_encoder": args.decomp_attn,
@@ -750,6 +785,7 @@ if __name__ == "__main__":
         args.use_i8_punet,
         benchmark,
         args.verbose,
+        save_outputs=save_outputs,
     )
     sd_pipe.prepare_all()
     sd_pipe.load_map()

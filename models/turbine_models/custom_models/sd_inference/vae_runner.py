@@ -17,62 +17,30 @@ def run_vae_decode(
     return results
 
 
-def run_torch_vae_decode(hf_model_name, variant, example_input):
+def run_vae_encode(
+    device, example_input, vmfb_path, hf_model_name, external_weight_path
+):
+    runner = vmfbRunner(device, vmfb_path, external_weight_path)
+
+    inputs = [ireert.asdevicearray(runner.config.device, example_input)]
+
+    results = runner.ctx.modules.compiled_vae["encode"](*inputs).to_host()
+
+    return results
+
+
+def run_torch_vae(hf_model_name, variant, example_input):
     from diffusers import AutoencoderKL
-
-    class VaeModel(torch.nn.Module):
-        def __init__(
-            self,
-            hf_model_name,
-            base_vae=False,
-            custom_vae="",
-            low_cpu_mem_usage=False,
-            hf_auth_token="",
-        ):
-            super().__init__()
-            self.vae = None
-            if custom_vae == "":
-                self.vae = AutoencoderKL.from_pretrained(
-                    hf_model_name,
-                    subfolder="vae",
-                    low_cpu_mem_usage=low_cpu_mem_usage,
-                    hf_auth_token=hf_auth_token,
-                )
-            elif not isinstance(custom_vae, dict):
-                self.vae = AutoencoderKL.from_pretrained(
-                    custom_vae,
-                    subfolder="vae",
-                    low_cpu_mem_usage=low_cpu_mem_usage,
-                    hf_auth_token=hf_auth_token,
-                )
-            else:
-                self.vae = AutoencoderKL.from_pretrained(
-                    hf_model_name,
-                    subfolder="vae",
-                    low_cpu_mem_usage=low_cpu_mem_usage,
-                    hf_auth_token=hf_auth_token,
-                )
-                self.vae.load_state_dict(custom_vae)
-            self.base_vae = base_vae
-
-        def decode_inp(self, input):
-            with torch.no_grad():
-                input = 1 / 0.18215 * input
-                x = self.vae.decode(input, return_dict=False)[0]
-            return (x / 2 + 0.5).clamp(0, 1)
-
-        def encode_inp(self, inp):
-            latents = self.vae.encode(inp).latent_dist.sample()
-            return 0.18215 * latents
+    from turbine_models.custom_models.sd_inference.vae import VaeModel
 
     vae_model = VaeModel(
         hf_model_name,
     )
 
     if variant == "decode":
-        results = vae_model.decode_inp(example_input)
+        results = vae_model.decode(example_input)
     elif variant == "encode":
-        results = vae_model.encode_inp(example_input)
+        results = vae_model.encode(example_input)
     np_torch_output = results.detach().cpu().numpy()
     return np_torch_output
 

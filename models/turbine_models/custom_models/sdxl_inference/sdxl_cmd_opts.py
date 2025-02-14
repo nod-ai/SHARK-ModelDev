@@ -369,5 +369,18 @@ p.add_argument(
     help="extra iree-compile options to send for compiling unet. Only use this for testing bleeding edge flags! Any default options should be added to sd_inference/utils.py",
 )
 
+p.add_argument(
+    "--add_tk_kernels",
+    default=False,
+    action="store_true",
+    help="Flag to add compiled tk kernels.",
+)
+
+p.add_argument(
+    "--tk_kernels_dir",
+    default=False,
+    action="store_true",
+    help="Path to directory containing tk kernels sorted by batch size.",
+)
 
 args, unknown = p.parse_known_args()
