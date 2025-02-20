@@ -32,6 +32,7 @@ MI_flags = {
     ],
     "preprocess_default": [
         "--iree-preprocessing-pass-pipeline=builtin.module(iree-preprocessing-transpose-convolution-pipeline, iree-preprocessing-pad-to-intrinsics{pad-target-type=conv})",
+        "--iree-preprocessing-convert-conv-filter-to-channels-last{filter-layout=fhwc}"
     ],
     "unet": [
         "--iree-dispatch-creation-enable-aggressive-fusion",
