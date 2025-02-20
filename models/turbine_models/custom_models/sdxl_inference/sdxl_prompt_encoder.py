@@ -77,8 +77,8 @@ class PromptEncoderModule(torch.nn.Module):
             neg_prompt_embeds_2.hidden_states[-2],
         ]
 
-        prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
-        neg_prompt_embeds = torch.concat(neg_prompt_embeds_list, dim=-1)
+        prompt_embeds = torch.cat(prompt_embeds_list, dim=-1)
+        neg_prompt_embeds = torch.cat(neg_prompt_embeds_list, dim=-1)
 
         bs_embed, seq_len, _ = prompt_embeds.shape
         prompt_embeds = prompt_embeds.repeat(1, 1, 1)
@@ -131,7 +131,7 @@ class PromptEncoderModule(torch.nn.Module):
         #     torch.zeros_like(prompt_embeds_list[1]), # dummy tensor
         # ]
 
-        prompt_embeds = torch.concat(prompt_embeds_list, dim=-1)
+        prompt_embeds = torch.cat(prompt_embeds_list, dim=-1)
 
         bs_embed, seq_len, _ = prompt_embeds.shape
 
