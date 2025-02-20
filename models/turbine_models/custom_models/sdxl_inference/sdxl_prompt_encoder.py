@@ -16,7 +16,7 @@ from iree.turbine.transforms.general.add_metadata import AddMetadataPass
 
 from turbine_models.custom_models.sd_inference import utils
 import torch
-from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer, CLIPTextConfig
 
 
 class PromptEncoderModule(torch.nn.Module):
@@ -31,15 +31,25 @@ class PromptEncoderModule(torch.nn.Module):
     ):
         super().__init__()
         self.torch_dtype = torch.float16 if precision == "fp16" else torch.float32
-        self.text_encoder_model_1 = CLIPTextModel.from_pretrained(
+        config_1 = CLIPTextConfig.from_pretrained(
             hf_model_name,
             subfolder="text_encoder",
-            token=hf_auth_token,
+        )
+        config_1._attn_implementation = "eager"
+        config_2 = CLIPTextConfig.from_pretrained(
+            hf_model_name,
+            subfolder="text_encoder_2",
+        )
+        config_2._attn_implementation = "eager"
+        self.text_encoder_model_1 = CLIPTextModel.from_pretrained(
+            hf_model_name,
+            config=config_1,
+            subfolder="text_encoder",
         )
         self.text_encoder_model_2 = CLIPTextModelWithProjection.from_pretrained(
             hf_model_name,
+            config=config_2,
             subfolder="text_encoder_2",
-            token=hf_auth_token,
         )
         self.do_classifier_free_guidance = True
         self.batch_size = batch_size
